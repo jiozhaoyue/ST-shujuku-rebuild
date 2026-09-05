@@ -85,6 +85,41 @@ vi.mock('../../../src/data/gateways/worldbook-gateway', async (importOriginal) =
   };
 });
 
+describe('coldProjection 差量注入渲染', () => {
+  const buildColdTable = (rows: unknown[][]) => ({
+    uid: 'sheet_cold',
+    name: '冷表测试',
+    content: [['row_id', '物品名称', '数量'], ...rows],
+    sourceData: { note: '背包物品', insertNode: '', updateNode: '', deleteNode: '' },
+  });
+
+  it('冷表：保留 DDL 与列头，省略全部行数据，标注行数', () => {
+    const table = buildColdTable([
+      ['治疗药水', 3],
+      ['铁剑', 1],
+    ]);
+    const text = formatTableForSqliteMode(table, 0, 'sheet_cold', null, {
+      allowSeedRowsFallback: false,
+      coldProjection: true,
+    });
+    expect(text).toContain('CREATE TABLE');
+    expect(text).toContain('未列为热表');
+    expect(text).toContain('共 2 行');
+    expect(text).not.toContain('-- 当前数据');
+    expect(text).not.toContain('治疗药水');
+  });
+
+  it('空表不受冷表影响：保留初始化提示', () => {
+    const table = buildColdTable([]);
+    const text = formatTableForSqliteMode(table, 0, 'sheet_cold', null, {
+      allowSeedRowsFallback: false,
+      coldProjection: true,
+    });
+    expect(text).toContain('该表格为空，请进行初始化');
+    expect(text).not.toContain('未列为热表');
+  });
+});
+
 const mockInjectionTargetLorebook = vi.fn<() => Promise<string | null>>(async () => null);
 vi.mock('../../../src/service/worldbook/injection-engine', () => ({
   getInjectionTargetLorebook_ACU: (...args: any[]) => mockInjectionTargetLorebook(...args),

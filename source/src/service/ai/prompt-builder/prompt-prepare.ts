@@ -711,7 +711,7 @@ export function formatTableForSqliteMode(
     tableIndex: number,
     sheetKey: string,
     guideData: any,
-    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean } = {},
+    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean; coldProjection?: boolean } = {},
 ): string {
     let text = '';
     const projection = getSheetColumnProjection_ACU(table);
@@ -804,6 +804,14 @@ export function formatTableForSqliteMode(
             text += `-- INIT: ${table.sourceData.initNode.replace(/\n/g, '\n-- ')}\n`;
         }
         text += `-- (该表格为空，请进行初始化。)\n\n`;
+        return text;
+    }
+
+    // [差量注入] 冷表投影：DDL 权威链（上方 resolve）已完整执行，只省略行数据段。
+    // 保留 INSERT 能力与 schema 契约；冷表基于行内容的 UPDATE/DELETE 由提示引导跳过。
+    if (options.coldProjection === true) {
+        text += `-- 本轮未列为热表：共 ${effectiveAllRows.length} 行数据未列出，默认无变化。\n`;
+        text += `-- INSERT 可直接执行；需要基于已有行内容的 UPDATE/DELETE 请跳过本表。\n\n`;
         return text;
     }
 
