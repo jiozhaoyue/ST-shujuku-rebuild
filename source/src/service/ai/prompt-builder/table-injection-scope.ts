@@ -75,6 +75,14 @@ export function _resetRecentTouchedLedgerForTests_ACU(): void {
     recentTouchedBatches_ACU = [];
 }
 
+/** [自检] 账本只读快照：批数与最近一批改动的表键。 */
+export function getRecentTouchedLedgerStats_ACU(): { batchCount: number; lastBatchKeys: string[] } {
+    return {
+        batchCount: recentTouchedBatches_ACU.length,
+        lastBatchKeys: [...(recentTouchedBatches_ACU[0] || [])],
+    };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 设置读取与名单展开
 // ═══════════════════════════════════════════════════════════════
