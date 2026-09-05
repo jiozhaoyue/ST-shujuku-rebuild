@@ -14,9 +14,13 @@ describe('manifest identity', () => {
   it('homePage 不指向上游 rebuild 仓库', () => {
     expect(manifest.homePage).not.toContain('shujuku-rebuild');
   });
-  it('display_name 已更名（脱离 TTonly / 幻想）', () => {
-    expect(manifest.display_name).not.toBe('Luker·数据库');
-    expect(manifest.display_name).not.toBe('幻想·数据库');
+  it('display_name 已更名（脱离历史品牌）', () => {
+    // 禁用名单用拼接构造：全局品牌替换（TTonly·→新品牌）不能改写本断言的名单，
+    // 否则名单自指后该用例永远失败或永远通过。
+    const legacyNames = ['TT' + 'only·数据库', '幻想·数据库'];
+    for (const legacy of legacyNames) {
+      expect(manifest.display_name).not.toBe(legacy);
+    }
   });
   it('版本号进入 9.2.x 序列', () => {
     expect(manifest.version).toMatch(/^9\.[2-9]\./);
