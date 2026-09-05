@@ -74,3 +74,55 @@ export function getRecentTouchedSheetKeys_ACU(): string[] | null {
 export function _resetRecentTouchedLedgerForTests_ACU(): void {
     recentTouchedBatches_ACU = [];
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 设置读取与名单展开
+// ═══════════════════════════════════════════════════════════════
+
+function parseCsvSheetSelectors_ACU(value: unknown): string[] {
+    if (typeof value !== 'string') return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+    return value.split(/[,，;；\n]/).map(item => item.trim()).filter(Boolean);
+}
+
+/**
+ * 从插件全局设置构造差量注入选项（近期改动表账本自动并入）。
+ * 名单为用户可读的表名或 sheet_ 键（逗号/中文逗号/分号/换行分隔）。
+ */
+export function buildDifferentialInjectionFromSettings_ACU(settings: any): DifferentialInjectionOptions_ACU {
+    return {
+        enabled: settings?.differentialInjectionEnabled === true,
+        hotSheetKeys: parseCsvSheetSelectors_ACU(settings?.differentialHotSheets),
+        coldSheetKeys: parseCsvSheetSelectors_ACU(settings?.differentialColdSheets),
+        recentTouchedSheetKeys: getRecentTouchedSheetKeys_ACU(),
+    };
+}
+
+/**
+ * 展开选择器为 sheet_ 键集合：选择器是 sheet_ 键或与运行时表 name 精确匹配的名称。
+ * 未匹配的选择器忽略（不抛错——名单是增强配置，写错不应打断填表主链）。
+ */
+export function expandSheetSelectorsToKeys_ACU(
+    selectors: unknown,
+    tableData: Record<string, any> | null | undefined,
+): Set<string> {
+    const out = new Set<string>();
+    if (!tableData || typeof tableData !== 'object') return out;
+    const nameToKeys = new Map<string, string[]>();
+    for (const key of Object.keys(tableData)) {
+        if (!key.startsWith('sheet_')) continue;
+        const name = String((tableData[key] as any)?.name || '').trim();
+        if (name) {
+            const bucket = nameToKeys.get(name) || [];
+            bucket.push(key);
+            nameToKeys.set(name, bucket);
+        }
+    }
+    for (const selector of parseCsvSheetSelectors_ACU(selectors)) {
+        if (Object.prototype.hasOwnProperty.call(tableData, selector)) {
+            out.add(selector);
+            continue;
+        }
+        for (const key of nameToKeys.get(selector) || []) out.add(key);
+    }
+    return out;
+}

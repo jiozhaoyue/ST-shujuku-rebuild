@@ -68,7 +68,7 @@ function resolveTableApiPresetOverride_ACU(tableName: any): string {
 import { checkIfFirstTimeInit_ACU, ensureLegacyStorageMigratedBeforeWrite_ACU } from './table-service';
 import { assertSingleActiveFullCheckpointV2_ACU, assertWriteTargetNotBeforeReplayRoot_ACU, hasAnyV2Checkpoint_ACU } from './storage-frame-v2-persist';
 import { parseAndApplyTableEditsToData_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
-import { getRecentTouchedSheetKeys_ACU, recordTouchedSheetKeys_ACU } from '../ai/prompt-builder/table-injection-scope';
+import { buildDifferentialInjectionFromSettings_ACU, getRecentTouchedSheetKeys_ACU, recordTouchedSheetKeys_ACU } from '../ai/prompt-builder/table-injection-scope';
 import { extractStrictJsonTableFillResponse_ACU } from '../ai/prompt-builder/strict-json-table-fill';
 import { isSqlContent } from '../ai/prompt-builder/table-edit-parser';
 import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU } from '../template/chat-scope';
@@ -1120,13 +1120,9 @@ export async function collectGroupFillResponse_ACU(
             sqlApplyScope: job.sqlApplyScope,
             signal: effectiveAbortController.signal,
             worldbookReadContext: options.worldbookReadContext,
-            // [差量注入] 开关与热/冷表配置随 job 供给（计划五接设置 UI）；近期改动表自动供给。
-            differentialInjection: {
-                enabled: (job as any).differentialInjection?.enabled === true,
-                hotSheetKeys: (job as any).differentialInjection?.hotSheetKeys ?? null,
-                coldSheetKeys: (job as any).differentialInjection?.coldSheetKeys ?? null,
-                recentTouchedSheetKeys: getRecentTouchedSheetKeys_ACU(),
-            },
+            // [差量注入] 开关与热/冷表名单来自插件全局设置（计划五 UI 读写）；
+            // 近期改动表自动供给账本。构造器对 enabled=false 场景返回安全空选项。
+            differentialInjection: buildDifferentialInjectionFromSettings_ACU(settings_ACU),
         });
     } catch (error: any) {
         prepareSpan.end({ success: false });

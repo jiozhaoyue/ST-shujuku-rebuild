@@ -8,6 +8,8 @@ import {
   recordTouchedSheetKeys_ACU,
   getRecentTouchedSheetKeys_ACU,
   _resetRecentTouchedLedgerForTests_ACU,
+  expandSheetSelectorsToKeys_ACU,
+  buildDifferentialInjectionFromSettings_ACU,
 } from '../../../src/service/ai/prompt-builder/table-injection-scope';
 
 describe('resolveDifferentialHotSheetKeys_ACU', () => {
@@ -78,5 +80,40 @@ describe('近期改动表账本', () => {
     const keys = getRecentTouchedSheetKeys_ACU() as string[];
     expect(keys).not.toContain('sheet_old');
     expect(new Set(keys)).toEqual(new Set(['sheet_new', 'sheet_m2', 'sheet_m1']));
+  });
+});
+
+describe('名单展开与设置构造', () => {
+  const tableData = {
+    sheet_a: { name: '背包' },
+    sheet_b: { name: '纪要' },
+    sheet_c: { name: '背包' },
+  };
+
+  it('expandSheetSelectorsToKeys_ACU：键直配 + 名称匹配（同名多键全收）', () => {
+    const keys = expandSheetSelectorsToKeys_ACU(['sheet_a', '背包', '不存在'], tableData);
+    expect(new Set(keys)).toEqual(new Set(['sheet_a', 'sheet_c']));
+  });
+
+  it('expandSheetSelectorsToKeys_ACU：空/非法输入 → 空集合', () => {
+    expect(expandSheetSelectorsToKeys_ACU(null, tableData).size).toBe(0);
+    expect(expandSheetSelectorsToKeys_ACU('x,y', null).size).toBe(0);
+  });
+
+  it('buildDifferentialInjectionFromSettings_ACU：关→enabled false；开→CSV 解析+账本并入', () => {
+    _resetRecentTouchedLedgerForTests_ACU();
+    recordTouchedSheetKeys_ACU(['sheet_b']);
+    const off = buildDifferentialInjectionFromSettings_ACU({ differentialInjectionEnabled: false, differentialHotSheets: '背包' });
+    expect(off.enabled).toBe(false);
+    const on = buildDifferentialInjectionFromSettings_ACU({
+      differentialInjectionEnabled: true,
+      differentialHotSheets: '背包, sheet_b',
+      differentialColdSheets: '纪要',
+    });
+    expect(on.enabled).toBe(true);
+    expect(on.hotSheetKeys).toEqual(['背包', 'sheet_b']);
+    expect(on.coldSheetKeys).toEqual(['纪要']);
+    expect(on.recentTouchedSheetKeys).toEqual(['sheet_b']);
+    _resetRecentTouchedLedgerForTests_ACU();
   });
 });

@@ -255,6 +255,11 @@ export let settings_ACU: any = {
     tableMaxRetries: 3,
     importSplitSize: 10000,
     skipUpdateFloors: 0,
+    // [差量注入] 填表 prompt 表级差量：开关 + 热/冷表名单（逗号分隔的表名或 sheet_ 键，
+    // 名称与运行时表 name 精确匹配）。缺省关闭 = 全量注入，行为与历史版本一致。
+    differentialInjectionEnabled: false,
+    differentialHotSheets: '',
+    differentialColdSheets: '',
     retainRecentLayers: 100,
     tableKeyOrder: [],
     manualSelectedTables: [],

@@ -21,6 +21,7 @@ import {
 } from '../../../data/gateways/host-state-gateway';
 import {
   resolveDifferentialHotSheetKeys_ACU,
+  expandSheetSelectorsToKeys_ACU,
   type DifferentialInjectionOptions_ACU,
 } from './table-injection-scope';
 import {
@@ -305,9 +306,14 @@ function resolvePromptRowWindow_ACU(
         : null;
     // [差量注入] 热表解析：options.differentialInjection 缺省为关（{enabled:false} 语义），
     // 此时热集合为空集但 differentialEnabled=false，走全量注入，行为与历史版本逐字节一致。
+    // 名单选择器（表名或 sheet_ 键）先展开为键；未匹配项忽略，不打断填表主链。
     const differentialOptions = options.differentialInjection ?? null;
     const differentialEnabled = differentialOptions?.enabled === true;
-    const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU(differentialOptions);
+    const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU({
+        ...(differentialOptions || { enabled: false }),
+        hotSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.hotSheetKeys, workingTableData)],
+        coldSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.coldSheetKeys, workingTableData)],
+    });
     for (let tableIndex = 0; tableIndex < tableIndexes.length; tableIndex += 1) {
         if (tableIndexes.length > 20 && tableIndex !== 0 && tableIndex % 5 === 0) await new Promise<void>(r => setTimeout(r, 0));
         const sheetKey = tableIndexes[tableIndex];
