@@ -6,7 +6,7 @@
 
 ## 1. 背景与目标
 
-shujuku-rebuild 自 v9.0.6 起仅适配 TauriTavern（TT），不再保证 SillyTavern（ST）兼容。Luker 是 ST 兼容分支（实测 real.localho.st:8004 为 Luker 2.7.0，stCompatVersion 1.18.0），用户主力环境之一。本项目要做一个积极兼容 Luker 的数据库前端插件，同时：
+shujuku-rebuild 自 v9.0.6 起仅适配 TauriTavern（TT），不再保证 SillyTavern（ST）兼容。Luker 是 ST 兼容分支（实测 本机 Luker 实测环境 为 Luker 2.7.0，stCompatVersion 1.18.0），用户主力环境之一。本项目要做一个积极兼容 Luker 的数据库前端插件，同时：
 
 - 替代原版（AlbusKen/shujuku）的酒馆助手脚本形态：标准扩展直装、运行时零依赖酒馆助手（继承 rebuild 已有架构）。
 - 完全兼容上游对应版本的数据面与生态：聊天内 V2 存储帧（`TavernDB_ACU_*`）、模板 JSON、剧情推进预设、st-acu-visualizer 契约（`#acu-app-v2` / `V2API` / `AutoCardUpdaterAPI` / `registerTableUpdateCallback` / `registerTableFillStartCallback`）。
@@ -115,7 +115,7 @@ shujuku-rebuild 自 v9.0.6 起仅适配 TauriTavern（TT），不再保证 Silly
   - 追平调度器：中断/续跑/单楼失败重试，负向控制验红。
   - 列级 diff：规范化后等值行零提交、部分列变化只提交变化列。
   - 阻塞回归：增强全关 → 与 9.1.9 行为 diff 为零；持锁超阈值 → 自诊断 dump 触发。
-- 真机双轨：real.localho.st:8004（Luker 2.7.0）+ TT 设备（TESTING.md 清单扩展 Luker 节）。
+- 真机双轨：本机 Luker 实测环境（Luker 2.7.0）+ TT 设备（TESTING.md 清单扩展 Luker 节）。
 
 ## 7. 兼容底线汇总（回归红线）
 

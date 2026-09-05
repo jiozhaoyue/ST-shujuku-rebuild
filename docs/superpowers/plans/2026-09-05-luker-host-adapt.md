@@ -6,7 +6,7 @@
 
 **Architecture:** 宿主判定沿用 `shared/host-bridge.ts` 三态 `AcuHostKind`（真机已验证 `window.Luker.getContext` 命中 `'luker'`）；本计划补齐身份分离（manifest 脱离上游 homePage，防 auto_update 反向覆盖）、能力面查询函数、Luker ctx 形状校准测试与真机清单。世界书后端复用 `native-st-backend`（不新建 luker-backend——Luker 1.18 ctx 面与 native 后端假设一致，差异只在版本串）。
 
-**Tech Stack:** TypeScript + rollup + vitest（仓库既有）；真机 real.localho.st:8004（Luker 2.7.0 / stCompat 1.18.0）。
+**Tech Stack:** TypeScript + rollup + vitest（仓库既有）；真机 本机 Luker 实测环境（Luker 2.7.0 / stCompat 1.18.0）。
 
 **基线命令（所有任务通用）：** 在仓库根执行 `cd source && npx vitest run <file>` 单测；`npx tsc --noEmit -p tsconfig.json` 类型检查。
 
