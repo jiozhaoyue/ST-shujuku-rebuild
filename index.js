@@ -67583,6 +67583,13 @@ function getRecentTouchedSheetKeys_ACU() {
 function _resetRecentTouchedLedgerForTests_ACU() {
     recentTouchedBatches_ACU = [];
 }
+/** [自检] 账本只读快照：批数与最近一批改动的表键。 */
+function getRecentTouchedLedgerStats_ACU() {
+    return {
+        batchCount: recentTouchedBatches_ACU.length,
+        lastBatchKeys: [...(recentTouchedBatches_ACU[0] || [])],
+    };
+}
 // ═══════════════════════════════════════════════════════════════
 // 设置读取与名单展开
 // ═══════════════════════════════════════════════════════════════
@@ -90034,6 +90041,16 @@ function clearRuntimeOnlyPendingSheetKeys_ACU(scope, sheetKeys, options) {
  */
 function registerRuntimeOnlyPendingFlusher_ACU(flusher) {
     registeredFlusher_ACU = flusher;
+}
+/** [自检] 全部 scope 的待 flush 快照（只读，不改动任何状态）：登记了待物化表的 scope 列表。 */
+function snapshotAllRuntimeOnlyPending_ACU() {
+    const out = [];
+    for (const [scopeKey, state] of pendingByScope_ACU) {
+        if (!state.all && state.sheetKeys.size === 0)
+            continue;
+        out.push({ scopeKey, all: state.all, sheetKeys: [...state.sheetKeys] });
+    }
+    return out;
 }
 async function runRegisteredRuntimeOnlyPendingFlush_ACU(scope, reason) {
     if (!registeredFlusher_ACU || !hasRuntimeOnlyPendingSheets_ACU(scope)) {
@@ -136261,7 +136278,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260905-15";
+        const stamp = "20260905-16";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180237,6 +180254,43 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
 }
 
 /**
+ * service/table/self-check.ts — 启动/运行自检快照（设计文档 §4 卡死自诊断的观测面）
+ *
+ * 纯读聚合器：只调用各子系统的只读接口，任何探针失败都在该探针位记录错误字符串，
+ * 绝不抛出、绝不改动任何状态——自检本身不允许成为新的阻塞源。
+ * 消费方：presentation-v2 Debug 面板（随 Debug 导出一并带走，用于排错）。
+ */
+function probe_ACU(name, fn) {
+    try {
+        return { [name]: { ok: true, value: fn() } };
+    }
+    catch (e) {
+        return { [name]: { ok: false, error: String(e?.message || e) } };
+    }
+}
+function collectSelfCheckSnapshot_ACU() {
+    return {
+        ...probe_ACU('host', () => ({
+            kind: getAcuHostKind(),
+            isTauriTavern: isAcuTauriRuntime(),
+            isLuker: isAcuLukerRuntime(),
+        })),
+        ...probe_ACU('storage', () => ({
+            sqliteMode: isSqliteMode(),
+        })),
+        ...probe_ACU('differentialInjection', () => ({
+            enabled: settings_ACU?.differentialInjectionEnabled === true,
+            hotSheetsCsv: String(settings_ACU?.differentialHotSheets ?? ''),
+            coldSheetsCsv: String(settings_ACU?.differentialColdSheets ?? ''),
+            ledger: getRecentTouchedLedgerStats_ACU(),
+        })),
+        ...probe_ACU('pendingFlush', () => ({
+            registeredScopes: snapshotAllRuntimeOnlyPending_ACU(),
+        })),
+    };
+}
+
+/**
  * useDebugPanel — 高级工具「Debug」卡片：傻瓜式问题上报
  *
  * 用法：用户遇到可复现问题 → 打开 Debug → 复现 → 导出 .json → 把文件喂给
@@ -180253,7 +180307,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260905-15";
+        const stamp = "20260905-16";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180378,6 +180432,7 @@ function useDebugPanel() {
                     version: getPluginVersion(),
                     exportedAt: new Date().toISOString(),
                     chatId: currentChatFileIdentifier_ACU,
+                    selfCheck: collectSelfCheckSnapshot_ACU(),
                     streamingEnabled: presetCfg ? presetCfg.streamingEnabled === true : settings_ACU?.streamingEnabled === true,
                     streamingEnabledGlobal: settings_ACU?.streamingEnabled === true,
                     streamingEnabledPreset: presetCfg ? presetCfg.streamingEnabled === true : undefined,
