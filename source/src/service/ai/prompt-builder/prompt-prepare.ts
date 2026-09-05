@@ -20,6 +20,9 @@ import {
   getUserName_ACU
 } from '../../../data/gateways/host-state-gateway';
 import {
+  resolveDifferentialHotSheetKeys_ACU,
+} from './table-injection-scope';
+import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
   ensureChatSheetGuideSeeded_ACU,
   getEffectiveSeedRowsForSheet_ACU,
@@ -299,6 +302,11 @@ function resolvePromptRowWindow_ACU(
     const promptTableNameForSheet = sqlMode
         ? resolvePromptTableNameForSheet_ACU(promptIdentifierSource, tableIndexes)
         : null;
+    // [差量注入] 热表解析：options.differentialInjection 缺省为关（{enabled:false} 语义），
+    // 此时热集合为空集但 differentialEnabled=false，走全量注入，行为与历史版本逐字节一致。
+    const differentialOptions = (options as any).differentialInjection ?? null;
+    const differentialEnabled = differentialOptions?.enabled === true;
+    const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU(differentialOptions);
     for (let tableIndex = 0; tableIndex < tableIndexes.length; tableIndex += 1) {
         if (tableIndexes.length > 20 && tableIndex !== 0 && tableIndex % 5 === 0) await new Promise<void>(r => setTimeout(r, 0));
         const sheetKey = tableIndexes[tableIndex];
@@ -341,6 +349,10 @@ function resolvePromptRowWindow_ACU(
             tableDataText += formatTableForSqliteMode(table, tableIndex, sheetKey, _seedGuideDataForThisPrepare_ACU, {
                 allowSeedRowsFallback: false,
                 flightModeEnabled: flightMode.enabled,
+                // [差量注入] 显式 targetSheetKeys 请求路径恒全量；仅自动全表遍历时冷表投影。
+                coldProjection: differentialEnabled
+                    && !targetSheetKeys
+                    && !differentialHotSheetKeys.has(sheetKey),
                 ...(selectedPromptName as { authoredTableName?: string; runtimeTableName?: string }),
             });
             // 锁定信息软约束：硬保护由执行后差异回滚兜底，此处提示模型避开锁定目标，
