@@ -1,0 +1,79 @@
+# 上游同步追踪：发现不移植。
+# 自动定位未移植的上游提交并开/更新 issue 附摘要；移植仍走人工甄别（保留 TT 红线评审纪律）。
+name: Upstream Sync Watch
+
+on:
+  schedule:
+    - cron: "17 21 * * *" # 每日 05:17（北京时间），错开整点高峰
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  upstream-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 收集上游提交与已移植哈希
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### AlbusKen/shujuku (main) 最近 40 笔"
+            gh api "repos/AlbusKen/shujuku/commits?sha=main&per_page=40" \
+              --jq '.[] | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"' || true
+            echo "### shuiyue-cmyk/shujuku-rebuild (master) 最近 40 笔"
+            gh api "repos/shuiyue-cmyk/shujuku-rebuild/commits?sha=master&per_page=40" \
+              --jq '.[] | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"' || true
+          } > upstream-commits.md
+          # 已移植映射：本仓库 commit message 中的上游短哈希（移植批消息惯例，如"上游 5f1e96f1"）
+          {
+            git log --format=%s | grep -oE '\b[0-9a-f]{8}\b' | sort -u || true
+          } > ported-hashes.txt
+          echo "已移植哈希数: $(wc -l < ported-hashes.txt)"
+
+      - name: 计算未移植差集
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, pathlib
+          commits = pathlib.Path('upstream-commits.md').read_text(encoding='utf-8')
+          ported = set(pathlib.Path('ported-hashes.txt').read_text().split())
+          pending = []
+          for line in commits.splitlines():
+              m = re.match(r'- ([0-9a-f]{8}) (.+)', line)
+              if not m:
+                  continue
+              sha, title = m.groups()
+              if sha not in ported:
+                  pending.append(f"- `{sha}` {title}")
+          pathlib.Path('pending-report.md').write_text(
+              "## 待甄别的上游提交（不在已移植哈希映射中）\n\n"
+              + ("\n".join(pending) if pending else "（无）")
+              + "\n\n> 映射来源：本仓库 commit message 中记录的上游短哈希。"
+              "自动报告不含移植判断——请人工甄别 TT 红线（isolation-policy / 向量 flush-queue /"
+              " worldbook 承重墙 / promptCache=true 等保持零命中）后再决定移植批次。\n",
+              encoding='utf-8')
+          print(f"待甄别提交数: {len(pending)}")
+          PY
+
+      - name: 更新追踪 issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NUMBER=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --search "上游同步追踪 in:title" --state open --json number --jq '.[0].number // ""')
+          BODY=$(cat pending-report.md)
+          if [ -n "$NUMBER" ]; then
+            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "上游同步追踪（自动）" --body "$BODY"
+          fi
