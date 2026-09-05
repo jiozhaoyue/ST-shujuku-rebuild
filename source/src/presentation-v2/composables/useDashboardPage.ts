@@ -876,6 +876,12 @@ export function useDashboardPage(): DashboardPageState {
         description: dashboardCopy.toggles.continuation.description,
         value: settings_ACU.continuationPageEnabled !== false,
       },
+      {
+        key: "differentialInjectionEnabled",
+        label: dashboardCopy.toggles.differentialInjection.label,
+        description: dashboardCopy.toggles.differentialInjection.description,
+        value: settings_ACU.differentialInjectionEnabled === true,
+      },
     ];
     items.push({
       key: "contentReplaceEnabled",
@@ -996,6 +1002,9 @@ export function useDashboardPage(): DashboardPageState {
     } else if (key === "summaryVectorIndexModeEnabled") {
       setSummaryVectorIndexMode_ACU(!!value);
     } else if (key === "continuationPageEnabled") {
+      settings_ACU[key] = !!value;
+      saveSettings_ACU();
+    } else if (key === "differentialInjectionEnabled") {
       settings_ACU[key] = !!value;
       saveSettings_ACU();
     } else if (key === "developerOptionsEnabled") {

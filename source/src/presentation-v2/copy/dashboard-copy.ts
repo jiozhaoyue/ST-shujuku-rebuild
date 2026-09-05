@@ -195,6 +195,11 @@ export const dashboardCopy = {
       description:
         "默认关闭。开启后仅保留填表、规划等核心提示，其他浮窗通知不再弹出。",
     },
+    differentialInjection: {
+      label: "填表差量注入（实验）",
+      description:
+        "默认关闭。开启后填表只携带热表全量数据，冷表仅供建表语句与行数，省 token 并降低干扰；名单在「填表更新设置 → 高级参数」配置。",
+    },
     streaming: {
       label: "开启流式输出",
       description:
