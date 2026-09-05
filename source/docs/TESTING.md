@@ -4,9 +4,18 @@
 
 ## 0. 安装
 
-1. 扩展面板 → Install extension → 粘贴 `https://github.com/shuiyue-cmyk/shujuku-rebuild`
-2. 确认扩展列表出现「TTonly·数据库」，`manifest.json` 中 `auto_update: true`
+1. 扩展面板 → Install extension → 粘贴本仓库地址（`manifest.json` 中 `homePage` 指向本仓库）
+2. 确认扩展列表出现「Luker·数据库」，`manifest.json` 中 `auto_update: true`
 3. 刷新页面后，确认右上/侧边出现数据库入口（V2 面板 `#acu-app-v2`）
+
+## 0.5 Luker 真机（Luker 2.7.0 / stCompat 1.18.0）
+
+- [ ] 扩展启用后刷新：右下角出现 `Luker·<构建戳>` 构建水印（`#acu-build-stamp-badge`）
+- [ ] 控制台无「等待 SillyTavern 就绪超时」；调试面板 host 字段为 `luker`（`window.Luker.getContext` 特征命中）
+- [ ] V2 面板挂载：表格 / 填表 / SQL 控制台 / 运行日志全量可用
+- [ ] 聊天含旧 TT/上游数据（Branch 陈旧 HotSnapshot / 上游 `TavernDB_ACU_HotSnapshot` 等）时：owner 守卫忽略，无报错、无阻塞
+- [ ] 世界书桥接降级：不装酒馆助手时核心表格功能正常，世界书操作给出可操作提示（不抛未捕获异常）
+- [ ] auto_update 安全：manifest `homePage` 指向本仓库，宿主自动更新不会拉回上游 rebuild 产物
 
 ## 1. 启动与核心（不依赖酒馆助手）
 
