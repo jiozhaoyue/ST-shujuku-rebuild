@@ -1143,3 +1143,27 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
   });
 
 });
+
+describe('columnDeltaHint 列级增量指引', () => {
+  const buildHintTable = () => ({
+    uid: 'sheet_hint',
+    name: '提示表',
+    content: [['row_id', '状态'], ['初始']],
+    sourceData: { note: '状态表', insertNode: '', updateNode: '', deleteNode: '' },
+  });
+
+  it('开启时热表 DDL 后出现增量提示', () => {
+    const text = formatTableForSqliteMode(buildHintTable(), 0, 'sheet_hint', null, {
+      allowSeedRowsFallback: false,
+      columnDeltaHint: true,
+    });
+    expect(text).toContain('只 SET 与当前值实际发生变化的列');
+  });
+
+  it('缺省关闭：不出现提示（零行为变化）', () => {
+    const text = formatTableForSqliteMode(buildHintTable(), 0, 'sheet_hint', null, {
+      allowSeedRowsFallback: false,
+    });
+    expect(text).not.toContain('只 SET 与当前值实际发生变化的列');
+  });
+});

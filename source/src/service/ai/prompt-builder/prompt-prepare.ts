@@ -354,6 +354,10 @@ function resolvePromptRowWindow_ACU(
                 coldProjection: differentialEnabled
                     && !targetSheetKeys
                     && !differentialHotSheetKeys.has(sheetKey),
+                // [差量注入] 列级增量指引只给热表（冷表连行都没有，指引无意义）。
+                columnDeltaHint: differentialEnabled
+                    && !targetSheetKeys
+                    && differentialHotSheetKeys.has(sheetKey),
                 ...(selectedPromptName as { authoredTableName?: string; runtimeTableName?: string }),
             });
             // 锁定信息软约束：硬保护由执行后差异回滚兜底，此处提示模型避开锁定目标，
@@ -724,7 +728,7 @@ export function formatTableForSqliteMode(
     tableIndex: number,
     sheetKey: string,
     guideData: any,
-    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean; coldProjection?: boolean } = {},
+    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean; coldProjection?: boolean; columnDeltaHint?: boolean } = {},
 ): string {
     let text = '';
     const projection = getSheetColumnProjection_ACU(table);
@@ -790,6 +794,12 @@ export function formatTableForSqliteMode(
         text += `-- WARNING: ${resolvedDDL.diagnostics[0]} 原始 DDL 未被改写。\n`;
     }
     text += '-- SQL 写入时，以上 CREATE TABLE 中的列名是本轮唯一权威；Note/Trigger 中与其不一致的示例不得照抄，必须按上述列名改写。\n';
+    if (options.columnDeltaHint === true) {
+        // [差量注入] 列级增量指引：纯提示词侧引导 AI 只 SET 实际变化的列。
+        // 不做执行前数据级 diff 改写——语句要进聊天帧做冷回放，等值判断的微妙偏差
+        // （类型/空白/转义）会造成静默数据损坏，风险收益不成比例（设计文档计划四决策）。
+        text += '-- [增量提示] UPDATE 只 SET 与当前值实际发生变化的列；未变化的列保持原值，禁止整行重写。\n';
+    }
     if (options.authoredTableName) {
         text += `-- SQL 写入必须严格使用本表上方 CREATE TABLE 中的表名 ${options.authoredTableName}；不得使用其他名称。\n`;
     }
