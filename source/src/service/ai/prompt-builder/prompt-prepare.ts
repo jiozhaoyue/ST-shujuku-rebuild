@@ -21,6 +21,7 @@ import {
 } from '../../../data/gateways/host-state-gateway';
 import {
   resolveDifferentialHotSheetKeys_ACU,
+  type DifferentialInjectionOptions_ACU,
 } from './table-injection-scope';
 import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
@@ -237,7 +238,7 @@ function resolvePromptRowWindow_ACU(
     messages: any[],
     updateMode = 'standard',
     targetSheetKeys: string[] | null = null,
-    options: { tableData?: any; excludeImportTaggedWorldbookEntries?: boolean; agentGreenlights?: any[]; isolationKey?: string; templateScope?: TemplateScope_ACU; sqlApplyScope?: SqlTableApplyScope_ACU; signal?: AbortSignal; worldbookReadContext?: LorebookReadContext_ACU } = {},
+    options: { tableData?: any; excludeImportTaggedWorldbookEntries?: boolean; agentGreenlights?: any[]; isolationKey?: string; templateScope?: TemplateScope_ACU; sqlApplyScope?: SqlTableApplyScope_ACU; signal?: AbortSignal; worldbookReadContext?: LorebookReadContext_ACU; differentialInjection?: DifferentialInjectionOptions_ACU | null } = {},
   ) {
     const sqlMode = isSqliteMode();
     const sourceTableData = await resolvePromptSourceTableData_ACU(options, sqlMode);
@@ -304,7 +305,7 @@ function resolvePromptRowWindow_ACU(
         : null;
     // [差量注入] 热表解析：options.differentialInjection 缺省为关（{enabled:false} 语义），
     // 此时热集合为空集但 differentialEnabled=false，走全量注入，行为与历史版本逐字节一致。
-    const differentialOptions = (options as any).differentialInjection ?? null;
+    const differentialOptions = options.differentialInjection ?? null;
     const differentialEnabled = differentialOptions?.enabled === true;
     const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU(differentialOptions);
     for (let tableIndex = 0; tableIndex < tableIndexes.length; tableIndex += 1) {

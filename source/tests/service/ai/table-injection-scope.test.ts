@@ -2,8 +2,13 @@
  * tests/service/ai/table-injection-scope.test.ts — 差量注入热表解析
  * hot = (recentTouched ∪ explicitHot) − explicitCold；cold 恒胜出。
  */
-import { describe, it, expect } from 'vitest';
-import { resolveDifferentialHotSheetKeys_ACU } from '../../../src/service/ai/prompt-builder/table-injection-scope';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  resolveDifferentialHotSheetKeys_ACU,
+  recordTouchedSheetKeys_ACU,
+  getRecentTouchedSheetKeys_ACU,
+  _resetRecentTouchedLedgerForTests_ACU,
+} from '../../../src/service/ai/prompt-builder/table-injection-scope';
 
 describe('resolveDifferentialHotSheetKeys_ACU', () => {
   it('空输入 → 空集合', () => {
@@ -44,5 +49,34 @@ describe('resolveDifferentialHotSheetKeys_ACU', () => {
       hotSheetKeys: 'not-array' as any,
     });
     expect([...hot]).toEqual(['sheet_a']);
+  });
+});
+
+describe('近期改动表账本', () => {
+  afterEach(() => {
+    _resetRecentTouchedLedgerForTests_ACU();
+  });
+  it('空账本 → null（无信号）', () => {
+    expect(getRecentTouchedSheetKeys_ACU()).toBeNull();
+  });
+
+  it('记录 K 批内并集；非法输入静默忽略', () => {
+    recordTouchedSheetKeys_ACU(['sheet_a', 'sheet_b']);
+    recordTouchedSheetKeys_ACU(['sheet_b', 'sheet_c']);
+    recordTouchedSheetKeys_ACU('garbage');
+    recordTouchedSheetKeys_ACU([1, null, 'sheet_d']);
+    const keys = getRecentTouchedSheetKeys_ACU();
+    expect(keys).not.toBeNull();
+    expect(new Set(keys as string[])).toEqual(new Set(['sheet_a', 'sheet_b', 'sheet_c', 'sheet_d']));
+  });
+
+  it('只保留最近 K=3 批，最旧批滚出', () => {
+    recordTouchedSheetKeys_ACU(['sheet_old']);
+    recordTouchedSheetKeys_ACU(['sheet_m1']);
+    recordTouchedSheetKeys_ACU(['sheet_m2']);
+    recordTouchedSheetKeys_ACU(['sheet_new']);
+    const keys = getRecentTouchedSheetKeys_ACU() as string[];
+    expect(keys).not.toContain('sheet_old');
+    expect(new Set(keys)).toEqual(new Set(['sheet_new', 'sheet_m2', 'sheet_m1']));
   });
 });

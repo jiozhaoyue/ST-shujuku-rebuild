@@ -68,6 +68,7 @@ function resolveTableApiPresetOverride_ACU(tableName: any): string {
 import { checkIfFirstTimeInit_ACU, ensureLegacyStorageMigratedBeforeWrite_ACU } from './table-service';
 import { assertSingleActiveFullCheckpointV2_ACU, assertWriteTargetNotBeforeReplayRoot_ACU, hasAnyV2Checkpoint_ACU } from './storage-frame-v2-persist';
 import { parseAndApplyTableEditsToData_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
+import { getRecentTouchedSheetKeys_ACU, recordTouchedSheetKeys_ACU } from '../ai/prompt-builder/table-injection-scope';
 import { extractStrictJsonTableFillResponse_ACU } from '../ai/prompt-builder/strict-json-table-fill';
 import { isSqlContent } from '../ai/prompt-builder/table-edit-parser';
 import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU } from '../template/chat-scope';
@@ -1119,6 +1120,13 @@ export async function collectGroupFillResponse_ACU(
             sqlApplyScope: job.sqlApplyScope,
             signal: effectiveAbortController.signal,
             worldbookReadContext: options.worldbookReadContext,
+            // [差量注入] 开关与热/冷表配置随 job 供给（计划五接设置 UI）；近期改动表自动供给。
+            differentialInjection: {
+                enabled: (job as any).differentialInjection?.enabled === true,
+                hotSheetKeys: (job as any).differentialInjection?.hotSheetKeys ?? null,
+                coldSheetKeys: (job as any).differentialInjection?.coldSheetKeys ?? null,
+                recentTouchedSheetKeys: getRecentTouchedSheetKeys_ACU(),
+            },
         });
     } catch (error: any) {
         prepareSpan.end({ success: false });
@@ -1841,6 +1849,10 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
         const parseError = parseResultObject && typeof parseResultObject.error === 'string'
             ? parseResultObject.error.trim()
             : '';
+        // [差量注入] 仅成功批次入账：账本是"近期实际改动过"的信号，失败/零操作批次不入。
+        if (parseSuccess && Array.isArray(parsedKeys) && parsedKeys.length > 0) {
+            recordTouchedSheetKeys_ACU(parsedKeys);
+        }
         if (!parseSuccess) {
             // 空指令零操作提交（v9.1.5 行为恢复）：全部指令被模式门静默过滤
             // （appliedEdits===0 && failedEdits===0，仅 tableEdit 解析器带 failedEdits 计数），
