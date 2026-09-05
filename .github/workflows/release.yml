@@ -51,3 +51,5 @@ jobs:
 
       - name: 汇总
         run: echo "Release ${{ github.ref_name }} 质量门通过"
+
+# registration touch
