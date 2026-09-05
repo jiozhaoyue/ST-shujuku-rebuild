@@ -77,3 +77,5 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" \
               --title "上游同步追踪（自动）" --body "$BODY"
           fi
+
+# registration touch
