@@ -3,7 +3,7 @@
  * hot = (recentTouched ∪ explicitHot) − explicitCold；cold 恒胜出。
  */
 import { describe, it, expect } from 'vitest';
-import { resolveDifferentialHotSheetKeys_ACU } from '../../src/service/ai/prompt-builder/table-injection-scope';
+import { resolveDifferentialHotSheetKeys_ACU } from '../../../src/service/ai/prompt-builder/table-injection-scope';
 
 describe('resolveDifferentialHotSheetKeys_ACU', () => {
   it('空输入 → 空集合', () => {
