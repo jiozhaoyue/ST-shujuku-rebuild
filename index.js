@@ -67520,6 +67520,119 @@ var YAML = /*#__PURE__*/Object.freeze({
 // `export * as default from ...` fails on Webpack v4
 // https://github.com/eemeli/yaml/issues/228
 
+/**
+ * service/ai/prompt-builder/table-injection-scope.ts — 差量注入热表解析
+ *
+ * 热表信号解析（纯函数，零依赖）：hot = (recentTouched ∪ explicitHot) − explicitCold。
+ * 冷表在填表 prompt 中只保留 DDL 与行数说明（见 prompt-prepare coldProjection），
+ * 保留 INSERT 能力，牺牲冷表基于行内容的 UPDATE/DELETE 精度。
+ * 开关关闭或信号缺失时调用方必须走全量注入（默认路径）。
+ */
+function toKeySet_ACU(value) {
+    if (!Array.isArray(value))
+        return new Set();
+    const out = new Set();
+    for (const item of value) {
+        if (typeof item === 'string' && item)
+            out.add(item);
+    }
+    return out;
+}
+function resolveDifferentialHotSheetKeys_ACU(options) {
+    if (!options || options.enabled !== true)
+        return new Set();
+    const hot = toKeySet_ACU(options.hotSheetKeys);
+    for (const key of toKeySet_ACU(options.recentTouchedSheetKeys))
+        hot.add(key);
+    for (const key of toKeySet_ACU(options.coldSheetKeys))
+        hot.delete(key);
+    return hot;
+}
+// ═══════════════════════════════════════════════════════════════
+// 近期改动表账本（recentTouchedSheetKeys 自动供给）
+// ═══════════════════════════════════════════════════════════════
+/** 记录最近 K 批填表实际改动过的表（批 = 一次成功 parse&apply） */
+const RECENT_TOUCHED_BATCHES_KEEP_ACU = 3;
+/** 环形批账本：新批 unshift，超 K 批丢弃最旧批 */
+let recentTouchedBatches_ACU = [];
+/**
+ * 记录一批填表实际改动的表键（modifiedKeys）。
+ * 非法输入静默忽略——账本是增强信号，绝不因记录失败影响填表主链。
+ */
+function recordTouchedSheetKeys_ACU(sheetKeys) {
+    if (!Array.isArray(sheetKeys))
+        return;
+    const keys = sheetKeys.filter((key) => typeof key === 'string' && !!key);
+    recentTouchedBatches_ACU.unshift(keys);
+    if (recentTouchedBatches_ACU.length > RECENT_TOUCHED_BATCHES_KEEP_ACU) {
+        recentTouchedBatches_ACU.length = RECENT_TOUCHED_BATCHES_KEEP_ACU;
+    }
+}
+/** 近 K 批改动表并集；账本为空时返回 null（调用方按"无信号"处理）。 */
+function getRecentTouchedSheetKeys_ACU() {
+    if (recentTouchedBatches_ACU.length === 0)
+        return null;
+    const merged = new Set();
+    for (const batch of recentTouchedBatches_ACU) {
+        for (const key of batch)
+            merged.add(key);
+    }
+    return [...merged];
+}
+/** 仅供测试：清空账本。 */
+function _resetRecentTouchedLedgerForTests_ACU() {
+    recentTouchedBatches_ACU = [];
+}
+// ═══════════════════════════════════════════════════════════════
+// 设置读取与名单展开
+// ═══════════════════════════════════════════════════════════════
+function parseCsvSheetSelectors_ACU(value) {
+    if (typeof value !== 'string')
+        return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
+    return value.split(/[,，;；\n]/).map(item => item.trim()).filter(Boolean);
+}
+/**
+ * 从插件全局设置构造差量注入选项（近期改动表账本自动并入）。
+ * 名单为用户可读的表名或 sheet_ 键（逗号/中文逗号/分号/换行分隔）。
+ */
+function buildDifferentialInjectionFromSettings_ACU(settings) {
+    return {
+        enabled: settings?.differentialInjectionEnabled === true,
+        hotSheetKeys: parseCsvSheetSelectors_ACU(settings?.differentialHotSheets),
+        coldSheetKeys: parseCsvSheetSelectors_ACU(settings?.differentialColdSheets),
+        recentTouchedSheetKeys: getRecentTouchedSheetKeys_ACU(),
+    };
+}
+/**
+ * 展开选择器为 sheet_ 键集合：选择器是 sheet_ 键或与运行时表 name 精确匹配的名称。
+ * 未匹配的选择器忽略（不抛错——名单是增强配置，写错不应打断填表主链）。
+ */
+function expandSheetSelectorsToKeys_ACU(selectors, tableData) {
+    const out = new Set();
+    if (!tableData || typeof tableData !== 'object')
+        return out;
+    const nameToKeys = new Map();
+    for (const key of Object.keys(tableData)) {
+        if (!key.startsWith('sheet_'))
+            continue;
+        const name = String(tableData[key]?.name || '').trim();
+        if (name) {
+            const bucket = nameToKeys.get(name) || [];
+            bucket.push(key);
+            nameToKeys.set(name, bucket);
+        }
+    }
+    for (const selector of parseCsvSheetSelectors_ACU(selectors)) {
+        if (Object.prototype.hasOwnProperty.call(tableData, selector)) {
+            out.add(selector);
+            continue;
+        }
+        for (const key of nameToKeys.get(selector) || [])
+            out.add(key);
+    }
+    return out;
+}
+
 const EXTERNAL_CUSTOM_TABLE_EXPORT_MARKER_VERSION_ACU = 1;
 const MARKER_PATTERN_ACU = /<!--\s*ACU_CUSTOM_TABLE_EXPORT_V1\s+({[\s\S]*?})\s*-->/;
 function buildExternalCustomTableExportComment_ACU(comment, marker) {
@@ -69827,6 +69940,16 @@ async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheet
     const promptTableNameForSheet = sqlMode
         ? resolvePromptTableNameForSheet_ACU(promptIdentifierSource, tableIndexes)
         : null;
+    // [差量注入] 热表解析：options.differentialInjection 缺省为关（{enabled:false} 语义），
+    // 此时热集合为空集但 differentialEnabled=false，走全量注入，行为与历史版本逐字节一致。
+    // 名单选择器（表名或 sheet_ 键）先展开为键；未匹配项忽略，不打断填表主链。
+    const differentialOptions = options.differentialInjection ?? null;
+    const differentialEnabled = differentialOptions?.enabled === true;
+    const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU({
+        ...(differentialOptions || { enabled: false }),
+        hotSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.hotSheetKeys, workingTableData)],
+        coldSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.coldSheetKeys, workingTableData)],
+    });
     for (let tableIndex = 0; tableIndex < tableIndexes.length; tableIndex += 1) {
         if (tableIndexes.length > 20 && tableIndex !== 0 && tableIndex % 5 === 0)
             await new Promise(r => setTimeout(r, 0));
@@ -69868,6 +69991,14 @@ async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheet
             tableDataText += formatTableForSqliteMode(table, tableIndex, sheetKey, _seedGuideDataForThisPrepare_ACU, {
                 allowSeedRowsFallback: false,
                 flightModeEnabled: flightMode.enabled,
+                // [差量注入] 显式 targetSheetKeys 请求路径恒全量；仅自动全表遍历时冷表投影。
+                coldProjection: differentialEnabled
+                    && !targetSheetKeys
+                    && !differentialHotSheetKeys.has(sheetKey),
+                // [差量注入] 列级增量指引只给热表（冷表连行都没有，指引无意义）。
+                columnDeltaHint: differentialEnabled
+                    && !targetSheetKeys
+                    && differentialHotSheetKeys.has(sheetKey),
                 ...selectedPromptName,
             });
             // 锁定信息软约束：硬保护由执行后差异回滚兜底，此处提示模型避开锁定目标，
@@ -70286,6 +70417,12 @@ function formatTableForSqliteMode(table, tableIndex, sheetKey, guideData, option
         text += `-- WARNING: ${resolvedDDL.diagnostics[0]} 原始 DDL 未被改写。\n`;
     }
     text += '-- SQL 写入时，以上 CREATE TABLE 中的列名是本轮唯一权威；Note/Trigger 中与其不一致的示例不得照抄，必须按上述列名改写。\n';
+    if (options.columnDeltaHint === true) {
+        // [差量注入] 列级增量指引：纯提示词侧引导 AI 只 SET 实际变化的列。
+        // 不做执行前数据级 diff 改写——语句要进聊天帧做冷回放，等值判断的微妙偏差
+        // （类型/空白/转义）会造成静默数据损坏，风险收益不成比例（设计文档计划四决策）。
+        text += '-- [增量提示] UPDATE 只 SET 与当前值实际发生变化的列；未变化的列保持原值，禁止整行重写。\n';
+    }
     if (options.authoredTableName) {
         text += `-- SQL 写入必须严格使用本表上方 CREATE TABLE 中的表名 ${options.authoredTableName}；不得使用其他名称。\n`;
     }
@@ -70314,6 +70451,13 @@ function formatTableForSqliteMode(table, tableIndex, sheetKey, guideData, option
             text += `-- INIT: ${table.sourceData.initNode.replace(/\n/g, '\n-- ')}\n`;
         }
         text += `-- (该表格为空，请进行初始化。)\n\n`;
+        return text;
+    }
+    // [差量注入] 冷表投影：DDL 权威链（上方 resolve）已完整执行，只省略行数据段。
+    // 保留 INSERT 能力与 schema 契约；冷表基于行内容的 UPDATE/DELETE 由提示引导跳过。
+    if (options.coldProjection === true) {
+        text += `-- 本轮未列为热表：共 ${effectiveAllRows.length} 行数据未列出，默认无变化。\n`;
+        text += `-- INSERT 可直接执行；需要基于已有行内容的 UPDATE/DELETE 请跳过本表。\n\n`;
         return text;
     }
     if (isUsingSeedRows) {
@@ -96696,6 +96840,11 @@ let settings_ACU = {
     tableMaxRetries: 3,
     importSplitSize: 10000,
     skipUpdateFloors: 0,
+    // [差量注入] 填表 prompt 表级差量：开关 + 热/冷表名单（逗号分隔的表名或 sheet_ 键，
+    // 名称与运行时表 name 精确匹配）。缺省关闭 = 全量注入，行为与历史版本一致。
+    differentialInjectionEnabled: false,
+    differentialHotSheets: '',
+    differentialColdSheets: '',
     retainRecentLayers: 100,
     tableKeyOrder: [],
     manualSelectedTables: [],
@@ -107074,6 +107223,9 @@ async function collectGroupFillResponse_ACU(job, feedback, abortController = new
             sqlApplyScope: job.sqlApplyScope,
             signal: effectiveAbortController.signal,
             worldbookReadContext: options.worldbookReadContext,
+            // [差量注入] 开关与热/冷表名单来自插件全局设置（计划五 UI 读写）；
+            // 近期改动表自动供给账本。构造器对 enabled=false 场景返回安全空选项。
+            differentialInjection: buildDifferentialInjectionFromSettings_ACU(settings_ACU),
         });
     }
     catch (error) {
@@ -107740,6 +107892,10 @@ async function applyUnifiedGroupFillResponsesCore_ACU(responses, baseSnapshot, o
         const parseError = parseResultObject && typeof parseResultObject.error === 'string'
             ? parseResultObject.error.trim()
             : '';
+        // [差量注入] 仅成功批次入账：账本是"近期实际改动过"的信号，失败/零操作批次不入。
+        if (parseSuccess && Array.isArray(parsedKeys) && parsedKeys.length > 0) {
+            recordTouchedSheetKeys_ACU(parsedKeys);
+        }
         if (!parseSuccess) {
             // 空指令零操作提交（v9.1.5 行为恢复）：全部指令被模式门静默过滤
             // （appliedEdits===0 && failedEdits===0，仅 tableEdit 解析器带 failedEdits 计数），
@@ -109262,10 +109418,15 @@ function countCatchUpChunkBuckets_ACU(groups, messageIndices) {
  * 从聊天中的已提交事实生成 catch-up 计划，不调用 AI、不写入数据。
  * 调用方可用于确认展示；真正执行时必须重新规划，以吸收确认期间的提交变化。
  */
-async function prepareManualCatchUpPlan_ACU(targetKeys) {
+async function prepareManualCatchUpPlan_ACU(targetKeys, options = {}) {
     if (!Array.isArray(targetKeys) || targetKeys.length === 0) {
         return { success: false, error: '未选择需要追平的表格。' };
     }
+    // [楼层级调度] 批粒度覆盖：正整数才生效，否则回落手动面板设置（每 N 层合并一次）。
+    const batchSizeOverrideRaw = Number(options.batchSizeOverride);
+    const batchSizeOverride = Number.isFinite(batchSizeOverrideRaw) && batchSizeOverrideRaw >= 1
+        ? Math.trunc(batchSizeOverrideRaw)
+        : null;
     await loadAllChatMessages_ACU();
     const chat = getChatArray_ACU();
     if (!Array.isArray(chat) || chat.length === 0) {
@@ -109302,7 +109463,8 @@ async function prepareManualCatchUpPlan_ACU(targetKeys) {
             lastCompletedAiFloor: history.lastTrackedUpdateAiFloor,
             groupId,
             // 追平的分批粒度跟手动面板的「每 N 层合并为一次填表」走，不读自动填表的 updateBatchSize。
-            batchSize: resolveManualUpdateBatchSize_ACU(),
+            // 楼层级调度器传入 batchSizeOverride 时以覆盖值为准（1 = 逐楼）。
+            batchSize: batchSizeOverride ?? resolveManualUpdateBatchSize_ACU(),
             requestOptions: preset ? { tableApiPreset: preset } : null,
             updateMode: 'manual_independent',
             executionKind: isSqliteMode() ? 'sql' : 'standard',
@@ -109354,7 +109516,9 @@ async function orchestrateManualCatchUp_ACU(targetKeys, refreshData, options = {
         }
         logDebug_ACU('[手动追平] 已前置完成 legacy→V2 迁移并重载运行时，重新规划追平计划。');
     }
-    const planningResult = await prepareManualCatchUpPlan_ACU(targetKeys);
+    const planningResult = await prepareManualCatchUpPlan_ACU(targetKeys, {
+        batchSizeOverride: options.batchSizeOverride,
+    });
     if (!planningResult.success || !planningResult.plan) {
         return { success: false, error: planningResult.error || '无法生成手动追平计划。' };
     }
@@ -136097,7 +136261,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260905-13";
+        const stamp = "20260905-15";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -152546,7 +152710,7 @@ const _hoisted_3$M = {
 	key: 0,
 	class: "acu-dialog__danger-message"
 };
-const _hoisted_4$E = {
+const _hoisted_4$F = {
 	key: 1,
 	class: "acu-dialog__field"
 };
@@ -152611,7 +152775,7 @@ function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 				1
 				/* TEXT */
 			)) : createCommentVNode("v-if", true),
-			$setup.renderedDialog.kind === "prompt" ? (openBlock(), createElementBlock("label", _hoisted_4$E, [createBaseVNode(
+			$setup.renderedDialog.kind === "prompt" ? (openBlock(), createElementBlock("label", _hoisted_4$F, [createBaseVNode(
 				"span",
 				null,
 				toDisplayString($setup.renderedDialog.label),
@@ -153186,7 +153350,7 @@ const _hoisted_1$$ = {
 };
 const _hoisted_2$S = { class: "acu-toast-viewport__list" };
 const _hoisted_3$K = ["role"];
-const _hoisted_4$D = {
+const _hoisted_4$E = {
 	class: "acu-v2-toast__icon",
 	"aria-hidden": "true"
 };
@@ -153208,7 +153372,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 				]),
 				role: entry.item.kind === "error" ? "alert" : "status"
 			}, [
-				createBaseVNode("span", _hoisted_4$D, [createBaseVNode(
+				createBaseVNode("span", _hoisted_4$E, [createBaseVNode(
 					"i",
 					{ class: normalizeClass($setup.iconForKind(entry.item.kind)) },
 					null,
@@ -154068,7 +154232,7 @@ const _hoisted_3$H = {
 	key: 1,
 	class: "acu-panel__header-right"
 };
-const _hoisted_4$C = {
+const _hoisted_4$D = {
 	key: 0,
 	class: "acu-panel__actions"
 };
@@ -154087,7 +154251,7 @@ function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 				toDisplayString($props.title),
 				1
 				/* TEXT */
-			)], true)])) : createCommentVNode("v-if", true), _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock("div", _hoisted_3$H, [_ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_4$C, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true), $setup.hasDescription ? (openBlock(), createBlock($setup["AcuIconButton"], {
+			)], true)])) : createCommentVNode("v-if", true), _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock("div", _hoisted_3$H, [_ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_4$D, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true), $setup.hasDescription ? (openBlock(), createBlock($setup["AcuIconButton"], {
 				key: 1,
 				class: normalizeClass(["acu-panel__description-button", { "acu-panel__description-button--open": $setup.descriptionOpen }]),
 				icon: "fa-solid fa-circle-info",
@@ -154367,7 +154531,7 @@ const _hoisted_3$G = {
 	key: 0,
 	class: "acu-preset-dd__menu"
 };
-const _hoisted_4$B = ["onClick"];
+const _hoisted_4$C = ["onClick"];
 const _hoisted_5$v = { class: "acu-preset-dd__item-name" };
 const _hoisted_6$t = {
 	key: 0,
@@ -154443,7 +154607,7 @@ function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 						/* CLASS */
 					)], 10, _hoisted_7$q)) : createCommentVNode("v-if", true),
 					$setup.itemValue(item) === $props.modelValue ? (openBlock(), createElementBlock("i", _hoisted_8$o)) : createCommentVNode("v-if", true)
-				], 10, _hoisted_4$B);
+				], 10, _hoisted_4$C);
 			}),
 			128
 			/* KEYED_FRAGMENT */
@@ -154534,7 +154698,7 @@ const _hoisted_3$F = {
 	key: 0,
 	class: "acu-select__group"
 };
-const _hoisted_4$A = ["onClick"];
+const _hoisted_4$B = ["onClick"];
 const _hoisted_5$u = {
 	key: 0,
 	class: "acu-select__empty"
@@ -154579,7 +154743,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 					)) : createCommentVNode("v-if", true), createBaseVNode("li", {
 						class: normalizeClass(["acu-select__item", { "acu-select__item--active": entry.opt.value === $props.modelValue }]),
 						onClick: ($event) => $setup.select(entry.opt.value)
-					}, toDisplayString(entry.opt.label), 11, _hoisted_4$A)],
+					}, toDisplayString(entry.opt.label), 11, _hoisted_4$B)],
 					64
 					/* STABLE_FRAGMENT */
 				);
@@ -155052,7 +155216,7 @@ var ApiConfigPanel_vue_vue_type_style_index_0_scoped_7858ec2b_lang = null;
 const _hoisted_1$S = { class: "acu-api-config-panel__select-row" };
 const _hoisted_2$L = { class: "acu-api-config-panel__editor-section" };
 const _hoisted_3$E = { class: "acu-api-config-panel__inline-action" };
-const _hoisted_4$z = {
+const _hoisted_4$A = {
 	key: 0,
 	class: "acu-api-config-panel__muted"
 };
@@ -155176,7 +155340,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 								/* CACHED */
 							)])]),
 							_: 1
-						}), $setup.store.modelLoadStatus === "loading" ? (openBlock(), createElementBlock("span", _hoisted_4$z, "加载中...")) : $setup.store.modelLoadStatus === "error" ? (openBlock(), createElementBlock(
+						}), $setup.store.modelLoadStatus === "loading" ? (openBlock(), createElementBlock("span", _hoisted_4$A, "加载中...")) : $setup.store.modelLoadStatus === "error" ? (openBlock(), createElementBlock(
 							"span",
 							_hoisted_5$t,
 							toDisplayString($setup.store.modelLoadError),
@@ -156390,6 +156554,36 @@ function useFormFillSettings() {
     };
 }
 
+/**
+ * presentation-v2/composables/useDifferentialInjectionSettings.ts
+ * 差量注入设置的 UI 绑定：开关 + 热/冷表名单（CSV 文本）。
+ * 直接绑定 settings_ACU 对应键，变更即时 saveSettings_ACU（与其他面板一致）。
+ */
+function useDifferentialInjectionSettings() {
+    const enabled = computed({
+        get: () => settings_ACU.differentialInjectionEnabled === true,
+        set: (value) => {
+            settings_ACU.differentialInjectionEnabled = value === true;
+            saveSettings_ACU();
+        },
+    });
+    const hotSheets = computed({
+        get: () => String(settings_ACU.differentialHotSheets ?? ""),
+        set: (value) => {
+            settings_ACU.differentialHotSheets = String(value ?? "");
+            saveSettings_ACU();
+        },
+    });
+    const coldSheets = computed({
+        get: () => String(settings_ACU.differentialColdSheets ?? ""),
+        set: (value) => {
+            settings_ACU.differentialColdSheets = String(value ?? "");
+            saveSettings_ACU();
+        },
+    });
+    return { enabled, hotSheets, coldSheets };
+}
+
 // 跨页面共享的文案片段（多页使用的相同文案在此定义一份，页面 copy 引用之）
 const worldbookEntriesCopy = {
     emptyDefault: "所选世界书中无可显示的条目。",
@@ -156597,6 +156791,7 @@ var _sfc_main$S = /*@__PURE__*/ defineComponent({
     setup(__props, { expose: __expose }) {
         __expose();
         const settings = useFormFillSettings();
+        const differential = useDifferentialInjectionSettings();
         const { apiStore, followActiveApiLabel, apiPresetSelectOptions: tableApiPresetOptions, } = useApiPresetSelectOptions();
         // [防呆] 预设在别处被修改后此处标黄，手动重选一次即确认
         const { isStale: tableFillStale, markConfirmed: markTableFillConfirmed } = useApiPresetStaleness("table-fill");
@@ -156667,18 +156862,19 @@ var _sfc_main$S = /*@__PURE__*/ defineComponent({
         }
         onMounted(refreshAll);
         watch(useChatChangedTick(), refreshAll);
-        const __returned__ = { settings, apiStore, followActiveApiLabel, tableApiPresetOptions, tableFillStale, markTableFillConfirmed, advancedExpanded, updateEveryOptions, advancedKeys, advancedFields, advancedMetaLabel, selectedUpdateEvery, isCustomCadence, isCustomSkip, skipLatestLayer, skipLatestLayerLabel, skipLatestLayerHint, numberValue, contextDepthForInterval, batchSizeForInterval, applyUpdateEvery, setSkipLatestLayer, refreshAll, get formFillCopy() { return formFillCopy; }, AcuDisclosureGroup, AcuFormRow, AcuInput, AcuPanel, AcuSelect, AcuToggle };
+        const __returned__ = { settings, differential, apiStore, followActiveApiLabel, tableApiPresetOptions, tableFillStale, markTableFillConfirmed, advancedExpanded, updateEveryOptions, advancedKeys, advancedFields, advancedMetaLabel, selectedUpdateEvery, isCustomCadence, isCustomSkip, skipLatestLayer, skipLatestLayerLabel, skipLatestLayerHint, numberValue, contextDepthForInterval, batchSizeForInterval, applyUpdateEvery, setSkipLatestLayer, refreshAll, get formFillCopy() { return formFillCopy; }, AcuDisclosureGroup, AcuFormRow, AcuInput, AcuPanel, AcuSelect, AcuToggle };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-form-fill-update-settings-panel__settings-groups[data-v-042bf005] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-form-fill-update-settings-panel__setting-group[data-v-042bf005] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-form-fill-update-settings-panel__setting-group\r\n  + .acu-form-fill-update-settings-panel__setting-group[data-v-042bf005] {\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border-2);\n}\n.acu-form-fill-update-settings-panel__advanced[data-v-042bf005] {\r\n  border: 0;\r\n  background: transparent;\n}\n.acu-form-fill-update-settings-panel__number-grid[data-v-042bf005] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n@media (max-width: 560px) {\n.acu-form-fill-update-settings-panel__number-grid[data-v-042bf005] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/FormFillUpdateSettingsPanel.vue#style-0-042bf005");
-var FormFillUpdateSettingsPanel_vue_vue_type_style_index_0_scoped_042bf005_lang = null;
+injectSfcStyle("\n.acu-form-fill-update-settings-panel__settings-groups[data-v-c0a7084e] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-form-fill-update-settings-panel__setting-group[data-v-c0a7084e] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-form-fill-update-settings-panel__setting-group\r\n  + .acu-form-fill-update-settings-panel__setting-group[data-v-c0a7084e] {\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border-2);\n}\n.acu-form-fill-update-settings-panel__advanced[data-v-c0a7084e] {\r\n  border: 0;\r\n  background: transparent;\n}\n.acu-form-fill-update-settings-panel__number-grid[data-v-c0a7084e] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n@media (max-width: 560px) {\n.acu-form-fill-update-settings-panel__number-grid[data-v-c0a7084e] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/FormFillUpdateSettingsPanel.vue#style-0-c0a7084e");
+var FormFillUpdateSettingsPanel_vue_vue_type_style_index_0_scoped_c0a7084e_lang = null;
 
 const _hoisted_1$Q = { class: "acu-form-fill-update-settings-panel__settings-groups" };
 const _hoisted_2$J = { class: "acu-form-fill-update-settings-panel__setting-group" };
 const _hoisted_3$D = { class: "acu-form-fill-update-settings-panel__number-grid" };
+const _hoisted_4$z = { class: "acu-form-fill-update-settings-panel__number-grid" };
 function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.formFillCopy.panels.update.title,
@@ -156739,7 +156935,7 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 			expanded: $setup.advancedExpanded,
 			"body-id": "acu-form-fill-update-advanced",
 			"body-mode": "if",
-			onToggle: _cache[1] || (_cache[1] = ($event) => $setup.advancedExpanded = !$setup.advancedExpanded)
+			onToggle: _cache[4] || (_cache[4] = ($event) => $setup.advancedExpanded = !$setup.advancedExpanded)
 		}, {
 			default: withCtx(() => [createBaseVNode("div", _hoisted_3$D, [(openBlock(true), createElementBlock(
 				Fragment,
@@ -156767,13 +156963,46 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 				}),
 				128
 				/* KEYED_FRAGMENT */
-			))])]),
+			))]), createBaseVNode("div", _hoisted_4$z, [
+				createVNode($setup["AcuFormRow"], {
+					label: "差量注入（实验）",
+					hint: "开启后填表只携带热表全量数据，冷表仅供建表语句与行数；省 token 且减少干扰。默认关闭。"
+				}, {
+					default: withCtx(() => [createVNode($setup["AcuToggle"], {
+						"model-value": $setup.differential.enabled.value,
+						"onUpdate:modelValue": _cache[1] || (_cache[1] = (v) => {
+							$setup.differential.enabled.value = v;
+						})
+					}, null, 8, ["model-value"])]),
+					_: 1
+				}),
+				createVNode($setup["AcuFormRow"], {
+					label: "热表名单",
+					hint: "始终携带全量数据的表：填表名（逗号分隔），如：纪要, 背包。留空则只按近期改动自动判定。"
+				}, {
+					default: withCtx(() => [createVNode($setup["AcuInput"], {
+						"model-value": $setup.differential.hotSheets.value,
+						onChange: _cache[2] || (_cache[2] = ($event) => $setup.differential.hotSheets.value = String($event ?? ""))
+					}, null, 8, ["model-value"])]),
+					_: 1
+				}),
+				createVNode($setup["AcuFormRow"], {
+					label: "冷表名单",
+					hint: "始终只供建表语句的表（压过热表与近期改动）：填表名（逗号分隔）。"
+				}, {
+					default: withCtx(() => [createVNode($setup["AcuInput"], {
+						"model-value": $setup.differential.coldSheets.value,
+						onChange: _cache[3] || (_cache[3] = ($event) => $setup.differential.coldSheets.value = String($event ?? ""))
+					}, null, 8, ["model-value"])]),
+					_: 1
+				})
+			])]),
 			_: 1
 		}, 8, ["meta", "expanded"])) : createCommentVNode("v-if", true)])]),
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var FormFillUpdateSettingsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$S], ["__scopeId", "data-v-042bf005"]]);
+var FormFillUpdateSettingsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$S], ["__scopeId", "data-v-c0a7084e"]]);
 
 /**
  * persistence — 新 UI 自己的 localStorage 持久化层（D14 / P0-4）
@@ -162728,6 +162957,10 @@ const dashboardCopy = {
             label: "静默提示框",
             description: "默认关闭。开启后仅保留填表、规划等核心提示，其他浮窗通知不再弹出。",
         },
+        differentialInjection: {
+            label: "填表差量注入（实验）",
+            description: "默认关闭。开启后填表只携带热表全量数据，冷表仅供建表语句与行数，省 token 并降低干扰；名单在「填表更新设置 → 高级参数」配置。",
+        },
         streaming: {
             label: "开启流式输出",
             description: "默认关闭。开启后 API 以流式方式输出，部分后端在流式模式下响应更快。",
@@ -163344,6 +163577,12 @@ function useDashboardPage() {
                 description: dashboardCopy.toggles.continuation.description,
                 value: settings_ACU.continuationPageEnabled !== false,
             },
+            {
+                key: "differentialInjectionEnabled",
+                label: dashboardCopy.toggles.differentialInjection.label,
+                description: dashboardCopy.toggles.differentialInjection.description,
+                value: settings_ACU.differentialInjectionEnabled === true,
+            },
         ];
         items.push({
             key: "contentReplaceEnabled",
@@ -163448,6 +163687,10 @@ function useDashboardPage() {
             setSummaryVectorIndexMode_ACU(!!value);
         }
         else if (key === "continuationPageEnabled") {
+            settings_ACU[key] = !!value;
+            saveSettings_ACU();
+        }
+        else if (key === "differentialInjectionEnabled") {
             settings_ACU[key] = !!value;
             saveSettings_ACU();
         }
@@ -180010,7 +180253,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260905-13";
+        const stamp = "20260905-15";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
