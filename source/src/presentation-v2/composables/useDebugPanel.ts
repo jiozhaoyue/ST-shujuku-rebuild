@@ -208,7 +208,7 @@ export function useDebugPanel() {
         })();
         const payload = {
           meta: {
-            plugin: 'TTonly·数据库',
+            plugin: 'Luker·数据库',
             version: env.version,
             buildStamp: env.buildStamp,
             host: env.host,
@@ -322,7 +322,7 @@ export function useDebugPanel() {
 
     const payload = {
       meta: {
-        plugin: 'TTonly·数据库',
+        plugin: 'Luker·数据库',
         version: env.version,
         buildStamp: env.buildStamp,
         host: env.host,

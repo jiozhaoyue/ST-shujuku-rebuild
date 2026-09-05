@@ -15,7 +15,7 @@ describe('manifest identity', () => {
     expect(manifest.homePage).not.toContain('shujuku-rebuild');
   });
   it('display_name 已更名（脱离 TTonly / 幻想）', () => {
-    expect(manifest.display_name).not.toBe('TTonly·数据库');
+    expect(manifest.display_name).not.toBe('Luker·数据库');
     expect(manifest.display_name).not.toBe('幻想·数据库');
   });
   it('版本号进入 9.2.x 序列', () => {
