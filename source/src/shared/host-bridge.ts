@@ -30,6 +30,11 @@ export function isAcuTauriRuntime(): boolean {
   return getAcuHostKind() === 'tauritavern';
 }
 
+/** 是否跑在 Luker 下（真机：Luker 2.7.0 注入 window.Luker 并暴露 getContext） */
+export function isAcuLukerRuntime(): boolean {
+  return getAcuHostKind() === 'luker';
+}
+
 /**
  * 取 TT 就绪 Promise/标志。TT 主线程由 init.js 异步引导，先于扩展注册完成
  * 的 APP_READY 不代表 TT 内部 ABI 就绪；`__TAURITAVERN__?.ready` 可能是个
