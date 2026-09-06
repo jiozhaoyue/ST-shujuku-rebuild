@@ -68,6 +68,7 @@ function resolveTableApiPresetOverride_ACU(tableName: any): string {
 import { checkIfFirstTimeInit_ACU, ensureLegacyStorageMigratedBeforeWrite_ACU } from './table-service';
 import { assertSingleActiveFullCheckpointV2_ACU, assertWriteTargetNotBeforeReplayRoot_ACU, hasAnyV2Checkpoint_ACU } from './storage-frame-v2-persist';
 import { parseAndApplyTableEditsToData_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
+import { buildDifferentialInjectionFromSettings_ACU, getRecentTouchedSheetKeys_ACU, recordTouchedSheetKeys_ACU } from '../ai/prompt-builder/table-injection-scope';
 import { extractStrictJsonTableFillResponse_ACU } from '../ai/prompt-builder/strict-json-table-fill';
 import { isSqlContent } from '../ai/prompt-builder/table-edit-parser';
 import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU } from '../template/chat-scope';
@@ -1119,6 +1120,9 @@ export async function collectGroupFillResponse_ACU(
             sqlApplyScope: job.sqlApplyScope,
             signal: effectiveAbortController.signal,
             worldbookReadContext: options.worldbookReadContext,
+            // [差量注入] 开关与热/冷表名单来自插件全局设置（计划五 UI 读写）；
+            // 近期改动表自动供给账本。构造器对 enabled=false 场景返回安全空选项。
+            differentialInjection: buildDifferentialInjectionFromSettings_ACU(settings_ACU),
         });
     } catch (error: any) {
         prepareSpan.end({ success: false });
@@ -1841,6 +1845,10 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
         const parseError = parseResultObject && typeof parseResultObject.error === 'string'
             ? parseResultObject.error.trim()
             : '';
+        // [差量注入] 仅成功批次入账：账本是"近期实际改动过"的信号，失败/零操作批次不入。
+        if (parseSuccess && Array.isArray(parsedKeys) && parsedKeys.length > 0) {
+            recordTouchedSheetKeys_ACU(parsedKeys);
+        }
         if (!parseSuccess) {
             // 空指令零操作提交（v9.1.5 行为恢复）：全部指令被模式门静默过滤
             // （appliedEdits===0 && failedEdits===0，仅 tableEdit 解析器带 failedEdits 计数），
@@ -3599,10 +3607,18 @@ function countCatchUpChunkBuckets_ACU(groups: ManualCatchUpPlan_ACU['waves'][num
  * 从聊天中的已提交事实生成 catch-up 计划，不调用 AI、不写入数据。
  * 调用方可用于确认展示；真正执行时必须重新规划，以吸收确认期间的提交变化。
  */
-export async function prepareManualCatchUpPlan_ACU(targetKeys: string[]): Promise<ManualCatchUpPlanningResult_ACU> {
+export async function prepareManualCatchUpPlan_ACU(
+    targetKeys: string[],
+    options: { batchSizeOverride?: number } = {},
+): Promise<ManualCatchUpPlanningResult_ACU> {
     if (!Array.isArray(targetKeys) || targetKeys.length === 0) {
         return { success: false, error: '未选择需要追平的表格。' };
     }
+    // [楼层级调度] 批粒度覆盖：正整数才生效，否则回落手动面板设置（每 N 层合并一次）。
+    const batchSizeOverrideRaw = Number(options.batchSizeOverride);
+    const batchSizeOverride = Number.isFinite(batchSizeOverrideRaw) && batchSizeOverrideRaw >= 1
+        ? Math.trunc(batchSizeOverrideRaw)
+        : null;
 
     await loadAllChatMessages_ACU();
     const chat = getChatArray_ACU();
@@ -3644,7 +3660,8 @@ export async function prepareManualCatchUpPlan_ACU(targetKeys: string[]): Promis
             lastCompletedAiFloor: history.lastTrackedUpdateAiFloor,
             groupId,
             // 追平的分批粒度跟手动面板的「每 N 层合并为一次填表」走，不读自动填表的 updateBatchSize。
-            batchSize: resolveManualUpdateBatchSize_ACU(),
+            // 楼层级调度器传入 batchSizeOverride 时以覆盖值为准（1 = 逐楼）。
+            batchSize: batchSizeOverride ?? resolveManualUpdateBatchSize_ACU(),
             requestOptions: preset ? { tableApiPreset: preset } : null,
             updateMode: 'manual_independent',
             executionKind: isSqliteMode() ? 'sql' as const : 'standard' as const,
@@ -3671,6 +3688,8 @@ export async function orchestrateManualCatchUp_ACU(
          * 或表集合变化，直接 fail-closed 阻断，防止展示回退/陈旧目标继续执行。
          */
         executionSnapshot?: { sheetKeys: string[] };
+        /** [楼层级调度] 透传给规划器：正整数覆盖追平分批粒度（1 = 逐楼），缺省走面板设置。 */
+        batchSizeOverride?: number;
     } = {},
 ): Promise<ManualUpdateResult> {
     if (isAutoUpdatingCard_ACU) {
@@ -3714,7 +3733,9 @@ export async function orchestrateManualCatchUp_ACU(
         logDebug_ACU('[手动追平] 已前置完成 legacy→V2 迁移并重载运行时，重新规划追平计划。');
     }
 
-    const planningResult = await prepareManualCatchUpPlan_ACU(targetKeys);
+    const planningResult = await prepareManualCatchUpPlan_ACU(targetKeys, {
+        batchSizeOverride: options.batchSizeOverride,
+    });
     if (!planningResult.success || !planningResult.plan) {
         return { success: false, error: planningResult.error || '无法生成手动追平计划。' };
     }

@@ -539,7 +539,7 @@ describe('FormFillPage', () => {
     expect(advancedRows.map(row => (row.textContent || '').trim()).join('|')).toContain('跳过最新回复数');
     expect(advancedRows.map(row => (row.textContent || '').trim()).join('|')).toContain('AI 回复最小长度');
     expect(advancedRows.map(row => (row.textContent || '').trim()).join('|')).toContain('填表最大重试');
-    expect(advancedRows).toHaveLength(6);
+    expect(advancedRows).toHaveLength(9);
 
     const batchRow = advancedRows.find(row => (row.textContent || '').includes('批处理层数'))!;
     const batchInput = batchRow.querySelector<HTMLInputElement>('input[type="number"]')!;

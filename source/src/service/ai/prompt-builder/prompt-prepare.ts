@@ -20,6 +20,11 @@ import {
   getUserName_ACU
 } from '../../../data/gateways/host-state-gateway';
 import {
+  resolveDifferentialHotSheetKeys_ACU,
+  expandSheetSelectorsToKeys_ACU,
+  type DifferentialInjectionOptions_ACU,
+} from './table-injection-scope';
+import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
   ensureChatSheetGuideSeeded_ACU,
   getEffectiveSeedRowsForSheet_ACU,
@@ -234,7 +239,7 @@ function resolvePromptRowWindow_ACU(
     messages: any[],
     updateMode = 'standard',
     targetSheetKeys: string[] | null = null,
-    options: { tableData?: any; excludeImportTaggedWorldbookEntries?: boolean; agentGreenlights?: any[]; isolationKey?: string; templateScope?: TemplateScope_ACU; sqlApplyScope?: SqlTableApplyScope_ACU; signal?: AbortSignal; worldbookReadContext?: LorebookReadContext_ACU } = {},
+    options: { tableData?: any; excludeImportTaggedWorldbookEntries?: boolean; agentGreenlights?: any[]; isolationKey?: string; templateScope?: TemplateScope_ACU; sqlApplyScope?: SqlTableApplyScope_ACU; signal?: AbortSignal; worldbookReadContext?: LorebookReadContext_ACU; differentialInjection?: DifferentialInjectionOptions_ACU | null } = {},
   ) {
     const sqlMode = isSqliteMode();
     const sourceTableData = await resolvePromptSourceTableData_ACU(options, sqlMode);
@@ -299,6 +304,16 @@ function resolvePromptRowWindow_ACU(
     const promptTableNameForSheet = sqlMode
         ? resolvePromptTableNameForSheet_ACU(promptIdentifierSource, tableIndexes)
         : null;
+    // [差量注入] 热表解析：options.differentialInjection 缺省为关（{enabled:false} 语义），
+    // 此时热集合为空集但 differentialEnabled=false，走全量注入，行为与历史版本逐字节一致。
+    // 名单选择器（表名或 sheet_ 键）先展开为键；未匹配项忽略，不打断填表主链。
+    const differentialOptions = options.differentialInjection ?? null;
+    const differentialEnabled = differentialOptions?.enabled === true;
+    const differentialHotSheetKeys = resolveDifferentialHotSheetKeys_ACU({
+        ...(differentialOptions || { enabled: false }),
+        hotSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.hotSheetKeys, workingTableData)],
+        coldSheetKeys: [...expandSheetSelectorsToKeys_ACU(differentialOptions?.coldSheetKeys, workingTableData)],
+    });
     for (let tableIndex = 0; tableIndex < tableIndexes.length; tableIndex += 1) {
         if (tableIndexes.length > 20 && tableIndex !== 0 && tableIndex % 5 === 0) await new Promise<void>(r => setTimeout(r, 0));
         const sheetKey = tableIndexes[tableIndex];
@@ -341,6 +356,14 @@ function resolvePromptRowWindow_ACU(
             tableDataText += formatTableForSqliteMode(table, tableIndex, sheetKey, _seedGuideDataForThisPrepare_ACU, {
                 allowSeedRowsFallback: false,
                 flightModeEnabled: flightMode.enabled,
+                // [差量注入] 显式 targetSheetKeys 请求路径恒全量；仅自动全表遍历时冷表投影。
+                coldProjection: differentialEnabled
+                    && !targetSheetKeys
+                    && !differentialHotSheetKeys.has(sheetKey),
+                // [差量注入] 列级增量指引只给热表（冷表连行都没有，指引无意义）。
+                columnDeltaHint: differentialEnabled
+                    && !targetSheetKeys
+                    && differentialHotSheetKeys.has(sheetKey),
                 ...(selectedPromptName as { authoredTableName?: string; runtimeTableName?: string }),
             });
             // 锁定信息软约束：硬保护由执行后差异回滚兜底，此处提示模型避开锁定目标，
@@ -711,7 +734,7 @@ export function formatTableForSqliteMode(
     tableIndex: number,
     sheetKey: string,
     guideData: any,
-    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean } = {},
+    options: { allowSeedRowsFallback?: boolean; runtimeTableName?: string; authoredTableName?: string; flightModeEnabled?: boolean; coldProjection?: boolean; columnDeltaHint?: boolean } = {},
 ): string {
     let text = '';
     const projection = getSheetColumnProjection_ACU(table);
@@ -777,6 +800,12 @@ export function formatTableForSqliteMode(
         text += `-- WARNING: ${resolvedDDL.diagnostics[0]} 原始 DDL 未被改写。\n`;
     }
     text += '-- SQL 写入时，以上 CREATE TABLE 中的列名是本轮唯一权威；Note/Trigger 中与其不一致的示例不得照抄，必须按上述列名改写。\n';
+    if (options.columnDeltaHint === true) {
+        // [差量注入] 列级增量指引：纯提示词侧引导 AI 只 SET 实际变化的列。
+        // 不做执行前数据级 diff 改写——语句要进聊天帧做冷回放，等值判断的微妙偏差
+        // （类型/空白/转义）会造成静默数据损坏，风险收益不成比例（设计文档计划四决策）。
+        text += '-- [增量提示] UPDATE 只 SET 与当前值实际发生变化的列；未变化的列保持原值，禁止整行重写。\n';
+    }
     if (options.authoredTableName) {
         text += `-- SQL 写入必须严格使用本表上方 CREATE TABLE 中的表名 ${options.authoredTableName}；不得使用其他名称。\n`;
     }
@@ -804,6 +833,14 @@ export function formatTableForSqliteMode(
             text += `-- INIT: ${table.sourceData.initNode.replace(/\n/g, '\n-- ')}\n`;
         }
         text += `-- (该表格为空，请进行初始化。)\n\n`;
+        return text;
+    }
+
+    // [差量注入] 冷表投影：DDL 权威链（上方 resolve）已完整执行，只省略行数据段。
+    // 保留 INSERT 能力与 schema 契约；冷表基于行内容的 UPDATE/DELETE 由提示引导跳过。
+    if (options.coldProjection === true) {
+        text += `-- 本轮未列为热表：共 ${effectiveAllRows.length} 行数据未列出，默认无变化。\n`;
+        text += `-- INSERT 可直接执行；需要基于已有行内容的 UPDATE/DELETE 请跳过本表。\n\n`;
         return text;
     }
 

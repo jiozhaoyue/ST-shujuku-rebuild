@@ -1,0 +1,138 @@
+# 上游定时同步：每日拉取 shuiyue-cmyk/shujuku-rebuild master 并尝试合并。
+# 本仓库与上游共享 git 历史（fork 点 v9.1.9 = 760ba68），可直接 git merge。
+# 干净合并 + 质量门通过 → 自动合入 master 并重建分发产物；
+# 冲突（构建产物/品牌文件除外）或门禁失败 → 开/更新 issue 人工甄别，保留移植评审纪律。
+# 注：更上游的 AlbusKen/shujuku（与本项目历史不同源）由 rebuild 自行移植，本项目只跟踪 rebuild。
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "17 21 * * *" # 每日 05:17（北京时间），错开整点高峰
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  UPSTREAM_REPO: https://github.com/shuiyue-cmyk/shujuku-rebuild.git
+  UPSTREAM_BRANCH: master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置身份并拉取上游
+        id: setup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream "$UPSTREAM_BRANCH"
+          UP_SHA=$(git rev-parse --short "upstream/$UPSTREAM_BRANCH")
+          BASE=$(git merge-base HEAD "upstream/$UPSTREAM_BRANCH")
+          if [ "$BASE" = "$(git rev-parse upstream/$UPSTREAM_BRANCH)" ]; then
+            echo "status=up_to_date" >> "$GITHUB_OUTPUT"
+            echo "上游无新提交（HEAD 已包含 $UP_SHA）"
+          else
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+            {
+              echo "### 上游待同步提交（$(git rev-parse --short "$BASE")..$UPSTREAM_BRANCH）"
+              git log --reverse --oneline "$BASE..upstream/$UPSTREAM_BRANCH" | sed 's/^/- /'
+            } > /tmp/upstream-new.md
+          fi
+
+      # 尝试合并；构建产物与品牌/身份文件冲突按我方解决（随后重建），其余冲突转人工
+      - name: 尝试合并上游
+        id: merge
+        if: steps.setup.outputs.status == 'pending'
+        run: |
+          set -euo pipefail
+          if git merge --no-ff --no-commit "upstream/$UPSTREAM_BRANCH" > /tmp/merge-out.txt 2>&1; then
+            echo "status=merged" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RESOLVE=(index.js sql-wasm.wasm manifest.json README.md)
+          for f in "${RESOLVE[@]}"; do
+            if git diff --name-only --diff-filter=U | grep -qx "$f"; then
+              git checkout --ours -- "$f"
+              git add -- "$f"
+              echo "已按我方解决冲突: $f（稍后重建产物）"
+            fi
+          done
+          REMAIN=$(git diff --name-only --diff-filter=U || true)
+          if [ -n "$REMAIN" ]; then
+            {
+              echo "### 冲突文件（自动解决产物后仍剩，需人工甄别）"
+              '```'
+              echo "$REMAIN"
+              '```'
+            } > /tmp/conflicts.md
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+            git merge --abort
+            exit 0
+          fi
+          echo "status=merged" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.merge.outputs.status == 'merged'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      # 质量门与 release-gate 同口径：类型检查 / 全量测试 / 构建 / 冒烟；通过后重建根产物并落合并提交
+      - name: 质量门并重建分发产物
+        id: gate
+        if: steps.merge.outputs.status == 'merged'
+        run: |
+          set -euo pipefail
+          : > /tmp/gate-progress.md
+          cd source
+          npm ci --no-audit --no-fund && echo "- npm ci ✓" >> /tmp/gate-progress.md
+          npx tsc --noEmit -p tsconfig.json && echo "- 类型检查 ✓" >> /tmp/gate-progress.md
+          npx vitest run --exclude "tests/performance/**" && echo "- 全量测试 ✓" >> /tmp/gate-progress.md
+          npm run build && echo "- 构建 ✓" >> /tmp/gate-progress.md
+          npm run smoke && echo "- 产物冒烟 ✓" >> /tmp/gate-progress.md
+          cmp dist/extension/index.js ../index.js > /dev/null 2>&1 || cp dist/extension/index.js ../index.js
+          cmp dist/extension/sql-wasm.wasm ../sql-wasm.wasm > /dev/null 2>&1 || cp dist/extension/sql-wasm.wasm ../sql-wasm.wasm
+          cd ..
+          git add index.js sql-wasm.wasm
+          git commit -m "merge: 同步上游 shuiyue-cmyk/shujuku-rebuild@$(git rev-parse --short upstream/$UPSTREAM_BRANCH)（CI 自动同步，质量门通过）"
+          echo "status=committed" >> "$GITHUB_OUTPUT"
+
+      - name: 推送 master
+        if: steps.gate.outputs.status == 'committed'
+        run: git push origin "$UPSTREAM_BRANCH"
+
+      - name: 开/更新人工处置 issue
+        if: ${{ always() && (steps.merge.outputs.status == 'conflict' || (steps.setup.outputs.status == 'pending' && steps.gate.outcome == 'failure')) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge --abort 2>/dev/null || true
+          {
+            [ -f /tmp/upstream-new.md ] && cat /tmp/upstream-new.md
+            [ -f /tmp/conflicts.md ] && cat /tmp/conflicts.md
+            if [ -f /tmp/gate-progress.md ] && [ -s /tmp/gate-progress.md ]; then
+              echo "### 质量门进度（失败于最后一项之后）"
+              cat /tmp/gate-progress.md
+            fi
+            echo "### 处置指引"
+            echo "- 失败运行日志：$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- 本地复现：\`git remote add upstream $UPSTREAM_REPO && git fetch upstream && git merge upstream/$UPSTREAM_BRANCH\`"
+            echo "- 构建产物（index.js / sql-wasm.wasm）与品牌文件（manifest.json / README.md）冲突以我方为准，其余冲突甄别上游改动是否触碰宿主适配红线后移植"
+            echo "- 移植后重建分发产物：\`cd source && npm ci && npx vitest run && npm run build\`，将 \`dist/extension/{index.js,sql-wasm.wasm}\` 拷至根目录一并提交"
+          } > /tmp/issue-body.md
+          NUMBER=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --search "上游同步人工处置 in:title" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUMBER" ]; then
+            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/issue-body.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "上游同步人工处置（自动）" --body-file /tmp/issue-body.md
+          fi

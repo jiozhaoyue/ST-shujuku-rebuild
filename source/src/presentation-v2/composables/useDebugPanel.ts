@@ -27,6 +27,7 @@ import {
 import { getAcuHostDocument } from '../bootstrap/host-document';
 import { useToastStore } from '../stores/toast-store';
 import { getAcuHostKind } from '../../shared/host-bridge';
+import { collectSelfCheckSnapshot_ACU } from '../../service/table/self-check';
 import { settings_ACU, currentJsonTableData_ACU, currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
 
 function getBuildStamp(): string {
@@ -154,6 +155,7 @@ export function useDebugPanel() {
           version: getPluginVersion(),
           exportedAt: new Date().toISOString(),
           chatId: currentChatFileIdentifier_ACU,
+          selfCheck: collectSelfCheckSnapshot_ACU(),
           streamingEnabled: presetCfg ? presetCfg.streamingEnabled === true : settings_ACU?.streamingEnabled === true,
           streamingEnabledGlobal: settings_ACU?.streamingEnabled === true,
           streamingEnabledPreset: presetCfg ? presetCfg.streamingEnabled === true : undefined,
@@ -208,7 +210,7 @@ export function useDebugPanel() {
         })();
         const payload = {
           meta: {
-            plugin: 'TTonly·数据库',
+            plugin: 'Luker·数据库',
             version: env.version,
             buildStamp: env.buildStamp,
             host: env.host,
@@ -322,7 +324,7 @@ export function useDebugPanel() {
 
     const payload = {
       meta: {
-        plugin: 'TTonly·数据库',
+        plugin: 'Luker·数据库',
         version: env.version,
         buildStamp: env.buildStamp,
         host: env.host,

@@ -4,9 +4,18 @@
 
 ## 0. 安装
 
-1. 扩展面板 → Install extension → 粘贴 `https://github.com/shuiyue-cmyk/shujuku-rebuild`
-2. 确认扩展列表出现「TTonly·数据库」，`manifest.json` 中 `auto_update: true`
+1. 扩展面板 → Install extension → 粘贴本仓库地址（`manifest.json` 中 `homePage` 指向本仓库）
+2. 确认扩展列表出现「Luker·数据库」，`manifest.json` 中 `auto_update: true`
 3. 刷新页面后，确认右上/侧边出现数据库入口（V2 面板 `#acu-app-v2`）
+
+## 0.5 Luker 真机（Luker 2.7.0 / stCompat 1.18.0）
+
+- [ ] 扩展启用后刷新：右下角出现 `Luker·<构建戳>` 构建水印（`#acu-build-stamp-badge`）
+- [ ] 控制台无「等待 SillyTavern 就绪超时」；调试面板 host 字段为 `luker`（`window.Luker.getContext` 特征命中）
+- [ ] V2 面板挂载：表格 / 填表 / SQL 控制台 / 运行日志全量可用
+- [ ] 聊天含旧 TT/上游数据（Branch 陈旧 HotSnapshot / 上游 `TavernDB_ACU_HotSnapshot` 等）时：owner 守卫忽略，无报错、无阻塞
+- [ ] 世界书桥接降级：不装酒馆助手时核心表格功能正常，世界书操作给出可操作提示（不抛未捕获异常）
+- [ ] auto_update 安全：manifest `homePage` 指向本仓库，宿主自动更新不会拉回上游 rebuild 产物
 
 ## 1. 启动与核心（不依赖酒馆助手）
 
@@ -52,6 +61,15 @@
 
 - 不装酒馆助手时：部分世界书写入能力不可用，属预期降级
 - 性能基准测试在并行负载下偶发超时（本地单跑通过），不影响功能
+
+## 7. 差量注入 / 楼层级追平 / 自检（v9.3.0+ 新功能，默认关闭不影响既有行为）
+
+- [ ] 仪表盘高级设置出现「填表差量注入（实验）」开关，默认关闭；关闭时填表行为与旧版一致（prompt 中每表仍带全部行数据）
+- [ ] 开启后（填表更新设置 → 高级参数）：热表名单填表名（如 `纪要`），下次填表 prompt 中热表仍带全量行；未列名且近期未改动的表只出现 DDL 与「未列为热表」注释，不再带行数据
+- [ ] 冷表名单中的表永远只带 DDL（压过热表与近期改动）
+- [ ] 差量开启后发起一轮真实填表：`<tableEdit>` 正常执行入库、可视化前端照常刷新；AI 对冷表不出 UPDATE（出了解析照常执行，只是数据可能不准——预期内）
+- [ ] 一键追平：选择「每 1 层合并」后执行，逐楼推进；中途终止提示已保留 N 个 bucket；再次追平自动从断点续跑（已提交楼层不重复调用 AI）
+- [ ] Debug 面板/导出 JSON 出现 `selfCheck` 字段：host / storage / differentialInjection（含账本 batchCount）/ pendingFlush 四个探针均 ok:true
 
 ## 反馈格式
 

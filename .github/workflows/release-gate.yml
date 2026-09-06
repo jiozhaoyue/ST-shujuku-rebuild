@@ -1,0 +1,54 @@
+# 发版流水线：打 vX.Y.Z tag 推送时执行——全量测试 + 类型检查 + 构建 + 产物冒烟。
+# 产物（index.js / sql-wasm.wasm / manifest.json）已随提交入库，此 job 是质量门与发版凭据。
+name: Release Gate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: 安装依赖
+        working-directory: source
+        run: npm ci --no-audit --no-fund
+
+      - name: 类型检查
+        working-directory: source
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: 全量测试（零回退门禁）
+        working-directory: source
+        run: npx vitest run --exclude "tests/performance/**"
+
+      - name: 构建
+        working-directory: source
+        run: npm run build
+
+      - name: 产物冒烟
+        working-directory: source
+        run: npm run smoke
+
+      - name: 校验入库产物与构建一致
+        run: |
+          set -euo pipefail
+          cmp source/dist/extension/index.js index.js
+          cmp source/dist/extension/sql-wasm.wasm sql-wasm.wasm
+          echo "入库产物与构建输出一致"
+
+      - name: 汇总
+        run: echo "Release ${{ github.ref_name }} 质量门通过"

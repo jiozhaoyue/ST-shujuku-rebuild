@@ -698,6 +698,7 @@ describe("DashboardPage", () => {
     expect(visibleToggleKeys).toEqual([
       "plotEnabled",
       "continuationPageEnabled",
+      "differentialInjectionEnabled",
       "contentReplaceEnabled",
       "summaryVectorIndexModeEnabled",
       "developerOptionsEnabled",
@@ -786,6 +787,7 @@ describe("DashboardPage", () => {
     expect(visibleToggleKeys).toEqual([
       "plotEnabled",
       "continuationPageEnabled",
+      "differentialInjectionEnabled",
       "contentReplaceEnabled",
       "summaryVectorIndexModeEnabled",
       "developerOptionsEnabled",

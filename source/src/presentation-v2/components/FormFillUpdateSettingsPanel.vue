@@ -67,6 +67,36 @@
             />
           </AcuFormRow>
         </div>
+
+        <div class="acu-form-fill-update-settings-panel__number-grid">
+          <AcuFormRow
+            label="差量注入（实验）"
+            hint="开启后填表只携带热表全量数据，冷表仅供建表语句与行数；省 token 且减少干扰。默认关闭。"
+          >
+            <AcuToggle
+              :model-value="differential.enabled.value"
+              @update:model-value="(v: boolean) => { differential.enabled.value = v; }"
+            />
+          </AcuFormRow>
+          <AcuFormRow
+            label="热表名单"
+            hint="始终携带全量数据的表：填表名（逗号分隔），如：纪要, 背包。留空则只按近期改动自动判定。"
+          >
+            <AcuInput
+              :model-value="differential.hotSheets.value"
+              @change="differential.hotSheets.value = String($event ?? '')"
+            />
+          </AcuFormRow>
+          <AcuFormRow
+            label="冷表名单"
+            hint="始终只供建表语句的表（压过热表与近期改动）：填表名（逗号分隔）。"
+          >
+            <AcuInput
+              :model-value="differential.coldSheets.value"
+              @change="differential.coldSheets.value = String($event ?? '')"
+            />
+          </AcuFormRow>
+        </div>
       </AcuDisclosureGroup>
     </div>
   </AcuPanel>
@@ -81,6 +111,7 @@ import {
   useFormFillSettings,
   type NumberSettingKey,
 } from "../composables/useFormFillSettings";
+import { useDifferentialInjectionSettings } from "../composables/useDifferentialInjectionSettings";
 import { formFillCopy } from "../copy/form-fill-copy";
 import AcuDisclosureGroup from "./_lib/AcuDisclosureGroup.vue";
 import AcuFormRow from "./_lib/AcuFormRow.vue";
@@ -101,6 +132,7 @@ withDefaults(
 );
 
 const settings = useFormFillSettings();
+const differential = useDifferentialInjectionSettings();
 const {
   apiStore,
   followActiveApiLabel,

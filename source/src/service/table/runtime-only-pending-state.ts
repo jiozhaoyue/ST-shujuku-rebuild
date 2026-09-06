@@ -134,6 +134,16 @@ export function registerRuntimeOnlyPendingFlusher_ACU(flusher: PendingFlusher_AC
   registeredFlusher_ACU = flusher;
 }
 
+/** [自检] 全部 scope 的待 flush 快照（只读，不改动任何状态）：登记了待物化表的 scope 列表。 */
+export function snapshotAllRuntimeOnlyPending_ACU(): Array<{ scopeKey: string; all: boolean; sheetKeys: string[] }> {
+  const out: Array<{ scopeKey: string; all: boolean; sheetKeys: string[] }> = [];
+  for (const [scopeKey, state] of pendingByScope_ACU) {
+    if (!state.all && state.sheetKeys.size === 0) continue;
+    out.push({ scopeKey, all: state.all, sheetKeys: [...state.sheetKeys] });
+  }
+  return out;
+}
+
 export async function runRegisteredRuntimeOnlyPendingFlush_ACU(
   scope: RuntimeOnlyPendingScope_ACU,
   reason: string,

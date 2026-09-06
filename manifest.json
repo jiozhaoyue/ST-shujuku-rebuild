@@ -1,12 +1,12 @@
 {
-    "display_name": "TTonly·数据库",
+    "display_name": "Luker·数据库",
     "loading_order": 200,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "",
-    "author": "shuiyue-cmyk",
-    "version": "9.1.9",
-    "homePage": "https://github.com/shuiyue-cmyk/shujuku-rebuild",
+    "author": "jiozhaoyue",
+    "version": "9.4.0",
+    "homePage": "https://github.com/jiozhaoyue/ST-shujuku-rebuild",
     "auto_update": true
 }

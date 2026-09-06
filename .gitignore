@@ -6,6 +6,8 @@ dist/
 .codebuddy/
 .specify/
 .limcode/
+.claude/
+.zcode/
 
 # 本地分析缓存/归档
 .analysis-cache.md
@@ -18,6 +20,20 @@ dist/
 tsc.log
 .smoke-trace.log
 
+# 测试/构建副产物
+coverage/
+*.tsbuildinfo
+.vite/
+npm-debug.log*
+
+# 环境与密钥（本仓库不应有任何密钥文件；此节为防线）
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+
 # 系统
 .DS_Store
 Thumbs.db
+desktop.ini
