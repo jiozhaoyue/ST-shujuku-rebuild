@@ -37,3 +37,6 @@ secrets.*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 救援工具本地输出（含用户会话数据，禁止入库）
+.rescue-out/

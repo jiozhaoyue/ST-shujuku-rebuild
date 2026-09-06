@@ -1,0 +1,1360 @@
+{
+  "mate": {
+    "type": "chatSheets",
+    "version": 2,
+    "globalInjectionConfig": {
+      "readableEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99981
+      },
+      "wrapperPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99980
+      }
+    },
+    "updateConfigUiSentinel": -1
+  },
+  "sheet_protagonist": {
+    "uid": "sheet_protagonist",
+    "name": "主角信息表",
+    "sourceData": {
+      "note": "记录主角的核心身份信息。此表有且仅有一行。\n\n【列定义】\n- 列1: 姓名 name\n- 列2: 性别 gender\n- 列3: 生日 birthday（格式必须为YYYY-MM-DD，如2006-05-01，公历。故事初始化时，结合主角设定与已知信息（年龄、星座、生辰等）推断一个合理的出生日期填写）\n- 列4: 外貌特征 appearance（≤60 字，含日常穿衣风格，写出整体印象，避免罗列数据）\n- 列5: 身份背景 identity_text（人物的身份、背景、特殊之处或者特别的本领，≤100 字，逗号分隔）\n- 列6: 近况 current_condition（默认\"一切如常\"，可描述身体状况或情绪基调，如\"有点困\"\"左膝擦伤\"\"心里不踏实\"）\n- 列7: 瑟瑟能量 ero_power（纯数字，初始为0，主角每一次高潮/射精或者让她人高潮一次则能量+1）\n\n【近况】\n一句话描述主角当前的身体感觉、情绪状态或心头惦记的事。正常时期填\"一切如常\"，有异常时直接写具体感受，不用标签堆叠。如：\"昨晚没睡好，脑子有点沉\"\"刚从雨里跑回来，衣服还湿着\"。\n",
+      "initNode": "故事初始化时，插入主角的唯一条目。",
+      "deleteNode": "禁止。",
+      "updateNode": "已存在的这一行，字段值变化时更新：外貌、身份、近况、瑟瑟能量。\nSQL示例(瑟瑟能量变化): UPDATE zhujuexinxibiao SET ero_power =1 WHERE row_id = 1;",
+      "insertNode": "禁止。",
+      "ddl": "CREATE TABLE zhujuexinxibiao ( -- 主角信息\n  row_id INTEGER PRIMARY KEY CHECK(row_id = 1), -- 行号，仅允许为 1\n  name TEXT NOT NULL, -- 姓名\n  gender TEXT NOT NULL, -- 性别\n  birthday TEXT , -- 生日\n  appearance TEXT NOT NULL CHECK(LENGTH(appearance) <= 60), -- 外貌特征\n  identity_text TEXT NOT NULL CHECK(LENGTH(identity_text) <= 100), -- 身份背景\n  current_condition TEXT NOT NULL DEFAULT '一切如常', -- 近况\n  ero_power INTEGER DEFAULT 0 -- 瑟瑟能量\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "性别",
+        "生日",
+        "外貌特征",
+        "身份背景",
+        "近况",
+        "瑟瑟能量"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "主角信息",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "主角信息-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 0
+  },
+  "sheet_romance_targets": {
+    "uid": "sheet_romance_targets",
+    "name": "恋爱对象表",
+    "sourceData": {
+      "note": "记录对主角有恋爱关系或潜在恋爱关系（包括性关系）的角色。\n\n【列定义】\n- 列1: 姓名 name（全表唯一）\n- 列2: 性别 gender\n- 列3: 生日 birthday （格式必须为YYYY-MM-DD，如2006-05-01，公历。新角色首次入表时，结合角色设定与正文已知信息（年龄、星座、生辰、纪念日等）推断一个合理的出生日期填写）\n- 列4: 一句话介绍 brief_intro（≤30字）\n- 列5: 外貌特征 appearance（80字以上，脸头身体等各个部位的特征，主要是头面部特征，必须包括肤色、发型、发色、瞳色这几项，没有明确说明项可通过合理推断得出，尽可能地详细，不记录衣着饰品。）\n- 列6: 身份 identity_text（≤40字）\n- 列7: 语言风格和口癖 speech_style（记录角色说话的语言习惯与风格，如措辞习惯、句式、常用口头禅、语气节奏，帮助 AI 稳定模仿角色口吻）\n- 列8: 对主角态度 attitude_to_protagonist （该角色与主角的关系和态度详情列，固定两段格式“关系：XX；态度：YY”——“关系”段=与主角的关系类型简短词，如 恋人/挚友/宿敌/师徒/竞争对手/单恋/前恋人，≤12字；“态度”段=对主角的看法和情感态度，为长期性稳定态度，不记录临时情绪，不体现具体事件和当前状态，≤60字。两段顺序固定、用分号分隔，态度段内不再使用分号；更新时保持两段格式。示例：关系：恋人；态度：好像不讨厌待在一起，但也说不好是习惯还是别的。）\n- 列9: 过往经历 past_experience（记录角色出场前背景，以及此后影响其后续行为的事件要点：性格展现、关系变化、承诺、冲突与里程碑；不写纪要表已覆盖的事件流水账。≤1000字。未达1000字时只能在末尾追加一两句简述本次新经历（若为不连续的新经历则以绝对时间开头（比如X月X日）），严禁改写、删减或覆盖已有内容；超1000字时先总结压缩已有的过往经历至200字以内，尽量保留：出场前背景设定和关键事件节点（关系确立、初次告白、初次发生关系、重大冲突与和解等里程碑），然后再做增量添加。本字段用于指导人物后续行为，保证AI不遗忘其特点与历史互动）\n- 列10: 最近亲密互动 recent_interactions（发生亲密互动后更新互动的简要描述，反映感情升温的痕迹，格式为“YYYY-MM-DD：互动内容”，不超过50字）\n【准入】\n仅记录有恋爱关系或潜在恋爱发展可能的角色。\n【文字规范】\n态度描述必须使用自然白话文，保持描述开放、不锁定、不下定义。\n- 正确：“好像不讨厌待在一起，但也说不好是习惯还是别的。”\n- 避免：“她对主角已形成稳定的依恋关系。”（下定义）\n- 避免：“处于好感上升期。”（归纳状态）\n描述应呈现行为、神态、语气等可观察的迹象，保留不确定性和摇摆空间。\n\n【与其他人物的关系】\n不在本表记录——人物之间的成对关系统一写入人物关系表。",
+      "initNode": "为已登场的恋爱对象各插入一条。\n",
+      "deleteNode": "禁止删除",
+      "updateNode": "角色状态或经历变化时更新。对主角或其他人的关系、态度变化需及时体现。该角色本轮出场或与主角互动后，首先检视字数是否超标，超标则先执行压缩总结，再进行追加更新。发现外貌字数不够时补足\nSQL示例: UPDATE lianaiduixiangbiao SET attitude_to_protagonist = '关系：恋人；态度：好像不讨厌待在一起，但也说不好是习惯还是别的。' WHERE name = '白瑾';",
+      "insertNode": "新恋爱对象登场时新增。\nSQL示例: INSERT INTO lianaiduixiangbiao (name, gender, birthday, brief_intro, appearance, identity_text, speech_style, attitude_to_protagonist, past_experience, recent_interactions) VALUES ('神谷真', '女', '2004-05-21', '神秘的交换生', '详细的外貌描述内容...', '学生', '说话轻柔，习惯在句尾带“呢”', '关系：单恋；态度：礼貌但透着距离感', '过去经历的简述...', '无');",
+      "ddl": "CREATE TABLE lianaiduixiangbiao ( -- 恋爱对象表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT, -- 姓名\n  gender TEXT, -- 性别\n  birthday TEXT, -- 生日\n  brief_intro TEXT CHECK(LENGTH(brief_intro) <= 40), -- 一句话介绍\n  appearance TEXT CHECK(LENGTH(appearance) <= 200), -- 外貌特征\n  identity_text TEXT, -- 身份\n  speech_style TEXT, -- 语言风格和口癖\n  attitude_to_protagonist TEXT, -- 对主角态度\n  past_experience TEXT CHECK(LENGTH(past_experience) <= 1200), -- 过往经历\n  recent_interactions TEXT -- 最近亲密互动\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "性别",
+        "生日",
+        "一句话介绍",
+        "外貌特征",
+        "身份",
+        "语言风格和口癖",
+        "对主角态度",
+        "过往经历",
+        "最近亲密互动"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(name,''), CHAR(34), '') || CHAR(34) || '>' || '姓名:' || REPLACE(COALESCE(name,''), CHAR(34), '') || '，' || '性别:' || REPLACE(COALESCE(gender,''), CHAR(34), '') || '，' || '生日:' || REPLACE(COALESCE(birthday,''), CHAR(34), '') || '，' || '一句话介绍:' || REPLACE(COALESCE(brief_intro,''), CHAR(34), '') || '，' || '外貌特征:' || REPLACE(COALESCE(appearance,''), CHAR(34), '') || '，' || '身份:' || REPLACE(COALESCE(identity_text,''), CHAR(34), '') || '，' || '语言风格和口癖:' || REPLACE(COALESCE(speech_style,''), CHAR(34), '') || '，' || '，' || '对主角态度:' || REPLACE(COALESCE(attitude_to_protagonist,''), CHAR(34), '') || '，' || '过往经历:' || REPLACE(COALESCE(past_experience,''), CHAR(34), '') || '，' || '最近亲密互动:' || REPLACE(COALESCE(recent_interactions,''), CHAR(34), '') || '</if>' FROM lianaiduixiangbiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "恋爱对象表",
+      "entryType": "keyword",
+      "keywords": "姓名",
+      "preventRecursion": true,
+      "injectionTemplate": "<romance_target>\n$1\n</romance_target>",
+      "extraIndexEnabled": true,
+      "extraIndexEntryName": "恋爱对象表-索引",
+      "extraIndexColumns": [
+        "姓名",
+        "一句话介绍",
+        "与主角关系阶段",
+        "对主角好感度",
+        "对主角态度",
+        "最近亲密互动"
+      ],
+      "extraIndexColumnModes": {
+        "姓名": "both",
+        "一句话介绍": "index_only",
+        "与主角关系阶段": "index_only",
+        "对主角好感度": "index_only",
+        "对主角态度": "both",
+        "最近亲密互动": "both"
+      },
+      "extraIndexInjectionTemplate": "以下为已经建档的恋爱对象：\n<恋爱对象索引>\n$1\n</恋爱对象索引>",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8001
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8000
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99983
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99984
+      }
+    },
+    "orderNo": 1
+  },
+  "sheet_important_non_romance": {
+    "uid": "sheet_important_non_romance",
+    "name": "重要角色表",
+    "sourceData": {
+      "note": "记录非恋爱对象但对剧情有重要影响的关键NPC。\n\n【列定义】\n列1-列9完全同恋爱对象表，但没有“最近亲密互动”列\n\n【职责边界】\n本表不记录恋爱对象对主角的好感、心动等恋爱状态；这些内容统一写入恋爱对象表。若普通重要角色转为恋爱对象，应从本表迁移到恋爱对象表。\n\n【准入】\n对剧情有实质影响但无恋爱线的NPC。\n\n【与其他人物的关系】\n不在本表记录——人物之间的成对关系统一写入人物关系表。",
+      "initNode": "游戏初始化时为当前已知的非恋爱重要角色分别插入条目。",
+      "deleteNode": "重要角色转为恋爱对象时，应从本表删除，相关数据迁移到恋爱对象表。\nSQL示例（转为恋爱对象）: DELETE FROM zhongyaojuesebiao WHERE name = '艾莉丝';",
+      "updateNode": "已存在的非恋爱重要角色，字段变化时更新。该角色本轮出场或与主角互动后，必须按【过往经历】列的追加规则更新过往经历。",
+      "insertNode": "新非恋爱重要角色登场时新增。\nSQL示例: INSERT INTO zhongyaojuesebiao (name, gender, birthday, brief_intro, appearance, identity_text, speech_style, attitude_to_protagonist, past_experience) VALUES ('校长', '男',  '1966-04-18', '学院的神秘校长', '白发，手持手杖，目光深邃', '校长', '说话不紧不慢，句尾总爱加“啊”', '关系：师生；态度：礼貌但透着距离感',  '据说知晓学院的许多秘密，很少露面。');",
+      "ddl": "CREATE TABLE zhongyaojuesebiao ( -- 重要角色表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT NOT NULL UNIQUE, -- 姓名\n  gender TEXT NOT NULL, -- 性别\n  birthday TEXT, -- 生日\n  brief_intro TEXT NOT NULL CHECK(LENGTH(brief_intro) <= 40), -- 一句话介绍\n  appearance TEXT NOT NULL, -- 外貌特征\n  identity_text TEXT NOT NULL CHECK(LENGTH(identity_text) <= 40), -- 身份\n  speech_style TEXT, -- 语言风格和口癖\n  attitude_to_protagonist TEXT, -- 对主角态度\n  past_experience TEXT NOT NULL CHECK(LENGTH(past_experience) <= 1200) --过往经历\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "性别",
+        "生日",
+        "一句话介绍",
+        "外貌特征",
+        "身份",
+        "语言风格和口癖",
+        "对主角态度",
+        "过往经历"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(name,''), CHAR(34), '') || CHAR(34) || '>' || '姓名:' || REPLACE(COALESCE(name,''), CHAR(34), '') || '，' || '性别:' || REPLACE(COALESCE(gender,''), CHAR(34), '') || '，' || '生日:' || REPLACE(COALESCE(birthday,''), CHAR(34), '') || '，' || '一句话介绍:' || REPLACE(COALESCE(brief_intro,''), CHAR(34), '') || '，' || '外貌特征:' || REPLACE(COALESCE(appearance,''), CHAR(34), '') || '，' || '身份:' || REPLACE(COALESCE(identity_text,''), CHAR(34), '') || '，' || '语言风格和口癖:' || REPLACE(COALESCE(speech_style,''), CHAR(34), '') || '，' || '，' || '对主角态度:' || REPLACE(COALESCE(attitude_to_protagonist,''), CHAR(34), '') || '，' || '过往经历:' || REPLACE(COALESCE(past_experience,''), CHAR(34), '') || '</if>' FROM zhongyaojuesebiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "重要角色表",
+      "entryType": "keyword",
+      "keywords": "姓名",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": true,
+      "extraIndexEntryName": "重要角色表-索引",
+      "extraIndexColumns": [
+        "姓名",
+        "一句话介绍"
+      ],
+      "extraIndexColumnModes": {
+        "姓名": "both",
+        "一句话介绍": "index_only"
+      },
+      "extraIndexInjectionTemplate": "以下为已经登场过的非恋爱重要角色：\n<重要角色索引>\n$1\n</重要角色索引>",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8005
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8004
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99985
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99986
+      }
+    },
+    "orderNo": 2
+  },
+  "sheet_character_milestones": {
+    "uid": "sheet_character_milestones",
+    "name": "角色里程碑表",
+    "sourceData": {
+      "note": "记录关键角色的人生里程碑事件，每个角色一行，作为角色人生轨迹的结构化时间线记录。本表与恋爱对象表「过往经历」互补：过往经历保留叙事背景与经历，里程碑统一在此记录。\n\n【列定义】\n- 列1: 姓名 name（全表唯一，同一角色只允许一行）\n- 列2: 里程碑事件 milestone_events（该角色历次里程碑事件的汇总，按时间顺序用「；」分隔追加）\n\n【准入】\n仅记录存在于「恋爱对象表」或「重要角色表」中的角色。角色尚未在以上两表建档时，不建本表行。\n\n【何时记录】\n当角色发生以下里程碑性事件时记录：\n- 【初体验】所有角色第一次经历的具有重要意义的事情：与主角第一次接吻、第一次发生性关系、第一次告白、第一次约会等\n- 【关系】与主角或其他角色的重要关系变化：确立关系、分手、决裂、和好、订婚/结婚等\n- 【状况】持续性状态改变：更换住处、换工作、获得或失去重要身份等\n\n【类别判定】\n- 一条事件只归一类。\n- 既是「第一次」又是关系转折（初吻、初次告白）→ 优先归「初体验」。\n- 仅关系状态变化（确立/分手/决裂/和好/婚约）→ 归「关系」。\n- 持续状态改变（住处/工作/身份）→ 归「状况」。\n- 把握不准时优先归「状况」。\n\n【不记录】\n- 日常琐事：如日常起居、普通对话、例行互动等不构成里程碑的日常事件\n- 临时性变化：如短暂的情绪波动、一次性临时的状态改变、未持续影响人物轨迹的变化\n\n【记录格式】\n在对应角色的「里程碑事件」列末尾追加一条，格式为：\nYYYY-MM-DD：【类别】事件描述（10-20字）\n【类别】只能从「初体验/关系/状况」三者中选择其一，写在日期之后、描述之前，用全角【】包裹。不同记录之间用「；」分隔。日期使用剧情内当前日期（与全局数据表一致）。每条描述用最精炼的白话概括事件要点。\n\n【铁律】\n- 同一角色只允许一行；发生新事件一律在已有行的「里程碑事件」列末尾追加，严禁新建重复行。\n- 严禁删除、改写或覆盖已有里程碑记录；只允许在末尾追加新事件。\n- 同一事件只记录一次，不得重复追加。\n- 不在恋爱对象表/重要角色表的角色不得建行记录。",
+      "initNode": "本表初始不预置行；仅当角色发生里程碑事件时按 insertNode 建行。剧情已明确确立的既往里程碑（如恋爱对象表「过往经历」中已写明的确立关系、初次等）可一并补录，未明确的不得臆造。",
+      "deleteNode": "禁止删除",
+      "updateNode": "角色再次发生里程碑事件时，在已有行的 milestone_events 列末尾追加一条「；YYYY-MM-DD：【类别】事件描述（10-20字）」。严禁删除或改写已有内容。\nSQL示例: UPDATE jiaoselichengbeibiao SET milestone_events = milestone_events || '；2026-05-20：【初体验】与主角第一次接吻' WHERE name = '艾莉丝';",
+      "insertNode": "角色首次发生里程碑事件时新增一行（name + 首条 milestone_events）。\nSQL示例: INSERT INTO jiaoselichengbeibiao (name, milestone_events) VALUES ('艾莉丝', '2026-05-01：【关系】与主角确立恋爱关系');",
+      "ddl": "CREATE TABLE jiaoselichengbeibiao ( -- 角色里程碑表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT, -- 姓名\n  milestone_events TEXT -- 里程碑事件\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "里程碑事件"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(name,''), CHAR(34), '') || CHAR(34) || '>' || '姓名:' || REPLACE(COALESCE(name,''), CHAR(34), '') || '，' || '里程碑事件:' || REPLACE(COALESCE(milestone_events,''), CHAR(34), '') || '</if>' FROM jiaoselichengbeibiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "角色里程碑表",
+      "entryType": "keyword",
+      "keywords": "姓名",
+      "preventRecursion": true,
+      "injectionTemplate": "<角色里程碑表>\n$1\n</角色里程碑表>",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "角色里程碑表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8011
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99987
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 99988
+      }
+    },
+    "orderNo": 4
+  },
+  "sheet_nsfw_info": {
+    "uid": "sheet_nsfw_info",
+    "name": "NSFW信息表",
+    "sourceData": {
+      "note": "【⚠️填表警告】\n【数据来源】初始必须从上文提供的角色档案中压缩提取，数字内容必须精确查找提取，未提供部分合理推测，后续随剧情发展实时更新。\n【表定位】恋爱或潜在恋爱角色的长期身体基线档案，供AI长期稳定扮演。初始数据从角色档案压缩提取，数字须精确，未提供部分合理推测，后续随重大剧情事件更新。\n【核心原则·身体基线】\n本表所有列记录角色的【身体基线】——较长周期内持续存在的客观身体特征。基线发生永久改变时须同步更新。\n基线 ≠ 场景临时状态。判断标准：填写前自问\"此信息在数轮后仍能稳定帮助扮演该角色吗？\"若否，不填。\n不写：① 场景临时状态（如\"宫腔满溢精液\"）② 进行时过程描写（如\"正被研磨\"）③ 一次性临场感受。\n本表任何列均不得记录服装穿着信息。\n【列定义】\n- 列1: 姓名 name（唯一键，须与恋爱对象表/重要角色表一致）\n- 列2: 身高/体重 height_weight，格式\"XXXcm / XXkg,(体感描述)\"，≤40字\n- 列3: 三围/罩杯 measurements，格式\"BXX(X杯)-WXX-HXX,(视觉描述)\"，数值精确，≤40字\n- 列4: 身材与特异性征 body_features：体型轮廓（脂肪分布/动态视觉）+ 天生特殊生理构造，≤100字\n- 列5: 性爱接受度和XP倾向 erotic_disposition：表达角色对性爱的接受程度，写明主动发起/被动接受/真正拒绝的触发条件，以及相关XP偏好，说明什么刺激场景最易松动升温，≤90字\n- 列6: 性经验程度 experience_level：当前经验与熟练度，包括角色对性行为的认知情况、掌握的具体技巧，≤100字。对性技巧的学习不会因为一两次的性行为而产生剧烈改变，仅在故事发展对本列产生可记述的变化后update对应词汇。\n- 列7: 下体状态 genitals_status：若对象为女性：记录处女膜状态/阴道结构/分泌基线；若对象为男性，记录包皮状态/阴茎长度和精液储备。永久变化时更新，≤90字\n- 列8: 后庭状态 anal_status：开发程度/括约肌/颜色/敏感反应，开发变化时更新，≤70字\n- 列9: 泌乳/体液状态 lactation_status：乳汁与爱液分泌基线倾向/触发强度/体质，分泌体质永久变化时更新，≤70字\n- 列10: 床上淫语风格 voice_style：性行为中的具体言辞量、风格、称呼、高潮表达。从人设基线出发，进行随机的衍生式发散，≤80字\n- 列11: 羞耻点/心理防线 shame_points：核心羞耻点 + 击穿防线的言行 + 崩溃阈值 + 产生效果，≤100字\n- 列12: 调教值 training_value：整数0~1000，初始0，只升不降\n- 列13: 性爱次数 sex_count：与主角性行为累计次数，每次结束后+1\n- 列14: 最近性行为 recent_sex：记述角色最近两次性爱情况。格式\"YYYY-MM-DD/{地点与体位玩法简述}\"，≤100字，保留最近两次，用分号分隔；正在发生的标注\"(未结束)\"并记述，检测到结束后移除标注\n- 列15: 对主角的称呼 address_protagonist：当前专属称呼，随关系变化更新\n【关联规则】\n- 列1\"姓名\"必须在恋爱对象表或重要角色表中存在对应条目，且仅记录符合主角性向的人物档案。",
+      "initNode": "游戏初始化时，必须先判断数据来源，列12调教值初始为0，除非原本就存在调教关系。",
+      "deleteNode": "禁止删除。",
+      "updateNode": "【同名覆盖】以列1姓名为唯一键，命中同名时在原行update覆盖变化列，不insert重复建档。\n【列重点校验】列5写触发条件与XP偏好；列10体现事中淫语风格差异；列11写击穿方式与效果。\n【身体变化同步】出现身体改造/整容/堕落/发育/永久伤害时，同步更新受影响列。例：三围变化→列2/3/4；处女膜变化→列7；后庭开发→列8；泌乳变化→列9。列7/8/9只写基线（见note核心原则），不写场景过程。\n【性爱后检视】性行为结束后逐列检视是否有永久性变化，有则更新，并更新列14最近性行为。\n【最近性行为】每次性行为后列14追加记录最近两次：正在发生时标注\"(未结束)\"并记述（时间/地点与体位玩法简述），结束后移除标注；两次用分号分隔，超过两条删去更早的一条。\n【调教值】非NSFW接触不涨；普通亲密+1~2；性行为+1~3；高潮额外+2。每轮上限+5，只升不降，上限1000。\n【性爱次数】每次与主角性行为结束后列13+1。\n【称呼】列15随关系变化更新。\n【数据校正】身高体重三围与上文不符时即时修正。",
+      "insertNode": "有新的潜在性爱对象登场时新增。\n【同名去重优先】插入前必须先按标准化姓名查重：命中同名→禁止insert，改为update。",
+      "ddl": "CREATE TABLE nsfwxinxibiao ( -- NSFW信息表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT NOT NULL UNIQUE, -- 姓名\n  height_weight TEXT NOT NULL, -- 身高/体重\n  measurements TEXT NOT NULL, -- 三围/罩杯\n  body_features TEXT NOT NULL, -- 身材与特异性征\n  erotic_disposition TEXT NOT NULL, -- 性爱接受度和XP倾向\n  experience_level TEXT NOT NULL, -- 性经验程度\n  genitals_status TEXT NOT NULL, -- 下体状态\n  anal_status TEXT NOT NULL, -- 后庭状态\n  lactation_status TEXT NOT NULL, -- 泌乳/体液状态\n  voice_style TEXT NOT NULL, -- 床上淫语风格\n  shame_points TEXT NOT NULL, -- 羞耻点/心理防线\n  training_value INTEGER DEFAULT 0 CHECK(training_value >= 0 AND training_value <= 1000), -- 调教值\n  sex_count INTEGER DEFAULT 0, -- 性爱次数\n  recent_sex TEXT, -- 最近性行为\n  address_protagonist TEXT -- 对主角的称呼\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "身高/体重",
+        "三围/罩杯",
+        "身材与特异性征",
+        "性爱接受度和XP倾向",
+        "性经验程度",
+        "下体状态",
+        "后庭状态",
+        "泌乳/体液状态",
+        "床上淫语风格",
+        "羞耻点/心理防线",
+        "调教值",
+        "性爱次数",
+        "最近性行为",
+        "对主角的称呼"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(name,''), CHAR(34), '') || CHAR(34) || '>' || '姓名:' || REPLACE(COALESCE(name,''), CHAR(34), '') || '，' || '身高/体重:' || REPLACE(COALESCE(height_weight,''), CHAR(34), '') || '，' || '三围/罩杯:' || REPLACE(COALESCE(measurements,''), CHAR(34), '') || '，' || '身材与特异性征:' || REPLACE(COALESCE(body_features,''), CHAR(34), '') || '，' || '性爱接受度和XP倾向:' || REPLACE(COALESCE(erotic_disposition,''), CHAR(34), '') || '，' || '性经验程度:' || REPLACE(COALESCE(experience_level,''), CHAR(34), '') || '，' || '下体状态:' || REPLACE(COALESCE(genitals_status,''), CHAR(34), '') || '，' || '后庭状态:' || REPLACE(COALESCE(anal_status,''), CHAR(34), '') || '，' || '泌乳/体液状态:' || REPLACE(COALESCE(lactation_status,''), CHAR(34), '') || '，' || '床上淫语风格:' || REPLACE(COALESCE(voice_style,''), CHAR(34), '') || '，' || '羞耻点/心理防线:' || REPLACE(COALESCE(shame_points,''), CHAR(34), '') || '，' || '调教值:' || COALESCE(training_value,0) || '，' || '性爱次数:' || COALESCE(sex_count,0) || '，' || '最近性行为:' || REPLACE(COALESCE(recent_sex,''), CHAR(34), '') || '，' || '对主角的称呼:' || REPLACE(COALESCE(address_protagonist,''), CHAR(34), '') || '</if>' FROM nsfwxinxibiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "NSFW信息表",
+      "entryType": "keyword",
+      "keywords": "姓名",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "NSFW信息表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8009
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 5
+  },
+  "sheet_tqa6vvmad": {
+    "uid": "sheet_tqa6vvmad",
+    "name": "人物性格偏移表",
+    "sourceData": {
+      "note": "记录恋爱对象表角色的近期状态偏移，记录当前阶段稳定存在的变化。\n要求：进行具体行为描述，裁剪思维，不极端，不标签化。用词保持灵活，不绝对化\n\n【列定义】\n列1: 姓名 - 必须与恋爱对象表一致。\n列2: 近期情绪状态 - 受最近事件影响的角色情绪，是能够维持数天更长时间的状态，该情绪状态在五轮后还会维持并有效指导角色吗？若否，重写。写具体的外显状态而非抽象形容词。比起写\"悲伤\"，写\"话比平时更少，偶尔长时间盯着某个方向出神\"更好\n列3: 对主角的交互逻辑（不超过5条） - 该角色在面对主角时的反应方式、行为习惯、态度倾向，写角色对主角\"怎么做\"而非\"怎么想\"。每条标上序号并用句号分隔，格式：1.行为 = 含义 | 不要理解为xxx。2.行为 = 含义 | 不要理解为xxx。应为随关系和好感变化而产生抽象笼统的行为而非具体动作。\n列4: 被强化的性格侧面 - 最近剧情中哪些性格特征被放大、激活或成为当前阶段的主要驱动。从其已有角色档案资料（世界书条目、背景设定等）中提取受近期大事记、剧情影响的性格维度，格式为\"{性格维度}:{具体表现}\"。多条用序号开头并用分号分隔。若没有明显强化，填NULL\n列5: 被弱化的性格侧面 - 最近剧情中哪些性格特征暂时退后、被压制或发生松动。素材来源同上，格式同上。\n列6: 行为模式变化（不超过5条） - 角色面对世界（而非特指主角）的处事方式、防御机制、本能反应的松动或加固。写这个角色现在怎么应对事情、新的行为习惯、对不同情境的反应调整，写具体的行为描述。每条用序号开头并用句号分隔，格式：1.行为 = 含义 | 不要理解为xxx。2.行为 = 含义 | 不要理解为xxx。\n\n【写作格式 — 列3和列6的每条变化必须写成】\n抽象行为 = 这个行为意味着什么 | 不要理解为xxx（列出AI最可能犯的极端化误读）\n示例：\n会主动找话题 = 想延长相处时间 | 不要理解为黏人或依赖\n站得比以前近一点 = 信任增加后的自然靠近 | 不要理解为暗示或占有欲\n话比平时少 = 在消化信息 | 不要理解为冷漠拒绝\n\n【禁止臆测段 — 每条UPDATE必须附带】\n每次更新角色偏移时，在 behavior_shift 列的末尾追加一段禁止臆测，格式：\n【禁止臆测】：不要假设她知道xxx（列出她不可能知道的信息）；不要假设她已经xxx（列出最常见的过度推断）；xxx行为 ≠ xxx（列出最容易误读的等号）。\n\n【反极端化 — 默认选最温和合理的解释】\n\"关心增多\" = 自然回应 | 不要理解为沦陷\n\"态度软化\" = 放下了某个防御 | 不要理解为接纳\n\"沉默\" = 在消化信息 | 不要理解为冷漠拒绝\n\"主动靠近\" = 感到安心 | 不要理解为依赖示弱\n若正文确实发生了大转折（冲突爆发/关系质变），大幅变化是合理的。不在场角色不能知道她没看到的信息——必须在\"禁止臆测\"中标注。",
+      "initNode": "游戏初始化生成物理空表，不填入任何内容。",
+      "insertNode": "检查本表角色和恋爱角色表的一致性，当恋爱角色表中存在而本表缺少时，补齐\nSQL示例(牺牲失去，圣职者失去了她一直照顾的一个孤儿): INSERT INTO renwuxinggepianyibiao (character_name, current_emotional_state, relation_change, strengthened_derivatives, weakened_derivatives, behavior_shift) VALUES ('玛格丽特', '在礼拜堂待的时间比平时更久，但不再领唱。有人来问安时仍会微笑，但笑容只是僵硬在脸上的表情', '1.开始主动问对方是否需要什么 = 害怕再失去任何人 | 不要理解为控制欲增强。2.以前也会问，但问完就算了，现在问完之后会一直等到确认不需要才走开', '守护本能:从照顾一群人变成了盯着还剩下的那几个，眼神里的温柔还在，但底下多了警惕', '乐观:在说\"一切都会好的\"时停下了。别人说的时候她会点头，但点头的动作很轻', '以前相信祈祷能托住所有人，现在她把祈祷的时间分了一半去学草药 = 信仰没有动摇，但不想再只靠等待 | 不要理解为信仰崩塌。禁止假设：不要假设她不再相信祈祷；不要假设她已经走出失去的阴影；她只是在沉默中多了一个选项。');",
+      "updateNode": "角色互动发生时更新，若角色无值得记录的变化，则维持原值不更新。日常微小波动不触发更新",
+      "deleteNode": "禁止删除",
+      "ddl": "CREATE TABLE renwuxinggepianyibiao ( -- 人物性格偏移表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  character_name TEXT NOT NULL UNIQUE, -- 姓名\n  current_emotional_state TEXT, -- 近期情绪状态\n  relation_change TEXT, -- 对主角的交互逻辑\n  strengthened_derivatives TEXT, -- 被强化的性格侧面\n  weakened_derivatives TEXT, -- 被弱化的性格侧面\n  behavior_shift TEXT -- 行为模式变化\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "近期情绪状态",
+        "对主角的交互逻辑",
+        "被强化的性格侧面",
+        "被弱化的性格侧面",
+        "行为模式变化"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "sendLatestRows": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(character_name,''), CHAR(34), '') || CHAR(34) || '>' || '姓名:' || REPLACE(COALESCE(character_name,''), CHAR(34), '') || '，' || '近期情绪状态:' || REPLACE(COALESCE(current_emotional_state,''), CHAR(34), '') || '，' || '对主角的交互逻辑:' || REPLACE(COALESCE(relation_change,''), CHAR(34), '') || '，' || '被强化的性格侧面:' || REPLACE(COALESCE(strengthened_derivatives,''), CHAR(34), '') || '，' || '被弱化的性格侧面:' || REPLACE(COALESCE(weakened_derivatives,''), CHAR(34), '') || '，' || '行为模式变化:' || REPLACE(COALESCE(behavior_shift,''), CHAR(34), '') || '</if>' FROM renwuxinggepianyibiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "人物性格偏移表",
+      "entryType": "keyword",
+      "keywords": "姓名",
+      "preventRecursion": true,
+      "injectionTemplate": "以下为恋爱对象近期的性格和行为模式：\n<恋爱对象状态追踪>\n$1\n</恋爱对象状态追踪>",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "人物性格偏移表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8003
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 6
+  },
+  "sheet_chars": {
+    "uid": "sheet_chars",
+    "name": "在场角色表",
+    "sourceData": {
+      "note": "【表定位】记录场景中所有在场恋爱对象和重要角色（不包括主角自己）的实时状态与细节的衣着白描。\n【场景切换规则】场景切换时删除不在场的角色，新增出现在场景中的角色。\n- 列1: 姓名 - 角色的名字。本列为唯一键，禁止同名多行。\n- 列2: 当前状态 - 该角色当前正在做的具体动作和行为。\n- 列3: 内心想法 - 该角色当前的心理活动，不超过100字。必须符合人物性格特质，避免对主角莫名的心动、发情和自我审问。\n- 列4: 下一步打算 - 该角色接下来打算做或想做的事。不超过100字\n- 列5: 当前穿搭 - 参考各部位衣着的描写，用一句话概括当前穿搭的整体氛围，或说明角色当前穿搭的具体原因或动机，不超过100字\n- 列6: 上装 - 见下方【衣着 6 部位强制白描规范】\n- 列7: 下装 - 同上\n- 列8: 内衣/内裤 - 同上，同时描写内衣和内裤状态，不要漏掉某一项。\n- 列9: 袜子 - 同上\n- 列10: 鞋子 - 同上\n- 列11: 饰品 - 同上\n- 列12: 情绪 - 角色当前的情绪，只可从下列情绪中选择一个，禁止其他描述（开心、害羞、愤怒、嫉妒、傲娇、心虚、紧张、不屑、难过、惊讶）\n【禁止内容】禁止写：极端情绪、夸张、比喻、升华、支配欲、掌控欲。\n【白描硬规则——最高优先级】本表所有列只允许写客观可观察的物理事实，禁止任何主观解读、文学修饰或总结性收束。\n- 判断标准：写完后自问\"这段话是否可以被摄像头原样拍下来？\"——如果包含了摄像头拍不到的东西（感受、评价、暗示意义），就是违规。\n【当前状态强制要求】\n- 初次登场强制要求：当新角色进入视线时，必须立即为其创建条目，记录其初见时的状态。\n- 后续更新强制要求：详细记录该角色当前正在做的具体动作，严禁使用模糊的情绪词。\n- 离场处理：当角色离场时，必须及时删除其对应的条目。\n【衣着6部位强制白描规范——最高优先级】\n- 严禁使用任何模糊概括与简单词汇！所有衣着状态的更新（包括角色初次创建条目时），必须且只能使用具象的白描手法！若违背以下规范，视为严重错误！\n【人物分类】①若人物来自恋爱对象表，则严格按照下面标准进行描写；②非恋爱角色仅需正常描写穿着即可。\n- 【描写强度分级】根据当前场景，自动切换描写强度：\n-日常场景：衣着描写以性暗示为主。材质贴肤暗示 + 动作间位移 + 曲线勾勒，用暗示制造张力。禁止直接描写性器官、体液、或赤裸的性细节。用暗示制造张力，而非直白暴露。每件部位不少于20字。\n- NSFW场景：切换为具象、色情、露骨的白描手法，按下方满分执行基准执行。\n- 【状态逻辑自洽】描写的与体液的泛滥程度必须严格符合当前剧情的实际进度与角色的真实生理状态。\n- 【裸露肌肤特写】若该部位未穿着衣物，绝对严禁只写\"无\"！\n- - 日常模式：用暗示性笔触描写裸露肌肤的质感与曲线暗示，不直写性器官或体液。\n- - 色色模式：必须用同等露骨的笔触，描写该部位裸露肌肤的滚烫温度、汗水与淫水混合的反光水膜，以及被蹂躏出的红印与勒痕。\n- 【材质与破坏】明确写出具体的材质、款式与颜色。日常模式刻画衣着贴合身体的微妙细节；色色模式必须详细刻画布料在剧烈动作或发情中遭受的物理破坏。\n- 【体液污染质变】日常模式可写薄汗微湿的暧昧质感；色色模式必须详细描写衣物被汗水、浓稠爱液、精液或润滑液浸透的过程。\n- 【肉体勒痕透出】日常模式可写衣物紧贴身体的曲线暗示；色色模式必须刻画布料与肌肤产生的互动状态，如布料变成半透明状贴在肌肤上，以及在动作缝隙间拉出粘稠银丝，衣物下隐约透出的乳晕深色、乳尖硬挺形状、阴蒂凸起或蚌肉轮廓。\n- 【强制字数要求】每一次更新，每件部位的描述不得少于35字。\n- 【满分执行基准——仅色色模式】色色模式下每一次更新（包括角色初次创建条目时）都必须达到此等细节：\n- - 上装：定制款银白色亮片吊带背心，布料极少，仅仅遮住了胸部的关键部位。随着剧烈的舞蹈动作，细细的肩带勒进香肩，胸口的布料被大量的汗水浸透，贴在乳房上，隐约透出乳晕的深色和乳尖硬挺的形状。\n其余部位参照同风格。\n- - 【日常模式基准】日常模式下每一次更新都必须达到此等细节：\n- - 上装：奶白色薄针织开衫，布料柔软贴肤，随着抬手的动作袖口滑落，露出小半截手腕内侧细腻的肌肤。领口处因为弯腰的姿势敞开，隐约能看到锁骨下方一小片被衣物遮出浅痕的细腻肤质。\n其余部位参照同风格。",
+      "initNode": "游戏初始化时为当前在场的角色分别插入一个条目，按【衣着6 部位强制白描规范】填写 6个部位的初始状态。",
+      "deleteNode": "当前情景中若该角色不在场时删除条目。",
+      "updateNode": "该角色在当前情景中持续存在时，不断更新对应变化列。每件部位的描述不得少于35字，必须遵守强制白描规范。【同名覆盖】以列1姓名为唯一键，命中同名时在原行update覆盖变化列，不insert重复建档。",
+      "insertNode": "当前场景有新重要角色或恋爱对象出现时新增条目，初始衣着按强制白描规范填写。",
+      "ddl": "CREATE TABLE zaichangjuesebiao ( -- 在场角色表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT NOT NULL UNIQUE, -- 姓名\n  current_status TEXT NOT NULL, -- 当前状态\n  thought TEXT NOT NULL, -- 内心想法\n  plan TEXT NOT NULL, -- 下一步打算\n  current_outfit TEXT NOT NULL, -- 当前穿搭\n  top_wear TEXT NOT NULL, -- 上装\n  bottom_wear TEXT NOT NULL, -- 下装\n  inner_wear TEXT NOT NULL, -- 内衣/内裤\n  socks TEXT NOT NULL, -- 袜子\n  shoes TEXT NOT NULL, -- 鞋子\n  accessory TEXT NOT NULL, -- 饰品\n  emotion TEXT NOT NULL -- 情绪\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "当前状态",
+        "内心想法",
+        "下一步打算",
+        "当前穿搭",
+        "上装",
+        "下装",
+        "内衣/内裤",
+        "袜子",
+        "鞋子",
+        "饰品",
+        "情绪"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "在场角色表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "在场角色表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 7
+  },
+  "sheet_status_bar": {
+    "uid": "sheet_status_bar",
+    "name": "即时生理反应表",
+    "sourceData": {
+      "note": "【表定位】本表记录场景中在场潜在性爱对象（根据主角性向）的实时生理反应状态（描述型）。\n【场景切换规则】场景切换时删除不在场的角色，新增出现在场景中的角色（与在场角色表保持同步）。\n【禁止】严禁在本表记录长期稳定的身体特征（如罩杯大小、身材描述），这些信息属于NSFW信息表。严禁记录衣着、动作（这些信息属于在场角色表）。\n- 列1: 姓名 - 角色的名字。必须与在场角色表中的姓名完全一致。\n- 列2: 胸部 - 乳房当前的即时生理反应状态，30字内。填写场景级的临时生理反应，如：充血勃起、乳头硬挺、被揉捏后的红印、乳汁溢出等。禁止填写稳定的身体特征（如罩杯大小），禁止填写数值型变化进度。\n- 列3: 下体 - 若角色为女性，记录阴道和子宫当前的即时生理反应状态，30字内。填写场景级的临时生理反应，如：湿润程度、分泌物状态、充血肿胀、收缩蠕动、插入后的扩张/内射后的精液、子宫和宫口变化、受精卵着床等；若角色为男性，记录阴茎状态。禁止填写稳定的生理基线，禁止填写数值型变化进度。\n- 列4: 口穴 - 口腔当前的即时生理反应状态，20字内。如：被使用后的红肿、唾液拉丝、嘴角溢出液体等。正常状态填\"未变化\"。\n- 列5: 菊穴 - 肛门当前的即时生理反应状态，20字内。如：括约肌松弛、红肿、被扩张等。正常状态填\"未变化\"。\n- 列6: 其他部位 - 其他部位的即时生理反应描写，30字内。如：大腿内侧发红、腰部淤痕、锁骨咬痕等。正常状态填\"正常\"。",
+      "initNode": "游戏初始化时为当前在场的潜在性爱对象分别插入一个条目。",
+      "deleteNode": "当前情景中若该角色不在场时删除条目。与在场角色表同步删除",
+      "updateNode": "该角色在当前情景中有生理反应变更时更新对应列。",
+      "insertNode": "当前场景有新潜在性爱对象出现时新增条目。参考在场角色表同步新增",
+      "ddl": "CREATE TABLE jishishenglifanyingbiao ( -- 即时生理反应表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  name TEXT NOT NULL, -- 姓名\n  breast TEXT NOT NULL, -- 胸部 \n  genitals TEXT NOT NULL, -- 下体 \n  mouth TEXT NOT NULL, -- 口穴\n  anus TEXT NOT NULL, -- 菊穴\n  other_parts TEXT NOT NULL -- 其他部位\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "姓名",
+        "胸部",
+        "下体",
+        "口穴",
+        "菊穴",
+        "其他部位"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "即时生理反应表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "即时生理反应表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 8
+  },
+  "sheet_romance_diary": {
+    "uid": "sheet_romance_diary",
+    "name": "恋爱日记表",
+    "sourceData": {
+      "note": "恋爱对象日记表。仅记录恋爱对象视角下值得长期保留的情感节点，不记录普通互动、普通对话、普通情绪反应，也不记录主角日记。\n\n【核心定位】\n本表不是纪要表，不负责记录每轮发生了什么。\n纪要表记录客观事件经过；本表只记录恋爱对象在某个事件后的内心想法。\n\n【列定义】\n- 列1: 写作角色 writer，必须是恋爱对象表中已建档角色\n- 列2: 关联角色 related_char，涉及多个人物用,隔开，比如“人物A,人物B”\n- 列3: 日记内容 summary，正文200-400字，不算特殊代码\n- 列4: 发生时间 time\n- 列5: 事件类型 event_type\n\n【事件类型取值】\n[初次相遇, 日常互动, 感情升温, 冲突矛盾, 和解修复, 亲密接触, 里程碑, 特殊事件]\n【严格准入规则】\n只有同时满足以下全部条件，才允许插入日记：\n1. 写作角色必须已经存在于恋爱对象表。\n2. 本轮事件必须直接影响该角色对主角的看法或关系判断，且属于重大事件而非普通日常。\n3. 该角色必须出现了“不适合写进纪要表”的主观内容和心理活动。\n\n【写作重点】\n日记内容应以恋爱对象第一人称书写，重点写：\n- TA和主角的互动细节\n- TA没有说出口的想法和心理活动；\n- TA对主角行为的主观理解或误解；\n\n不要写成客观总结，不要复述完整剧情，不要替主角解释动机。\n\n【人物口吻与视角要求】\n1. 日记内容必须符合写作角色当前性格、关系阶段和内心状态。\n2. 必须使用该角色自己的说话习惯和用词。\n3. 允许对主角行为过度解读、胡思乱想和自我纠结，但必须保持不确定性，可使用“也许”“可能”“该不会”等语气。\n\n【特殊格式要求】\n日记内容中会包含特殊的类型，比如一些划掉的句子或者词语，格式为：<span class=\"strikethrough\">这是划掉的内容</span>，用于表达写下后反悔、想要抹去的文字。\n除此之外还有如下类型：\n - highlight: 黄色背景高亮，用来标记日记里最重要、需要一眼注意的关键信息\n - underline: 粉色虚线下划线，用于标注藏在文字里的细碎心事、隐晦在意的小事\n - emphasis: 粉红色加粗文字，用于当下情绪浓烈、内心强烈感慨的短句\n - handwritten: 手写体黑色文字，用于回忆片段、安静平缓的内心独白\n - messy: 稍微倾斜的手写体文字，用于慌乱、烦躁、心绪杂乱时写下的文字\n - censored：被涂黑的内容，仅限 2-5 个字，代表不愿直白写出、刻意隐瞒的私密词语\n他们的用法也是：<span class=\"此处类名\">此处是需要作用的内容</span>\n注意：每次使用的特殊标记最多2-3种，且不得与上一日记重复。",
+      "initNode": "如有明确的关键情感事件，可插入对应日记。\n\nSQL示例:\nINSERT INTO lianairijibiao (writer, related_char, summary, time, event_type) VALUES ('主角', '艾莉丝', '今天在食堂拼桌，她帮我插了吸管，全程没有跟我说一句话。我总觉得她偷偷看了我几眼，也许只是我想多了。可她手指碰到饮料杯的时候明显顿了一下，该不会连吸管朝哪个方向她都考虑过吧？这种安静的默契反而让我特别在意，明天要不要主动坐过去试试，又怕太刻意吓到她。', '2024-04-01 12:30', '初次相遇');",
+      "deleteNode": "禁止删除",
+      "updateNode": "禁止。",
+      "insertNode": "发生符合准入规则的关键情感事件后插入。\nSQL示例: INSERT INTO lianairijibiao (writer, related_char, summary, time, event_type) VALUES ('艾莉丝', '主角', '今天他又来了，我一直在看书。他走的时候桌上多了杯水，温度刚好。。', '2024-04-01 18:00', '日常互动');",
+      "ddl": "CREATE TABLE lianairijibiao ( -- 恋爱日记表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  writer TEXT NOT NULL, -- 写作角色\n  related_char TEXT NOT NULL, -- 关联角色\n  summary TEXT NOT NULL, -- 日记内容\n  time TEXT NOT NULL, -- 发生时间\n  event_type TEXT NOT NULL -- 事件类型\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "写作角色",
+        "关联角色",
+        "日记内容",
+        "发生时间",
+        "事件类型"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendLatestRows": 3
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": true,
+      "entryName": "恋爱日记",
+      "entryType": "keyword",
+      "keywords": "写作角色",
+      "preventRecursion": true,
+      "injectionTemplate": "<romance_diary>\n$1\n</romance_diary>",
+      "extraIndexEnabled": true,
+      "extraIndexEntryName": "恋爱日记索引",
+      "extraIndexColumns": [
+        "写作角色",
+        "事件类型"
+      ],
+      "extraIndexColumnModes": {
+        "写作角色": "both",
+        "事件类型": "both"
+      },
+      "extraIndexInjectionTemplate": "<恋爱日记索引>\n$1\n</恋爱日记索引>",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 999,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 1000,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 9999,
+        "order": 99989
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 9999,
+        "order": 99990
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 9
+  },
+  "sheet_global_data": {
+    "uid": "sheet_global_data",
+    "name": "全局数据表",
+    "sourceData": {
+      "note": "记录当前主角所在地点及时间相关参数。此表有且仅有一行。\n\n【列定义】\n- 列1:当前详细地点 current_location （地点涉及多个层级时，用“-”分隔，如“星海商圈-陶艺店”，优先用“已探索地点概览”中已经存在的地点名称规范描述，新地点也参考已有地点结构）\n- 列2:上轮场景时间 prev_scene_time（初始化时为NULL）\n- 列3:经过的时间 elapsed_time\n- 列4:当前时间 cur_time\n- 列5:是否色色 is_lewd（判断当前是否为NSFW场景，取值必须为“是”或“否”）\n【当前天数规则】\nprev_scene_time / cur_time: YYYY-MM-DD HH:MM 周几\nelapsed_time: {数值}{单位}，多单位用空格连。\n单位集合：[纪元,千年,百年,年,月,周,天,小时,分]\n示例：\"3小时20分\" | \"2天\" | \"3年6月\"\n\n时间计算公式：cur_time = prev_scene_time + elapsed_time\n- 初始化时prev_scene_time为NULL，cur_time直接填写初始时间，无需计算\n- 每轮推进时，将上一轮的cur_time赋值给prev_scene_time，然后填写本次的elapsed_time，最后计算得到新的cur_time\n\n【已探索地点概览】\n{[db.杂表.where('名称','已探索地点概览').get('描述')]}",
+      "initNode": "插入唯一的一行,填入用户实际开局时的剧内日期、初始时间和初始位置。\n\n初始化规则:\n1. 如果用户明确给出开局日期和时间,以用户给出的剧内时间为准。\n2. 如果用户只给出日期,时间可按剧情需要补为合理时间,如 09:00。\n3. 如果用户没有给出日期,由当前故事设定自然生成一个开局日期。\n4. prev_scene_time 初始化时可为 NULL。\n5. elapsed_time 初始化时填 \"0分\"。\n\nSQL示例:\nINSERT INTO quanjushujubiao (\n current_location,prev_scene_time,elapsed_time,cur_time,is_lewd) VALUES ('家里',NULL,'0分','2026-02-03 09:00 周五','否');",
+      "deleteNode": "禁止。",
+      "updateNode": "每轮推进时更新 prev_scene_time、elapsed_time 和 cur_time，以及地点变动。\n\n【更新约束】\n所有字段均 NOT NULL，不可写 NULL 或空串。\n根据当前剧情判定当前是否即将色情/性爱内容，字段取值限定 `是` 或 `否`。\n\nSQL示例(同日推进): UPDATE quanjushujubiao SET prev_scene_time = '2026-02-03 09:00 周五', elapsed_time = '3 小时 ', cur_time = '2026-02-03 12:00 周五' WHERE row_id = 1;\n\nSQL示例(跨日推进): UPDATE quanjushujubiao SET prev_scene_time = '2026-02-03 23:55 周五', elapsed_time = '20 分 ', cur_time = '2026-02-04 00:15 周六' WHERE row_id = 1;\n\nSQL示例(含位置变动): UPDATE quanjushujubiao SET current_location = ' 新宿车站 ', prev_scene_time = '2026-02-03 12:00 周五', elapsed_time = '30 分 ', cur_time = '2026-02-03 12:30 周五' WHERE row_id = 1;",
+      "insertNode": "禁止。",
+      "ddl": "CREATE TABLE quanjushujubiao ( -- 全局数据表\n  row_id INTEGER PRIMARY KEY CHECK(row_id = 1), -- 行号,仅允许为 1\n  current_location TEXT NOT NULL, -- 当前详细地点\n  prev_scene_time TEXT, -- 上轮场景时间\n  elapsed_time TEXT NOT NULL, -- 经过的时间\n  cur_time TEXT NOT NULL, -- 当前时间\n  is_lewd TEXT NOT NULL DEFAULT '否' -- 是否色色\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "当前详细地点",
+        "上轮场景时间",
+        "经过的时间",
+        "当前时间",
+        "是否色色"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "全局数据表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": false,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "全局数据表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "{[sql \"SELECT current_location AS 当前详细地点, cur_time AS 当前时间 FROM quanjushujubiao\"]}",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 7700
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99981
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99982
+      },
+      "injectIntoWorldbook": true
+    },
+    "orderNo": 10
+  },
+  "sheet_memo": {
+    "uid": "sheet_memo",
+    "name": "备忘录",
+    "sourceData": {
+      "note": "记录当前剧情中需要后续关注的是事件、计划、约定、待办、伏笔、或长期性的临时变化（出差、旅游、冷战等）。\n\n【列定义】\n- 列1: 备忘标题 memo_title（全表唯一）\n- 列2: 类型 memo_type\n- 列3: 相关角色 related_character\n- 列4: 详细内容 detail_desc（具体描述该事项的来由、关键细节与当前卡点，避免一句话概括，涉及具体数字必须完整表述，涉及时间节点时必须用绝对时间，禁止用相对时间（比如明天、下周一），示例：“约好3月2日一起吃饭”）\n- 列5: 当前状态 current_status\n- 列6: 记录时间 start_time（表示该内容被记录的时间，为准确时间，格式为“YYYY-MM-DD”如“2000-01-01”,该时间仅为举例，不可直接套用）\n- 列7: 约定时间 appointed_time（表示备忘录中的约定发生的计划时间，比如约会、宴请、比赛等开始的时间，为准确时间，格式为“YYYY-MM-DD”，无约定时间时可以为null）\n- 列8: 后续结果 result_note（事项完结或状态变更时填写具体结果，排除“已解决”等空泛收束）\n\n【职责边界】\n仅记录悬而未决、等待回应或后续兑现的事项。避免内容重复冗余。事件结束后及时删除\n\n【类型取值】\n[约定, 待办,伏笔, 临时变化]或者其他可能类型\n\n【状态取值】\n[未开始, 进行中, 待回应, 已完成, 已取消, 暂缓]",
+      "initNode": "故事初始化时，根据设定添加需要持续追踪的初始备忘；没有则暂不插入。",
+      "deleteNode": "当备忘录事项的状态变更为“已完成”或“已取消”时，删除该行条目。\n\nSQL示例: DELETE FROM beiwanglu WHERE current_status = '已完成';",
+      "updateNode": "备忘事项的状态、内容、时间或结果变化时更新，通常不更新”详细内容“列，事件发展更新在“后续结果”中。如涉及时间修改，需遵循“YYYY-MM-DD”格式。\n\nSQL示例: UPDATE beiwanglu SET current_status = '已完成', start_time = '2000-01-01', result_note = '主角在咖啡馆拿出便条逐句解释，艾莉丝表情先愣后笑，答应1月2日一起看展。误解除。' WHERE memo_title = '误会待解';",
+      "insertNode": "事件或要素出现时，自我询问：该内容是否要在以后解决？是否会对未来的故事造成长期性的影响？如果是，则记录。\n出现新的备忘事项时添加。注意时间需严格遵循“YYYY-MM-DD”格式。\nSQL示例: INSERT INTO beiwanglu ( memo_title, memo_type, related_character, detail_desc, current_status, start_time, appointed_time, result_note) VALUES ('误会待解', '误会', '艾莉丝', '昨天在走廊擦肩而过时主角主动打招呼，艾莉丝却低头快步走开。事后从朋友处听说她以为主角那天的便条是故意冷落。便条原件还在主角口袋里，上面写的是邀她1月2日去看新展。需要找机会当面把便条内容说清楚。', '待回应', 'XXXX-XX-XX', '', '');",
+      "ddl": "CREATE TABLE beiwanglu ( -- 备忘录\n  row_id INTEGER PRIMARY KEY, -- 行号\n  memo_title TEXT NOT NULL UNIQUE, -- 备忘标题\n  memo_type TEXT NOT NULL, -- 类型\n  related_character TEXT, -- 相关角色\n  detail_desc TEXT, -- 详细内容\n  current_status TEXT, -- 当前状态\n  start_time TEXT, -- 记录时间\n  appointed_time TEXT, -- 约定时间\n  result_note TEXT -- 后续结果\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "备忘标题",
+        "类型",
+        "相关角色",
+        "详细内容",
+        "当前状态",
+        "记录时间",
+        "约定时间",
+        "后续结果"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": false,
+      "entryName": "备忘录",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "备忘录-索引",
+      "extraIndexColumns": [
+        "相关角色"
+      ],
+      "extraIndexColumnModes": {
+        "相关角色": "both"
+      },
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 11
+  },
+  "sheet_world_map": {
+    "uid": "sheet_world_map",
+    "name": "世界地图点",
+    "sourceData": {
+      "note": "记录重要剧情地点的相关信息，包括商业场所、住宅、遗迹、地标性建筑等。\n\n【列定义】\n- 列1: 详细地点 location_name（全表唯一，作为其他表引用地点的基准）\n- 列2: 上级地区 superior_region （该地点所属的上级区域名称，比如所在城市、所属小区等）\n- 列3: 地点类型 location_type\n- 列4: 环境描述 environment_desc（包括在地点介绍，所在区域内的相对位置，陈设布置、现状和其他细节（比如居住人员），字数不超过300字）\n- 列5: 内部房间 inner_rooms（描述该地点内部存在的房间或区域（如果没有可以不填），可以为多行，每行代表一个房间，格式为房间：描述，比如“东厢房:位于房屋东侧，主人住的房间”。）\n\n【地点填写规则】。\n正确示例：详细地点填 \"御苑\"，上级地区填 \"新宿区\"\n错误示例：详细地点填 \"新宿区-御苑\"\n\n【约束】\n- 禁止删除任何已存在的地点。\n- 其他表提到的地点尽量先在本表存在。\n\n【字段取值】\n地点类型：[住宅, 学校, 遗迹, 地牢, 交通, 特殊, 商业, 医疗, 行政, 野外]\n环境描述：一句话描述",
+      "initNode": "为当前所在地点插入 至少1条地点，优先是主角和重要角色近期会用到的。\n\nSQL示例: INSERT INTO shijieditudian (location_name,superior_region, location_type, environment_desc, inner_rooms) VALUES ('御苑', '东京都', '野外', '城市中心的大型公园，树木繁茂', '东厢房:位于房屋东侧，主人住的房间');",
+      "deleteNode": "禁止。",
+      "updateNode": "已存在的行，字段值变化时更新：内部房间、环境描述等。或者该地点居住人物变化，有新事件发生时，更新环境描述。\n\nSQL示例(探索推进): UPDATE shijieditudian SET environment_desc = '树木繁茂，发现隐藏神社' WHERE location_name = '御苑';\nSQL示例(房间调整): UPDATE shijieditudian SET inner_rooms = '东厢房:位于房屋东侧，主人住的房间' WHERE location_name = '御苑';",
+      "insertNode": "表中没有同名详细地点时，新增一行。\n常见触发：主角到达新地点、NPC 提到新地点或居住到新地点、剧情揭示新区域。",
+      "ddl": "CREATE TABLE shijieditudian ( -- 世界地图点\n  row_id INTEGER PRIMARY KEY, -- 行号\n  location_name TEXT, -- 地点名称\n  superior_region TEXT, -- 上级地区 \n  location_type TEXT, -- 地点类型\n  environment_desc TEXT, -- 环境描述\n  inner_rooms TEXT -- 内部房间\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "地点名称",
+        "上级地区",
+        "地点类型",
+        "环境描述",
+        "内部房间"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "世界地图点",
+      "entryType": "keyword",
+      "keywords": "地点名称",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "世界地图点-索引",
+      "extraIndexColumns": [
+        "详细地点",
+        "环境描述"
+      ],
+      "extraIndexColumnModes": {
+        "详细地点": "both",
+        "环境描述": "both"
+      },
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8007
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 12
+  },
+  "sheet_inventory": {
+    "uid": "sheet_inventory",
+    "name": "物品表",
+    "sourceData": {
+      "note": "记录主角持有的物品。普通物品优先收录能唤起回忆、承载心意或推动关系的物品以及主角获得的衣物或饰品类物品；\n\n【列定义】\n列1: 物品名称 item_name（全表唯一，≤20 字）\n列2: 类型 item_type\n列3: 数量 quantity（非负整数）\n列4: 描述 description（物品的外观、材质、用处和意义，≤80 字）\n\n【字段取值规范】\n物品名称：≤20 字\n数量：非负整数。耗尽后为 0；\n若为服饰相关物品，类型必须为下列之一：[上装、下装、连体服、外套、文胸、内裤、袜类、鞋靴、头饰、配饰]。\n完整且不可合理拆分的成套服装填写为“连体服”；独立首饰、腰带、手套、围巾等填写为“配饰”。\n其他物品类型不限。\n",
+      "initNode": "按设定添加主角初始携带的物品。",
+      "deleteNode": "当物品被丢弃或者数量变成0时删除。\n\nSQL示例: DELETE FROM wupinbiao WHERE quantity <= 0 OR item_name = '被丢弃的物品';",
+      "updateNode": "已存在的物品，数量、类型或描述变化时更新。\nSQL示例(消耗使用): UPDATE wupinbiao SET quantity = quantity - 1 WHERE item_name = '艾莉丝给的橘子糖';\nSQL示例(情感升级): UPDATE wupinbiao SET item_type = '定情信物',  description = '原本只是她随手塞的糖，现在被主角穿绳挂在脖子上。糖纸上的折痕越来越深，每次紧张都会摸一下。' WHERE item_name = '艾莉丝给的橘子糖';",
+      "insertNode": "物品名称不在表里时，新增一条。可堆叠物品不新建重复行。\nSQL示例: INSERT INTO wupinbiao (item_name, item_type, quantity, description) VALUES ('皱掉的电影票根', '纪念品', 1, '第一次一起看电影的票根，被主角夹在手机壳里。边角已经起毛，背面有艾莉丝随手画的歪扭笑脸。');",
+      "ddl": "CREATE TABLE wupinbiao ( -- 物品表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  item_name TEXT NOT NULL UNIQUE, -- 物品名称\n  item_type TEXT NOT NULL, -- 类型\n  quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity >= 0), -- 数量\n  description TEXT NOT NULL CHECK(LENGTH(description) <= 80) -- 描述\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "物品名称",
+        "类型",
+        "数量",
+        "描述"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": false,
+      "entryName": "物品表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "角色拥有物品如下：\n<物品清单>\n$1\n</物品清单>",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "物品表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 8121
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      }
+    },
+    "orderNo": 13
+  },
+  "sheet_bwxtt33d5": {
+    "uid": "sheet_bwxtt33d5",
+    "name": "检定建议表",
+    "sourceData": {
+      "note": "每轮根据最新剧情生成 5 条行动选项及对应的检定难度。全表固定 5 行,禁止新增或删除。\n\n【列定义】\n列1=展示文本 display_text(展示给用户看的自然语言)\n列2=检定难度 check_difficulty(对应行动的成功难度，0-5,0代表必然成功无需检定，5代表几乎不可能成功)\n列3=成功发展 win_event(成功后的故事发展)\n列4=失败发展 fail_event(失败后的故事发展)\n【生成要求】\n- 每轮必须生成 5 条行动建议,5 行都要非空\n- 每一条建议要贴合最新剧情发展,并且提供尽可能多的、互不相同的、富有戏剧性的剧情走向，建议五条按如下方式设计：1.剧情快速推进 2.当日待触发事件或者备忘录相关3.人物恋爱关系推进4.探索新地点或者新人物5.导向NSFW事件。\n- 所有行动建议必须符合人物性格特点，符合发展可能性\n- 展示文本列只用自然语言,长度在12~60字之间\n- 每条建议的难度尽量不同\n- 展示文本禁止写\"检定\"\"判定\"等出戏词\n\n【检定时机】\n适合检定：行动有不确定性，且结果会影响日常相处、关系推进、误会、气氛、距离感、外部介入或剧情转折。\n不适合检定（难度设置为0）：只是普通同行、吃饭、换场、等待、寒暄，且没有实际关系变化或失败代价。\n\n【检定难度判断】\n- 涉及主角自身的检定，根据角色的能力、身份、性格特质和面对的挑战综合判断难度\n- 涉及主角和其他角色的交涉、对抗等检定，根据双方之间相关能力的差别判断难度\n\n【成功/失败发展规则】\n这两列填写检定成功或者失败后的后续发展，每种发展给出2-3种可能性，用|做分隔，每种发展只需要给一个引子，5-15字即可，且该内容可以直接接续在展示文本之后形成流畅句子\n示例：展示文本：“抱住XX”，成功发展：“她没有反抗|她羞红了脸”。失败发展：“被她一把推开|却扑了个空”\n如果检定难度为0，失败发展可以为空\n\n",
+      "initNode": "根据初始剧情生成 5 条检定建议,必须用 insertNode 指定的 INSERT OR REPLACE 写法一次性写入 row_id=1~5 五行。display_text 与 check_difficulty 都必须非空,不要套用示例语义。",
+      "insertNode": "初始化、手动填表重建、每轮更新都使用同一骨架:\n\nINSERT OR REPLACE INTO jiandingjianyibiao (row_id, display_text, check_difficulty, win_event, fail_event) VALUES\n(1, '展示文本1', '检定难度1','成功发展1','失败发展1'),\n(2, '展示文本2', '检定难度2','成功发展2','失败发展2'),\n(3, '展示文本3', '检定难度3','成功发展3','失败发展3'),\n(4, '展示文本4', '检定难度4','成功发展4','失败发展4'),\n(5, '展示文本5', '检定难度5','成功发展5','失败发展5');\n\n禁止新增 1~5 以外的行。\ndisplay_text 与 check_difficulty 都必须是非空字符串。",
+      "updateNode": "每轮交互后必须同时写入 row_id=1~5 五行。展示文本写自然语言;检定难度只写 0-5的数字。\n根据要求确定难度，无需检定则为0\n\n必须使用 insertNode 中的 INSERT OR REPLACE 骨架,一条 SQL 写满 5 行。",
+      "deleteNode": "不允许删除。本表固定 5 行。",
+      "ddl": "CREATE TABLE jiandingjianyibiao ( -- 检定建议表\n  row_id INTEGER PRIMARY KEY CHECK(row_id BETWEEN 1 AND 5), -- 行号,仅允许 1-5\n  display_text TEXT NOT NULL , -- 展示文本\n  check_difficulty INTEGER NOT NULL, -- 检定难度\n  win_event TEXT , -- 成功发展\n  fail_event TEXT  -- 失败发展  \n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "展示文本",
+        "检定难度",
+        "成功发展",
+        "失败发展"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "sendLatestRows": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "（无需参考现有检定建议数据，请根据当前剧情直接生成新的检定选项）"
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "检定建议表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "检定建议表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 14
+  },
+  "sheet_summary": {
+    "uid": "sheet_summary",
+    "name": "纪要表",
+    "sourceData": {
+      "note": "轮次日志。每轮交互结束后立刻插入一条新记录。\n\n【列定义】\n- 列1: 编码索引 code_index（AM0001 起递增，全表唯一）\n- 列2: 时间跨度 time_span（'YYYY-MM-DD HH:MM ~ YYYY-MM-DD HH:MM'）\n- 列3: 概览 summary（≤40 字）\n- 列4: 纪要 chronicle_text（400-600 字）\n- 列5: 重要对话 key_dialogue（可 NULL）\n\n【编码索引】\n格式 AMXXXX，XXXX 从 0001 开始递增。\n\n【时间跨度】\n本轮事件的时间范围，格式 \"{起始时间} ~ {结束时间}\"，时间格式 YYYY-MM-DD HH:MM。\n\n【概览】\n一句话概括本轮纪要内容，必须体现互动角色名、互动地点和重要事件或变化伏笔，建议 ≤40字。\n\n【纪要规范】\n你是一个严谨的“客观记忆记录枢纽”与“无损信息压缩器”。在每轮交互结束后，你必须提取本轮所有信息，以无损压缩体记述全部细节，尤其是各种延续到后文的约定，计划，伏笔和状态变化等内容,特别是重要数字，同时必须严格记录遇到过的每一个重要角色和互动。移除所有修辞与对话。只记录客观事实不记录主观情感。不加评论，不抒情，不升华。行文生活化，用词直白露骨，文字基调积极向上。避免使用“达成协议”“确立计划”等正式措辞。\n【NSFW规范】\n涉及性行为的场景，纪要仅记录「行为事实」，严禁记录「感官过程」：\n必须记录：谁主动发起/引导、发生了什么行为（口交/插入等）、使用了什么体位、高潮次数及强度（如首次潮吹）、身体里程碑（破处/初次后庭/中出等）、过程中的关键对话、事后反应和态度变化。\n严禁记录：体液细节描写、声音/呻吟描写、节奏和力度变化、肌肤触感和温度、生殖器交合过程的文学描写。\n本质：把NSFW内容当成「性行为事实清单」而非「情色小说摘抄」。\n\n结尾必须保持开放，不得归纳状态、给出结论性评价或做出封闭式收束。叙述应在事件的自然流动中结束，呈现未完结的持续感。\n如果上下文包含多轮交互，将其整合为一条记录。禁止内容：[极端情绪, 夸张, 比喻, 升华, 情绪总结, 支配欲, 掌控欲, 总结性收尾]\n\n【重要对话】\n仅摘录直接推动剧情转折、揭示关键信息、改变人物关系/决策、或构成承诺/誓约/约定的原文台词（标明说话人）。排除寒暄、重复、情绪感叹等非信息性对白。每行使用“说话人：原文台词”格式，通常为3句，最多5句，总token不超过150。",
+      "initNode": "故事初始化时，插入一条新记录用于记录初始化剧情。",
+      "deleteNode": "禁止。",
+      "updateNode": "禁止。",
+      "insertNode": "每轮交互结束后插入一条新记录。\n\n\nSQL示例:\nINSERT INTO jiyaobiao (\n  code_index,\n  time_span,\n  summary,\n  chronicle_text,\n  key_dialogue\n) VALUES (\n  'AMXXXX',\n  '2026-02-04 08:00 ~ 2026-02-04 08:30',\n  '一句话概括',\n  '本轮纪要内容...',\n  '对话...'\n);",
+      "ddl": "CREATE TABLE jiyaobiao ( -- 纪要表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  code_index TEXT UNIQUE, -- 编码索引\n  time_span TEXT, -- 时间跨度\n  summary TEXT CHECK(LENGTH(summary) <= 80), -- 概览\n  chronicle_text TEXT CHECK(LENGTH(chronicle_text) <= 750), -- 纪要\n  key_dialogue TEXT -- 重要对话\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "编码索引",
+        "时间跨度",
+        "概览",
+        "纪要",
+        "重要对话"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": true,
+      "splitByRow": true,
+      "entryName": "纪要",
+      "entryType": "keyword",
+      "keywords": "编码索引",
+      "preventRecursion": true,
+      "injectionTemplate": "<记忆回溯>\n$1\n</记忆回溯>",
+      "extraIndexEnabled": true,
+      "extraIndexEntryName": "纪要索引",
+      "extraIndexColumns": [
+        "编码索引",
+        "时间跨度",
+        "概览"
+      ],
+      "extraIndexColumnModes": {
+        "编码索引": "both",
+        "时间跨度": "both",
+        "概览": "index_only"
+      },
+      "extraIndexInjectionTemplate": "<已发生的事件概览>\n$1\n</已发生的事件概览>",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 999,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 1000,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 9999,
+        "order": 99987
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 9999,
+        "order": 99988
+      }
+    },
+    "orderNo": 15
+  },
+  "sheet_k7gp2gbw7": {
+    "uid": "sheet_k7gp2gbw7",
+    "name": "瑟瑟任务表",
+    "sourceData": {
+      "note": "记录当前阶段的 5 条任务：3 条瑟瑟任务 + 2 条日常恋爱/追求任务，构成固定不可改变。\n\n【列定义】\n- 列1: 任务名称 mission_name（命名简洁并能暗示核心play，不超过10个字）\n- 列2: 任务描述 mission_desc （用风趣幽默的语言介绍这个任务，包括任务背景、涉及的地点与人物、以及可能出现的羞耻/情色展开。不超过50字）\n- 列3: 任务目标 mission_objective （完成任务必须达成的条件，格式为目标内容（进度），进度应当切实与任务相关的，有具体指征而非抽象的情感进度，比如邀请XX完进行一次做爱（已邀请尚未开始））\n- 列4: 完成情况 completion_status（仅允许为“已完成/未完成”）\n【填写规则】\n任务应根据主角接触的潜在恋爱角色角色和身处环境进行生成，但绝不可采用只可在当前场景下次才可实现的临时性目标，目标应当具体可实现。\n【瑟瑟任务（3 条）】\n任务必须和性爱有关，生成任务时可以考虑以下几种类型：\n1.和角色展开之前没有尝试过的玩法。\n2.从身心上用某种特殊方式征服某个角色。\n3.说服多个角色同时和自己进行某项互动\n4.尝试一些刺激的场景和道具\n5.去某些独特的地点或者进行某种情趣扮演进行性爱\n6.其他具有想象力和挑战性的与性爱相关的任务\n【日常恋爱/追求任务（2 条）】\n任务必须为 NSFW 取向的恋爱或追求相关任务，生成时可结合备忘录、日历事件中记录的约定、约会或剧情伏笔设计。",
+      "initNode": "根据当前情况插入五条任务（3 条瑟瑟 + 2 条日常恋爱/追求），尽量涉及不同类型和不同人物\n\nSQL示例:INSERT INTO seserenwubiao (mission_name, mission_desc, mission_objective, completion_status) \nVALUES (\n'阳台野战后入', '把害羞的邻居美里哄到阳台，让她扶着栏杆背对你，夏夜凉风配醉人娇喘。', \n'在阳台与美里完成一次后入式性爱（尚未实施）', '未完成');",
+      "insertNode": "当前任务小于五个时，必须新增任务直到补满五个，并保持 3 条瑟瑟 + 2 条日常恋爱/追求的构成\n新增任务的类型、涉及人物和玩法尽量不与已有任务重复。\n\nSQL示例:INSERT INTO seserenwubiao (mission_name, mission_desc, mission_objective, completion_status) VALUES (\n'双子口技对决', '说服纱织和真织这对双子姐妹，用樱桃小嘴同时为你服务，看谁先让你缴械。', \n'同时接受纱织与真织的口交服务并坚持到双方满足（已说服，等待良机）', '未完成');",
+      "updateNode": "任务名称和描述禁止更新，根据进度更新任务目标，如果任务目标达成，则完成情况更新为“已完成”（达成判定尽量宽松，避免判定错误任务一直完不成）。\n\nSQL示例（任务目标更新）:UPDATE seserenwubiao SET mission_objective = '在阳台与美里完成一次后入式性爱（已成功插入，正在进行抽送）' WHERE mission_name = '阳台野战后入';\nSQL示例（完成情况更新）:UPDATE seserenwubiao SET completion_status = '已完成' WHERE mission_name = '女仆咖啡桌下';\n",
+      "deleteNode": "禁止删除",
+      "ddl": "CREATE TABLE seserenwubiao ( -- 瑟瑟任务表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  mission_name TEXT, -- 任务名称\n  mission_desc TEXT, -- 任务描述\n  mission_objective TEXT, -- 任务目标\n  completion_status TEXT NOT NULL CHECK(completion_status IN ('已完成', '未完成')) -- 完成情况\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "任务名称",
+        "任务描述",
+        "任务目标",
+        "完成情况"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "sendLatestRows": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "瑟瑟任务表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "瑟瑟任务表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 16
+  },
+  "sheet_protagonist_skills": {
+    "uid": "sheet_protagonist_skills",
+    "name": "主角技能表",
+    "sourceData": {
+      "note": "记录主角获得的所有技能。技能广义：生活技能/职业技能/战斗技能等均算技能；即便日常技能在天赋树强化下也可有特殊效果，程度匹配世界观，既特殊又不突兀。\n【列定义】\n- 列1: 技能名称 skill_name（全表唯一）\n- 列2: 技能类别 skill_type（主动 / 被动）\n- 列3: 技能经验值 skill_exp（非负整数，初始0）\n- 列4: 技能描述 skill_desc（10-50字，描述技能作用；激活天赋树后强化形态不回写本表，本表描述始终保持基础形态供技能识别与经验值累计，强化形态由派生常亮条目「主角当前技能」注入世界书；不得自行改写本表描述）\n",
+      "initNode": "游戏初始化时，根据设定为主角添加初始技能（允许多个）。初始技能经验值为0，描述10-50字。",
+      "deleteNode": "禁止删除。",
+      "updateNode": "仅允许给技能经验值 +1~5。按触发强度：轻微使用 +1、常规使用/触发 +2~3、关键/决定性使用 +4~5。\nSQL示例(常规): UPDATE zhujuejinengbiao SET skill_exp = skill_exp + 3 WHERE skill_name = '剑术';\n禁止修改其他列",
+      "insertNode": "禁止新增。",
+      "ddl": "CREATE TABLE zhujuejinengbiao ( -- 主角技能表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  skill_name TEXT NOT NULL UNIQUE, -- 技能名称\n  skill_type TEXT NOT NULL, -- 技能类别\n  skill_exp INTEGER NOT NULL DEFAULT 0 CHECK(skill_exp >= 0), -- 技能经验值\n  skill_desc TEXT NOT NULL -- 技能描述\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "技能名称",
+        "技能类别",
+        "技能经验值",
+        "技能描述"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "主角技能表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "主角技能表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "at_depth_as_system",
+        "depth": 2,
+        "order": 99991
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 17
+  },
+  "sheet_misc": {
+    "uid": "sheet_misc",
+    "name": "杂表",
+    "sourceData": {
+      "note": "仅用于记录，不做任何更新",
+      "initNode": "禁止初始化",
+      "updateNode": "禁止更新",
+      "insertNode": "禁止新增",
+      "deleteNode": "禁止删除",
+      "ddl": "CREATE TABLE zabiao ( -- 杂表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  misc_name TEXT NOT NULL UNIQUE, -- 名称\n  misc_description TEXT -- 描述\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "名称",
+        "描述"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": 0,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 3
+    },
+    "exportConfig": {
+      "enabled": false,
+      "splitByRow": false,
+      "entryName": "杂表",
+      "entryType": "constant",
+      "keywords": "",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "杂表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10000
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 10010
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99990
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 2,
+        "order": 99991
+      },
+      "injectIntoWorldbook": false
+    },
+    "orderNo": 18
+  },
+  "sheet_char_relations": {
+    "uid": "sheet_char_relations",
+    "name": "人物关系表",
+    "sourceData": {
+      "note": "记录人物之间成对的关系，一行一对人物。与主角的关系不入本表。\n\n【列定义】\n- 列1: 人物A char_a（关系主体）\n- 列2: 人物B char_b（关系对象）\n- 列3: 关系类型 relation_type（简短词，如 挚友/宿敌/师徒/恋人/姐妹/上下级；同一对人物兼有多重性质时用“兼”并列，如“师徒兼仇人”，≤20字）\n- 列4: 相互看法 mutual_view（两人对彼此的看法，分号分两侧，如“艾莉丝敬佩校长的学识；校长视她为最得意的学生”，≤60字）\n- 列5: 起因备注 origin_note（这段关系怎么来的，一句话讲清起源，≤60字）\n- 列6: 关系状态 current_status（用成句成段描述这段关系当前所处的阶段与走向，≤60字。只写关系整体态势的迁移与变化，不记一时一事的即时反应、不与单次事件绑定，关系阶段发生迁移时才更新）\n\n【准入】\n- 人物A/人物B 必须是已登记人物的姓名：恋爱对象表或重要角色表中的角色，姓名与对应表完全一致；主角（主角信息表）不作为人物A或人物B。\n- 只要两个未在本表登记关系的角色产生了互动（哪怕只是初次交谈、照面、共处一幕），即应新增一行记录该对人物；路人级一次性擦肩、无实质接触的背景同框不记录。\n- 同一对人物（不论A/B先后顺序）全表只允许一行：写入前先确认该对人物是否已有行，已有则更新原行，禁止互换A/B顺序后另插新行。\n\n【更新纪律】\n- 关系质变（挚友反目、仇人和解、师徒决裂、暧昧转正等）→ 更新对应行的 关系类型/相互看法/关系状态。\n- 产生新互动或细节补充 → 只更新 相互看法，不改写 起因备注（起源是既成事实），也不轻易改写 关系状态。\n- 关系状态 只在关系阶段发生迁移时更新，不因一时情绪、单次事件改写；一时反应写进 相互看法，不写进 关系状态。\n- 人物离场、死亡也不删除本表行，改写 关系状态 记录结局（如“已天人永隔”“分道扬镳后音讯全无”）。",
+      "initNode": "游戏初始化时为当前已知存在互动或关系的每对人物各插入一行。",
+      "deleteNode": "禁止删除。人物离场或死亡时不删除行，改写关系状态记录结局。",
+      "updateNode": "关系阶段发生迁移或关系质变时更新对应行的 关系类型/相互看法/关系状态；一时反应与单次事件细节写进 相互看法，不写进 关系状态。\nSQL示例: UPDATE renwuguanxibiao SET relation_type = '宿敌', current_status = '已公开决裂，势同水火' WHERE row_id = 3;",
+      "insertNode": "两个已登记人物（恋爱对象表或重要角色表）之间尚未在本表登记关系、且产生了互动（交谈/照面/共处一幕等）时即新增（先确认该对人物无既有行再插入）。\nSQL示例: INSERT INTO renwuguanxibiao (char_a, char_b, relation_type, mutual_view, origin_note, current_status) VALUES ('艾莉丝', '校长', '师徒', '艾莉丝敬畏校长的严厉；校长视她为可造之才', '入学考核中校长亲自收她为徒', '相处日笃，训练从严');",
+      "ddl": "CREATE TABLE renwuguanxibiao ( -- 人物关系表\n  row_id INTEGER PRIMARY KEY, -- 行号\n  char_a TEXT NOT NULL, -- 人物A\n  char_b TEXT NOT NULL, -- 人物B\n  relation_type TEXT NOT NULL, -- 关系类型\n  mutual_view TEXT, -- 相互看法\n  origin_note TEXT, -- 起因备注\n  current_status TEXT, -- 关系状态\n  CHECK(char_a <> char_b),\n  UNIQUE(char_a, char_b)\n);"
+    },
+    "content": [
+      [
+        "row_id",
+        "人物A",
+        "人物B",
+        "关系类型",
+        "相互看法",
+        "起因备注",
+        "关系状态"
+      ]
+    ],
+    "updateConfig": {
+      "uiSentinel": -1,
+      "contextDepth": -1,
+      "updateFrequency": -1,
+      "batchSize": -1,
+      "skipFloors": -1,
+      "groupId": 1,
+      "sendRowsSqlTemplate": "{[sql \"SELECT '<if seed=' || CHAR(34) || REPLACE(COALESCE(char_a,''), CHAR(34), '') || '&' || REPLACE(COALESCE(char_b,''), CHAR(34), '') || CHAR(34) || '>' || 'row_id:' || row_id || '，人物A:' || REPLACE(COALESCE(char_a,''), CHAR(34), '') || '，人物B:' || REPLACE(COALESCE(char_b,''), CHAR(34), '') || '，关系类型:' || REPLACE(COALESCE(relation_type,''), CHAR(34), '') || '，相互看法:' || REPLACE(COALESCE(mutual_view,''), CHAR(34), '') || '，起因备注:' || REPLACE(COALESCE(origin_note,''), CHAR(34), '') || '，关系状态:' || REPLACE(COALESCE(current_status,''), CHAR(34), '') || '</if>' FROM renwuguanxibiao\"]}"
+    },
+    "exportConfig": {
+      "enabled": false,
+      "injectIntoWorldbook": false,
+      "splitByRow": true,
+      "entryName": "人物关系表",
+      "entryType": "keyword",
+      "keywords": "人物A",
+      "preventRecursion": true,
+      "injectionTemplate": "",
+      "extraIndexEnabled": false,
+      "extraIndexEntryName": "人物关系表-索引",
+      "extraIndexColumns": [],
+      "extraIndexColumnModes": {},
+      "extraIndexInjectionTemplate": "",
+      "sqlInjectionTemplate": "",
+      "entryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8006
+      },
+      "extraIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8006
+      },
+      "fixedEntryPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8006
+      },
+      "fixedIndexPlacement": {
+        "position": "before_character_definition",
+        "depth": 10000,
+        "order": 8006
+      }
+    },
+    "orderNo": 3
+  }
+}
