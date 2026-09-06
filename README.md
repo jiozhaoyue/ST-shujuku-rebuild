@@ -1,10 +1,12 @@
 # Luker·数据库
 
-Luker / TauriTavern 数据库插件，基于 [`shuiyue-cmyk/shujuku-rebuild`](https://github.com/shuiyue-cmyk/shujuku-rebuild) v9.1.9 fork，积极兼容 [Luker](https://github.com/) 前端，同时保持 TT（TauriTavern）兼容。
+Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmyk/shujuku-rebuild`](https://github.com/shuiyue-cmyk/shujuku-rebuild)（TTonly·数据库）v9.1.9 的宿主适配版，积极兼容 Luker 前端，同时保持 TT（TauriTavern）兼容。
 
-> **上游关系**：数据面与模板格式与 rebuild / 上游 [`AlbusKen/shujuku`](https://github.com/AlbusKen/shujuku) 完全同构（聊天内 `TavernDB_ACU_*` 存储帧、模板 JSON、剧情推进预设、st-acu-visualizer 契约）。宿主差异集中在 `shared/host-bridge.ts` 适配桥，上游更新按批次甄别移植。
+> **上游关系**：数据面与模板格式与上游完全同构（聊天内 `TavernDB_ACU_*` 存储帧、模板 JSON、剧情推进预设、st-acu-visualizer 契约）。宿主差异集中在 `shared/host-bridge.ts` 适配桥（TT / Luker / 通用 ST 三态 profile，探测失败自动降级 generic，不阻塞启动）。
 
 **运行时零依赖酒馆助手**，以标准扩展形式通过 GitHub 地址直接安装、自带更新。
+
+持续更新中，详见提交历史：https://github.com/jiozhaoyue/ST-shujuku-rebuild/commits/master
 
 ## 功能
 
@@ -22,15 +24,22 @@ Luker / TauriTavern 数据库插件，基于 [`shuiyue-cmyk/shujuku-rebuild`](ht
 在 Luker / TauriTavern 的扩展面板粘贴本仓库地址安装：
 
 ```
-https://github.com/jiozhaoyue/luker-shujuku
+https://github.com/jiozhaoyue/ST-shujuku-rebuild
 ```
 
-安装后自动更新（`auto_update: true`），无需再通过酒馆助手导入脚本。
+后续更新走扩展面板（`auto_update: true`），开箱即用，无需额外导入脚本。
+
+## 上游同步
+
+- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建，CI 每日定时拉取上游 master 自动合并
+- 干净合并且质量门（类型检查 / 全量测试 / 构建 / 产物冒烟）通过 → 自动合入 master 并重建分发产物
+- 冲突或门禁失败 → 自动开 issue 列出待甄别提交与冲突文件，人工处置
+- 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild
 
 ## 开发
 
-- 设计文档：`docs/superpowers/specs/2026-09-05-luker-shujuku-design.md`
+- 设计文档：`docs/superpowers/specs/`
 - 实施计划：`docs/superpowers/plans/`
-- 真机清单：`source/docs/TESTING.md`（含 Luker 2.7.0 节）
-- 测试：`cd source && npx vitest run`（基线 7580+ 用例，发版前零回退）
-- 版本留存：每版打 `vX.Y.Z` tag + `release/vX.Y.Z` 分支
+- 真机清单：`source/docs/TESTING.md`
+- 测试：`cd source && npx vitest run`（发版前全量零回退）
+- 发版：打 `vX.Y.Z` tag 触发 Release Gate（类型检查 + 全量测试 + 构建 + 冒烟 + 产物一致性校验）

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 luker-shujuku（fork 自 rebuild 9.1.9）以独立身份在 Luker 2.7.0 上核心链全量可用，TT 路径零改动。
+**Goal:** 让 ST-shujuku-rebuild（fork 自 rebuild 9.1.9）以独立身份在 Luker 2.7.0 上核心链全量可用，TT 路径零改动。
 
 **Architecture:** 宿主判定沿用 `shared/host-bridge.ts` 三态 `AcuHostKind`（真机已验证 `window.Luker.getContext` 命中 `'luker'`）；本计划补齐身份分离（manifest 脱离上游 homePage，防 auto_update 反向覆盖）、能力面查询函数、Luker ctx 形状校准测试与真机清单。世界书后端复用 `native-st-backend`（不新建 luker-backend——Luker 1.18 ctx 面与 native 后端假设一致，差异只在版本串）。
 
@@ -70,7 +70,7 @@ Expected: FAIL（当前 homePage = shuiyue-cmyk/shujuku-rebuild，version 9.1.9�
     "css": "",
     "author": "jiozhaoyue",
     "version": "9.2.0",
-    "homePage": "https://github.com/jiozhaoyue/luker-shujuku",
+    "homePage": "https://github.com/jiozhaoyue/ST-shujuku-rebuild",
     "auto_update": true
 }
 ```

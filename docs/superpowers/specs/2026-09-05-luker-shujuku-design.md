@@ -1,8 +1,8 @@
-# luker-shujuku 设计文档
+# ST-shujuku-rebuild（Luker·数据库）设计文档
 
 日期：2026-09-05
 状态：已评审通过（用户批准方向 A + 关键决策三项）
-基线：shuiyue-cmyk/shujuku-rebuild @ 9.1.9（760ba68），本仓库保留完整 git 历史
+基线：shuiyue-cmyk/shujuku-rebuild @ 9.1.9（760ba68）；公开库历史自 fork 点重建，适配过程记录保留在私有工作库
 
 ## 1. 背景与目标
 
