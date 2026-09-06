@@ -95,8 +95,14 @@ import {
   type AutoFillIntent_ACU
 } from '../../../service/runtime/message-handler';
 import {
+  resolveAiFloorSignatureEx_ACU
+} from '../../../service/table/auto-fill-echo-guard';
+import {
   logAutoFillSkip_ACU
 } from '../../../shared/trigger-diagnostics';
+import {
+  waitForMvuAnalysisToSettle_ACU
+} from '../../../service/runtime/mvu-analysis-gate';
 
   export async function fetchModelsAndConnect_ACU() {
     if (
@@ -302,6 +308,25 @@ import {
       // [健全性] 如果用户已经开始对话，则解除"开场白阶段世界书注入抑制"
       try { maybeLiftWorldbookSuppression_ACU(); } catch (e) {}
 
+      // [W4 延后闸门] MVU 用「额外模型解析」时，自动填表与正文替换都要等解析结束后再跑。
+      // 消费点选在这里的理由：本函数是两条自动链的唯一入口（正文替换 executeContentOptimization_ACU
+      // 与填表 triggerAutomaticUpdateIfNeeded_ACU 都只在本函数尾部分叉），闸门放在防抖到期后、
+      // 楼层解析与两链分叉之前，一次事件只会延后一次，不会两条链各自挂起；
+      // 放在 loadAllChatMessages / chatKey 复检之前，等待期间切了聊天由既有复检自然丢弃，不新增特判。
+      // MVU 未装 / 未启用 / 开关关闭 → 同步立即放行，与闸门上线前逐字一致。
+      const mvuGate_ACU = await waitForMvuAnalysisToSettle_ACU();
+      if (mvuGate_ACU.mergedIntoExisting) {
+        // [防双跑] 本次触发并入了他人在飞等待：创建者放行后会按最新楼独自处理，
+        // 合并方继续跑=同楼正文替换/填表双跑各烧一次 AI（2026-09-05 日志实证），直接放弃本轮。
+        logDebug_ACU('[MVU联动] 本次触发已并入在飞等待，交由创建者继续处理，本轮丢弃（防同楼双跑）');
+        return;
+      }
+      if (mvuGate_ACU.delayed) {
+        logDebug_ACU(
+          `[MVU联动] 闸门放行（reason=${mvuGate_ACU.reason}，等待 ${mvuGate_ACU.elapsedMs}ms，挂起=${mvuGate_ACU.suspended}），继续自动填表与正文替换`,
+        );
+      }
+
       const loadSpan = startRuntimePerformanceSpan_ACU('new-message-load-chat', {
         ...performanceContext,
         settings: settings_ACU,
@@ -410,6 +435,29 @@ import {
           return;
         }
         resolvedMessageIndex = resolution.messageIndex;
+      }
+
+      // [配对零产出收紧] 查看器 stopGeneration 先 hideStopButton 发 ENDED 后才发 STOPPED：
+      // ENDED 消费到查看器自己的 STARTED 上下文走「配对路径」放行，v9.2.4 的新楼证据检查只在无配对分支。
+      // STARTED 时刻冻结的 AI 楼三元组随 intent.preSignature 携带；防抖到期时三元组完全相同
+      // （含双 null）⇒ 本轮零产出 ⇒ 跳过自动链。无 intent / 无 preSignature（旧上下文、W5 重跑）直接放行。
+      // liveChat 取彩物化等待之后的最新值。
+      if (intent?.preSignature) {
+        const currentExSignature_ACU = resolveAiFloorSignatureEx_ACU(liveChat);
+        const startedExSignature_ACU = intent.preSignature;
+        if (
+          currentExSignature_ACU.aiFloorCount === startedExSignature_ACU.aiFloorCount
+          && currentExSignature_ACU.latestAiMessageId === startedExSignature_ACU.latestAiMessageId
+          && currentExSignature_ACU.latestContentHash === startedExSignature_ACU.latestContentHash
+        ) {
+          logDebug_ACU('[新消息] 配对生成零产出（AI 楼无变化），跳过自动链');
+          logAutoFillSkip_ACU('paired_ended_no_new_output', {
+            eventType,
+            eventMessageId: intent.eventMessageId,
+            aiFloorCount: currentExSignature_ACU.aiFloorCount,
+          });
+          return;
+        }
       }
 
       // [重构] 调用 service 层的 evaluateNewMessageAction_ACU 进行决策

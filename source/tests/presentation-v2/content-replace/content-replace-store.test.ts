@@ -113,6 +113,20 @@ describe('useContentReplaceStore', () => {
     expect(saveSettings).toHaveBeenCalled();
   });
 
+  it('[MVU联动] 闸门恒开启：store 不再持有开关，保存时不写顶层键', async () => {
+    const { store, settings, saveSettings } = await setupStore();
+
+    // 开关已删除：store 上无该字段，联动永远生效
+    expect((store as any).mvuGateEnabled).toBeUndefined();
+    expect(settings.mvuGateEnabled).toBeUndefined();
+    expect(settings.contentOptimizationSettings.mvuGateEnabled).toBeUndefined();
+
+    // 任意一次保存都不应写出该键
+    store.setBoolean('showDiff', false);
+    expect(saveSettings).toHaveBeenCalled();
+    expect(settings.mvuGateEnabled).toBeUndefined();
+  });
+
   it('保存、载入、删除正文替换提示词预设', async () => {
     const { store, settings } = await setupStore();
 

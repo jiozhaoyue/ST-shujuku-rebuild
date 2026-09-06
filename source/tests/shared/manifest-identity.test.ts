@@ -1,6 +1,6 @@
 /**
  * tests/shared/manifest-identity.test.ts — 身份分离不变式
- * 本仓库 manifest 必须脱离 shuiyue-cmyk/shujuku-rebuild：
+ * 本仓库 manifest 必须脱离上游 shuiyue-cmyk/shujuku-rebuild：
  * homePage 指向上游会让宿主 auto_update 把本插件拉回上游产物。
  */
 import { readFileSync } from 'node:fs';
@@ -11,8 +11,8 @@ const manifestPath = fileURLToPath(new URL('../../../manifest.json', import.meta
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
 describe('manifest identity', () => {
-  it('homePage 不指向上游 rebuild 仓库', () => {
-    expect(manifest.homePage).not.toContain('shujuku-rebuild');
+  it('homePage 指向本仓库（脱离上游，防 auto_update 反向覆盖）', () => {
+    expect(manifest.homePage).toBe('https://github.com/jiozhaoyue/ST-shujuku-rebuild');
   });
   it('display_name 已更名（脱离历史品牌）', () => {
     // 禁用名单用拼接构造：全局品牌替换（TTonly·→新品牌）不能改写本断言的名单，

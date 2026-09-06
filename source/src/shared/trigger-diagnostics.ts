@@ -20,7 +20,13 @@ export type AutoFillSkipReason_ACU =
   | 'chat_changed'
   | 'auto_update_coalesced'
   | 'preconditions_failed'
-  | 'no_tables_due';
+  | 'no_tables_due'
+  /** 同一楼已成功自动填表后，宿主又派发了一条 GENERATION_ENDED（外部插件回声）→ 自动填表入口短路 */
+  | 'duplicate_auto_fill_ended'
+  /** 无配对上下文的 GENERATION_ENDED，且自上次门控放行以来 AI 楼零产出（外部插件假事件 / 查看器中途停止）→ 门控源头丢弃 */
+  | 'unpaired_ended_no_new_output'
+  /** 配对上下文的 GENERATION_ENDED，但自 STARTED 以来 AI 楼三元组（楼数/id/末楼内容哈希）零变化（查看器配对空转）→ 防抖回调源头跳过 */
+  | 'paired_ended_no_new_output';
 
 export interface AutoFillSkipContext_ACU {
   eventType?: string;
@@ -33,6 +39,8 @@ export interface AutoFillSkipContext_ACU {
   liveIsolationKey?: string;
   lastGenerationType?: unknown;
   aiFloorCount?: number;
+  /** 无配对 ENDED 判重：门控上次放行时最新 AI 楼的 message_id */
+  latestAiMessageId?: number | null;
   /** 捕获时聊天数组长度 */
   capturedChatLength?: number;
   /** 捕获时 AI 楼层数 */
@@ -71,6 +79,7 @@ export function logAutoFillSkip_ACU(
     candidateIndexes,
     inFlight,
     preconditionReason,
+    latestAiMessageId,
   } = context;
   const log = AUTO_FILL_SKIP_WARN_REASONS_ACU.has(reason) ? logWarn_ACU : logDebug_ACU;
   log('[AutoFill] Trigger skipped', {
@@ -91,5 +100,6 @@ export function logAutoFillSkip_ACU(
     candidateIndexes,
     inFlight,
     preconditionReason,
+    latestAiMessageId,
   });
 }

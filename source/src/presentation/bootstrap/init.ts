@@ -31,6 +31,7 @@ import {
   isQuietLikeGeneration_ACU,
   isRecentUserSendIntent_ACU,
   recordGenerationContext_ACU,
+  type AiFloorSignatureEx_ACU,
   recordLastUserSend_ACU,
   shouldProcessAutoTableUpdateForGenerationEnded_ACU,
   shouldProcessPlotForGeneration_ACU,
@@ -81,8 +82,10 @@ import {
   loadAllChatMessages_ACU
 } from '../../service/worldbook/pipeline';
 import {
-  emitMessageUpdated_ACU
+  emitMessageUpdated_ACU,
+  getChatArray_ACU
 } from '../../data/gateways/chat-gateway';
+import { resolveAiFloorSignature_ACU, resolveAiFloorSignatureEx_ACU } from '../../service/table/auto-fill-echo-guard';
 import {
   refreshMergedDataAndNotifyWithUI_ACU
 } from '../components/pipeline-ui-helpers';
@@ -130,6 +133,7 @@ import {
 import { bindContinuationInternalAiGenerationStarted_ACU, consumeContinuationInternalAiGenerationEnded_ACU } from '../../service/continuation/internal-ai-events';
 import { getContinuationHostGenerationBridge_ACU } from '../../service/continuation/host-generation-bridge-registry';
 import { getContinuationRuntime_ACU } from '../../service/continuation/continuation-runtime';
+import { attachMvuAnalysisGate_ACU } from '../../service/runtime/mvu-analysis-gate';
 
 // ═══ [H2/M4] 启动期重建链互斥守卫 ═══
 // 背景：启动时可能存在两条并发的重建链——chatId 可用路径的 setTimeout(initWithChatId, 1000)
@@ -671,7 +675,16 @@ export   function mainInitialize_ACU() {
             try {
               // 终止只作用于当次填表。新一轮宿主生成必须清掉残留，否则评估闸永久 user_aborted。
               _set_wasStoppedByUser_ACU(false);
-              const context = recordGenerationContext_ACU(type, params, dryRun);
+              // [配对零产出证据] STARTED 时刻冻结 AI 楼扩展签名（与 ENDED 的 chatAtCapture 同源：SillyTavern_API_ACU?.chat），
+              // 随上下文带到 ENDED 配对路径判定；读取失败传 undefined（下游按无证据放行）。
+              // quiet/dryRun/续写桥逻辑一字不动。
+              let preSignature: AiFloorSignatureEx_ACU | undefined;
+              try {
+                preSignature = resolveAiFloorSignatureEx_ACU(SillyTavern_API_ACU?.chat);
+              } catch {
+                preSignature = undefined;
+              }
+              const context = recordGenerationContext_ACU(type, params, dryRun, preSignature);
               bindContinuationInternalAiGenerationStarted_ACU(context.seq);
               // 宿主的 GENERATION_STARTED 通常在发送点击返回后的微任务里才送达，同步配对必然错过；
               // 对非 quiet/非 dryRun/非自动触发的生成开放宽松认领（spv8.9.2 状态法），桥内部只在
@@ -740,11 +753,18 @@ export   function mainInitialize_ACU() {
                       capturedAiFloorCount: chatAtCapture.filter((m: any) => m && !m.is_user && m?.extra?.type !== 'narrator').length,
                       // generationSeq 仅在 generationGate 已产生过生成上下文时可靠；否则不假造。
                       generationSeq: generationGate_ACU.generationSeq > 0 ? generationGate_ACU.generationSeq : undefined,
+                      // [配对零产出证据] 仅配对携带 STARTED 时刻的扩展签名；无配对时为 undefined，下游直接放行。
+                      preSignature: generationContext?.preSignature ?? undefined,
                   }
                   : undefined;
-                if (shouldProcessAutoTableUpdateForGenerationEnded_ACU(generationContext)) {
+                // [152 收紧] 「新 AI 楼证据」签名：本事件时刻的 AI 楼数 + 最新 AI 楼 message_id（含 narrator，
+                // 与 auto-fill-echo-guard 同口径）。聊天数组在这里读一次，交给门控自行决定无配对假 ended 的去留。
+                const endedFloorSignature_ACU = resolveAiFloorSignature_ACU(getChatArray_ACU());
+                if (shouldProcessAutoTableUpdateForGenerationEnded_ACU(generationContext, endedFloorSignature_ACU)) {
                   handleNewMessageDebounced_ACU('GENERATION_ENDED', autoFillIntent);
-                } else {
+                } else if (generationContext) {
+                  // 只有拿到配对上下文时「quiet/dryRun/自动触发」这条诊断才成立；
+                  // 无配对 ended 的丢弃已由门控按 unpaired_ended_no_new_output 记录，不再重复报因。
                   logDebug_ACU('ACU: Skip auto table update due to quiet/background generation.');
                   logAutoFillSkip_ACU('quiet_or_background_generation', {
                     eventType: 'GENERATION_ENDED',
@@ -767,6 +787,16 @@ export   function mainInitialize_ACU() {
               SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_ENDED, onGenerationEnded);
             }
         }
+
+        // [W4/W5 MVU 联动] 额外模型解析事件接线：
+        // · started/ended 喂给延后闸门，本库自动填表 + 正文替换要等解析结束后再跑（见 service/runtime/mvu-analysis-gate）；
+        // · 解析结束时若本楼已被本库处理过（MVU 手动重试场景），清掉该楼 W1/W3 判重记录并再跑一轮——
+        //   重跑走的就是 handleNewMessageDebounced_ACU 这个统一入口，因此同样受闸门约束（又有解析在飞则再等）。
+        // 事件通道与宿主 eventSource 同一总线；MVU 未装时闸门同步放行、本接线不产生任何行为差。
+        attachMvuAnalysisGate_ACU({
+          eventSource: SillyTavern_API_ACU.eventSource,
+          requestRerun: () => { void handleNewMessageDebounced_ACU('MVU_ANALYSIS_ENDED'); },
+        });
 
         // [剧情推进] 拦截用户输入进行剧情规划
         if (SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS) {
