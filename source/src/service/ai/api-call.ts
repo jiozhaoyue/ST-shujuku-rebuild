@@ -17,7 +17,10 @@ import { isDebugLogEnabled } from '../../shared/log-buffer';
  * （opencode.ai 主机 + /zen/go/ 路径前缀，见官方 Endpoints 表）时附加，其他端点
  * （含 Zen 余额直连等非 Go 路径、其他服务商）一律不受影响；用户已在附加请求头里
  * 显式写了该头则尊重用户值。
- * 会话 id 按端点 URL 稳定（进程内备忘，同端点同会话以利缓存命中），格式为 UUID。
+ * 会话 id 按「端点 + 调用方命名空间 + 模型」稳定（进程内备忘，同端点同命名空间同会话
+ * 以利缓存命中；不同功能用不同命名空间，避免提示词前缀互相顶掉缓存）。
+ * 命名空间缺省/非法时回退空命名空间（与历史行为一致的全库共享桶）。
+ * 格式为 UUID。
  */
 const OPENCODE_SESSION_IDS_ACU = new Map<string, string>();
 
@@ -43,13 +46,25 @@ function newOpencodeSessionId_ACU(): string {
     });
 }
 
-export function withOpencodeSessionHeader_ACU(headersText: string, url: unknown): string {
+export function normalizeOpencodeSessionNamespace_ACU(value: unknown): string {
+    const raw = String(value || '').trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(raw) ? raw : '';
+}
+
+export function normalizeOpencodeSessionModel_ACU(value: unknown): string {
+    const raw = String(value || '').trim().toLowerCase().replace(/^models\//, '');
+    return raw.length <= 128 ? raw : '';
+}
+
+export function withOpencodeSessionHeader_ACU(headersText: string, url: unknown, namespace?: unknown, model?: unknown): string {
     const base = String(headersText || '');
     if (!isOpencodeGoEndpoint_ACU(url)) return base;
     // fix2 检测一致性：加 i（容忍 X-Opencode-Session 等大小写写法）并容忍行首空白（按行
     // trim 等价），避免用户显式提供了该头却因写法差异被误判缺失、再补出第二条会话头。
     if (/^[ \t]*x-opencode-session\s*:/im.test(base)) return base;
-    const key = String(url).trim().replace(/\/+$/, '').toLowerCase();
+    const namespacePart = normalizeOpencodeSessionNamespace_ACU(namespace);
+    const modelPart = normalizeOpencodeSessionModel_ACU(model);
+    const key = `${String(url).trim().replace(/\/+$/, '').toLowerCase()}\n${namespacePart}\n${modelPart}`;
     let sessionId = OPENCODE_SESSION_IDS_ACU.get(key);
     if (!sessionId) {
         sessionId = newOpencodeSessionId_ACU();
@@ -265,7 +280,7 @@ export const ENHANCED_THINKING_SYSTEM_PROMPT_ACU: string = [
 export function buildCustomApiRequestBody_ACU(
   messages: any[],
   effectiveApiConfig: any,
-  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; enhancedThinking?: boolean }
+  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; enhancedThinking?: boolean; sessionNamespace?: string }
 ): Record<string, any> {
   const opts = overrides || {};
   if (effectiveApiConfig?.url) {
@@ -289,7 +304,7 @@ export function buildCustomApiRequestBody_ACU(
     }
   }
   // OpenCode Go 端点自动补 x-opencode-session 会话头（缺失会被 Go 拒单，见本文件头注释）
-  headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url);
+  headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url, opts.sessionNamespace, effectiveApiConfig.model);
 
   // 非预填充支持：开启后把 messages 中的 assistant 消息改写为 user，
   // 内容首行加「助手：」前缀（换行接原内容），用于不支持 assistant 预填充的接口。
@@ -491,7 +506,7 @@ export async function callApiWithPlotPreset_ACU(messages: any[], presetName: str
         throw new Error('自定义API的URL或模型未配置。');
     }
 
-    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport });
+    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'plot' });
 
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
@@ -528,7 +543,7 @@ export function getApiConfigByPreset_ACU(presetName: string) {
  * @param maxTokensOverride 可选的最大 token 数覆盖，仅允许公开层传入经校验的安全值
  * @returns AI 响应文本，失败返回 null
  */
-export async function callAIWithPreset_ACU(messages: any[], presetName: string = '', maxTokensOverride?: number, signal?: AbortSignal | null, options?: { needsJsonFormat?: boolean }): Promise<string | null> {
+export async function callAIWithPreset_ACU(messages: any[], presetName: string = '', maxTokensOverride?: number, signal?: AbortSignal | null, options?: { needsJsonFormat?: boolean; sessionNamespace?: string }): Promise<string | null> {
     if (!Array.isArray(messages) || messages.length === 0) {
         logWarn_ACU('[callAIWithPreset] messages 必须是非空数组');
         return null;
@@ -553,7 +568,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
         throw new Error('自定义API的URL或模型未配置。');
     }
 
-    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}) });
+    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}), ...(options?.sessionNamespace ? { sessionNamespace: options.sessionNamespace } : {}) });
 
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
@@ -588,6 +603,8 @@ export interface ResolvedPresetCallExtras_ACU {
      * 才在请求体附加 response_format json_object（与 MVU 格式化输出同参）。开关关闭时行为与现状逐字一致。
      */
     needsJsonFormat?: boolean;
+    /** x-opencode-session 命名空间：同端点下按功能隔离缓存会话，缺省与历史行为一致。 */
+    sessionNamespace?: string;
 }
 
 /**
@@ -667,6 +684,7 @@ export async function callAIWithResolvedPreset_ACU(
         // 预设级非预填充透传（与 callAIWithPreset_ACU 对齐）；缺省时 build 内回退全局设置。
         nonPrefillSupport: resolved.nonPrefillSupport,
         promptCacheKey: extras?.promptCacheKey,
+        ...(extras?.sessionNamespace ? { sessionNamespace: extras.sessionNamespace } : {}),
         // usage 回调在场时才请求流式 usage chunk：不改变没有订阅方时的请求体。
         includeStreamUsage: !!lifecycle?.onUsage,
         // JSON 格式化输出：仅调用点明确需要 JSON 且预设开关开启时附加（与 MVU 格式化输出同参）。

@@ -127,6 +127,19 @@ describe('useContentReplaceStore', () => {
     expect(settings.mvuGateEnabled).toBeUndefined();
   });
 
+  it('忽略MVU更新开关默认关闭，setBoolean 写回并可回读', async () => {
+    const { store, settings } = await setupStore();
+
+    expect(store.ignoreMvuUpdate).toBe(false);
+
+    store.setBoolean('ignoreMvuUpdate', true);
+    expect(settings.contentOptimizationSettings.ignoreMvuUpdate).toBe(true);
+
+    store.setBoolean('ignoreMvuUpdate', false);
+    expect(settings.contentOptimizationSettings.ignoreMvuUpdate).toBe(false);
+    expect(store.ignoreMvuUpdate).toBe(false);
+  });
+
   it('保存、载入、删除正文替换提示词预设', async () => {
     const { store, settings } = await setupStore();
 

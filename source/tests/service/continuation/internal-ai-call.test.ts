@@ -134,7 +134,7 @@ describe('callContinuationInternalAi_ACU prompt cache key', () => {
     );
 
     expect(mockCallAIWithResolvedPreset_ACU).toHaveBeenCalledOnce();
-    expect(mockCallAIWithResolvedPreset_ACU.mock.calls[0]?.[4]).toBeUndefined();
+    expect(mockCallAIWithResolvedPreset_ACU.mock.calls[0]?.[4]).toEqual({ sessionNamespace: expect.stringMatching(/^cont-agent-main-[0-9a-f]{8}$/) });
   });
 
   it('关闭 prompt_cache_key 时仍把 onUsage 传给网关，会话流还能统计缓存命中', async () => {
@@ -148,6 +148,23 @@ describe('callContinuationInternalAi_ACU prompt cache key', () => {
     );
 
     expect(mockCallAIWithResolvedPreset_ACU.mock.calls[0]?.[3]).toEqual(expect.objectContaining({ onUsage }));
-    expect(mockCallAIWithResolvedPreset_ACU.mock.calls[0]?.[4]).toBeUndefined();
+    expect(mockCallAIWithResolvedPreset_ACU.mock.calls[0]?.[4]).toEqual({ sessionNamespace: expect.stringMatching(/^cont-agent-main-[0-9a-f]{8}$/) });
+  });
+
+  it('不同聊天隔离 x-opencode-session 命名空间', async () => {
+    const run = (chatIdentity: string) => callContinuationInternalAi_ACU(
+      [{ role: 'user', content: '按聊隔离' }],
+      preset_ACU,
+      identity_ACU({ chatIdentity, requestId: `request-${chatIdentity}` }),
+      null,
+      { promptCacheEnabled: false, cacheScope: 'agent-main' },
+    );
+    await run('chat/A');
+    const nsA = (mockCallAIWithResolvedPreset_ACU.mock.calls.at(-1)?.[4] as any)?.sessionNamespace;
+    await run('chat/B');
+    const nsB = (mockCallAIWithResolvedPreset_ACU.mock.calls.at(-1)?.[4] as any)?.sessionNamespace;
+    expect(nsA).toMatch(/^cont-agent-main-[0-9a-f]{8}$/);
+    expect(nsB).toMatch(/^cont-agent-main-[0-9a-f]{8}$/);
+    expect(nsB).not.toBe(nsA);
   });
 });

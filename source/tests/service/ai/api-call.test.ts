@@ -66,6 +66,9 @@ import {
   callCustomOpenAI_ACU_Direct,
   buildCustomApiRequestBody_ACU,
   postChatCompletion_ACU,
+  withOpencodeSessionHeader_ACU,
+  normalizeOpencodeSessionNamespace_ACU,
+  normalizeOpencodeSessionModel_ACU,
   AgentApiHttpError_ACU,
   isRetryableAiRequestError_ACU,
   JSON_OBJECT_RESPONSE_FORMAT_ACU,
@@ -357,6 +360,74 @@ describe('buildCustomApiRequestBody_ACU', () => {
     );
     const hits = String(body.custom_include_headers).split('\n').filter((l: string) => /^x-opencode-session\s*:/i.test(l));
     expect(hits).toEqual(['x-opencode-session: my-own-id']);
+  });
+
+  it('命名空间隔离会话：不同功能不同 id，同功能稳定', () => {
+    const cfg = { url: 'https://opencode.ai/zen/go/v1/chat/completions', model: 'm', apiKey: 'sk-go' };
+    const pick = (b: any) => String(b.custom_include_headers).split('\n').find((l: string) => /^x-opencode-session\s*:/i.test(l));
+    const plot = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg, { sessionNamespace: 'plot-ns-test' });
+    const plotAgain = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg, { sessionNamespace: 'plot-ns-test' });
+    const fill = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg, { sessionNamespace: 'fill-ns-test' });
+    const shared = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg);
+    expect(pick(plot)).toMatch(/^x-opencode-session: [0-9a-f-]{36}$/i);
+    expect(pick(plotAgain)).toBe(pick(plot));
+    expect(pick(fill)).not.toBe(pick(plot));
+    expect(pick(shared)).not.toBe(pick(plot));
+    expect(pick(shared)).not.toBe(pick(fill));
+  });
+
+  it('非法命名空间回退共享桶', () => {
+    const cfg = { url: 'https://opencode.ai/zen/go/v1/chat/completions', model: 'm', apiKey: 'sk-go' };
+    const pick = (b: any) => String(b.custom_include_headers).split('\n').find((l: string) => /^x-opencode-session\s*:/i.test(l));
+    const bad = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg, { sessionNamespace: 'Plot!!' });
+    const shared = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg);
+    expect(pick(bad)).toBe(pick(shared));
+  });
+
+  it('normalizeOpencodeSessionNamespace_ACU 大小写归一、非法置空', () => {
+    expect(normalizeOpencodeSessionNamespace_ACU('Plot')).toBe('plot');
+    expect(normalizeOpencodeSessionNamespace_ACU('  agent-decision_2 ')).toBe('agent-decision_2');
+    expect(normalizeOpencodeSessionNamespace_ACU('a b')).toBe('');
+    expect(normalizeOpencodeSessionNamespace_ACU('')).toBe('');
+    expect(normalizeOpencodeSessionNamespace_ACU(undefined)).toBe('');
+  });
+
+  it('withOpencodeSessionHeader_ACU 命名空间直通：同值稳定、异值隔离', () => {
+    const url = 'https://opencode.ai/zen/go/v1/chat/completions';
+    const pick = (h: string) => h.split('\n').find((l) => /^x-opencode-session\s*:/i.test(l));
+    const a = pick(withOpencodeSessionHeader_ACU('', url, 'direct-ns-a'));
+    const a2 = pick(withOpencodeSessionHeader_ACU('', url, 'direct-ns-a'));
+    const b = pick(withOpencodeSessionHeader_ACU('', url, 'direct-ns-b'));
+    expect(a).toMatch(/^x-opencode-session: [0-9a-f-]{36}$/i);
+    expect(a2).toBe(a);
+    expect(b).not.toBe(a);
+  });
+
+  it('同端点同功能换模型隔离会话（中途换预设不串缓存）', () => {
+    const url = 'https://opencode.ai/zen/go/v1/chat/completions';
+    const pick = (h: string) => h.split('\n').find((l) => /^x-opencode-session\s*:/i.test(l));
+    const m1 = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-pro'));
+    const m1Again = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-pro'));
+    const m2 = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-flash'));
+    expect(m1Again).toBe(m1);
+    expect(m2).not.toBe(m1);
+  });
+
+  it('normalizeOpencodeSessionModel_ACU 去前缀归一、超长置空', () => {
+    expect(normalizeOpencodeSessionModel_ACU('models/mimo-v2.5-Pro')).toBe('mimo-v2.5-pro');
+    expect(normalizeOpencodeSessionModel_ACU('  Mimo-V2.5-Pro  ')).toBe('mimo-v2.5-pro');
+    expect(normalizeOpencodeSessionModel_ACU('x'.repeat(129))).toBe('');
+    expect(normalizeOpencodeSessionModel_ACU(undefined)).toBe('');
+  });
+
+  it('build 经模型区分会话：同预设同模型稳定，换模型隔离', () => {
+    const base = { url: 'https://opencode.ai/zen/go/v1/chat/completions', apiKey: 'sk-go' };
+    const pick = (b: any) => String(b.custom_include_headers).split('\n').find((l: string) => /^x-opencode-session\s*:/i.test(l));
+    const a = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'mimo-v2.5-pro' }, { sessionNamespace: 'model-build-ns' });
+    const a2 = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'models/mimo-v2.5-pro' }, { sessionNamespace: 'model-build-ns' });
+    const b = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'mimo-v2.5-flash' }, { sessionNamespace: 'model-build-ns' });
+    expect(pick(a2)).toBe(pick(a));
+    expect(pick(b)).not.toBe(pick(a));
   });
 
   it('maxTokens 驼峰别名生效', () => {

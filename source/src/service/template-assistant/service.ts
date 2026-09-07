@@ -2151,8 +2151,8 @@ export async function generateTemplateAssistantDraft_ACU(input: TemplateAssistan
     const guardSignal = input.guard?.signal ?? null;
     const aiRawText = await retrySingleShotAiCall_ACU(() => (
         guardSignal
-            ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true })
-            : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true })
+            ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })
+            : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })
     ), guardSignal);
     if (!aiRawText) {
         throw new Error('AI 未返回有效内容');

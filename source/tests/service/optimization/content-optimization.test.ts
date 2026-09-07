@@ -264,6 +264,26 @@ describe('performContentOptimization_ACU', () => {
     expect(result.optimizedContent).toBe('优化后的内容');
   });
 
+  it('最大替换项数同步进提示词数量行（默认 1-10 按配置改写）', async () => {
+    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    vi.mocked(callAIWithPreset_ACU).mockResolvedValue(JSON.stringify({
+      optimizations: [{ type: 'replace', original: '旧文本', optimized: '新文本', plan: '优化计划' }],
+      summary: '优化总结',
+    }));
+    mockSettings.contentOptimizationSettings = {
+      maxOptimizations: 20, loopCount: 1, retryCount: 1,
+      promptGroup: [{ role: 'user', content: '优化项数量：1-10个\n$CONTENT' }],
+    };
+
+    const { performContentOptimization_ACU } = await import('../../../src/service/optimization/content-optimization');
+    const result = await performContentOptimization_ACU('原始内容', { currentLoop: 1 });
+    expect(result.success).toBe(true);
+    const sent = vi.mocked(callAIWithPreset_ACU).mock.calls[0][0] as any[];
+    const text = sent.map(m => String(m.content)).join('\n');
+    expect(text).toContain('优化项数量：1-20个');
+    expect(text).not.toContain('优化项数量：1-10个');
+  });
+
   it('API 返回空响应时所有重试失败', async () => {
     const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
     vi.mocked(callAIWithPreset_ACU).mockResolvedValue('');

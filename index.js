@@ -68355,7 +68355,7 @@ async function skillifySingleEntry_ACU(summary, options, control, progressState)
         let retryable = true;
         // AI 调用异常只作为该条目的失败原因参与重试，不允许穿透 runWithConcurrency 拖垮整批 skillify。
         try {
-            const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true });
+            const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
             if (!response) {
                 lastReason = 'AI 未返回内容';
             }
@@ -70882,7 +70882,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             await acquirePresetRateLimitSlot_ACU(effectiveTableApiPreset || '_current_config', { signal: abortSignal });
         }
         logDebug_ACU('ACU: 调用后端生成 API, Model:', effectiveApiConfig.model);
-        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport }), abortSignal);
+        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'table-fill' }), abortSignal);
         if (content) {
             return content.trim();
         }
@@ -72703,7 +72703,10 @@ function saveCurrentConfigAsPreset_ACU(name) {
  * （opencode.ai 主机 + /zen/go/ 路径前缀，见官方 Endpoints 表）时附加，其他端点
  * （含 Zen 余额直连等非 Go 路径、其他服务商）一律不受影响；用户已在附加请求头里
  * 显式写了该头则尊重用户值。
- * 会话 id 按端点 URL 稳定（进程内备忘，同端点同会话以利缓存命中），格式为 UUID。
+ * 会话 id 按「端点 + 调用方命名空间 + 模型」稳定（进程内备忘，同端点同命名空间同会话
+ * 以利缓存命中；不同功能用不同命名空间，避免提示词前缀互相顶掉缓存）。
+ * 命名空间缺省/非法时回退空命名空间（与历史行为一致的全库共享桶）。
+ * 格式为 UUID。
  */
 const OPENCODE_SESSION_IDS_ACU = new Map();
 function isOpencodeGoEndpoint_ACU(url) {
@@ -72730,7 +72733,15 @@ function newOpencodeSessionId_ACU() {
         return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     });
 }
-function withOpencodeSessionHeader_ACU(headersText, url) {
+function normalizeOpencodeSessionNamespace_ACU(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(raw) ? raw : '';
+}
+function normalizeOpencodeSessionModel_ACU(value) {
+    const raw = String(value || '').trim().toLowerCase().replace(/^models\//, '');
+    return raw.length <= 128 ? raw : '';
+}
+function withOpencodeSessionHeader_ACU(headersText, url, namespace, model) {
     const base = String(headersText || '');
     if (!isOpencodeGoEndpoint_ACU(url))
         return base;
@@ -72738,7 +72749,9 @@ function withOpencodeSessionHeader_ACU(headersText, url) {
     // trim 等价），避免用户显式提供了该头却因写法差异被误判缺失、再补出第二条会话头。
     if (/^[ \t]*x-opencode-session\s*:/im.test(base))
         return base;
-    const key = String(url).trim().replace(/\/+$/, '').toLowerCase();
+    const namespacePart = normalizeOpencodeSessionNamespace_ACU(namespace);
+    const modelPart = normalizeOpencodeSessionModel_ACU(model);
+    const key = `${String(url).trim().replace(/\/+$/, '').toLowerCase()}\n${namespacePart}\n${modelPart}`;
     let sessionId = OPENCODE_SESSION_IDS_ACU.get(key);
     if (!sessionId) {
         sessionId = newOpencodeSessionId_ACU();
@@ -72970,7 +72983,7 @@ function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) 
         }
     }
     // OpenCode Go 端点自动补 x-opencode-session 会话头（缺失会被 Go 拒单，见本文件头注释）
-    headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url);
+    headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url, opts.sessionNamespace, effectiveApiConfig.model);
     // 非预填充支持：开启后把 messages 中的 assistant 消息改写为 user，
     // 内容首行加「助手：」前缀（换行接原内容），用于不支持 assistant 预填充的接口。
     // 优先取调用点传入的预设级值；未传入时读全局设置。
@@ -73173,7 +73186,7 @@ async function callApiWithPlotPreset_ACU(messages, presetName, abortSignal = nul
     if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
         throw new Error('自定义API的URL或模型未配置。');
     }
-    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport });
+    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'plot' });
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
         await acquirePresetRateLimitSlot_ACU(effectivePresetName || '_current_config', { signal: abortSignal });
@@ -73225,7 +73238,7 @@ async function callAIWithPreset_ACU(messages, presetName = '', maxTokensOverride
     if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
         throw new Error('自定义API的URL或模型未配置。');
     }
-    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}) });
+    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}), ...(options?.sessionNamespace ? { sessionNamespace: options.sessionNamespace } : {}) });
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
         await acquirePresetRateLimitSlot_ACU(presetName || '_current_config', { signal });
@@ -73311,6 +73324,7 @@ async function callAIWithResolvedPreset_ACU(messages, resolved, signal, lifecycl
         // 预设级非预填充透传（与 callAIWithPreset_ACU 对齐）；缺省时 build 内回退全局设置。
         nonPrefillSupport: resolved.nonPrefillSupport,
         promptCacheKey: extras?.promptCacheKey,
+        ...(extras?.sessionNamespace ? { sessionNamespace: extras.sessionNamespace } : {}),
         // usage 回调在场时才请求流式 usage chunk：不改变没有订阅方时的请求体。
         includeStreamUsage: !!lifecycle?.onUsage,
         // JSON 格式化输出：仅调用点明确需要 JSON 且预设开关开启时附加（与 MVU 格式化输出同参）。
@@ -73903,7 +73917,7 @@ async function getOptimizationPlaceholders_ACU(userMessage = '') {
  */
 async function performContentOptimization_ACU(content, options = {}) {
     const config = settings_ACU.contentOptimizationSettings || {};
-    const maxLength = config.maxOptimizations || 10;
+    const maxLength = Math.min(100, Math.max(1, Math.floor(Number(config.maxOptimizations) || 10)));
     const currentLoop = options.currentLoop || 1;
     const totalLoops = config.loopCount || 1;
     const maxRetries = config.retryCount || 3;
@@ -73920,6 +73934,8 @@ async function performContentOptimization_ACU(content, options = {}) {
         if (item.content && typeof item.content === 'string') {
             // 替换 $CONTENT 占位符
             item.content = item.content.replace(/\$CONTENT/g, content);
+            // 最大替换项数同步设置：默认提示词写死 1-10，这里按配置改写数量行（存量预设同样生效）
+            item.content = item.content.replace(/优化项数量：1-10个/g, `优化项数量：1-${maxLength}个`);
             // 替换剧情推进占位符
             for (const [key, value] of Object.entries(placeholders)) {
                 if (value && typeof value === 'string') {
@@ -73970,7 +73986,7 @@ async function performContentOptimization_ACU(content, options = {}) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
-            responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+            responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
             if (responseContent) {
                 // API调用成功，跳出重试循环
                 break;
@@ -74038,7 +74054,7 @@ async function performContentOptimization_ACU(content, options = {}) {
             await new Promise(resolve => setTimeout(resolve, delayMs));
             try {
                 logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
-                parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+                parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
                 if (!parseRetryResponseContent) {
                     throw new Error('重试请求未返回有效内容');
                 }
@@ -77176,7 +77192,7 @@ async function runAgentDecisionShard_ACU(params) {
     for (let attempt = 1; attempt <= params.maxAiAttempts; attempt++) {
         try {
             // 中止信号透传：剧情推进「停止」可中断 agent 决策请求（与 plot-task-engine 一致）
-            rawResponse = await callAIWithPreset_ACU(messages, params.presetName, undefined, params.signal || null, { needsJsonFormat: true });
+            rawResponse = await callAIWithPreset_ACU(messages, params.presetName, undefined, params.signal || null, { needsJsonFormat: true, sessionNamespace: 'agent-decision' });
         }
         catch (error) {
             // 用户「停止」触发的 AbortError：直接终止，不做无意义重试空转
@@ -78633,7 +78649,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.1" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.5" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -97063,6 +97079,7 @@ let settings_ACU = {
         seamlessMode: true,
         autoApply: true,
         showDiff: true,
+        ignoreMvuUpdate: false,
         minLength: 100,
         maxOptimizations: 10,
         loopCount: 1,
@@ -98477,6 +98494,7 @@ function buildDefaultSettings_ACU() {
             autoApply: true, // 是否自动应用优化结果（关闭时显示对比让用户选择）
             showDiff: true, // 是否显示优化对比（非无感模式下有效）
             parallelMode: false, // 填表与正文替换并行执行（默认关闭）
+            ignoreMvuUpdate: false, // 忽略MVU更新：开后正文替换不等MVU解析、MVU结束后也不重跑（默认关闭）
             minLength: 100, // 最小优化长度阈值
             maxOptimizations: 10, // 单次最大优化项数
             loopCount: 1, // 循环优化次数
@@ -98845,7 +98863,7 @@ async function executeAutoMergeBatch_ACU(prepared, batch, accumulatedSummary) {
             }
             const finalMessages = messagesToUse.map((m) => ({ role: m.role.toLowerCase(), content: m.content }));
             // 酒馆主 API（tavern / useMainApi）已剥离，恒走自定义 API
-            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false }));
+            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false, sessionNamespace: 'summary' }));
             if (!aiResponseText)
                 throw new Error('API返回的数据格式不正确');
             const extractResult = extractTableEditInner_ACU(aiResponseText, { allowNoTableEditTags: true });
@@ -111879,7 +111897,8 @@ function evaluateNewMessageAction_ACU(liveChat, isAutoUpdating, coreApisReady, w
  *
  * 铁律：MVU 未装时，本模块对既有链路**零行为差**——
  * 判定同步立即返回，不建定时器、不挂监听、不读缓存集合，也就不存在任何新增失败面。
- * 联动恒开启（无开关）：MVU 在场即生效。
+ * 联动恒开启（无总开关）：正文替换页「忽略MVU更新」开后，替换分支退出联动
+ *（不等 MVU、MVU 结束后也不重跑），填表分支不受影响、照旧等待与重跑。
  * 本闸门位于 v9.1.10 已上线的 W1（正文替换 messageId+内容指纹判重）/ W3（填表 messageId+chatKey 判重）
  * 的**上游**：它只推迟自动链的开跑时点，不改动任何判重语义。
  *
@@ -112239,6 +112258,15 @@ function notifyMvuAnalysisEnded_ACU() {
     }
     scheduleMvuRerunForLatestProcessedFloor_ACU();
 }
+/** 正文替换「忽略MVU更新」开关：开后正文替换不等 MVU，W5 重跑也不再管替换（只剩填表能触发）。 */
+function isIgnoreMvuUpdateEnabled_ACU() {
+    try {
+        return settings_ACU?.contentOptimizationSettings?.ignoreMvuUpdate === true;
+    }
+    catch (error) {
+        return false;
+    }
+}
 // ═══ [W5] 解析完成 / 手动重试联动 ═══
 /**
  * 收到 ended 后判断要不要再跑一轮自动链。
@@ -112257,7 +112285,9 @@ function scheduleMvuRerunForLatestProcessedFloor_ACU() {
         if (messageId === null || messageId === undefined)
             return;
         const chatKey = String(currentChatFileIdentifier_ACU ?? '');
-        const hasReplacement = !!findAutoOptimizationProcessedEntry_ACU(messageId, chatKey);
+        // [忽略MVU更新] 开后正文替换已在正文输出时跑完、不等 MVU：替换的完成记录不再触发重跑，
+        // 只有填表记录能触发；重跑入口本身也会跳过替换分支（见 settings-ui-connect）。
+        const hasReplacement = !isIgnoreMvuUpdateEnabled_ACU() && !!findAutoOptimizationProcessedEntry_ACU(messageId, chatKey);
         const hasTableFill = !!findAutoTableFillProcessedEntry_ACU(messageId, chatKey);
         if (!hasReplacement && !hasTableFill) {
             logDebug_ACU(`[MVU联动] 第 ${floor.messageIndex} 楼尚未登记自动链完成记录，本次解析结束不触发重跑`);
@@ -112540,6 +112570,47 @@ function attemptToLoadCoreApis_ACU() {
     }
     return coreApisAreReady_ACU;
 }
+/**
+ * [忽略MVU更新] 早跑：防抖到期即跑一次正文替换，不等 W4 闸门。
+ * 只跑替换分支（填表仍走正常管线等 MVU）；解析/评估失败一律静默放弃，
+ * 交由正常管线兜底。返回 true = 早跑已执行（正常轮不再重复跑替换）。
+ */
+async function runIgnoreMvuEarlyReplace_ACU(eventType, intent, scheduledChatKey, scheduledIsolationKey) {
+    try {
+        await loadAllChatMessages_ACU();
+        if (currentChatFileIdentifier_ACU !== scheduledChatKey
+            || getCurrentIsolationKey_ACU() !== scheduledIsolationKey)
+            return false;
+        const earlyChat = getChatArray_ACU();
+        let earlyIndex;
+        if (intent) {
+            const earlyResolution = resolveGeneratedAiMessageIndex_ACU({ liveChat: earlyChat, intent });
+            if (earlyResolution.kind !== 'resolved')
+                return false;
+            earlyIndex = earlyResolution.messageIndex;
+            if (intent.preSignature) {
+                const currentExSignature_ACU = resolveAiFloorSignatureEx_ACU(earlyChat);
+                const startedExSignature_ACU = intent.preSignature;
+                if (currentExSignature_ACU.aiFloorCount === startedExSignature_ACU.aiFloorCount
+                    && currentExSignature_ACU.latestAiMessageId === startedExSignature_ACU.latestAiMessageId
+                    && currentExSignature_ACU.latestContentHash === startedExSignature_ACU.latestContentHash)
+                    return false;
+            }
+        }
+        const earlyResult = evaluateNewMessageAction_ACU(earlyChat, isAutoUpdatingCard_ACU, coreApisAreReady_ACU, wasStoppedByUser_ACU, settings_ACU.contentOptimizationSettings, earlyIndex);
+        if (earlyResult.action !== 'optimize_parallel'
+            && earlyResult.action !== 'optimize_manual'
+            && earlyResult.action !== 'optimize_then_update')
+            return false;
+        logDebug_ACU('[MVU联动] 忽略MVU更新已开启，正文替换不等闸门直接开跑');
+        await executeContentOptimization_ACU(earlyResult.lastMessageIndex);
+        return true;
+    }
+    catch (error) {
+        logDebug_ACU('[MVU联动] 忽略MVU更新早跑失败，交由正常管线兜底:', error);
+        return false;
+    }
+}
 // [触发修复] GENERATION_ENDED 后 AI 楼层有界物化等待常量
 async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu', intent) {
     logDebug_ACU(`New message event (${eventType}) detected for ACU, debouncing for ${NEW_MESSAGE_DEBOUNCE_DELAY_ACU}ms...`);
@@ -112563,12 +112634,23 @@ async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu', intent) 
                 maybeLiftWorldbookSuppression_ACU();
             }
             catch (e) { }
+            // [忽略MVU更新] 开后正文替换不等 MVU：防抖到期即早跑一次（填表仍走 W4 闸门）；
+            // W5 重跑（MVU_ANALYSIS_ENDED）不再跑替换（见 fork 处 skipReplace_ACU）。
+            // 早跑成功后正常轮跳过替换（结构性防双跑，不依赖 W1 判重）；早跑失败则正常轮兜底。
+            const ignoreMvuUpdate_ACU = settings_ACU?.contentOptimizationSettings?.ignoreMvuUpdate === true;
+            const isMvuRerun_ACU = eventType === 'MVU_ANALYSIS_ENDED';
+            let earlyReplaceDone_ACU = false;
+            if (ignoreMvuUpdate_ACU && !isMvuRerun_ACU) {
+                earlyReplaceDone_ACU = await runIgnoreMvuEarlyReplace_ACU(eventType, intent, scheduledChatKey_ACU, scheduledIsolationKey_ACU);
+            }
+            const skipReplace_ACU = (ignoreMvuUpdate_ACU && isMvuRerun_ACU) || earlyReplaceDone_ACU;
             // [W4 延后闸门] MVU 用「额外模型解析」时，自动填表与正文替换都要等解析结束后再跑。
             // 消费点选在这里的理由：本函数是两条自动链的唯一入口（正文替换 executeContentOptimization_ACU
             // 与填表 triggerAutomaticUpdateIfNeeded_ACU 都只在本函数尾部分叉），闸门放在防抖到期后、
             // 楼层解析与两链分叉之前，一次事件只会延后一次，不会两条链各自挂起；
             // 放在 loadAllChatMessages / chatKey 复检之前，等待期间切了聊天由既有复检自然丢弃，不新增特判。
             // MVU 未装 / 未启用 / 开关关闭 → 同步立即放行，与闸门上线前逐字一致。
+            // 「忽略MVU更新」开后替换分支已早跑，此处闸门实际只拦填表（正常轮靠 skipReplace 跳过替换）。
             const mvuGate_ACU = await waitForMvuAnalysisToSettle_ACU();
             if (mvuGate_ACU.mergedIntoExisting) {
                 // [防双跑] 本次触发并入了他人在飞等待：创建者放行后会按最新楼独自处理，
@@ -112721,6 +112803,11 @@ async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu', intent) 
             }
             switch (result.action) {
                 case 'optimize_parallel':
+                    if (skipReplace_ACU) {
+                        logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换，只跑填表');
+                        await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
+                        break;
+                    }
                     logDebug_ACU('[正文优化] 并行模式已启用，正文优化与填表将同时进行...');
                     await Promise.all([
                         executeContentOptimization_ACU(result.lastMessageIndex),
@@ -112728,10 +112815,19 @@ async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu', intent) 
                     ]);
                     break;
                 case 'optimize_manual':
+                    if (skipReplace_ACU) {
+                        logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换（手动模式本就不跑填表）');
+                        break;
+                    }
                     logDebug_ACU('[正文优化] 手动确认模式：等待用户确认后再填表...');
                     await executeContentOptimization_ACU(result.lastMessageIndex);
                     break;
                 case 'optimize_then_update':
+                    if (skipReplace_ACU) {
+                        logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换，只跑填表');
+                        await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
+                        break;
+                    }
                     await executeContentOptimization_ACU(result.lastMessageIndex);
                     await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
                     break;
@@ -115193,7 +115289,7 @@ async function generateKeywords_ACU(config, userInput) {
     const attempts = Math.max(1, Number(config.keywordGenerationMaxAttempts) || 1);
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '');
+            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '', undefined, undefined, { sessionNamespace: 'summary' });
             const keywords = parseKeywords_ACU(response || '');
             if (keywords.length > 0)
                 return keywords;
@@ -119235,6 +119331,14 @@ function buildPromptCacheKey_ACU(identity, scope, preset) {
     return key;
 }
 /**
+ * 续写 x-opencode-session 命名空间：scope + 聊天身份哈希，不同聊天不同会话。
+ * 只含稳定因子（与 prompt_cache_key 同口径），字符集满足命名空间白名单。
+ */
+function buildContinuationSessionNamespace_ACU(identity, scope) {
+    const safeScope = String(scope || 'cont').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'cont';
+    return `cont-${safeScope}-${fnv1aHex_ACU(identity.chatIdentity)}`;
+}
+/**
  * 把一次调用的用量渲染成会话流条目里的紧凑标签。
  * 输入与输出恒常显示；缓存读取和缓存写入仅在厂商报告时追加。
  * 明确报告 0 与字段缺失保持不同语义。
@@ -119263,6 +119367,7 @@ async function callContinuationInternalAi_ACU(messages, preset, identity, signal
         ...(cacheEnabled ? { promptCacheKey: buildPromptCacheKey_ACU(identity, options?.cacheScope || identity.source, preset) } : {}),
         ...(options?.minOutputTokens ? { minOutputTokens: options.minOutputTokens } : {}),
         ...(options?.needsJsonFormat === true ? { needsJsonFormat: true } : {}),
+        sessionNamespace: buildContinuationSessionNamespace_ACU(identity, options?.cacheScope || identity.source),
     };
     try {
         return await callAIWithResolvedPreset_ACU(messages, preset, signal, {
@@ -135743,7 +135848,7 @@ function createWorldbookAiApi(_ctx) {
                     return null;
                 }
                 // 委托给 service 层统一入口；单发无覆盖，瞬时 5xx 等走统一重试包装。
-                return await retrySingleShotAiCall_ACU$1(() => callAIWithPreset_ACU(messages, presetName, maxTokensOverride));
+                return await retrySingleShotAiCall_ACU$1(() => callAIWithPreset_ACU(messages, presetName, maxTokensOverride, undefined, { sessionNamespace: 'worldbook-ai' }));
             }
             catch (e) {
                 // 不打印原始错误对象以避免泄露上游响应正文
@@ -136698,7 +136803,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260906-22";
+        const stamp = "20260907-23";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -178893,6 +178998,7 @@ function ensureSettingsShape() {
     cfg.autoApply = cfg.autoApply !== false;
     cfg.showDiff = cfg.showDiff !== false;
     cfg.parallelMode = cfg.parallelMode === true;
+    cfg.ignoreMvuUpdate = cfg.ignoreMvuUpdate === true;
     cfg.minLength = normalizeInteger(cfg.minLength, 100, 0, 1000000);
     cfg.maxOptimizations = normalizeInteger(cfg.maxOptimizations, 10, 1, 100);
     cfg.loopCount = normalizeInteger(cfg.loopCount, 1, 1, 10);
@@ -179001,6 +179107,7 @@ const useContentReplaceStore = defineStore('acu-v2-content-replace', {
         autoApply: true,
         showDiff: true,
         parallelMode: false,
+        ignoreMvuUpdate: false,
         minLength: 100,
         maxOptimizations: 10,
         loopCount: 1,
@@ -179070,6 +179177,7 @@ const useContentReplaceStore = defineStore('acu-v2-content-replace', {
             this.autoApply = cfg.autoApply !== false;
             this.showDiff = cfg.showDiff !== false;
             this.parallelMode = cfg.parallelMode === true;
+            this.ignoreMvuUpdate = cfg.ignoreMvuUpdate === true;
             this.minLength = cfg.minLength;
             this.maxOptimizations = cfg.maxOptimizations;
             this.loopCount = cfg.loopCount;
@@ -179094,6 +179202,7 @@ const useContentReplaceStore = defineStore('acu-v2-content-replace', {
             cfg.autoApply = this.autoApply;
             cfg.showDiff = this.showDiff;
             cfg.parallelMode = this.parallelMode;
+            cfg.ignoreMvuUpdate = this.ignoreMvuUpdate;
             cfg.minLength = normalizeInteger(this.minLength, 100, 0, 1000000);
             cfg.maxOptimizations = normalizeInteger(this.maxOptimizations, 10, 1, 100);
             cfg.loopCount = normalizeInteger(this.loopCount, 1, 1, 10);
@@ -179557,8 +179666,8 @@ var _sfc_main$d = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-content-replace-page[data-v-5c8f038f] {\n  min-height: 100%;\n  min-width: 0;\n  padding: 20px;\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n}\n.acu-v2-content-replace-page__mini-status span[data-v-5c8f038f] {\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: 1.5;\n}\n.acu-v2-content-replace-page__number-grid[data-v-5c8f038f],\n.acu-v2-content-replace-page__form-grid[data-v-5c8f038f] {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n}\n.acu-v2-content-replace-page__choice-list[data-v-5c8f038f],\n.acu-v2-content-replace-page__rule-stack[data-v-5c8f038f] {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n.acu-v2-content-replace-page__mini-status[data-v-5c8f038f] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 8px 0;\n  border: 0;\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-bottom: 1px solid\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-radius: 0;\n  background: transparent;\n}\n.acu-v2-content-replace-page__mini-status strong[data-v-5c8f038f] {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__status-line[data-v-5c8f038f] {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  margin: 0 0 10px;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-content-replace-page__status-line strong[data-v-5c8f038f] {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  color: var(--acu-text-1);\n  font-size: var(--acu-font-size-body, 12px);\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__badge[data-v-5c8f038f] {\n  display: inline-flex;\n  align-items: center;\n  padding: 1px 8px;\n  border-radius: var(--acu-radius-sm);\n  background: color-mix(in srgb, var(--acu-text-3) 16%, transparent);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-caption, 11px);\n  font-weight: 500;\n}\n.acu-v2-content-replace-page__select-row[data-v-5c8f038f] {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);\n  gap: 6px;\n  align-items: stretch;\n  min-width: 0;\n}\n.acu-v2-content-replace-page__actions[data-v-5c8f038f] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 8px;\n  justify-content: flex-end;\n  padding-top: 12px;\n  margin-top: 4px;\n}\n.acu-v2-content-replace-page__test-output[data-v-5c8f038f] {\n  margin: 0;\n  max-height: 280px;\n  overflow: auto;\n  padding: 10px 0;\n  border: 0;\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-bottom: 1px solid\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-radius: 0;\n  background: transparent;\n  color: var(--acu-text-2);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: 1.55;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n@media (max-width: 860px) {\n.acu-v2-content-replace-page[data-v-5c8f038f] {\n    padding: 14px;\n}\n.acu-v2-content-replace-page__number-grid[data-v-5c8f038f],\n  .acu-v2-content-replace-page__form-grid[data-v-5c8f038f] {\n    grid-template-columns: 1fr;\n}\n}\n", "src/presentation-v2/pages/ContentReplacePage.vue#style-0-5c8f038f");
-var ContentReplacePage_vue_vue_type_style_index_0_scoped_5c8f038f_lang = null;
+injectSfcStyle("\n.acu-v2-content-replace-page[data-v-b8ae8f38] {\n  min-height: 100%;\n  min-width: 0;\n  padding: 20px;\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n}\n.acu-v2-content-replace-page__mini-status span[data-v-b8ae8f38] {\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: 1.5;\n}\n.acu-v2-content-replace-page__number-grid[data-v-b8ae8f38],\n.acu-v2-content-replace-page__form-grid[data-v-b8ae8f38] {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n}\n.acu-v2-content-replace-page__choice-list[data-v-b8ae8f38],\n.acu-v2-content-replace-page__rule-stack[data-v-b8ae8f38] {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n.acu-v2-content-replace-page__mini-status[data-v-b8ae8f38] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 8px 0;\n  border: 0;\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-bottom: 1px solid\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-radius: 0;\n  background: transparent;\n}\n.acu-v2-content-replace-page__mini-status strong[data-v-b8ae8f38] {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__status-line[data-v-b8ae8f38] {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  margin: 0 0 10px;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-content-replace-page__status-line strong[data-v-b8ae8f38] {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  color: var(--acu-text-1);\n  font-size: var(--acu-font-size-body, 12px);\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__badge[data-v-b8ae8f38] {\n  display: inline-flex;\n  align-items: center;\n  padding: 1px 8px;\n  border-radius: var(--acu-radius-sm);\n  background: color-mix(in srgb, var(--acu-text-3) 16%, transparent);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-caption, 11px);\n  font-weight: 500;\n}\n.acu-v2-content-replace-page__select-row[data-v-b8ae8f38] {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);\n  gap: 6px;\n  align-items: stretch;\n  min-width: 0;\n}\n.acu-v2-content-replace-page__actions[data-v-b8ae8f38] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 8px;\n  justify-content: flex-end;\n  padding-top: 12px;\n  margin-top: 4px;\n}\n.acu-v2-content-replace-page__test-output[data-v-b8ae8f38] {\n  margin: 0;\n  max-height: 280px;\n  overflow: auto;\n  padding: 10px 0;\n  border: 0;\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-bottom: 1px solid\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n  border-radius: 0;\n  background: transparent;\n  color: var(--acu-text-2);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: 1.55;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n@media (max-width: 860px) {\n.acu-v2-content-replace-page[data-v-b8ae8f38] {\n    padding: 14px;\n}\n.acu-v2-content-replace-page__number-grid[data-v-b8ae8f38],\n  .acu-v2-content-replace-page__form-grid[data-v-b8ae8f38] {\n    grid-template-columns: 1fr;\n}\n}\n", "src/presentation-v2/pages/ContentReplacePage.vue#style-0-b8ae8f38");
+var ContentReplacePage_vue_vue_type_style_index_0_scoped_b8ae8f38_lang = null;
 
 const _hoisted_1$d = { class: "acu-v2-content-replace-page" };
 const _hoisted_2$c = { class: "acu-v2-content-replace-page__number-grid" };
@@ -179704,9 +179813,14 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 								"model-value": $setup.store.parallelMode,
 								label: "填表与正文替换并行执行",
 								"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => $setup.store.setBoolean("parallelMode", $event))
+							}, null, 8, ["model-value"]),
+							createVNode($setup["AcuCheckbox"], {
+								"model-value": $setup.store.ignoreMvuUpdate,
+								label: "忽略MVU更新",
+								"onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => $setup.store.setBoolean("ignoreMvuUpdate", $event))
 							}, null, 8, ["model-value"])
 						]),
-						createBaseVNode("div", _hoisted_4$9, [_cache[18] || (_cache[18] = createBaseVNode(
+						createBaseVNode("div", _hoisted_4$9, [_cache[19] || (_cache[19] = createBaseVNode(
 							"span",
 							null,
 							"最近可重新优化",
@@ -179724,7 +179838,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 							disabled: $setup.store.lastOptimizedMessageIndex < 0,
 							onClick: $setup.store.reoptimizeLatest
 						}, {
-							default: withCtx(() => [..._cache[19] || (_cache[19] = [createBaseVNode(
+							default: withCtx(() => [..._cache[20] || (_cache[20] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-rotate-right" },
 								null,
@@ -179759,7 +179873,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["variant"])]),
 					default: withCtx(() => [
 						createBaseVNode("p", _hoisted_6$8, [
-							_cache[20] || (_cache[20] = createTextVNode(
+							_cache[21] || (_cache[21] = createTextVNode(
 								" 当前提示词: ",
 								-1
 								/* CACHED */
@@ -179787,7 +179901,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 								"empty-text": "暂无正文替换预设",
 								placeholder: "自定义提示词",
 								"show-default-action": false,
-								"onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => $setup.store.selectPreset($event))
+								"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => $setup.store.selectPreset($event))
 							}, null, 8, ["items", "model-value"]),
 							createVNode($setup["AcuIconButton"], {
 								icon: "fa-solid fa-pen",
@@ -179802,7 +179916,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 								disabled: !!$setup.store.busyAction,
 								onFile: $setup.store.importPresets
 							}, {
-								default: withCtx(() => [..._cache[21] || (_cache[21] = [createBaseVNode(
+								default: withCtx(() => [..._cache[22] || (_cache[22] = [createBaseVNode(
 									"i",
 									{ class: "fa-solid fa-download" },
 									null,
@@ -179814,14 +179928,14 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 							createVNode($setup["AcuIconButton"], {
 								icon: "fa-solid fa-gear",
 								title: "管理预设",
-								onClick: _cache[10] || (_cache[10] = ($event) => $setup.presetDrawerOpen = true)
+								onClick: _cache[11] || (_cache[11] = ($event) => $setup.presetDrawerOpen = true)
 							})
 						]),
 						$setup.promptGroupMissingContent ? (openBlock(), createBlock($setup["AcuMessage"], {
 							key: 0,
 							kind: "warning"
 						}, {
-							default: withCtx(() => [..._cache[22] || (_cache[22] = [createTextVNode(
+							default: withCtx(() => [..._cache[23] || (_cache[23] = [createTextVNode(
 								" 正文替换提示词缺少 $CONTENT，占位符为空时运行时无法知道要检查哪段正文；请打开编辑器载入默认提示词或补回占位符。 ",
 								-1
 								/* CACHED */
@@ -179844,7 +179958,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 							"model-value": $setup.store.extractTags,
 							type: "text",
 							placeholder: "例如: content,正文",
-							"onUpdate:modelValue": _cache[11] || (_cache[11] = ($event) => $setup.store.setString("extractTags", String($event)))
+							"onUpdate:modelValue": _cache[12] || (_cache[12] = ($event) => $setup.store.setString("extractTags", String($event)))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					}), createVNode($setup["AcuFormRow"], {
@@ -179855,7 +179969,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 							"model-value": $setup.store.excludeTags,
 							type: "text",
 							placeholder: "例如: think,thinking",
-							"onUpdate:modelValue": _cache[12] || (_cache[12] = ($event) => $setup.store.setString("excludeTags", String($event)))
+							"onUpdate:modelValue": _cache[13] || (_cache[13] = ($event) => $setup.store.setString("excludeTags", String($event)))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					})]), createBaseVNode("div", _hoisted_10$5, [createVNode($setup["AcuRulePairList"], {
@@ -179889,7 +180003,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 								"model-value": $setup.store.testInput,
 								rows: 5,
 								placeholder: "输入模拟正文，验证提示词与返回格式。",
-								"onUpdate:modelValue": _cache[13] || (_cache[13] = ($event) => $setup.store.setString("testInput", $event))
+								"onUpdate:modelValue": _cache[14] || (_cache[14] = ($event) => $setup.store.setString("testInput", $event))
 							}, null, 8, ["model-value"])]),
 							_: 1
 						}),
@@ -179898,7 +180012,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.store.busyAction === "test",
 							onClick: $setup.store.runTest
 						}, {
-							default: withCtx(() => [..._cache[23] || (_cache[23] = [createTextVNode(
+							default: withCtx(() => [..._cache[24] || (_cache[24] = [createTextVNode(
 								" 执行优化测试 ",
 								-1
 								/* CACHED */
@@ -179922,12 +180036,12 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 			"is-open": $setup.presetDrawerOpen,
 			presets: $setup.store.promptPresets,
 			message: $setup.store.message,
-			onClose: _cache[14] || (_cache[14] = ($event) => $setup.presetDrawerOpen = false),
+			onClose: _cache[15] || (_cache[15] = ($event) => $setup.presetDrawerOpen = false),
 			onCreateFromDefault: $setup.store.createPresetFromDefault,
 			onEdit: $setup.onEditPreset,
 			onRename: $setup.onRenamePreset,
 			onDelete: $setup.onDeletePreset,
-			onExport: _cache[15] || (_cache[15] = ($event) => $setup.store.exportPresetByName($event))
+			onExport: _cache[16] || (_cache[16] = ($event) => $setup.store.exportPresetByName($event))
 		}, null, 8, [
 			"is-open",
 			"presets",
@@ -179942,8 +180056,8 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 			onClose: $setup.closePromptDrawer,
 			onSave: $setup.onSavePromptGroup,
 			onReset: $setup.onResetPromptGroup,
-			onAdd: _cache[16] || (_cache[16] = ($event) => $setup.store.addPromptSegment($event)),
-			onDelete: _cache[17] || (_cache[17] = ($event) => $setup.store.deletePromptSegment($event)),
+			onAdd: _cache[17] || (_cache[17] = ($event) => $setup.store.addPromptSegment($event)),
+			onDelete: _cache[18] || (_cache[18] = ($event) => $setup.store.deletePromptSegment($event)),
 			onUpdate: $setup.onPromptUpdate
 		}, null, 8, [
 			"is-open",
@@ -179953,7 +180067,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["render", _sfc_render$d], ["__scopeId", "data-v-5c8f038f"]]);
+var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["render", _sfc_render$d], ["__scopeId", "data-v-b8ae8f38"]]);
 
 /**
  * useSqlConsole — SQL 控制台业务流编排
@@ -180940,7 +181054,7 @@ function collectSelfCheckSnapshot_ACU() {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260906-22";
+        const stamp = "20260907-23";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180949,7 +181063,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.3.1";
+        const v = "9.3.5";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -187665,8 +187779,8 @@ async function generateTemplateAssistantDraft_ACU(input) {
     // 调用形状保持与原来一致（无 guard 时 3 参、有 guard 时 4 参透 signal）。
     const guardSignal = input.guard?.signal ?? null;
     const aiRawText = await retrySingleShotAiCall_ACU(() => (guardSignal
-        ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true })
-        : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true })), guardSignal);
+        ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })
+        : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })), guardSignal);
     if (!aiRawText) {
         throw new Error('AI 未返回有效内容');
     }

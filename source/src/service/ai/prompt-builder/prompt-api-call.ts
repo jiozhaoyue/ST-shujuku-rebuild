@@ -211,7 +211,7 @@ export class RetryableAiResponseError_ACU extends Error {
             await acquirePresetRateLimitSlot_ACU(effectiveTableApiPreset || '_current_config', { signal: abortSignal });
         }
         logDebug_ACU('ACU: 调用后端生成 API, Model:', effectiveApiConfig.model);
-        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport }), abortSignal);
+        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'table-fill' }), abortSignal);
         if (content) {
             return content.trim();
         }

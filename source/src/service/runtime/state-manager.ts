@@ -369,6 +369,7 @@ export let settings_ACU: any = {
       seamlessMode: true,
       autoApply: true,
       showDiff: true,
+      ignoreMvuUpdate: false,
       minLength: 100,
       maxOptimizations: 10,
       loopCount: 1,

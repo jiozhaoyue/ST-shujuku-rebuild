@@ -240,6 +240,67 @@ describe('解析在飞：填表与正文替换一起延后，只延后一次', (
   });
 });
 
+describe('忽略MVU更新：替换早跑不等闸门，填表照旧等；W5 重跑跳过替换', () => {
+  it('开后防抖到期即跑替换（不等 ended），填表仍等 ended 后才跑', async () => {
+    const mvu = installFakeMvu(true);
+    const es = createFakeEventSource();
+    attachMvuAnalysisGate_ACU({ eventSource: es });
+    m.settings.contentOptimizationSettings = { ignoreMvuUpdate: true };
+    try {
+      const promise = handleNewMessageDebounced_ACU('GENERATION_ENDED', { ...baseIntent });
+      await vi.advanceTimersByTimeAsync(500);
+      // 早跑：替换已执行一次，填表仍挂在闸门里
+      expect(m.executeContentOptimization).toHaveBeenCalledTimes(1);
+      expect(m.triggerAutomaticUpdateIfNeeded).not.toHaveBeenCalled();
+
+      mvu.during = false;
+      es.emit(MVU_ANALYSIS_ENDED_EVENT_ACU);
+      await vi.advanceTimersByTimeAsync(0);
+      await promise;
+
+      expect(m.triggerAutomaticUpdateIfNeeded).toHaveBeenCalledTimes(1);
+      // 早跑成功后正常轮结构性跳过替换：全程只跑一次（不依赖 W1 判重）
+      expect(m.executeContentOptimization).toHaveBeenCalledTimes(1);
+    } finally {
+      m.settings.contentOptimizationSettings = {};
+    }
+  });
+
+  it('W5 重跑（MVU_ANALYSIS_ENDED）只跑填表，不再跑替换', async () => {
+    const es = createFakeEventSource();
+    attachMvuAnalysisGate_ACU({ eventSource: es });
+    m.settings.contentOptimizationSettings = { ignoreMvuUpdate: true };
+    try {
+      const promise = handleNewMessageDebounced_ACU('MVU_ANALYSIS_ENDED');
+      await vi.advanceTimersByTimeAsync(500);
+      await promise;
+
+      expect(m.triggerAutomaticUpdateIfNeeded).toHaveBeenCalledTimes(1);
+      expect(m.executeContentOptimization).not.toHaveBeenCalled();
+    } finally {
+      m.settings.contentOptimizationSettings = {};
+    }
+  });
+
+  it('开关关闭时行为不变：替换与填表一起等闸门', async () => {
+    const mvu = installFakeMvu(true);
+    const es = createFakeEventSource();
+    attachMvuAnalysisGate_ACU({ eventSource: es });
+
+    const promise = handleNewMessageDebounced_ACU('GENERATION_ENDED', { ...baseIntent });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(m.executeContentOptimization).not.toHaveBeenCalled();
+    expect(m.triggerAutomaticUpdateIfNeeded).not.toHaveBeenCalled();
+
+    mvu.during = false;
+    es.emit(MVU_ANALYSIS_ENDED_EVENT_ACU);
+    await vi.advanceTimersByTimeAsync(0);
+    await promise;
+    expect(m.executeContentOptimization).toHaveBeenCalledTimes(1);
+    expect(m.triggerAutomaticUpdateIfNeeded).toHaveBeenCalledTimes(1);
+  });
+});
+
 // 闸门只能挂在两链分叉之前的唯一入口上：下沉到任一条链都会「一条链等、另一条链抢跑」，
 // 或者同一轮里等两次。这里用源码形状断言把消费点钉死（与 exec-auto-dedup 的源码守卫同一手法）。
 describe('闸门消费点形状（源码守卫）', () => {

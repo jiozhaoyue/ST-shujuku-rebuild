@@ -507,6 +507,31 @@ describe('⑦ [W5] 解析完成 / 手动重试联动重跑', () => {
     expect(findAutoOptimizationProcessedEntry_ACU(11, 'chat-a')).not.toBeNull();
     expect(findAutoTableFillProcessedEntry_ACU(11, 'chat-a')).not.toBeNull();
   });
+
+  it('忽略MVU更新开 → 只有替换登记时不重跑（替换记录保留），填表登记仍触发', async () => {
+    const es = createFakeEventSource();
+    const rerun = vi.fn();
+    installFakeMvu(false);
+    h.settings.contentOptimizationSettings = { ignoreMvuUpdate: true };
+    try {
+      attachMvuAnalysisGate_ACU({ eventSource: es, requestRerun: rerun });
+      recordAutoOptimizationProcessed_ACU({ messageId: 11, messageIndex: 1, contentHash: 'h', chatKey: 'chat-a' });
+
+      es.emit(MVU_ANALYSIS_ENDED_EVENT_ACU);
+      await vi.advanceTimersByTimeAsync(MVU_RERUN_DEBOUNCE_MS_ACU + 1);
+
+      expect(rerun).not.toHaveBeenCalled();
+      expect(findAutoOptimizationProcessedEntry_ACU(11, 'chat-a')).not.toBeNull();
+
+      recordAutoTableFillProcessed_ACU({ messageId: 11, messageIndex: 1, chatKey: 'chat-a' });
+      es.emit(MVU_ANALYSIS_ENDED_EVENT_ACU);
+      await vi.advanceTimersByTimeAsync(MVU_RERUN_DEBOUNCE_MS_ACU + 1);
+
+      expect(rerun).toHaveBeenCalledTimes(1);
+    } finally {
+      delete h.settings.contentOptimizationSettings;
+    }
+  });
 });
 
 describe('⑧ 联动恒开启：无开关，缺键时闸门照常工作', () => {

@@ -168,7 +168,7 @@ import {
    */
    export async function performContentOptimization_ACU(content: any, options: any = {}) {
      const config = settings_ACU.contentOptimizationSettings || {};
-     const maxLength = config.maxOptimizations || 10;
+     const maxLength = Math.min(100, Math.max(1, Math.floor(Number(config.maxOptimizations) || 10)));
      const currentLoop = options.currentLoop || 1;
      const totalLoops = config.loopCount || 1;
      const maxRetries = config.retryCount || 3;
@@ -189,6 +189,8 @@ import {
        if (item.content && typeof item.content === 'string') {
          // 替换 $CONTENT 占位符
          item.content = item.content.replace(/\$CONTENT/g, content);
+          // 最大替换项数同步设置：默认提示词写死 1-10，这里按配置改写数量行（存量预设同样生效）
+          item.content = item.content.replace(/优化项数量：1-10个/g, `优化项数量：1-${maxLength}个`);
          // 替换剧情推进占位符
          for (const [key, value] of Object.entries(placeholders)) {
            if (value && typeof value === 'string') {
@@ -246,7 +248,7 @@ import {
      for (let attempt = 1; attempt <= maxRetries; attempt++) {
        try {
         logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
-        responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+        responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
          
          if (responseContent) {
            // API调用成功，跳出重试循环
@@ -326,7 +328,7 @@ import {
          
          try {
            logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
-           parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+           parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
            if (!parseRetryResponseContent) {
              throw new Error('重试请求未返回有效内容');
            }

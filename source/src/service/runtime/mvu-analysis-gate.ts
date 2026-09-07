@@ -7,7 +7,8 @@
  *
  * 铁律：MVU 未装时，本模块对既有链路**零行为差**——
  * 判定同步立即返回，不建定时器、不挂监听、不读缓存集合，也就不存在任何新增失败面。
- * 联动恒开启（无开关）：MVU 在场即生效。
+ * 联动恒开启（无总开关）：正文替换页「忽略MVU更新」开后，替换分支退出联动
+ *（不等 MVU、MVU 结束后也不重跑），填表分支不受影响、照旧等待与重跑。
  * 本闸门位于 v9.1.10 已上线的 W1（正文替换 messageId+内容指纹判重）/ W3（填表 messageId+chatKey 判重）
  * 的**上游**：它只推迟自动链的开跑时点，不改动任何判重语义。
  *
@@ -61,6 +62,7 @@
 
 import {
   currentChatFileIdentifier_ACU,
+  settings_ACU,
 } from './state-manager';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import {
@@ -429,6 +431,15 @@ export function notifyMvuAnalysisEnded_ACU(): void {
   scheduleMvuRerunForLatestProcessedFloor_ACU();
 }
 
+/** 正文替换「忽略MVU更新」开关：开后正文替换不等 MVU，W5 重跑也不再管替换（只剩填表能触发）。 */
+export function isIgnoreMvuUpdateEnabled_ACU(): boolean {
+  try {
+    return (settings_ACU as any)?.contentOptimizationSettings?.ignoreMvuUpdate === true;
+  } catch (error) {
+    return false;
+  }
+}
+
 // ═══ [W5] 解析完成 / 手动重试联动 ═══
 
 /**
@@ -446,7 +457,9 @@ export function scheduleMvuRerunForLatestProcessedFloor_ACU(): void {
     const messageId = floor?.messageId;
     if (messageId === null || messageId === undefined) return;
     const chatKey = String(currentChatFileIdentifier_ACU ?? '');
-    const hasReplacement = !!findAutoOptimizationProcessedEntry_ACU(messageId, chatKey);
+    // [忽略MVU更新] 开后正文替换已在正文输出时跑完、不等 MVU：替换的完成记录不再触发重跑，
+    // 只有填表记录能触发；重跑入口本身也会跳过替换分支（见 settings-ui-connect）。
+    const hasReplacement = !isIgnoreMvuUpdateEnabled_ACU() && !!findAutoOptimizationProcessedEntry_ACU(messageId, chatKey);
     const hasTableFill = !!findAutoTableFillProcessedEntry_ACU(messageId, chatKey);
     if (!hasReplacement && !hasTableFill) {
       logDebug_ACU(`[MVU联动] 第 ${floor!.messageIndex} 楼尚未登记自动链完成记录，本次解析结束不触发重跑`);

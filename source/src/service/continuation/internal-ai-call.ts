@@ -89,6 +89,18 @@ function buildPromptCacheKey_ACU(
 }
 
 /**
+ * 续写 x-opencode-session 命名空间：scope + 聊天身份哈希，不同聊天不同会话。
+ * 只含稳定因子（与 prompt_cache_key 同口径），字符集满足命名空间白名单。
+ */
+function buildContinuationSessionNamespace_ACU(
+  identity: ContinuationInternalAiRequestIdentity_ACU,
+  scope: string,
+): string {
+  const safeScope = String(scope || 'cont').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'cont';
+  return `cont-${safeScope}-${fnv1aHex_ACU(identity.chatIdentity)}`;
+}
+
+/**
  * 把一次调用的用量渲染成会话流条目里的紧凑标签。
  * 输入与输出恒常显示；缓存读取和缓存写入仅在厂商报告时追加。
  * 明确报告 0 与字段缺失保持不同语义。
@@ -124,6 +136,7 @@ export async function callContinuationInternalAi_ACU(
     ...(cacheEnabled ? { promptCacheKey: buildPromptCacheKey_ACU(identity, options?.cacheScope || identity.source, preset) } : {}),
     ...(options?.minOutputTokens ? { minOutputTokens: options.minOutputTokens } : {}),
     ...(options?.needsJsonFormat === true ? { needsJsonFormat: true } : {}),
+    sessionNamespace: buildContinuationSessionNamespace_ACU(identity, options?.cacheScope || identity.source),
   };
   try {
     return await callAIWithResolvedPreset_ACU(
