@@ -53,6 +53,7 @@ interface ContentReplaceState {
   autoApply: boolean;
   showDiff: boolean;
   parallelMode: boolean;
+  ignoreMvuUpdate: boolean;
   minLength: number;
   maxOptimizations: number;
   loopCount: number;
@@ -141,6 +142,7 @@ function ensureSettingsShape(): Record<string, any> {
   cfg.autoApply = cfg.autoApply !== false;
   cfg.showDiff = cfg.showDiff !== false;
   cfg.parallelMode = cfg.parallelMode === true;
+  cfg.ignoreMvuUpdate = cfg.ignoreMvuUpdate === true;
   cfg.minLength = normalizeInteger(cfg.minLength, 100, 0, 1000000);
   cfg.maxOptimizations = normalizeInteger(cfg.maxOptimizations, 10, 1, 100);
   cfg.loopCount = normalizeInteger(cfg.loopCount, 1, 1, 10);
@@ -264,6 +266,7 @@ export const useContentReplaceStore = defineStore('acu-v2-content-replace', {
     autoApply: true,
     showDiff: true,
     parallelMode: false,
+    ignoreMvuUpdate: false,
     minLength: 100,
     maxOptimizations: 10,
     loopCount: 1,
@@ -329,6 +332,7 @@ export const useContentReplaceStore = defineStore('acu-v2-content-replace', {
       this.autoApply = cfg.autoApply !== false;
       this.showDiff = cfg.showDiff !== false;
       this.parallelMode = cfg.parallelMode === true;
+      this.ignoreMvuUpdate = cfg.ignoreMvuUpdate === true;
       this.minLength = cfg.minLength;
       this.maxOptimizations = cfg.maxOptimizations;
       this.loopCount = cfg.loopCount;
@@ -353,6 +357,7 @@ export const useContentReplaceStore = defineStore('acu-v2-content-replace', {
       cfg.autoApply = this.autoApply;
       cfg.showDiff = this.showDiff;
       cfg.parallelMode = this.parallelMode;
+      cfg.ignoreMvuUpdate = this.ignoreMvuUpdate;
       cfg.minLength = normalizeInteger(this.minLength, 100, 0, 1000000);
       cfg.maxOptimizations = normalizeInteger(this.maxOptimizations, 10, 1, 100);
       cfg.loopCount = normalizeInteger(this.loopCount, 1, 1, 10);
@@ -366,7 +371,7 @@ export const useContentReplaceStore = defineStore('acu-v2-content-replace', {
       persist();
       this.refreshFromSettings();
     },
-    setBoolean(key: 'enabled' | 'seamlessMode' | 'autoApply' | 'showDiff' | 'parallelMode', value: boolean): void {
+    setBoolean(key: 'enabled' | 'seamlessMode' | 'autoApply' | 'showDiff' | 'parallelMode' | 'ignoreMvuUpdate', value: boolean): void {
       this[key] = !!value;
       this.saveToSettings();
     },

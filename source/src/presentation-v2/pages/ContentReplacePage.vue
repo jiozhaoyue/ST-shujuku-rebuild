@@ -97,6 +97,11 @@
             label="填表与正文替换并行执行"
             @update:model-value="store.setBoolean('parallelMode', $event)"
           />
+          <AcuCheckbox
+            :model-value="store.ignoreMvuUpdate"
+            label="忽略MVU更新"
+            @update:model-value="store.setBoolean('ignoreMvuUpdate', $event)"
+          />
         </div>
 
         <div class="acu-v2-content-replace-page__mini-status">

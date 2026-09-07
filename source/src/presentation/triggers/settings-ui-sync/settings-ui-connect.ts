@@ -285,6 +285,55 @@ import {
     return coreApisAreReady_ACU;
   }
 
+  /**
+   * [忽略MVU更新] 早跑：防抖到期即跑一次正文替换，不等 W4 闸门。
+   * 只跑替换分支（填表仍走正常管线等 MVU）；解析/评估失败一律静默放弃，
+   * 交由正常管线兜底。返回 true = 早跑已执行（正常轮不再重复跑替换）。
+   */
+  async function runIgnoreMvuEarlyReplace_ACU(
+    eventType: string,
+    intent: AutoFillIntent_ACU | undefined,
+    scheduledChatKey: string,
+    scheduledIsolationKey: string,
+  ): Promise<boolean> {
+    try {
+      await loadAllChatMessages_ACU();
+      if (currentChatFileIdentifier_ACU !== scheduledChatKey
+        || getCurrentIsolationKey_ACU() !== scheduledIsolationKey) return false;
+      const earlyChat = getChatArray_ACU();
+      let earlyIndex: number | undefined;
+      if (intent) {
+        const earlyResolution = resolveGeneratedAiMessageIndex_ACU({ liveChat: earlyChat, intent });
+        if (earlyResolution.kind !== 'resolved') return false;
+        earlyIndex = earlyResolution.messageIndex;
+        if (intent.preSignature) {
+          const currentExSignature_ACU = resolveAiFloorSignatureEx_ACU(earlyChat);
+          const startedExSignature_ACU = intent.preSignature;
+          if (currentExSignature_ACU.aiFloorCount === startedExSignature_ACU.aiFloorCount
+            && currentExSignature_ACU.latestAiMessageId === startedExSignature_ACU.latestAiMessageId
+            && currentExSignature_ACU.latestContentHash === startedExSignature_ACU.latestContentHash) return false;
+        }
+      }
+      const earlyResult = evaluateNewMessageAction_ACU(
+        earlyChat,
+        isAutoUpdatingCard_ACU,
+        coreApisAreReady_ACU,
+        wasStoppedByUser_ACU,
+        settings_ACU.contentOptimizationSettings,
+        earlyIndex,
+      );
+      if (earlyResult.action !== 'optimize_parallel'
+        && earlyResult.action !== 'optimize_manual'
+        && earlyResult.action !== 'optimize_then_update') return false;
+      logDebug_ACU('[MVU联动] 忽略MVU更新已开启，正文替换不等闸门直接开跑');
+      await executeContentOptimization_ACU(earlyResult.lastMessageIndex!);
+      return true;
+    } catch (error) {
+      logDebug_ACU('[MVU联动] 忽略MVU更新早跑失败，交由正常管线兜底:', error);
+      return false;
+    }
+  }
+
   // [触发修复] GENERATION_ENDED 后 AI 楼层有界物化等待常量
   export async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu', intent?: AutoFillIntent_ACU) {
     logDebug_ACU(
@@ -308,12 +357,24 @@ import {
       // [健全性] 如果用户已经开始对话，则解除"开场白阶段世界书注入抑制"
       try { maybeLiftWorldbookSuppression_ACU(); } catch (e) {}
 
+      // [忽略MVU更新] 开后正文替换不等 MVU：防抖到期即早跑一次（填表仍走 W4 闸门）；
+      // W5 重跑（MVU_ANALYSIS_ENDED）不再跑替换（见 fork 处 skipReplace_ACU）。
+      // 早跑成功后正常轮跳过替换（结构性防双跑，不依赖 W1 判重）；早跑失败则正常轮兜底。
+      const ignoreMvuUpdate_ACU = (settings_ACU as any)?.contentOptimizationSettings?.ignoreMvuUpdate === true;
+      const isMvuRerun_ACU = eventType === 'MVU_ANALYSIS_ENDED';
+      let earlyReplaceDone_ACU = false;
+      if (ignoreMvuUpdate_ACU && !isMvuRerun_ACU) {
+        earlyReplaceDone_ACU = await runIgnoreMvuEarlyReplace_ACU(eventType, intent, scheduledChatKey_ACU, scheduledIsolationKey_ACU);
+      }
+      const skipReplace_ACU = (ignoreMvuUpdate_ACU && isMvuRerun_ACU) || earlyReplaceDone_ACU;
+
       // [W4 延后闸门] MVU 用「额外模型解析」时，自动填表与正文替换都要等解析结束后再跑。
       // 消费点选在这里的理由：本函数是两条自动链的唯一入口（正文替换 executeContentOptimization_ACU
       // 与填表 triggerAutomaticUpdateIfNeeded_ACU 都只在本函数尾部分叉），闸门放在防抖到期后、
       // 楼层解析与两链分叉之前，一次事件只会延后一次，不会两条链各自挂起；
       // 放在 loadAllChatMessages / chatKey 复检之前，等待期间切了聊天由既有复检自然丢弃，不新增特判。
       // MVU 未装 / 未启用 / 开关关闭 → 同步立即放行，与闸门上线前逐字一致。
+      // 「忽略MVU更新」开后替换分支已早跑，此处闸门实际只拦填表（正常轮靠 skipReplace 跳过替换）。
       const mvuGate_ACU = await waitForMvuAnalysisToSettle_ACU();
       if (mvuGate_ACU.mergedIntoExisting) {
         // [防双跑] 本次触发并入了他人在飞等待：创建者放行后会按最新楼独自处理，
@@ -486,6 +547,11 @@ import {
 
       switch (result.action) {
           case 'optimize_parallel':
+              if (skipReplace_ACU) {
+                logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换，只跑填表');
+                await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
+                break;
+              }
               logDebug_ACU('[正文优化] 并行模式已启用，正文优化与填表将同时进行...');
               await Promise.all([
                   executeContentOptimization_ACU(result.lastMessageIndex!),
@@ -494,11 +560,20 @@ import {
               break;
 
           case 'optimize_manual':
+              if (skipReplace_ACU) {
+                logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换（手动模式本就不跑填表）');
+                break;
+              }
               logDebug_ACU('[正文优化] 手动确认模式：等待用户确认后再填表...');
               await executeContentOptimization_ACU(result.lastMessageIndex!);
               break;
 
           case 'optimize_then_update':
+              if (skipReplace_ACU) {
+                logDebug_ACU('[MVU联动] 忽略MVU更新已开启，W5 重跑跳过正文替换，只跑填表');
+                await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
+                break;
+              }
               await executeContentOptimization_ACU(result.lastMessageIndex!);
               await triggerAutomaticUpdateIfNeeded_ACU(performanceContext);
               break;

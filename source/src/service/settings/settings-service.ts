@@ -990,6 +990,7 @@ export   function buildDefaultSettings_ACU() {
             autoApply: true,                   // 是否自动应用优化结果（关闭时显示对比让用户选择）
             showDiff: true,                    // 是否显示优化对比（非无感模式下有效）
             parallelMode: false,               // 填表与正文替换并行执行（默认关闭）
+            ignoreMvuUpdate: false,            // 忽略MVU更新：开后正文替换不等MVU解析、MVU结束后也不重跑（默认关闭）
             minLength: 100,                    // 最小优化长度阈值
             maxOptimizations: 10,              // 单次最大优化项数
             loopCount: 1,                      // 循环优化次数
