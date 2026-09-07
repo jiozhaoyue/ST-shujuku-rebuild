@@ -73761,7 +73761,7 @@ async function getOptimizationPlaceholders_ACU(userMessage = '') {
  */
 async function performContentOptimization_ACU(content, options = {}) {
     const config = settings_ACU.contentOptimizationSettings || {};
-    const maxLength = config.maxOptimizations || 10;
+    const maxLength = Math.min(100, Math.max(1, Math.floor(Number(config.maxOptimizations) || 10)));
     const currentLoop = options.currentLoop || 1;
     const totalLoops = config.loopCount || 1;
     const maxRetries = config.retryCount || 3;
@@ -73778,6 +73778,8 @@ async function performContentOptimization_ACU(content, options = {}) {
         if (item.content && typeof item.content === 'string') {
             // 替换 $CONTENT 占位符
             item.content = item.content.replace(/\$CONTENT/g, content);
+            // 最大替换项数同步设置：默认提示词写死 1-10，这里按配置改写数量行（存量预设同样生效）
+            item.content = item.content.replace(/优化项数量：1-10个/g, `优化项数量：1-${maxLength}个`);
             // 替换剧情推进占位符
             for (const [key, value] of Object.entries(placeholders)) {
                 if (value && typeof value === 'string') {
@@ -78491,7 +78493,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.3" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.4" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -180755,7 +180757,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.3.3";
+        const v = "9.3.4";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
