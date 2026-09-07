@@ -17,7 +17,7 @@ import { isDebugLogEnabled } from '../../shared/log-buffer';
  * （opencode.ai 主机 + /zen/go/ 路径前缀，见官方 Endpoints 表）时附加，其他端点
  * （含 Zen 余额直连等非 Go 路径、其他服务商）一律不受影响；用户已在附加请求头里
  * 显式写了该头则尊重用户值。
- * 会话 id 按「端点 + 调用方命名空间」稳定（进程内备忘，同端点同命名空间同会话
+ * 会话 id 按「端点 + 调用方命名空间 + 模型」稳定（进程内备忘，同端点同命名空间同会话
  * 以利缓存命中；不同功能用不同命名空间，避免提示词前缀互相顶掉缓存）。
  * 命名空间缺省/非法时回退空命名空间（与历史行为一致的全库共享桶）。
  * 格式为 UUID。
@@ -51,14 +51,20 @@ export function normalizeOpencodeSessionNamespace_ACU(value: unknown): string {
     return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(raw) ? raw : '';
 }
 
-export function withOpencodeSessionHeader_ACU(headersText: string, url: unknown, namespace?: unknown): string {
+export function normalizeOpencodeSessionModel_ACU(value: unknown): string {
+    const raw = String(value || '').trim().toLowerCase().replace(/^models\//, '');
+    return raw.length <= 128 ? raw : '';
+}
+
+export function withOpencodeSessionHeader_ACU(headersText: string, url: unknown, namespace?: unknown, model?: unknown): string {
     const base = String(headersText || '');
     if (!isOpencodeGoEndpoint_ACU(url)) return base;
     // fix2 检测一致性：加 i（容忍 X-Opencode-Session 等大小写写法）并容忍行首空白（按行
     // trim 等价），避免用户显式提供了该头却因写法差异被误判缺失、再补出第二条会话头。
     if (/^[ \t]*x-opencode-session\s*:/im.test(base)) return base;
     const namespacePart = normalizeOpencodeSessionNamespace_ACU(namespace);
-    const key = `${String(url).trim().replace(/\/+$/, '').toLowerCase()}\n${namespacePart}`;
+    const modelPart = normalizeOpencodeSessionModel_ACU(model);
+    const key = `${String(url).trim().replace(/\/+$/, '').toLowerCase()}\n${namespacePart}\n${modelPart}`;
     let sessionId = OPENCODE_SESSION_IDS_ACU.get(key);
     if (!sessionId) {
         sessionId = newOpencodeSessionId_ACU();
@@ -298,7 +304,7 @@ export function buildCustomApiRequestBody_ACU(
     }
   }
   // OpenCode Go 端点自动补 x-opencode-session 会话头（缺失会被 Go 拒单，见本文件头注释）
-  headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url, opts.sessionNamespace);
+  headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url, opts.sessionNamespace, effectiveApiConfig.model);
 
   // 非预填充支持：开启后把 messages 中的 assistant 消息改写为 user，
   // 内容首行加「助手：」前缀（换行接原内容），用于不支持 assistant 预填充的接口。

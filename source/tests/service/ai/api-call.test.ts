@@ -68,6 +68,7 @@ import {
   postChatCompletion_ACU,
   withOpencodeSessionHeader_ACU,
   normalizeOpencodeSessionNamespace_ACU,
+  normalizeOpencodeSessionModel_ACU,
   AgentApiHttpError_ACU,
   isRetryableAiRequestError_ACU,
   JSON_OBJECT_RESPONSE_FORMAT_ACU,
@@ -400,6 +401,33 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(a).toMatch(/^x-opencode-session: [0-9a-f-]{36}$/i);
     expect(a2).toBe(a);
     expect(b).not.toBe(a);
+  });
+
+  it('同端点同功能换模型隔离会话（中途换预设不串缓存）', () => {
+    const url = 'https://opencode.ai/zen/go/v1/chat/completions';
+    const pick = (h: string) => h.split('\n').find((l) => /^x-opencode-session\s*:/i.test(l));
+    const m1 = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-pro'));
+    const m1Again = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-pro'));
+    const m2 = pick(withOpencodeSessionHeader_ACU('', url, 'model-ns', 'mimo-v2.5-flash'));
+    expect(m1Again).toBe(m1);
+    expect(m2).not.toBe(m1);
+  });
+
+  it('normalizeOpencodeSessionModel_ACU 去前缀归一、超长置空', () => {
+    expect(normalizeOpencodeSessionModel_ACU('models/mimo-v2.5-Pro')).toBe('mimo-v2.5-pro');
+    expect(normalizeOpencodeSessionModel_ACU('  Mimo-V2.5-Pro  ')).toBe('mimo-v2.5-pro');
+    expect(normalizeOpencodeSessionModel_ACU('x'.repeat(129))).toBe('');
+    expect(normalizeOpencodeSessionModel_ACU(undefined)).toBe('');
+  });
+
+  it('build 经模型区分会话：同预设同模型稳定，换模型隔离', () => {
+    const base = { url: 'https://opencode.ai/zen/go/v1/chat/completions', apiKey: 'sk-go' };
+    const pick = (b: any) => String(b.custom_include_headers).split('\n').find((l: string) => /^x-opencode-session\s*:/i.test(l));
+    const a = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'mimo-v2.5-pro' }, { sessionNamespace: 'model-build-ns' });
+    const a2 = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'models/mimo-v2.5-pro' }, { sessionNamespace: 'model-build-ns' });
+    const b = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], { ...base, model: 'mimo-v2.5-flash' }, { sessionNamespace: 'model-build-ns' });
+    expect(pick(a2)).toBe(pick(a));
+    expect(pick(b)).not.toBe(pick(a));
   });
 
   it('maxTokens 驼峰别名生效', () => {
