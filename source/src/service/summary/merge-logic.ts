@@ -216,7 +216,7 @@ export async function executeAutoMergeBatch_ACU(
             const finalMessages = messagesToUse.map((m: any) => ({ role: m.role.toLowerCase(), content: m.content }));
 
             // 酒馆主 API（tavern / useMainApi）已剥离，恒走自定义 API
-            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false }));
+            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false, sessionNamespace: 'summary' }));
             if (!aiResponseText) throw new Error('API返回的数据格式不正确');
 
             const extractResult = extractTableEditInner_ACU(aiResponseText, { allowNoTableEditTags: true });

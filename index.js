@@ -68235,7 +68235,7 @@ async function skillifySingleEntry_ACU(summary, options, control, progressState)
         let retryable = true;
         // AI 调用异常只作为该条目的失败原因参与重试，不允许穿透 runWithConcurrency 拖垮整批 skillify。
         try {
-            const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true });
+            const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
             if (!response) {
                 lastReason = 'AI 未返回内容';
             }
@@ -70731,7 +70731,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             await acquirePresetRateLimitSlot_ACU(effectiveTableApiPreset || '_current_config', { signal: abortSignal });
         }
         logDebug_ACU('ACU: 调用后端生成 API, Model:', effectiveApiConfig.model);
-        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport }), abortSignal);
+        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'table-fill' }), abortSignal);
         if (content) {
             return content.trim();
         }
@@ -72552,7 +72552,10 @@ function saveCurrentConfigAsPreset_ACU(name) {
  * （opencode.ai 主机 + /zen/go/ 路径前缀，见官方 Endpoints 表）时附加，其他端点
  * （含 Zen 余额直连等非 Go 路径、其他服务商）一律不受影响；用户已在附加请求头里
  * 显式写了该头则尊重用户值。
- * 会话 id 按端点 URL 稳定（进程内备忘，同端点同会话以利缓存命中），格式为 UUID。
+ * 会话 id 按「端点 + 调用方命名空间」稳定（进程内备忘，同端点同命名空间同会话
+ * 以利缓存命中；不同功能用不同命名空间，避免提示词前缀互相顶掉缓存）。
+ * 命名空间缺省/非法时回退空命名空间（与历史行为一致的全库共享桶）。
+ * 格式为 UUID。
  */
 const OPENCODE_SESSION_IDS_ACU = new Map();
 function isOpencodeGoEndpoint_ACU(url) {
@@ -72579,7 +72582,11 @@ function newOpencodeSessionId_ACU() {
         return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     });
 }
-function withOpencodeSessionHeader_ACU(headersText, url) {
+function normalizeOpencodeSessionNamespace_ACU(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(raw) ? raw : '';
+}
+function withOpencodeSessionHeader_ACU(headersText, url, namespace) {
     const base = String(headersText || '');
     if (!isOpencodeGoEndpoint_ACU(url))
         return base;
@@ -72587,7 +72594,8 @@ function withOpencodeSessionHeader_ACU(headersText, url) {
     // trim 等价），避免用户显式提供了该头却因写法差异被误判缺失、再补出第二条会话头。
     if (/^[ \t]*x-opencode-session\s*:/im.test(base))
         return base;
-    const key = String(url).trim().replace(/\/+$/, '').toLowerCase();
+    const namespacePart = normalizeOpencodeSessionNamespace_ACU(namespace);
+    const key = `${String(url).trim().replace(/\/+$/, '').toLowerCase()}\n${namespacePart}`;
     let sessionId = OPENCODE_SESSION_IDS_ACU.get(key);
     if (!sessionId) {
         sessionId = newOpencodeSessionId_ACU();
@@ -72819,7 +72827,7 @@ function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) 
         }
     }
     // OpenCode Go 端点自动补 x-opencode-session 会话头（缺失会被 Go 拒单，见本文件头注释）
-    headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url);
+    headers = withOpencodeSessionHeader_ACU(headers, effectiveApiConfig.url, opts.sessionNamespace);
     // 非预填充支持：开启后把 messages 中的 assistant 消息改写为 user，
     // 内容首行加「助手：」前缀（换行接原内容），用于不支持 assistant 预填充的接口。
     // 优先取调用点传入的预设级值；未传入时读全局设置。
@@ -73022,7 +73030,7 @@ async function callApiWithPlotPreset_ACU(messages, presetName, abortSignal = nul
     if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
         throw new Error('自定义API的URL或模型未配置。');
     }
-    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport });
+    const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'plot' });
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
         await acquirePresetRateLimitSlot_ACU(effectivePresetName || '_current_config', { signal: abortSignal });
@@ -73074,7 +73082,7 @@ async function callAIWithPreset_ACU(messages, presetName = '', maxTokensOverride
     if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
         throw new Error('自定义API的URL或模型未配置。');
     }
-    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}) });
+    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}), ...(options?.sessionNamespace ? { sessionNamespace: options.sessionNamespace } : {}) });
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
         await acquirePresetRateLimitSlot_ACU(presetName || '_current_config', { signal });
@@ -73160,6 +73168,7 @@ async function callAIWithResolvedPreset_ACU(messages, resolved, signal, lifecycl
         // 预设级非预填充透传（与 callAIWithPreset_ACU 对齐）；缺省时 build 内回退全局设置。
         nonPrefillSupport: resolved.nonPrefillSupport,
         promptCacheKey: extras?.promptCacheKey,
+        ...(extras?.sessionNamespace ? { sessionNamespace: extras.sessionNamespace } : {}),
         // usage 回调在场时才请求流式 usage chunk：不改变没有订阅方时的请求体。
         includeStreamUsage: !!lifecycle?.onUsage,
         // JSON 格式化输出：仅调用点明确需要 JSON 且预设开关开启时附加（与 MVU 格式化输出同参）。
@@ -73819,7 +73828,7 @@ async function performContentOptimization_ACU(content, options = {}) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
-            responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+            responseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
             if (responseContent) {
                 // API调用成功，跳出重试循环
                 break;
@@ -73887,7 +73896,7 @@ async function performContentOptimization_ACU(content, options = {}) {
             await new Promise(resolve => setTimeout(resolve, delayMs));
             try {
                 logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
-                parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true });
+                parseRetryResponseContent = await callAIWithPreset_ACU(messages, apiPreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'content-replace' });
                 if (!parseRetryResponseContent) {
                     throw new Error('重试请求未返回有效内容');
                 }
@@ -77025,7 +77034,7 @@ async function runAgentDecisionShard_ACU(params) {
     for (let attempt = 1; attempt <= params.maxAiAttempts; attempt++) {
         try {
             // 中止信号透传：剧情推进「停止」可中断 agent 决策请求（与 plot-task-engine 一致）
-            rawResponse = await callAIWithPreset_ACU(messages, params.presetName, undefined, params.signal || null, { needsJsonFormat: true });
+            rawResponse = await callAIWithPreset_ACU(messages, params.presetName, undefined, params.signal || null, { needsJsonFormat: true, sessionNamespace: 'agent-decision' });
         }
         catch (error) {
             // 用户「停止」触发的 AbortError：直接终止，不做无意义重试空转
@@ -78482,7 +78491,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.1" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.2" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -98679,7 +98688,7 @@ async function executeAutoMergeBatch_ACU(prepared, batch, accumulatedSummary) {
             }
             const finalMessages = messagesToUse.map((m) => ({ role: m.role.toLowerCase(), content: m.content }));
             // 酒馆主 API（tavern / useMainApi）已剥离，恒走自定义 API
-            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false }));
+            aiResponseText = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false, sessionNamespace: 'summary' }));
             if (!aiResponseText)
                 throw new Error('API返回的数据格式不正确');
             const extractResult = extractTableEditInner_ACU(aiResponseText, { allowNoTableEditTags: true });
@@ -115012,7 +115021,7 @@ async function generateKeywords_ACU(config, userInput) {
     const attempts = Math.max(1, Number(config.keywordGenerationMaxAttempts) || 1);
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '');
+            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '', undefined, undefined, { sessionNamespace: 'summary' });
             const keywords = parseKeywords_ACU(response || '');
             if (keywords.length > 0)
                 return keywords;
@@ -119054,6 +119063,14 @@ function buildPromptCacheKey_ACU(identity, scope, preset) {
     return key;
 }
 /**
+ * 续写 x-opencode-session 命名空间：scope + 聊天身份哈希，不同聊天不同会话。
+ * 只含稳定因子（与 prompt_cache_key 同口径），字符集满足命名空间白名单。
+ */
+function buildContinuationSessionNamespace_ACU(identity, scope) {
+    const safeScope = String(scope || 'cont').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'cont';
+    return `cont-${safeScope}-${fnv1aHex_ACU(identity.chatIdentity)}`;
+}
+/**
  * 把一次调用的用量渲染成会话流条目里的紧凑标签。
  * 输入与输出恒常显示；缓存读取和缓存写入仅在厂商报告时追加。
  * 明确报告 0 与字段缺失保持不同语义。
@@ -119082,6 +119099,7 @@ async function callContinuationInternalAi_ACU(messages, preset, identity, signal
         ...(cacheEnabled ? { promptCacheKey: buildPromptCacheKey_ACU(identity, options?.cacheScope || identity.source, preset) } : {}),
         ...(options?.minOutputTokens ? { minOutputTokens: options.minOutputTokens } : {}),
         ...(options?.needsJsonFormat === true ? { needsJsonFormat: true } : {}),
+        sessionNamespace: buildContinuationSessionNamespace_ACU(identity, options?.cacheScope || identity.source),
     };
     try {
         return await callAIWithResolvedPreset_ACU(messages, preset, signal, {
@@ -135562,7 +135580,7 @@ function createWorldbookAiApi(_ctx) {
                     return null;
                 }
                 // 委托给 service 层统一入口；单发无覆盖，瞬时 5xx 等走统一重试包装。
-                return await retrySingleShotAiCall_ACU$1(() => callAIWithPreset_ACU(messages, presetName, maxTokensOverride));
+                return await retrySingleShotAiCall_ACU$1(() => callAIWithPreset_ACU(messages, presetName, maxTokensOverride, undefined, { sessionNamespace: 'worldbook-ai' }));
             }
             catch (e) {
                 // 不打印原始错误对象以避免泄露上游响应正文
@@ -136517,7 +136535,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260906-11";
+        const stamp = "20260907-09";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180639,7 +180657,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260906-11";
+        const stamp = "20260907-09";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180648,7 +180666,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.3.1";
+        const v = "9.3.2";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -187363,8 +187381,8 @@ async function generateTemplateAssistantDraft_ACU(input) {
     // 调用形状保持与原来一致（无 guard 时 3 参、有 guard 时 4 参透 signal）。
     const guardSignal = input.guard?.signal ?? null;
     const aiRawText = await retrySingleShotAiCall_ACU(() => (guardSignal
-        ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true })
-        : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true })), guardSignal);
+        ? callAIWithPreset_ACU(messages, effectivePreset, undefined, guardSignal, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })
+        : callAIWithPreset_ACU(messages, effectivePreset, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'template-assistant' })), guardSignal);
     if (!aiRawText) {
         throw new Error('AI 未返回有效内容');
     }

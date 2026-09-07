@@ -52,7 +52,7 @@ describe('callAI 委托与输入边界', () => {
     const messages = [{ role: 'user', content: 'hello' }];
 
     await expect(api.callAI(messages)).resolves.toBe('AI reply');
-    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, '', undefined);
+    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, '', undefined, undefined, { sessionNamespace: 'worldbook-ai' });
   });
 
   it('保留 presetName 并透传 max_tokens=0', async () => {
@@ -60,7 +60,7 @@ describe('callAI 委托与输入边界', () => {
     const messages = [{ role: 'user', content: 'hello' }];
 
     await api.callAI(messages, { presetName: ' preset-A ', max_tokens: 0 });
-    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, 'preset-A', 0);
+    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, 'preset-A', 0, undefined, { sessionNamespace: 'worldbook-ai' });
   });
 
   it('接受 maxTokens 驼峰别名', async () => {
@@ -68,7 +68,7 @@ describe('callAI 委托与输入边界', () => {
     const messages = [{ role: 'user', content: 'hello' }];
 
     await api.callAI(messages, { maxTokens: 0 });
-    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, '', 0);
+    expect(mockCallAIWithPreset).toHaveBeenCalledWith(messages, '', 0, undefined, { sessionNamespace: 'worldbook-ai' });
   });
 
   it('拒绝空消息而不调用 service 层', async () => {

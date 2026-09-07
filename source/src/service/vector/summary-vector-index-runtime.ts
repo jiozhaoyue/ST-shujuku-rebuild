@@ -172,7 +172,7 @@ async function generateKeywords_ACU(config: any, userInput: string): Promise<str
     const attempts = Math.max(1, Number(config.keywordGenerationMaxAttempts) || 1);
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '');
+            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '', undefined, undefined, { sessionNamespace: 'summary' });
             const keywords = parseKeywords_ACU(response || '');
             if (keywords.length > 0) return keywords;
         } catch (error) {

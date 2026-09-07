@@ -188,7 +188,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
 
                 // 委托给 service 层统一入口；单发无覆盖，瞬时 5xx 等走统一重试包装。
                 return await retrySingleShotAiCall_ACU(
-                    () => callAIWithPreset_ACU(messages, presetName, maxTokensOverride),
+                    () => callAIWithPreset_ACU(messages, presetName, maxTokensOverride, undefined, { sessionNamespace: 'worldbook-ai' }),
                 );
             } catch (e) {
                 // 不打印原始错误对象以避免泄露上游响应正文
