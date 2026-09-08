@@ -121,23 +121,26 @@ const editingEnabled = computed(() => {
   if (entries.batchBusy.value) return false;
   return true;
 });
-const disabledSkillCount = computed(() => entries.groups.value.reduce(
-  (sum, group) => sum + group.entries.filter(entry => entry.hasSkill === true && entry.agentTakeoverState === 'initial_disabled').length, 0,
-));
-const blueSkillCount = computed(() => entries.groups.value.reduce(
-  (sum, group) => sum + group.entries.filter(entry => entry.hasSkill === true && entry.isConstant === true).length, 0,
-));
-const combinedCount = computed(() => {
+// 三个计数一次遍历全算完：3000+ 条目下 reduce+filter 三遍是纯浪费。
+const entryStats = computed(() => {
+  let disabled = 0;
+  let blue = 0;
   const seen = new Set<string>();
   for (const group of entries.groups.value) {
     for (const entry of group.entries) {
-      if (entry.hasSkill === true && (entry.isConstant === true || entry.agentTakeoverState === 'initial_disabled')) {
-        seen.add(`${entry.bookName}\u0000${String(entry.uid)}`);
-      }
+      if (entry.hasSkill !== true) continue;
+      const isDisabled = entry.agentTakeoverState === 'initial_disabled';
+      const isBlue = entry.isConstant === true;
+      if (isDisabled) disabled += 1;
+      if (isBlue) blue += 1;
+      if (isDisabled || isBlue) seen.add(`${entry.bookName}\u0000${String(entry.uid)}`);
     }
   }
-  return seen.size;
+  return { disabled, blue, combined: seen.size };
 });
+const disabledSkillCount = computed(() => entryStats.value.disabled);
+const blueSkillCount = computed(() => entryStats.value.blue);
+const combinedCount = computed(() => entryStats.value.combined);
 
 async function onEnableDisabledSkills(): Promise<void> {
   if (!editingEnabled.value) return;
@@ -177,8 +180,8 @@ async function refreshEntries(): Promise<void> {
 }
 
 async function refreshAll(): Promise<void> {
-  await agentControl.refresh();
-  await worldbook.refresh();
+  // agent/worldbook 两路刷新无依赖，并行省一次宿主往返；refreshEntries 依赖 scope，必须在后。
+  await Promise.all([agentControl.refresh(), worldbook.refresh()]);
   await refreshEntries();
 }
 

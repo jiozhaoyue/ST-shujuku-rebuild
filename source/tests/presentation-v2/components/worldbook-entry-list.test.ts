@@ -124,6 +124,35 @@ describe('WorldbookEntryList', () => {
     expect(toggleSkillify).toHaveBeenCalledWith('CharBook', 1, true);
   });
 
+  it('大分组分页渲染：默认只渲前 200 行，加载更多每次放 200', async () => {
+    const entries = Array.from({ length: 450 }, (_, i) => ({
+      uid: i + 1, bookName: 'BigBook', label: `条目${i + 1}`, checked: false,
+      skillifySelected: false, skillifySelectable: true, disabled: false, hasSkill: true, agentTakeoverState: 'skill_ready',
+    }));
+    const groups = [{ bookName: 'BigBook', expanded: true, entries }];
+    const wrapper = defineComponent({
+      setup() {
+        return () => h(WorldbookEntryList, { groups, filter: '', loading: false });
+      },
+    });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const app = createApp(wrapper);
+    app.mount(el);
+    mounted.push({ app, el });
+
+    expect(el.querySelectorAll('.acu-v2-wb-entry-item').length).toBe(200);
+    const more = Array.from(el.querySelectorAll('button')).find(b => (b.textContent || '').includes('加载更多'));
+    expect(more?.textContent).toContain('剩余 250 条');
+    // 分组统计不受分页影响，仍是全量
+    expect(el.querySelector('.acu-disclosure-group__meta')?.textContent).toContain('450 条');
+
+    more!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(el.querySelectorAll('.acu-v2-wb-entry-item').length).toBe(400);
+  });
+
   it('label 元素带完整文本的 title 悬浮属性（长文本兜底）', async () => {
     const longLabel = '这是一段非常长的条目标题'.repeat(10);
     const groups = [
