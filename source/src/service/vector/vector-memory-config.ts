@@ -1,5 +1,6 @@
 import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { cleanChatName_ACU, normalizePositiveInteger_ACU } from '../../shared/utils';
+import { normalizeRerankBatchSize_ACU, VECTOR_RERANK_DEFAULT_BATCH_SIZE_ACU } from '../../data/gateways/vector-rerank-gateway';
 import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
 import { currentChatFileIdentifier_ACU, settings_ACU } from '../runtime/state-manager';
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
@@ -48,6 +49,7 @@ export interface VectorMemoryConfig_ACU {
     rerankApiKey: string;
     rerankModel: string;
     rerankInstruction: string;
+    rerankBatchSize: number;
     vectorNamespace: string;
     entryComment: string;
     entryKey: string;
@@ -183,6 +185,7 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
         rerankModel: normalizeTextField_ACU((source as any).rerankModel, (defaults as any).rerankModel),
         rerankInstruction: typeof (source as any).rerankInstruction === 'string'
             ? (source as any).rerankInstruction.trim() : (defaults as any).rerankInstruction,
+        rerankBatchSize: normalizeRerankBatchSize_ACU((source as any).rerankBatchSize, Number((defaults as any).rerankBatchSize) || VECTOR_RERANK_DEFAULT_BATCH_SIZE_ACU),
         vectorNamespace: normalizeTextField_ACU(source.vectorNamespace, defaults.vectorNamespace) || defaults.vectorNamespace,
         entryComment: normalizeTextField_ACU(source.entryComment, defaults.entryComment) || defaults.entryComment,
         entryKey: normalizeTextField_ACU(source.entryKey, defaults.entryKey) || defaults.entryKey,

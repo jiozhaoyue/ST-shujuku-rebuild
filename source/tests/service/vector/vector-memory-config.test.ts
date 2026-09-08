@@ -19,6 +19,15 @@ import {
   normalizeVectorMemoryConfig_ACU,
 } from '../../../src/service/vector/vector-memory-config';
 
+describe('vector-memory-config rerank 每批条数', () => {
+  it('rerank 每批条数缺省 300，夹在 [10, 500]', () => {
+    expect(normalizeVectorMemoryConfig_ACU({}).rerankBatchSize).toBe(300);
+    expect(normalizeVectorMemoryConfig_ACU({ rerankBatchSize: 5 }).rerankBatchSize).toBe(10);
+    expect(normalizeVectorMemoryConfig_ACU({ rerankBatchSize: 2000 }).rerankBatchSize).toBe(500);
+    expect(normalizeVectorMemoryConfig_ACU({ rerankBatchSize: 120 }).rerankBatchSize).toBe(120);
+  });
+});
+
 describe('vector-memory-config hybrid retrieval fields', () => {
   it('normalize 默认启用 hybrid，并补齐 BM25/RRF 默认值', () => {
     const config = normalizeVectorMemoryConfig_ACU({ recallCandidateLimit: 321 });

@@ -238,6 +238,7 @@ async function rerankCandidates_ACU(config: any, query: string, candidates: Rank
             query,
             documents: candidates.map((candidate) => candidate.chunk.text),
             instruction: normalizeText_ACU(config.rerankInstruction) || undefined,
+            batchSize: config.rerankBatchSize,
         });
         const byIndex = new Map<number, number>();
         results.forEach((item) => {
@@ -322,6 +323,7 @@ interface LiveSummaryVectorRows_ACU {
     summaryKey: string;
     rows: SummaryVectorArchivePreparedRow_ACU[];
     byRowKey: Map<string, SummaryVectorArchivePreparedRow_ACU>;
+    byRowId: Map<string, SummaryVectorArchivePreparedRow_ACU>;
 }
 
 function buildLiveSummaryVectorRows_ACU(): LiveSummaryVectorRows_ACU | null {
@@ -337,6 +339,7 @@ function buildLiveSummaryVectorRows_ACU(): LiveSummaryVectorRows_ACU | null {
         summaryKey: selected.summaryKey,
         rows,
         byRowKey: new Map(rows.map((row) => [row.rowKey, row])),
+        byRowId: new Map(rows.map((row) => [row.rowId, row])),
     };
 }
 
@@ -345,14 +348,23 @@ function filterRowsByLiveSummaryTable_ACU(
     live: LiveSummaryVectorRows_ACU | null,
 ): { rows: ChatSummaryVectorIndexRow_ACU[]; changed: boolean } {
     if (!live) return { rows, changed: false };
-    const indexedRowKeys = new Set(rows.map((row) => row.rowKey).filter(Boolean));
+    const indexedRowIds = new Set(rows.map((row) => row.rowId).filter(Boolean));
     const filtered = rows.filter((row) => {
-        const liveRow = live.byRowKey.get(row.rowKey);
+        const liveRow = live.byRowId.get(row.rowId);
         if (!liveRow) return false;
-        if (row.sourceFingerprint && liveRow.sourceFingerprint && row.sourceFingerprint !== liveRow.sourceFingerprint) return false;
         return true;
+    }).map((row) => {
+        const liveRow = live.byRowId.get(row.rowId)!;
+        return {
+            ...row,
+            rowOrder: liveRow.rowOrder,
+            timeSpan: liveRow.timeSpan,
+            location: liveRow.location,
+            summary: liveRow.summary,
+            indexCode: liveRow.indexCode,
+        };
     });
-    const liveHasUnindexedRows = live.rows.some((row) => !indexedRowKeys.has(row.rowKey));
+    const liveHasUnindexedRows = live.rows.some((row) => !indexedRowIds.has(row.rowId));
     return {
         rows: filtered,
         changed: filtered.length !== rows.length || liveHasUnindexedRows,
@@ -361,14 +373,11 @@ function filterRowsByLiveSummaryTable_ACU(
 
 function filterChunksByLiveSummaryTable_ACU(
     chunks: ChatSummaryVectorIndexChunk_ACU[],
-    live: LiveSummaryVectorRows_ACU | null,
+    rows: ChatSummaryVectorIndexRow_ACU[],
 ): { chunks: ChatSummaryVectorIndexChunk_ACU[]; changed: boolean } {
-    if (!live) return { chunks, changed: false };
+    const activeRowKeys = new Set(rows.map((row) => row.rowKey));
     const filtered = chunks.filter((chunk) => {
-        const liveRow = live.byRowKey.get(chunk.rowKey);
-        if (!liveRow) return false;
-        if (chunk.sourceFingerprint && liveRow.sourceFingerprint && chunk.sourceFingerprint !== liveRow.sourceFingerprint) return false;
-        return true;
+        return activeRowKeys.has(chunk.rowKey);
     });
     return { chunks: filtered, changed: filtered.length !== chunks.length };
 }
@@ -657,7 +666,7 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
         return { success: false, skipped: true, reason: 'no_index_state' };
     }
     const liveRows = buildLiveSummaryVectorRows_ACU();
-    const activeRowKeys = new Set(state.manifest?.snapshot?.activeRowKeys || []);
+    let activeRowKeys = new Set(state.manifest?.snapshot?.activeRowKeys || []);
     let rows: ChatSummaryVectorIndexRow_ACU[] = Array.isArray(state.rows)
         ? state.rows.filter((row: ChatSummaryVectorIndexRow_ACU) => row.status !== 'removed' && (activeRowKeys.size === 0 || activeRowKeys.has(row.rowKey)))
         : [];
@@ -700,6 +709,7 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
                 if (alignedState?.manifest) {
                     state = alignedState;
                     rows = Array.isArray(alignedState.rows) ? alignedState.rows : [];
+                    activeRowKeys = new Set(alignedState.manifest.snapshot?.activeRowKeys || []);
                     invalidManifest = alignedState.manifest;
                     try {
                         chunks = await loadSummaryVectorIndexChunksFromManifest_ACU(alignedState.manifest);
@@ -745,7 +755,11 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
             }
         }
     }
-    const reconciledChunks = filterChunksByLiveSummaryTable_ACU(chunks, liveRows);
+    rows = rows.filter((row) => row.status !== 'removed' && (activeRowKeys.size === 0 || activeRowKeys.has(row.rowKey)));
+    const reconciledRowsAfterLoad = filterRowsByLiveSummaryTable_ACU(rows, liveRows);
+    rows = reconciledRowsAfterLoad.rows;
+    staleRealignNeeded = staleRealignNeeded || reconciledRowsAfterLoad.changed;
+    const reconciledChunks = filterChunksByLiveSummaryTable_ACU(chunks, rows);
     chunks = reconciledChunks.chunks;
     staleRealignNeeded = staleRealignNeeded || reconciledChunks.changed;
     if (staleRealignNeeded) {

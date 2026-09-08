@@ -24,7 +24,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU, isSummaryOrOutlineTable_ACU } 
 import { getLastOptimizationBase_ACU, setLastOptimizationBase_ACU } from '../optimization/content-optimization';
 import { settings_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU } from '../runtime/state-manager';
 import { sanitizeSheetForStorage_ACU } from '../template/chat-scope';
-import { MESSAGE_TABLE_FIELDS_ACU, clearTableFieldsForIsolation_ACU, collectSqlTargetTableNamesFromStorageFrameV2_ACU, purgeManualRefillIncrementalSheetKeysFromMessage_ACU, purgeSheetKeysFromMessage_ACU, purgeSheetKeysFromMessageForIsolation_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
+import { MESSAGE_TABLE_FIELDS_ACU, clearTableFieldsForIsolation_ACU, collectSheetIdentityAliasesForPurge_ACU, purgeManualRefillIncrementalSheetKeysFromMessage_ACU, purgeSheetKeysFromMessage_ACU, purgeSheetKeysFromMessageForIsolation_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
 import { MAX_CHECKPOINT_RISK_DETAILS_ACU, scanTargetKeysResidue_ACU } from '../../data/repositories/target-keys-diagnostics';
 import { LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
 import { peekChatScopedConfigContainer_ACU, peekChatSheetGuideContainer_ACU, setChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
@@ -1889,6 +1889,26 @@ export function countAiMessages_ACU(chat: any[] | null | undefined): number {
 }
 
 /**
+ * 把 1-based AI 楼层范围换算为聊天数组中的物理消息索引（只含 AI 消息）。
+ * startFloor/endFloor 为 null 分别表示从第一层 / 到最后一层；越界自动 clamp。
+ * 整楼层删除与按表删除共用此口径，避免两条路径对「第 N 层」的解释漂移。
+ */
+export function resolveAiMessageIndicesInFloorRange_ACU(
+    chat: any[] | null | undefined,
+    startFloor: number | null,
+    endFloor: number | null,
+): number[] {
+    if (!Array.isArray(chat) || chat.length === 0) return [];
+    const aiMessageIndices = chat
+        .map((msg: any, index: number) => (!msg?.is_user) ? index : -1)
+        .filter((index: number) => index !== -1);
+    if (aiMessageIndices.length === 0) return [];
+    const startAiIndex = startFloor ? Math.max(0, startFloor - 1) : 0;
+    const endAiIndex = endFloor ? Math.min(aiMessageIndices.length - 1, endFloor - 1) : aiMessageIndices.length - 1;
+    return aiMessageIndices.slice(startAiIndex, endAiIndex + 1);
+}
+
+/**
  * 删除聊天记录中的本地数据（核心业务逻辑）
  * 从 presentation/triggers/data-admin-ui.ts 的 deleteLocalDataInChat_ACU 中提取
  * 
@@ -1919,22 +1939,14 @@ async function deleteLocalDataInChatCoreInner_ACU(
     const targetIdentity = settings_ACU.dataIsolationEnabled ? settings_ACU.dataIsolationCode : null;
     const currentIsolationKey = getCurrentIsolationKey_ACU();
 
-    // 计算AI消息索引列表（只计算AI楼层）
-    const aiMessageIndices = chat
-        .map((msg: any, index: number) => (!msg.is_user) ? index : -1)
-        .filter((index: number) => index !== -1);
-
-    if (aiMessageIndices.length === 0) {
+    const aiMessageCount = countAiMessages_ACU(chat);
+    if (aiMessageCount === 0) {
         return 0;
     }
 
-    // 转换AI楼层范围为AI消息索引范围
-    const startAiIndex = startFloor ? Math.max(0, startFloor - 1) : 0;
-    const endAiIndex = endFloor ? Math.min(aiMessageIndices.length - 1, endFloor - 1) : aiMessageIndices.length - 1;
-
-    // 获取要处理的AI消息的物理索引
-    const targetIndices = aiMessageIndices.slice(startAiIndex, endAiIndex + 1);
-    const isFullRangeDeletion = isFullRangeDeletionRequest_ACU(startFloor, endFloor, aiMessageIndices.length);
+    // 要处理的 AI 消息的物理索引（1-based 楼层 → 物理索引）
+    const targetIndices = resolveAiMessageIndicesInFloorRange_ACU(chat, startFloor, endFloor);
+    const isFullRangeDeletion = isFullRangeDeletionRequest_ACU(startFloor, endFloor, aiMessageCount);
 
     for (const physicalIndex of targetIndices) {
         const msg = chat[physicalIndex];
@@ -2071,7 +2083,8 @@ export async function deleteLocalDataInChatCore_ACU(
 /** 范围感知删除的分派结果。path 决定调用方必须执行哪套收尾。 */
 export type ScopedDeletionOutcome_ACU =
     | { path: 'purge'; result: ChatDatabasePurgeResult_ACU }
-    | { path: 'range'; deletedCount: number }
+    /** sheetKeys 存在 = 本次只删了这些表（按表删除），其它表与聊天级 guide/scope 未动。 */
+    | { path: 'range'; deletedCount: number; sheetKeys?: string[] }
     | { path: 'aborted'; reason: string };
 
 /**
@@ -2091,14 +2104,34 @@ export type ScopedDeletionOutcome_ACU =
  *   新增第 6 层后仍是 range，但原本 end=5 覆盖全部的场景会变成局部）。
  *   传入预判值后，一旦实际判定与预判不一致即返回 aborted，由调用方提示用户重新确认，
  *   避免「用户以为只删部分，实际被硬清空」这类破坏性误判。
+ * @param sheetKeys 可选按表删除：只清除这些表在范围内楼层的数据（full checkpoint /
+ *   单表 checkpoint / 过渡根 / 日志增量中属于这些表的部分），其它表、聊天级 guide 与
+ *   scope 容器一律不动，且永不触发硬清空（即便范围覆盖全部楼层）。作用于当前隔离键。
  */
 export async function deleteLocalDataWithScope_ACU(
     mode: 'current' | 'all' = 'current',
     startFloor: number | null = null,
     endFloor: number | null = null,
-    expectedPath?: 'purge' | 'range'
+    expectedPath?: 'purge' | 'range',
+    sheetKeys: string[] | null = null,
 ): Promise<ScopedDeletionOutcome_ACU> {
     const chat = getChatArray_ACU();
+    const normalizedSheetKeys = Array.isArray(sheetKeys)
+        ? [...new Set(sheetKeys.filter(key => typeof key === 'string' && key.startsWith('sheet_')))]
+        : [];
+    if (normalizedSheetKeys.length > 0) {
+        if (expectedPath === 'purge') {
+            return {
+                path: 'aborted',
+                reason: '按表删除只会清除所选表的数据，不会执行完全清空；预判路径与实际不一致，已中止，请重新确认。',
+            };
+        }
+        const targetMessageIndices = resolveAiMessageIndicesInFloorRange_ACU(chat, startFloor, endFloor);
+        if (targetMessageIndices.length === 0) return { path: 'range', deletedCount: 0, sheetKeys: normalizedSheetKeys };
+        // 复用手动重填的按表范围清理：候选克隆上裁剪 → strict save 成功才落地，失败原位回滚。
+        const deletedCount = await clearManualRefillSheetDataInRange_ACU(targetMessageIndices, normalizedSheetKeys);
+        return { path: 'range', deletedCount, sheetKeys: normalizedSheetKeys };
+    }
     const aiMessageCount = countAiMessages_ACU(chat);
     const isFullRange = isFullRangeDeletionRequest_ACU(startFloor, endFloor, aiMessageCount);
     const path: 'purge' | 'range' = (mode === 'all' && isFullRange) ? 'purge' : 'range';
@@ -2235,8 +2268,13 @@ async function clearTableDataAtFloorsCore_ACU(targetMessageIndices: number[], ta
         enabled: settings_ACU.dataIsolationEnabled,
         code: settings_ACU.dataIsolationCode,
     };
-    const clearsSummaryOrOutline = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0
-        ? tableListContainsSummaryOrOutline_ACU(targetSheetKeys)
+    const hasTargetSheetKeys = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0;
+    // 按表清空要覆盖该表在历史里的全部 key 代（同名扩展），否则旧 key 的数据会留下。
+    const targetAliases = hasTargetSheetKeys
+        ? resolveSheetIdentityAliasesForClear_ACU(chat, isolationKey, targetSheetKeys!, '清空楼层')
+        : null;
+    const clearsSummaryOrOutline = targetAliases
+        ? tableListContainsSummaryOrOutline_ACU(targetAliases.sheetKeys)
         : true;
 
     let clearedCount = 0;
@@ -2249,8 +2287,8 @@ async function clearTableDataAtFloorsCore_ACU(targetMessageIndices: number[], ta
         // 只处理 AI 消息（跳过用户消息）
         if (!msg || msg.is_user) continue;
 
-        const changed = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0
-            ? purgeTargetSheetKeysFromMessage_ACU(msg, targetSheetKeys, idx)
+        const changed = targetAliases
+            ? purgeTargetSheetKeysFromMessage_ACU(msg, targetAliases.sheetKeys, idx)
             : clearTableFieldsForIsolation_ACU(msg, isolationKey, isolationConfig);
         if (clearsSummaryOrOutline) {
             const tagData = readIsolatedTagData_ACU(msg, isolationKey);
@@ -2298,21 +2336,10 @@ async function clearManualRefillIncrementalDataInRangeCore_ACU(targetMessageIndi
     if (!chat || chat.length === 0) return 0;
 
     const isolationKey = getCurrentIsolationKey_ACU();
-    const targetSheetKeySet = new Set(targetSheetKeys);
-    const maxTargetMessageIndex = targetMessageIndices.reduce(
-        (max, index) => Number.isInteger(index) ? Math.max(max, index) : max,
-        -1,
-    );
-    const knownSqlTableNames = new Set<string>();
-    for (let index = 0; index <= maxTargetMessageIndex && index < chat.length; index++) {
-        const msg = chat[index];
-        if (!msg || msg.is_user) continue;
-        const tagData = readIsolatedTagData_ACU(msg, isolationKey);
-        if (!isV2TagData_ACU(tagData)) continue;
-        const names = collectSqlTargetTableNamesFromStorageFrameV2_ACU(tagData.storageFrame, targetSheetKeySet);
-        names.forEach(name => knownSqlTableNames.add(name));
-    }
-    const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(targetSheetKeys);
+    const targetAliases = resolveSheetIdentityAliasesForClear_ACU(chat, isolationKey, targetSheetKeys, '手动重填预清理');
+    const purgeSheetKeys = targetAliases.sheetKeys;
+    const knownSqlTableNames = new Set(targetAliases.sqlTableNames);
+    const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(purgeSheetKeys);
     let clearedCount = 0;
     // 外置向量文件删除推迟到聊天保存成功后：保存失败时引用仍在，删除会造成悬空指针。
     const vectorManifestsToDeleteAfterCommit: any[] = [];
@@ -2322,7 +2349,7 @@ async function clearManualRefillIncrementalDataInRangeCore_ACU(targetMessageIndi
         const msg = chat[idx];
         if (!msg || msg.is_user) continue;
 
-        const changed = purgeManualRefillIncrementalSheetKeysFromMessage_ACU(msg, isolationKey, targetSheetKeys, knownSqlTableNames);
+        const changed = purgeManualRefillIncrementalSheetKeysFromMessage_ACU(msg, isolationKey, purgeSheetKeys, knownSqlTableNames);
         if (clearsSummaryOrOutline) {
             const isolatedData = msg?.TavernDB_ACU_IsolatedData;
             const tagData = isolatedData && typeof isolatedData === 'object' && !Array.isArray(isolatedData)
@@ -2358,7 +2385,7 @@ async function clearManualRefillIncrementalDataInRangeCore_ACU(targetMessageIndi
         if (idx < 0 || idx >= chat.length) continue;
         const msg = chat[idx];
         if (!msg || msg.is_user) continue;
-        const report = scanTargetKeysResidue_ACU(msg, isolationKey, targetSheetKeys, idx);
+        const report = scanTargetKeysResidue_ACU(msg, isolationKey, purgeSheetKeys, idx);
         residueSummary.exactHits += report.exactHits;
         residueSummary.runtimeV1Hits += report.runtimeV1Hits;
         residueSummary.substringOnlyPathCount += report.substringOnlyPaths.length;
@@ -2943,14 +2970,15 @@ export async function replaceManualRefillSheetBaselineInRangeAtomic_ACU(
         snapshotIndices.forEach(idx => snapshots.set(idx, messageFieldSnapshot_ACU(chat[idx])));
 
         try {
-            const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(options.targetSheetKeys);
+            const targetAliases = resolveSheetIdentityAliasesForClear_ACU(chat, options.isolationKey, options.targetSheetKeys, '手动重填基底替换');
+            const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(targetAliases.sheetKeys);
             const vectorManifestsToDeleteAfterCommit: any[] = [];
             let clearedCount = 0;
             for (const idx of normalizedIndices) {
                 const msg = chat[idx];
                 if (!msg || msg.is_user) continue;
-                const removedBaseline = purgeSheetKeysFromMessageForIsolation_ACU(msg, options.isolationKey, options.targetSheetKeys);
-                const removedIncremental = purgeManualRefillIncrementalSheetKeysFromMessage_ACU(msg, options.isolationKey, options.targetSheetKeys);
+                const removedBaseline = purgeSheetKeysFromMessageForIsolation_ACU(msg, options.isolationKey, targetAliases.sheetKeys, targetAliases.sqlTableNames);
+                const removedIncremental = purgeManualRefillIncrementalSheetKeysFromMessage_ACU(msg, options.isolationKey, targetAliases.sheetKeys, targetAliases.sqlTableNames);
                 if (clearsSummaryOrOutline) {
                     const tagData = readIsolatedTagData_ACU(msg, options.isolationKey);
                     await deleteVectorIndexManifestFromTagData_ACU(tagData, { deleteExternal: false, onManifest: manifest => vectorManifestsToDeleteAfterCommit.push(manifest) });
@@ -3006,7 +3034,8 @@ async function clearManualRefillSheetDataInRangeCore_ACU(targetMessageIndices: n
     if (!chat || chat.length === 0) return 0;
 
     const isolationKey = getCurrentIsolationKey_ACU();
-    const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(targetSheetKeys);
+    const targetAliases = resolveSheetIdentityAliasesForClear_ACU(chat, isolationKey, targetSheetKeys, '手动重填预清理');
+    const clearsSummaryOrOutline = tableListContainsSummaryOrOutline_ACU(targetAliases.sheetKeys);
     let clearedCount = 0;
 
     const normalizedIndices = targetMessageIndices.filter((idx): idx is number => Number.isInteger(idx) && idx >= 0 && idx < chat.length);
@@ -3022,7 +3051,7 @@ async function clearManualRefillSheetDataInRangeCore_ACU(targetMessageIndices: n
             const msg = candidateChat[idx];
             if (!msg || msg.is_user) continue;
 
-            const changed = purgeSheetKeysFromMessageForIsolation_ACU(msg, isolationKey, targetSheetKeys);
+            const changed = purgeSheetKeysFromMessageForIsolation_ACU(msg, isolationKey, targetAliases.sheetKeys, targetAliases.sqlTableNames);
             if (clearsSummaryOrOutline) {
                 const isolatedData = msg?.TavernDB_ACU_IsolatedData;
                 const tagData = isolatedData && typeof isolatedData === 'object' && !Array.isArray(isolatedData)
@@ -3074,4 +3103,23 @@ export async function clearManualRefillSheetDataInRange_ACU(targetMessageIndices
 
 function purgeTargetSheetKeysFromMessage_ACU(msg: any, targetSheetKeys: string[], _messageIndex: number): boolean {
     return purgeSheetKeysFromMessage_ACU(msg, targetSheetKeys);
+}
+
+/**
+ * 按表清理前把目标 key 扩展为「同一显示名的全部 key 代 + 全部 SQL 物理表名」。
+ * 扩展出别名时写日志，方便排查"删了 A 表为什么 B key 的数据也没了"。
+ */
+function resolveSheetIdentityAliasesForClear_ACU(
+    chat: any[],
+    isolationKey: string,
+    targetSheetKeys: string[],
+    logScope: string,
+): { sheetKeys: string[]; sqlTableNames: string[] } {
+    const aliases = collectSheetIdentityAliasesForPurge_ACU(chat, isolationKey, targetSheetKeys, currentJsonTableData_ACU as Record<string, any> | null);
+    const requested = new Set(targetSheetKeys);
+    const expandedKeys = aliases.sheetKeys.filter(sheetKey => !requested.has(sheetKey));
+    if (expandedKeys.length > 0) {
+        logDebug_ACU(`[${logScope}] 目标表 ${targetSheetKeys.join(', ')} 在历史中存在同名的其它 key 代，一并清理：${expandedKeys.join(', ')}；SQL 表名候选：${aliases.sqlTableNames.join(', ')}`);
+    }
+    return aliases;
 }

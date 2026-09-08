@@ -1450,6 +1450,34 @@ describe('SqlTableService', () => {
       expect(invalidData.sheet_0.content[1]).toEqual(['1', '铁剑', '3', '不能丢失']);
     });
 
+    it('runtime load 建表语句执行失败时按 SyncBridge 实际 fallback schema 校验并发布 NameMapper', async () => {
+      const invalidData = JSON.parse(JSON.stringify(testTableData));
+      invalidData.sheet_0.content = [
+        ['row_id', '物品名称', '数量'],
+        ['1', '铁剑', '3'],
+        ['2', '治疗药水', '5'],
+      ];
+      invalidData.sheet_0.sourceData.ddl = `CREATE TABLE inventory (
+        row_id INTEGER PRIMARY KEY,
+        item_name TEXT NOT NULL, -- 物品名称
+        quantity INTEGER DEFAULT 1 -- 数量
+      ) INVALID_SUFFIX;`;
+
+      const result = await service.loadFromData(invalidData);
+
+      expect(result.error).toBeUndefined();
+      expect(result).toMatchObject({ loaded: true, source: 'merged' });
+      expect(service.isReady()).toBe(true);
+      const publishedDdlMap = mockPublishGlobalNameMapper.mock.calls.at(-1)?.[0] as Map<string, string>;
+      expect(publishedDdlMap.get('inventory')).toBeDefined();
+      expect(publishedDdlMap.get('inventory')).not.toContain('INVALID_SUFFIX');
+      expect(publishedDdlMap.get('inventory')).toContain('CREATE TABLE inventory');
+      expect(service.executeQuery('SELECT wu_pin_ming_cheng, shu_liang FROM inventory ORDER BY row_id').values).toEqual([
+        ['铁剑', '3'], ['治疗药水', '5'],
+      ]);
+      expect(invalidData.sheet_0.sourceData.ddl).toContain('INVALID_SUFFIX');
+    });
+
     it('runtime load 遇到非法显式 DDL 时使用 fallback，且不修改调用方原始 DDL', async () => {
       const invalidData = JSON.parse(JSON.stringify(testTableData));
       invalidData.sheet_0.sourceData.ddl = 'CREATE TABLE broken (';

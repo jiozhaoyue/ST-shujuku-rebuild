@@ -358,11 +358,47 @@
               </AcuFormRow>
             </div>
 
+            <div
+              v-if="flow.deletableSheetOptions.value.length > 0"
+              class="acu-v2-data-mgmt-page__sheet-filter"
+              role="group"
+              aria-labelledby="acu-cleanup-sheet-filter-title"
+            >
+              <div class="acu-v2-data-mgmt-page__sheet-filter-head">
+                <span id="acu-cleanup-sheet-filter-title" class="acu-v2-data-mgmt-page__sheet-filter-title">限定表格（可选）</span>
+                <button
+                  v-if="flow.hasDeleteSheetSelection.value"
+                  type="button"
+                  class="acu-v2-data-mgmt-page__sheet-filter-clear"
+                  :disabled="runtimeDiagnostic.busy.value"
+                  @click="flow.clearDeleteSheetSelection"
+                >
+                  清除选择
+                </button>
+              </div>
+              <div class="acu-v2-data-mgmt-page__sheet-filter-list">
+                <AcuCheckbox
+                  v-for="option in flow.deletableSheetOptions.value"
+                  :key="option.sheetKey"
+                  :model-value="flow.deleteSheetKeys.value.includes(option.sheetKey)"
+                  :label="option.name"
+                  :disabled="runtimeDiagnostic.busy.value"
+                  :data-sheet-key="option.sheetKey"
+                  @update:model-value="flow.toggleDeleteSheetKey(option.sheetKey, $event)"
+                />
+              </div>
+              <p class="acu-v2-data-mgmt-page__meta">
+                勾选后只删除所选表格在楼层范围内的数据（包括 checkpoint 里这些表的数据），其它表格、模板与指导表都不受影响；不勾选则按整楼层删除。
+              </p>
+            </div>
+
           </section>
 
 
             <p class="acu-v2-data-mgmt-page__meta">
-              楼层范围同时作用于两个删除按钮。「删除所有本地数据」在范围覆盖全部 AI 楼层时执行硬清空，范围为局部时只删除对应楼层的填表数据。
+              {{ flow.hasDeleteSheetSelection.value
+                ? `当前已限定 ${flow.deleteSheetKeys.value.length} 张表：${flow.selectedDeleteSheetNames.value.join('、')}。按表删除不会硬清空，即便范围覆盖全部楼层。`
+                : '楼层范围同时作用于两个删除按钮。「删除所有本地数据」在范围覆盖全部 AI 楼层时执行硬清空，范围为局部时只删除对应楼层的填表数据。' }}
             </p>
 
           <div
@@ -383,7 +419,7 @@
               :loading="flow.busyAction.value === 'purge-all-local' || flow.busyAction.value === 'delete-all-local'"
               @click="onDeleteLocalData('all')"
             >
-              删除所有本地数据
+              {{ flow.hasDeleteSheetSelection.value ? `删除所选 ${flow.deleteSheetKeys.value.length} 张表的数据` : '删除所有本地数据' }}
             </AcuButton>
             <AcuButton
               block
@@ -403,6 +439,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import AcuButton from "../components/_lib/AcuButton.vue";
+import AcuCheckbox from "../components/_lib/AcuCheckbox.vue";
 import AcuDisclosureGroup from "../components/_lib/AcuDisclosureGroup.vue";
 import AcuFileButton from "../components/_lib/AcuFileButton.vue";
 import AcuFormRow from "../components/_lib/AcuFormRow.vue";
@@ -554,6 +591,24 @@ async function onImportTableCheckpoint(file: File): Promise<void> {
 async function onDeleteLocalData(mode: "current" | "all"): Promise<void> {
   if (runtimeDiagnostic.busy.value) return;
   const path = flow.resolveDeletionPath(mode);
+
+  if (flow.hasDeleteSheetSelection.value) {
+    const names = flow.selectedDeleteSheetNames.value;
+    const confirmed = await dialogStore.confirm({
+      title: "删除所选表格数据",
+      message:
+        `删除当前聊天中 ${flow.rangeLabel.value} 内表「${names.join("」「")}」的数据？\n` +
+        "包括该范围内 full checkpoint、单表 checkpoint 与填表日志里属于这些表的部分；\n" +
+        "其它表格的数据、聊天级模板 scope 与 guide 容器一律保留，不会执行硬清空。\n" +
+        "仅作用于当前隔离标识。此操作不可恢复。",
+      confirmLabel: "删除所选表格数据",
+      confirmVariant: "danger",
+    });
+    if (!confirmed) return;
+    if (runtimeDiagnostic.busy.value) return;
+    void flow.deleteLocalData(mode);
+    return;
+  }
 
   if (path === "range") {
     const scopeText = mode === "current" ? "属于当前标识的" : "所有标识的";
@@ -739,6 +794,50 @@ watch(useChatChangedTick(), refreshAll);
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+}
+
+.acu-v2-data-mgmt-page__sheet-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--acu-border);
+  border-radius: var(--acu-radius-md, 8px);
+  background: var(--acu-bg-1);
+}
+
+.acu-v2-data-mgmt-page__sheet-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.acu-v2-data-mgmt-page__sheet-filter-title {
+  color: var(--acu-text-2);
+  font-size: var(--acu-font-size-body, 12px);
+  font-weight: 600;
+}
+
+.acu-v2-data-mgmt-page__sheet-filter-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--acu-accent);
+  font: inherit;
+  font-size: var(--acu-font-size-body, 12px);
+  cursor: pointer;
+}
+
+.acu-v2-data-mgmt-page__sheet-filter-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.acu-v2-data-mgmt-page__sheet-filter-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 12px;
 }
 
 .acu-v2-data-mgmt-page__cleanup-section

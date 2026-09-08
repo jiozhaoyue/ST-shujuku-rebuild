@@ -1,6 +1,6 @@
 import { getChatArray_ACU, saveChatToHost_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { advanceProvisionalBridgeCommitProgress_ACU, authorizeManualCatchUpBucketWrite_ACU, readActiveProvisionalBridge_ACU } from './manual-catch-up-provisional-bridge';
-import { cloneIsolatedData_ACU, collectSqlTargetTableNamesFromStorageFrameV2_ACU, purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU, purgeSheetKeysFromMessage_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
+import { cloneIsolatedData_ACU, collectSheetIdentityAliasesForPurge_ACU, purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU, purgeSheetKeysFromMessage_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
 import { getActiveChatStorageIdentity_ACU, peekChatScopedConfigContainer_ACU, peekChatSheetGuideContainer_ACU, setChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
 import type { Sheet_ACU, TableDataObject_ACU } from '../../shared/models/table-data';
 import type { StorageMode } from '../../shared/table-storage-provider';
@@ -11,9 +11,10 @@ import { normalizeGuideData_ACU, setChatSheetGuideDataForIsolationKey_ACU } from
 import { ensureGlobalInjectionConfigDefaults_ACU } from '../worldbook/injection-engine';
 import type { ManualRefillProgressV2_ACU, TableMutationEventV2_ACU, TableMutationLogEntryV2_ACU, TableMutationSourceV2_ACU, TableStorageFrameV2_ACU, TableCheckpointV2_ACU, TableMutationWriteSetV2_ACU, TableMutationOperationV2_ACU, TableSheetCheckpointV2_ACU, TableV2RecoveryBackup_ACU } from './storage-frame-v2-types';
 import { hasLegacyTopLevelTableData_ACU, hasV2TableHistoryEvidence_ACU, isLegacyV1TagData_ACU, isV2TagData_ACU } from './storage-strategy-resolver';
-import { applyTableOperationV2_ACU, collectScheduleSummaryFromFramesV2_ACU, hasStructuralReplayCompatibilityRepairs_ACU, hasUnanchoredReplayArtifactsForChatV2_ACU, loadTableStateFromFramesV2Detailed_ACU, resolveHeaderOnlyTemplateSnapshot_ACU, type TableReplayCompatibilityRepairV2_ACU } from './storage-frame-v2-replay';
+import { applyTableOperationV2_ACU, buildAppendedOperationsWriteRejectionMessage_ACU, buildCompatReadonlyWriteRejectionMessage_ACU, collectScheduleSummaryFromFramesV2_ACU, hasStructuralReplayCompatibilityRepairs_ACU, hasUnanchoredReplayArtifactsForChatV2_ACU, loadTableStateFromFramesV2Detailed_ACU, resolveHeaderOnlyTemplateSnapshot_ACU, type TableReplayCompatibilityRepairV2_ACU } from './storage-frame-v2-replay';
 import { runTableWriteTransaction_ACU, type TableWriteTransactionContext_ACU } from './table-write-transaction';
 import { formatCanonicalRowIssues_ACU, normalizeCanonicalTableRows_ACU } from '../../shared/canonical-row-normalizer';
+import { detectPhysicalTableNameCollisions_ACU } from '../../shared/sheet-identity';
 import { createSheetInsertPlan, generateDDL, validateDDLTextAgainstHeaders_ACU } from '../../data/sqlite/schema-mapper';
 import { hydrateTableDataStrict_ACU } from './sqlite-template-validation';
 import { buildCanonicalFullCheckpoint_ACU, buildCanonicalSheetCheckpoint_ACU } from './canonical-checkpoint-builder';
@@ -391,22 +392,46 @@ function normalizeIncrementalReplacement_ACU(
   return { targetMessageIndices, targetSheetKeys };
 }
 
-function collectReplacementSqlTableNames_ACU(
+function buildReplacementPurgedIsolatedDataOverrides_ACU(
   chat: any[],
   isolationKey: string,
   targetMessageIndices: number[],
   targetSheetKeys: string[],
-): Set<string> {
-  const maxTargetMessageIndex = Math.max(...targetMessageIndices);
-  const sheetKeySet = new Set(targetSheetKeys);
-  const knownSqlTableNames = new Set<string>();
-  for (let index = 0; index <= maxTargetMessageIndex; index += 1) {
-    const tagData = readIsolatedTagData_ACU(chat[index], isolationKey);
+  runtimeData?: TableDataObject_ACU | null,
+): Map<number, Record<string, any>> {
+  const aliases = collectSheetIdentityAliasesForPurge_ACU(chat, isolationKey, targetSheetKeys, runtimeData);
+  const overrides = new Map<number, Record<string, any>>();
+  for (const messageIndex of targetMessageIndices) {
+    const nextIsolatedData = cloneIsolatedData_ACU(chat[messageIndex]) as Record<string, any>;
+    const tagData = nextIsolatedData[isolationKey];
     if (!isV2TagData_ACU(tagData)) continue;
-    collectSqlTargetTableNamesFromStorageFrameV2_ACU(tagData.storageFrame, sheetKeySet)
-      .forEach(tableName => knownSqlTableNames.add(tableName));
+    if (purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU(
+      tagData.storageFrame,
+      new Set(aliases.sheetKeys),
+      aliases.sqlTableNames,
+    )) {
+      overrides.set(messageIndex, nextIsolatedData);
+    }
   }
-  return knownSqlTableNames;
+  return overrides;
+}
+
+/** 构造 replacement 落盘前的只读候选聊天，供写前门闸与追平预检复用。 */
+export function buildReplacementPurgedCandidateChat_ACU(
+  chat: any[],
+  isolationKey: string,
+  targetMessageIndices: number[],
+  targetSheetKeys: string[],
+): any[] {
+  const overrides = buildReplacementPurgedIsolatedDataOverrides_ACU(
+    chat,
+    isolationKey,
+    targetMessageIndices,
+    targetSheetKeys,
+  );
+  return overrides.size > 0
+    ? buildCandidateChatWithIsolatedDataOverrides_ACU(chat, overrides)
+    : chat;
 }
 
 function countAiFloor_ACU(chat: any[], messageIndex: number): number {
@@ -616,6 +641,37 @@ async function validateTemporaryBaselineUpgradeCandidate_ACU(
 
   return await validateReplay('boundary', { maxMessageIndex: targetMessageIndex })
     || await validateReplay('suffix', {});
+}
+
+/**
+ * 普通增量追加后的写时严格探针：候选 chat（含本次 entry）在目标楼层边界必须能被严格回放。
+ *
+ * 追加 entry 的写入方以「写入时基底」（live runtime / 上一批结果）生成 operations，而
+ * 回放把它们叠加在「≤ 目标楼层的历史」之上；两者不一致时（典型：追平以 live 快照为
+ * prompt 基底却写到早期楼层），INSERT 会在回放里撞 UNIQUE、UPDATE 会落到不存在的行。
+ * 这样的 entry 一旦落盘，之后所有加载都只能走兼容宽容回放，全部写路径被门闸拒绝。
+ * 因此必须在落盘前用 compatibilityMode:'disabled' 探针拦截：回放抛错即拒绝本次写入。
+ * 返回 null 的回放（无 full 根）不在本探针职责内——该形态由 temporaryBaselineUpgrade 路径覆盖。
+ */
+async function validateAppendedOperationsReplayCandidate_ACU(
+  candidateChat: any[],
+  isolationKey: string,
+  targetMessageIndex: number,
+): Promise<string | null> {
+  let replay;
+  try {
+    replay = await loadTableStateFromFramesV2Detailed_ACU(candidateChat, isolationKey, {
+      maxMessageIndex: targetMessageIndex,
+      updateRuntimeState: false,
+      compatibilityMode: 'disabled',
+    });
+  } catch (error) {
+    return buildAppendedOperationsWriteRejectionMessage_ACU(error instanceof Error ? error.message : String(error));
+  }
+  if (replay?.baseKind === 'compat_tolerant_replay') {
+    return buildAppendedOperationsWriteRejectionMessage_ACU(replay.legacyToleranceDiagnosis?.strictError || '严格回放失败');
+  }
+  return null;
 }
 
 async function validateProvisionalConvergenceCandidate_ACU(
@@ -2191,6 +2247,18 @@ async function persistTableMutationLogV2Core_ACU(
     }
     temporaryBaselineUpgrade = true;
   }
+  const replacementIsolatedDataByMessageIndex = replacement
+    ? buildReplacementPurgedIsolatedDataOverrides_ACU(
+      chat,
+      isolationKey,
+      replacement.targetMessageIndices,
+      replacement.targetSheetKeys,
+      afterData,
+    )
+    : new Map<number, Record<string, any>>();
+  const preWriteChat = replacementIsolatedDataByMessageIndex.size > 0
+    ? buildCandidateChatWithIsolatedDataOverrides_ACU(chat, replacementIsolatedDataByMessageIndex)
+    : chat;
   // A temporary sheet anchor is derived from the current template, not from
   // persisted evidence. Before accepting another write, replace that dependency
   // with the *pre-write* replay state in the same candidate commit. Using
@@ -2201,7 +2269,7 @@ async function persistTableMutationLogV2Core_ACU(
   if (hasExistingCheckpoint && writesReplayArtifact) {
     let replay;
     try {
-      replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
+      replay = await loadTableStateFromFramesV2Detailed_ACU(preWriteChat, isolationKey, {
         maxMessageIndex: target.index,
         updateRuntimeState: false,
         ...(boundaryReplayEvidence ? { replayEvidence: boundaryReplayEvidence } : {}),
@@ -2213,6 +2281,12 @@ async function persistTableMutationLogV2Core_ACU(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { saved: false, error: `V2 写入前无法验证 provisional replay：${message}` };
+    }
+    // F2/写严：Tier-1 宽容回放结果不是严格可写历史，没有可收敛的 temporary_sheet_anchor
+    // 模型（provisional 收敛依赖 repairs 定位锚点数据），必须拒绝写入并指向恢复收敛。
+    // 文案带统一关键短语，供提交层按成因分类（兼容只读 → precondition，不重试 AI）。
+    if (replay?.baseKind === 'compat_tolerant_replay') {
+      return { saved: false, error: buildCompatReadonlyWriteRejectionMessage_ACU('V2 写入前', replay) };
     }
     if (replay?.requiresCheckpointConvergence || replay?.compatibilityRepairs?.length) {
       if (!replay || !replay.compatibilityRepairs?.length
@@ -2272,31 +2346,9 @@ async function persistTableMutationLogV2Core_ACU(
   const targetExistingFrame = isV2TagData_ACU(targetExistingTagData)
     ? deepClone_ACU(targetExistingTagData.storageFrame)
     : null;
-  const isolatedData = cloneIsolatedData_ACU(target.message) as Record<string, any>;
+  const isolatedData = replacementIsolatedDataByMessageIndex.get(target.index)
+    ?? cloneIsolatedData_ACU(target.message) as Record<string, any>;
   const frame = getOrInitV2Frame_ACU(isolatedData, isolationKey);
-  const replacementIsolatedDataByMessageIndex = new Map<number, Record<string, any>>();
-  if (replacement) {
-    const knownSqlTableNames = collectReplacementSqlTableNames_ACU(
-      chat,
-      isolationKey,
-      replacement.targetMessageIndices,
-      replacement.targetSheetKeys,
-    );
-    for (const messageIndex of replacement.targetMessageIndices) {
-      const nextIsolatedData = messageIndex === target.index
-        ? isolatedData
-        : cloneIsolatedData_ACU(chat[messageIndex]) as Record<string, any>;
-      const tagData = nextIsolatedData[isolationKey];
-      if (!isV2TagData_ACU(tagData)) continue;
-      if (purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU(
-        tagData.storageFrame,
-        new Set(replacement.targetSheetKeys),
-        knownSqlTableNames,
-      )) {
-        replacementIsolatedDataByMessageIndex.set(messageIndex, nextIsolatedData);
-      }
-    }
-  }
   const currentWriteSet = options.writeSet ?? options.transactionContext?.writeSet;
   const revisionWriteSet = options.revisionWriteSet;
   const requestedBaseRevision = options.baseRevision !== undefined
@@ -2438,7 +2490,7 @@ async function persistTableMutationLogV2Core_ACU(
     if (operationSheetKeys.length > 0) {
       let replayBeforeAppend;
       try {
-        replayBeforeAppend = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
+        replayBeforeAppend = await loadTableStateFromFramesV2Detailed_ACU(preWriteChat, isolationKey, {
           maxMessageIndex: target.index,
           updateRuntimeState: false,
           ...(boundaryReplayEvidence ? { replayEvidence: boundaryReplayEvidence } : {}),
@@ -2463,6 +2515,26 @@ async function persistTableMutationLogV2Core_ACU(
             && (!Object.prototype.hasOwnProperty.call(replayBeforeAppend?.data || {}, sheetKey)
               || compatibilityOnlySheetKeys.has(sheetKey)),
         );
+        // 双身份写入口门闸：补写的锚点会以 sheet_introduction/sheet_reveal timeline 把一个
+        // 新 sheetKey 永久引入历史。若它与既有活跃表解析到同一 SQLite 物理表名（同名表换了
+        // key，或不同表拼音同名），后续任何 SQL 段回放都会以「物理表名冲突」失败——这正是
+        // 存量双身份历史的产生方式。同名表必须沿用既有 sheetKey（模板协调保留 previous.key），
+        // 这里 fail-closed，不让写入口再制造新的双身份。
+        if (missingSheetKeys.length > 0) {
+          const projectedActiveState: Record<string, unknown> = { ...(replayBeforeAppend?.data || {}) };
+          for (const sheetKey of missingSheetKeys) projectedActiveState[sheetKey] = (afterData as any)[sheetKey];
+          const introducedCollisions = detectPhysicalTableNameCollisions_ACU(projectedActiveState)
+            .filter(collision => collision.sheetKeys.some(sheetKey => missingSheetKeys.includes(sheetKey)));
+          if (introducedCollisions.length > 0) {
+            const detail = introducedCollisions
+              .map(collision => `物理表名「${collision.physicalTableName}」← ${collision.sheetNames.map((name, index) => `「${name}」(${collision.sheetKeys[index]})`).join(' / ')}；原因=${collision.reason}`)
+              .join('；');
+            return {
+              saved: false,
+              error: `V2 写入前检测到本次要新引入的表与既有活跃表物理表名冲突（双身份），已拒绝补写 per-sheet 锚点：${detail}。同名表应沿用既有 sheetKey；不同表拼音同名需先重命名。`,
+            };
+          }
+        }
         const introduced: TableSheetCheckpointV2_ACU[] = [];
         for (const sheetKey of missingSheetKeys) {
           // 锚点只提供表结构，必须裁成 header-only：
@@ -2581,6 +2653,21 @@ async function persistTableMutationLogV2Core_ACU(
       return { saved: false, error: candidateValidationError };
     }
     options.transactionContext?.assertFresh?.('persistTableMutationLogV2:before_boundary_checkpoint_save');
+  } else if (!shouldCheckpoint && entry && operations.length > 0) {
+    // 写时严格探针：普通增量追加后，候选历史在目标楼层边界必须严格可回放。
+    // 追平 / 早期楼层写入的 operations 由 live 基底生成，回放却叠加在 ≤ 目标楼层的
+    // 历史上；两者不一致的 entry 一旦落盘，整个聊天历史只能走兼容宽容回放，之后
+    // 所有写路径都会被门闸拒绝——必须在这里拦住。
+    const candidateChat = buildCandidateChatWithIsolatedDataOverrides_ACU(chat, replacementIsolatedDataByMessageIndex);
+    const candidateValidationError = await validateAppendedOperationsReplayCandidate_ACU(
+      candidateChat,
+      isolationKey,
+      target.index,
+    );
+    if (candidateValidationError) {
+      return { saved: false, error: candidateValidationError };
+    }
+    options.transactionContext?.assertFresh?.('persistTableMutationLogV2:before_appended_operations_save');
   }
   const previousMessageState = [...replacementIsolatedDataByMessageIndex.keys()].map(messageIndex => {
     const message = chat[messageIndex];
@@ -2765,6 +2852,10 @@ async function persistTableMutationLogBatchV2Core_ACU(
       maxMessageIndex: convergenceTargetIndex,
       updateRuntimeState: false,
     });
+    // F2/写严（同单写路径）：宽容回放结果不是严格可写历史，直接拒绝 batch 写入。
+    if (replay?.baseKind === 'compat_tolerant_replay') {
+      return { saved: false, error: buildCompatReadonlyWriteRejectionMessage_ACU('V2 batch 写入前', replay) };
+    }
     if (replay?.requiresCheckpointConvergence || replay?.compatibilityRepairs?.length) {
       if (!replay?.compatibilityRepairs?.length
         || hasStructuralReplayCompatibilityRepairs_ACU(replay.compatibilityRepairs)) {
@@ -2879,6 +2970,16 @@ async function persistTableMutationLogBatchV2Core_ACU(
     );
     if (candidateValidationError) return { saved: false, error: candidateValidationError };
     options.transactionContext?.assertFresh?.('persistTableMutationLogBatchV2:before_convergence_save');
+  } else if (operationCount > 0) {
+    // 写时严格探针（同单写路径）：batch 追加的 entries 在最大目标楼层边界必须严格可回放，
+    // 否则拒绝落盘，避免写出只能兼容读取的历史。
+    const candidateValidationError = await validateAppendedOperationsReplayCandidate_ACU(
+      candidateChat,
+      isolationKey,
+      Math.max(...targetMessageIndices),
+    );
+    if (candidateValidationError) return { saved: false, error: candidateValidationError };
+    options.transactionContext?.assertFresh?.('persistTableMutationLogBatchV2:before_appended_operations_save');
   }
 
   // convergence 会把锚点写入根帧（latestCheckpoint.index）；若根帧不是 batch target，
