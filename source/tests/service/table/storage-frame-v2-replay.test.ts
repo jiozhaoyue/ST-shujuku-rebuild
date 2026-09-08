@@ -4,8 +4,9 @@ import invalidV2FrameFixture from '../../fixtures/migrations/spv7.9/v2-invalid-d
 import orphanV2FrameFixture from '../../fixtures/migrations/spv7.9/v2-orphan-data-replace.json';
 import { buildLongHistoryFixture_ACU } from './v2-long-history-fixture';
 
-const { mockLogWarn } = vi.hoisted(() => ({
+const { mockLogWarn, mockUiToast } = vi.hoisted(() => ({
   mockLogWarn: vi.fn(),
+  mockUiToast: vi.fn(),
 }));
 
 vi.mock('../../../src/shared/utils', async () => {
@@ -13,7 +14,12 @@ vi.mock('../../../src/shared/utils', async () => {
   return { ...actual, logWarn_ACU: mockLogWarn };
 });
 
-import { applyTableOperationV2_ACU, applyTablePatchV2_ACU, collectScheduleSummaryFromFramesV2_ACU, deriveSheetLifecycleFromFramesV2_ACU, flushPendingCompatTransitionFixations_ACU, loadTableStateFromFramesV2_ACU, loadTableStateFromFramesV2Detailed_ACU, loadTableStatesAtBoundariesFromFramesV2Detailed_ACU, V2ReplayAbortedError_ACU } from '../../../src/service/table/storage-frame-v2-replay';
+vi.mock('../../../src/shared/ui-surface-registry', () => ({
+  getUiSurface_ACU: vi.fn(() => null),
+  showUiSurfaceToast_ACU: (...args: any[]) => mockUiToast(...args),
+}));
+
+import { applyTableOperationV2_ACU, applyTablePatchV2_ACU, collectScheduleSummaryFromFramesV2_ACU, createCompatTransitionCheckpointFromTolerantReplay_ACU, deriveSheetLifecycleFromFramesV2_ACU, flushPendingCompatTransitionFixations_ACU, loadTableStateFromFramesV2_ACU, loadTableStateFromFramesV2Detailed_ACU, loadTableStatesAtBoundariesFromFramesV2Detailed_ACU, V2ReplayAbortedError_ACU } from '../../../src/service/table/storage-frame-v2-replay';
 import { buildSheetSchemaMigrationOperation_ACU, buildSheetSchemaMigrationOperationV2_ACU } from '../../../src/service/table/table-schema-migration';
 import { applySqlEditsToTableDataSnapshot_ACU } from '../../../src/service/table/sql-table-service';
 import { _set_independentTableStates_ACU, independentTableStates_ACU } from '../../../src/service/runtime/state-manager';
@@ -5863,4 +5869,24 @@ describe('deriveSheetLifecycleFromFramesV2_ACU', () => {
     expect(projection.hiddenSheetKeys).toEqual([]);
   });
 
+});
+
+describe('弃固化弹窗（静默下可见）', () => {
+  const userOnlyChat = [{ is_user: true, mes: 'hi' }];
+
+  it('无可写 AI 楼层时弹 warning 并带打开数据管理 action，同隔离键同原因只弹一次', async () => {
+    mockUiToast.mockClear();
+    expect(await createCompatTransitionCheckpointFromTolerantReplay_ACU(userOnlyChat as any, 'iso-toast-a')).toBe(false);
+    expect(await createCompatTransitionCheckpointFromTolerantReplay_ACU(userOnlyChat as any, 'iso-toast-a')).toBe(false);
+    expect(mockUiToast).toHaveBeenCalledTimes(1);
+    expect(mockUiToast.mock.calls[0][0]).toMatchObject({ kind: 'warning', action: { label: '打开数据管理' } });
+    expect(String(mockUiToast.mock.calls[0][0].text)).toContain('兼容过渡根未固化');
+  });
+
+  it('不同隔离键分别弹一次', async () => {
+    mockUiToast.mockClear();
+    expect(await createCompatTransitionCheckpointFromTolerantReplay_ACU(userOnlyChat as any, 'iso-toast-b')).toBe(false);
+    expect(await createCompatTransitionCheckpointFromTolerantReplay_ACU(userOnlyChat as any, 'iso-toast-c')).toBe(false);
+    expect(mockUiToast).toHaveBeenCalledTimes(2);
+  });
 });

@@ -43497,6 +43497,44 @@ function _resetTableWriteTransactionLocksForTest_ACU() {
     runtimeRevisions_ACU.clear();
 }
 
+let registeredUiSurface_ACU = null;
+function registerUiSurface_ACU(handlers) {
+    registeredUiSurface_ACU = handlers;
+}
+function getUiSurface_ACU() {
+    return registeredUiSurface_ACU;
+}
+/**
+ * 统一 toast 入口：优先走已注册 UI surface 的 showToast；未注册或抛错时
+ * 回退宿主 toastr；两者都不可用时静默（调用方自行负责日志）。绝不抛错。
+ */
+function showUiSurfaceToast_ACU(payload) {
+    try {
+        const handler = registeredUiSurface_ACU?.showToast;
+        if (handler) {
+            handler(payload);
+            return;
+        }
+    }
+    catch (_) {
+        // 已注册 handler 抛错时继续尝试宿主 toastr。
+    }
+    try {
+        const toastr = topLevelWindow_ACU?.toastr;
+        if (toastr && typeof toastr[payload.kind] === 'function') {
+            toastr[payload.kind](payload.text, undefined, payload.action
+                ? { onclick: () => { void payload.action.onClick(); } }
+                : undefined);
+        }
+    }
+    catch (_) {
+        // 宿主 toastr 不可用：静默，不让提示通道反过来破坏调用方流程。
+    }
+}
+function resetUiSurfaceRegistryForTests_ACU() {
+    registeredUiSurface_ACU = null;
+}
+
 /**
  * 归一化影响回放结果的 options 为轻量指纹。
  * 与 in-flight key 的 options 段保持一致；evidence 复用必须携带并比对。
@@ -46235,6 +46273,7 @@ async function createCompatTransitionCheckpointFromTolerantReplay_ACU(chat, isol
     })();
     if (targetMessageIndex < 0) {
         logWarn_ACU('[V2 Compat Replay] 放弃固化兼容过渡根：缺少可写入的 AI 楼层。数据仍按兼容读取结果可用。');
+        notifyCompatFixationAbandoned_ACU(isolationKey, 'no_writable_floor', '兼容过渡根未固化：当前聊天没有可写入的 AI 楼层，数据仍按兼容读取结果可用。');
         return false;
     }
     const tolerant = await replayWithLegacyTolerances_ACU(chat, isolationKey);
@@ -46249,6 +46288,7 @@ async function createCompatTransitionCheckpointFromTolerantReplay_ACU(chat, isol
             .join('；');
         logWarn_ACU(`[V2 Compat Replay] 放弃固化兼容过渡根：兼容结果含 sheetKey 身份归并（${remapSummary}），`
             + '按 key 优先级的归并不能作为持久权威根；请在数据管理中执行 V2 恢复（身份归一化）。数据仍按兼容读取结果可用。');
+        notifyCompatFixationAbandoned_ACU(isolationKey, 'identity_remaps', `兼容过渡根未固化：本聊天表格历史含 sheetKey 身份归并（${remapSummary}），自动固化已跳过，数据仍可读。请到数据管理执行 V2 恢复做身份归一化。`);
         return false;
     }
     const existing = findLatestTransitionCheckpoint_ACU(chat, isolationKey);
@@ -46262,6 +46302,7 @@ async function createCompatTransitionCheckpointFromTolerantReplay_ACU(chat, isol
     if (issues.length > 0) {
         logWarn_ACU(`[V2 Compat Replay] 放弃固化兼容过渡根：重编号结果不满足 canonical 行身份契约：`
             + `${formatCanonicalRowIssues_ACU(issues)}。数据仍按兼容读取结果可用，下次加载将继续走兼容回放。`);
+        notifyCompatFixationAbandoned_ACU(isolationKey, 'canonical_failed', '兼容过渡根未固化：重编号结果不满足行身份契约，自动固化已跳过，数据仍可读，下次加载将继续走兼容回放。');
         return false;
     }
     let scheduleSummary;
@@ -46327,7 +46368,28 @@ async function createCompatTransitionCheckpointFromTolerantReplay_ACU(chat, isol
         }
     }));
     logWarn_ACU(`[V2 Compat Replay] 已把兼容读取结果固化为过渡根：cutoff=${JSON.stringify(tolerant.cutoff)}, tolerances=${tolerances.join(', ')}。后续加载将走严格快路径。`);
+    lastFixationAbandonToastKey_ACU = '';
     return true;
+}
+/** 弃固化弹窗去重：同一隔离键同一原因只弹一次（问题持续存在不再刷屏）；固化成功后清零，下次复发再弹。 */
+let lastFixationAbandonToastKey_ACU = '';
+function notifyCompatFixationAbandoned_ACU(isolationKey, reason, text) {
+    try {
+        const key = `${String(isolationKey ?? '')}\n${reason}`;
+        if (key && key === lastFixationAbandonToastKey_ACU)
+            return;
+        lastFixationAbandonToastKey_ACU = key;
+        // warning 在静默提示框下照常显示（只有 info/success 被吞）；带 action 跳数据管理。
+        showUiSurfaceToast_ACU({
+            kind: 'warning',
+            text,
+            action: {
+                label: '打开数据管理',
+                onClick: async () => { await getUiSurface_ACU()?.openSettings?.(); },
+            },
+        });
+    }
+    catch (_) { }
 }
 /** 后台固化的 in-flight 去重（isolationKey 维度）。固化失败只告警，不影响已返回的数据。 */
 const pendingCompatTransitionFixations_ACU = new Map();
@@ -79286,7 +79348,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.9" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.10" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -106963,44 +107025,6 @@ function createTableFillStagingSession_ACU(run) {
             }
         },
     };
-}
-
-let registeredUiSurface_ACU = null;
-function registerUiSurface_ACU(handlers) {
-    registeredUiSurface_ACU = handlers;
-}
-function getUiSurface_ACU() {
-    return registeredUiSurface_ACU;
-}
-/**
- * 统一 toast 入口：优先走已注册 UI surface 的 showToast；未注册或抛错时
- * 回退宿主 toastr；两者都不可用时静默（调用方自行负责日志）。绝不抛错。
- */
-function showUiSurfaceToast_ACU(payload) {
-    try {
-        const handler = registeredUiSurface_ACU?.showToast;
-        if (handler) {
-            handler(payload);
-            return;
-        }
-    }
-    catch (_) {
-        // 已注册 handler 抛错时继续尝试宿主 toastr。
-    }
-    try {
-        const toastr = topLevelWindow_ACU?.toastr;
-        if (toastr && typeof toastr[payload.kind] === 'function') {
-            toastr[payload.kind](payload.text, undefined, payload.action
-                ? { onclick: () => { void payload.action.onClick(); } }
-                : undefined);
-        }
-    }
-    catch (_) {
-        // 宿主 toastr 不可用：静默，不让提示通道反过来破坏调用方流程。
-    }
-}
-function resetUiSurfaceRegistryForTests_ACU() {
-    registeredUiSurface_ACU = null;
 }
 
 /**
@@ -137797,7 +137821,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260908-15";
+        const stamp = "20260908-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -182135,7 +182159,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260908-15";
+        const stamp = "20260908-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -182144,7 +182168,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.3.9";
+        const v = "9.3.10";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {

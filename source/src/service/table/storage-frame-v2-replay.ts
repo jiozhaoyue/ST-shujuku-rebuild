@@ -23,6 +23,7 @@ import { repairTableDataFromAudit_ACU } from './table-data-repair';
 import { cloneSpv79TransitionData_ACU, compareTransitionCutoffs_ACU, findLatestTransitionCheckpoint_ACU, isAfterSpv79TransitionCutoff_ACU, isEntryAfterSpv79TransitionCutoff_ACU, isFrameArtifactAfterSpv79TransitionCutoff_ACU, reindexSpv79TransitionState_ACU } from './compat-transition-checkpoint';
 import { collectSheetIdentityCanonicals_ACU, mergeLegacySheetIdentities_ACU, type SheetIdentityRemap_ACU } from '../../shared/sheet-identity-merge';
 import { runTableWriteTransaction_ACU } from './table-write-transaction';
+import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
 import { buildReplayOptionsFingerprint_ACU, computeReplayHeadRevisionDigest_ACU, validateV2ReplayEvidenceFresh_ACU } from './v2-replay-session';
 
 interface V2FrameRef_ACU {
@@ -3185,6 +3186,7 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
   })();
   if (targetMessageIndex < 0) {
     logWarn_ACU('[V2 Compat Replay] 放弃固化兼容过渡根：缺少可写入的 AI 楼层。数据仍按兼容读取结果可用。');
+    notifyCompatFixationAbandoned_ACU(isolationKey, 'no_writable_floor', '兼容过渡根未固化：当前聊天没有可写入的 AI 楼层，数据仍按兼容读取结果可用。');
     return false;
   }
 
@@ -3202,6 +3204,7 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
       `[V2 Compat Replay] 放弃固化兼容过渡根：兼容结果含 sheetKey 身份归并（${remapSummary}），`
       + '按 key 优先级的归并不能作为持久权威根；请在数据管理中执行 V2 恢复（身份归一化）。数据仍按兼容读取结果可用。',
     );
+    notifyCompatFixationAbandoned_ACU(isolationKey, 'identity_remaps', `兼容过渡根未固化：本聊天表格历史含 sheetKey 身份归并（${remapSummary}），自动固化已跳过，数据仍可读。请到数据管理执行 V2 恢复做身份归一化。`);
     return false;
   }
   const existing = findLatestTransitionCheckpoint_ACU(chat, isolationKey);
@@ -3217,6 +3220,7 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
       `[V2 Compat Replay] 放弃固化兼容过渡根：重编号结果不满足 canonical 行身份契约：`
       + `${formatCanonicalRowIssues_ACU(issues)}。数据仍按兼容读取结果可用，下次加载将继续走兼容回放。`,
     );
+    notifyCompatFixationAbandoned_ACU(isolationKey, 'canonical_failed', '兼容过渡根未固化：重编号结果不满足行身份契约，自动固化已跳过，数据仍可读，下次加载将继续走兼容回放。');
     return false;
   }
   let scheduleSummary: TableScheduleSummaryV2_ACU | undefined;
@@ -3275,7 +3279,28 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
     }
   }));
   logWarn_ACU(`[V2 Compat Replay] 已把兼容读取结果固化为过渡根：cutoff=${JSON.stringify(tolerant.cutoff)}, tolerances=${tolerances.join(', ')}。后续加载将走严格快路径。`);
+  lastFixationAbandonToastKey_ACU = '';
   return true;
+}
+
+/** 弃固化弹窗去重：同一隔离键同一原因只弹一次（问题持续存在不再刷屏）；固化成功后清零，下次复发再弹。 */
+let lastFixationAbandonToastKey_ACU = '';
+
+function notifyCompatFixationAbandoned_ACU(isolationKey: string, reason: string, text: string): void {
+  try {
+    const key = `${String(isolationKey ?? '')}\n${reason}`;
+    if (key && key === lastFixationAbandonToastKey_ACU) return;
+    lastFixationAbandonToastKey_ACU = key;
+    // warning 在静默提示框下照常显示（只有 info/success 被吞）；带 action 跳数据管理。
+    showUiSurfaceToast_ACU({
+      kind: 'warning',
+      text,
+      action: {
+        label: '打开数据管理',
+        onClick: async () => { await getUiSurface_ACU()?.openSettings?.(); },
+      },
+    });
+  } catch (_) {}
 }
 
 /** 后台固化的 in-flight 去重（isolationKey 维度）。固化失败只告警，不影响已返回的数据。 */
