@@ -105,8 +105,30 @@ export interface SummaryVectorArchivePreparedRow_ACU {
     location: string;
     summary: string;
     indexCode: string;
+    /** 纪要正文列原文（可为空：模板没有该列时）。发送前 rerank 用它作 document。 */
+    chronicleText: string;
+    /** 参与 embedding/BM25 的源文本：概览 + 纪要正文（截断到上限）。 */
     vectorSourceText: string;
     sourceFingerprint: string;
+}
+
+/**
+ * 源文本字符上限。默认模板纪要 300–400 字，自定义模板可能更长；主流 embedding 模型 8k token
+ * 窗口远够，这里的上限只是防止极端长文本把单行 embedding/rerank 成本拉爆。
+ */
+export const SUMMARY_VECTOR_SOURCE_TEXT_MAX_CHARS_ACU = 1600;
+
+const SUMMARY_CHRONICLE_COLUMN_ALIASES_ACU = ['纪要', '纪要内容', '纪要正文', '事件纪要', '详细纪要', '正文'];
+
+/**
+ * 概览在前保住高密度摘要信号，纪要正文补充实体与细节；两者都为空的行由调用方跳过。
+ */
+export function buildSummaryVectorSourceText_ACU(summary: string, chronicleText: string): string {
+    const parts = [normalizeText_ACU(summary), normalizeText_ACU(chronicleText)].filter(Boolean);
+    const combined = parts.join('\n');
+    return combined.length > SUMMARY_VECTOR_SOURCE_TEXT_MAX_CHARS_ACU
+        ? combined.slice(0, SUMMARY_VECTOR_SOURCE_TEXT_MAX_CHARS_ACU)
+        : combined;
 }
 
 const summaryVectorIndexArchiveLocks_ACU = new Map<string, Promise<void>>();
@@ -406,6 +428,7 @@ export function buildPreparedRows_ACU(table: any, summaryKey: string): {
     const locationColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['地点', '位置', '场景', '场所'], 1);
     const summaryColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['概要', '概览', '概述', '摘要']);
     const indexColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['编码索引']);
+    const chronicleColIdx = resolveColumnIndexByAliases_ACU(headerRow, SUMMARY_CHRONICLE_COLUMN_ALIASES_ACU);
     if (summaryColIdx < 0) {
         return { rows: [], skippedRowCount: 0, error: '纪要表缺少概要列，无法构建纪要向量索引。' };
     }
@@ -422,7 +445,8 @@ export function buildPreparedRows_ACU(table: any, summaryKey: string): {
         const location = locationColIdx >= 0 ? normalizeText_ACU(row?.[locationColIdx]) : '';
         const summary = normalizeText_ACU(row?.[summaryColIdx]);
         const indexCode = normalizeText_ACU(row?.[indexColIdx]);
-        const vectorSourceText = summary;
+        const chronicleText = chronicleColIdx >= 0 && chronicleColIdx !== summaryColIdx ? normalizeText_ACU(row?.[chronicleColIdx]) : '';
+        const vectorSourceText = buildSummaryVectorSourceText_ACU(summary, chronicleText);
         if (!summary || !indexCode || !vectorSourceText) {
             skippedRowCount += 1;
             return;
@@ -435,6 +459,7 @@ export function buildPreparedRows_ACU(table: any, summaryKey: string): {
             location,
             summary,
             indexCode,
+            chronicleText,
             vectorSourceText,
             sourceFingerprint: '',
         };

@@ -96,7 +96,7 @@ vi.mock('../../../src/service/vector/summary-vector-index-state-service', () => 
 }));
 vi.mock('../../../src/service/vector/summary-vector-index-archive-service', () => ({
   findSummaryTable_ACU: () => h.summaryTable,
-  buildPreparedRows_ACU: () => h.preparedRows,
+  buildPreparedRows_ACU: () => ({ rows: h.preparedRows, skippedRowCount: 0, error: '' }),
 }));
 vi.mock('../../../src/service/vector/summary-vector-index-storage-service', () => ({
   loadSummaryVectorIndexChunksFromManifest_ACU: (...a: any[]) => h.loadChunks(...a),
@@ -127,6 +127,7 @@ import {
 function row_ACU(key: string, order: number, summary: string): any {
   return {
     rowKey: key,
+    rowId: key,
     rowOrder: order,
     timeSpan: `t-${order}`,
     location: `loc-${order}`,
@@ -281,8 +282,8 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
   it('实时纪要表纯新增行时同样判定索引过期，不使用缺行的旧索引', async () => {
     h.summaryTable = { summaryKey: 'summary-source', table: {} };
     h.preparedRows = [
-      ...h.rows.map((row: any) => ({ rowKey: row.rowKey })),
-      { rowKey: 'new-row', sourceFingerprint: 'new-row-fingerprint' },
+      ...h.rows.map((row: any) => ({ rowKey: row.rowKey, rowId: row.rowId })),
+      { rowKey: 'new-row', rowId: 'new-row', sourceFingerprint: 'new-row-fingerprint' },
     ];
 
     const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'secret relic', source: 'stale-runtime-added-row' });
@@ -299,8 +300,8 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
   it('实时纪要表与索引不一致时交由 UI 走立即构建入口，不再绕过普通重建链路入队', async () => {
     h.summaryTable = { summaryKey: 'summary-source', table: {} };
     h.preparedRows = [
-      { rowKey: 'dense', sourceFingerprint: 'changed-dense' },
-      { rowKey: 'recent', sourceFingerprint: 'changed-recent' },
+      { rowKey: 'dense', rowId: 'dense', sourceFingerprint: 'changed-dense' },
+      { rowKey: 'recent', rowId: 'recent', sourceFingerprint: 'changed-recent' },
     ];
 
     const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'secret relic', source: 'stale-runtime' });
@@ -311,6 +312,27 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
       reason: 'runtime_stale_rows_rebuild_required',
     });
     expect(h.enqueueFlush).not.toHaveBeenCalled();
+  });
+
+  it('rowId 集合相同但正文变化时复用向量并注入当前表显示文本', async () => {
+    h.rows = h.rows.map((row: any) => ({ ...row, sourceFingerprint: `fp-${row.rowKey}` }));
+    h.summaryTable = { summaryKey: 'summary-source', table: {} };
+    h.preparedRows = h.rows.map((row: any) => ({
+      rowKey: row.rowKey,
+      rowId: row.rowId,
+      rowOrder: row.rowOrder,
+      timeSpan: row.timeSpan,
+      location: row.location,
+      summary: row.rowKey === 'dense' ? 'dense summary edited' : row.summary,
+      indexCode: row.indexCode,
+      chronicleText: '',
+      sourceFingerprint: row.rowKey === 'dense' ? 'fp-dense-edited' : row.sourceFingerprint,
+    }));
+
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'secret relic', source: 'fingerprint-mismatch' });
+
+    expect(result).toMatchObject({ success: true });
+    expect(createdContent_ACU()).toContain('dense summary edited');
   });
 
   it('P3：同一次发送经两个钩子（source 不同）触发时，8s 窗口内第二次被去重', async () => {

@@ -2650,6 +2650,96 @@ describe('deleteLocalDataWithScope_ACU', () => {
     expect(isFullRangeDeletionRequest_ACU(null, null, 0)).toBe(true);
   });
 
+  function buildSheetScopedChat(): any[] {
+    const frame = (checkpointData: any | null, logEntries: any[]) => ({
+      version: 2,
+      ...(checkpointData ? { checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: checkpointData } } : {}),
+      logEntries,
+    });
+    const root = {
+      mate: { type: 'acu', version: 1 },
+      sheet_0: { uid: 'sheet_0', name: '物品表', content: [['row_id', '物品名'], ['1', '剑']], sourceData: {}, updateConfig: {}, exportConfig: {}, orderNo: 0 },
+      sheet_1: { uid: 'sheet_1', name: '地点表', content: [['row_id', '地点'], ['1', '城']], sourceData: {}, updateConfig: {}, exportConfig: {}, orderNo: 1 },
+    };
+    return [
+      { is_user: false, TavernDB_ACU_IsolatedData: { '': { _acu_storage_version: 2, storageFrame: frame(root, []) } } },
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: frame(null, [{
+              seq: 1, entryId: 'e1', createdAt: 2, source: 'system', targetMessageIndex: 2, aiFloor: 2,
+              filledSheetKeys: ['sheet_0', 'sheet_1'], changedSheetKeys: ['sheet_0', 'sheet_1'], groupKeys: [],
+              operations: [
+                { kind: 'row_upsert', sheetKey: 'sheet_0', rowId: '2', cells: ['2', '盾'], reason: 'system' },
+                { kind: 'row_upsert', sheetKey: 'sheet_1', rowId: '2', cells: ['2', '村'], reason: 'system' },
+              ],
+            }]),
+          },
+        },
+      },
+    ];
+  }
+
+  it('S11 按表删除：全范围 + sheetKeys 走 range（永不 purge），只裁掉所选表（含 full checkpoint 内的该表），其它表与 guide 不动', async () => {
+    mockRunTableWriteTransaction.mockClear();
+    mockRunTableWriteTransaction.mockImplementation(async (_opts: any, fn: any) => fn());
+    mockSaveChatToHostStrict.mockClear();
+    const chat = buildSheetScopedChat();
+    mockGetChatArray.mockReturnValue(chat);
+
+    const outcome = await deleteLocalDataWithScope_ACU('all', null, null, 'range', ['sheet_0']);
+
+    expect(outcome.path).toBe('range');
+    if (outcome.path !== 'range') throw new Error('unreachable');
+    expect(outcome.sheetKeys).toEqual(['sheet_0']);
+    expect(outcome.deletedCount).toBe(2);
+    // full checkpoint：sheet_0 被移除，sheet_1 完整保留。
+    const rootData = chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data;
+    expect(rootData.sheet_0).toBeUndefined();
+    expect(rootData.sheet_1.content).toEqual([['row_id', '地点'], ['1', '城']]);
+    // 日志增量：sheet_0 的 op 与填表标记被裁掉，sheet_1 的保留。
+    const entry = chat[2].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries[0];
+    expect(entry.operations).toEqual([{ kind: 'row_upsert', sheetKey: 'sheet_1', rowId: '2', cells: ['2', '村'], reason: 'system' }]);
+    expect(entry.filledSheetKeys).toEqual(['sheet_1']);
+    expect(entry.changedSheetKeys).toEqual(['sheet_1']);
+    // 按表删除经 strict save 落地；写事务的 writeSet 限定为所选表。
+    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+    expect(mockRunTableWriteTransaction.mock.calls[0][0].writeSet).toEqual([{ kind: 'sheet', sheetKey: 'sheet_0' }]);
+  });
+
+  it('S12 按表删除只作用于楼层范围：范围外楼层的该表数据保留', async () => {
+    mockRunTableWriteTransaction.mockImplementation(async (_opts: any, fn: any) => fn());
+    mockSaveChatToHostStrict.mockClear();
+    const chat = buildSheetScopedChat();
+    mockGetChatArray.mockReturnValue(chat);
+
+    // 只删第 2 个 AI 楼层（chat[2]）：根帧（第 1 个 AI 楼层）里的 sheet_0 必须保留。
+    const outcome = await deleteLocalDataWithScope_ACU('all', 2, 2, 'range', ['sheet_0']);
+
+    expect(outcome.path).toBe('range');
+    if (outcome.path !== 'range') throw new Error('unreachable');
+    expect(outcome.deletedCount).toBe(1);
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_0.content).toEqual([['row_id', '物品名'], ['1', '剑']]);
+    expect(chat[2].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries[0].operations.map((op: any) => op.sheetKey)).toEqual(['sheet_1']);
+  });
+
+  it('S13 按表删除时预判为 purge → aborted，不触发任何写入', async () => {
+    mockRunTableWriteTransaction.mockClear();
+    mockSaveChatToHostStrict.mockClear();
+    const chat = buildSheetScopedChat();
+    mockGetChatArray.mockReturnValue(chat);
+
+    const outcome = await deleteLocalDataWithScope_ACU('all', null, null, 'purge', ['sheet_0']);
+
+    expect(outcome.path).toBe('aborted');
+    expect(mockRunTableWriteTransaction).not.toHaveBeenCalled();
+    expect(mockSaveChatToHostStrict).not.toHaveBeenCalled();
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_0).toBeDefined();
+  });
+
   it('S10 编排入口自身不包裹事务：deleteLocalDataWithScope_ACU 内部不会额外调用 runTableWriteTransaction', async () => {
     mockRunTableWriteTransaction.mockClear();
     const chat: any[] = [{ is_user: false, TavernDB_ACU_Data: {} }];
@@ -3706,6 +3796,61 @@ describe('replaceManualRefillSheetBaselineInRangeAtomic_ACU', () => {
     expect(incrementalTag.storageFrame.logEntries).toEqual([]);
     expect(incrementalTag.storageFrame.manualRefillProgress.selectedSheetKeys).toEqual(['sheet_1']);
     expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('基底替换按显示名清理同名旧 key 与 SQL 物理表名，并保留近名表', async () => {
+    const currentKey = 'sheet_zhu_jue_xin_xi_biao';
+    const legacyKey = 'sheet_DpKcVGqg';
+    const nearNameKey = 'sheet_zhu_jue_xin_xi';
+    const originalRuntime = { ...mockCurrentJsonTableData };
+    Object.assign(mockCurrentJsonTableData, {
+      [currentKey]: { uid: currentKey, name: '主角信息表', content: [['row_id']], sourceData: { ddl: 'CREATE TABLE zhujuexinxibiao (row_id TEXT)' } },
+    });
+    const chat = [
+      makeFullFrameMessage({
+        [currentKey]: mockCurrentJsonTableData[currentKey],
+        [legacyKey]: { uid: legacyKey, name: '主角信息表', content: [['row_id']], sourceData: { ddl: 'CREATE TABLE zhujuexinxibiao (row_id TEXT)' } },
+        [nearNameKey]: { uid: nearNameKey, name: '主角信息', content: [['row_id']], sourceData: { ddl: 'CREATE TABLE zhujuexinxi (row_id TEXT)' } },
+      }),
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              logEntries: [{
+                seq: 1,
+                operations: [
+                  { kind: 'sheet_replace', sheetKey: legacyKey, sheet: { name: '主角信息表' }, reason: 'manual_crud' },
+                  { kind: 'sql_sheet_batch', sheetKey: legacyKey, tableName: 'zhujuexinxibiao', reason: 'manual_crud', statements: ['INSERT INTO zhujuexinxibiao VALUES (1)'] },
+                  { kind: 'sql_sheet_batch', sheetKey: nearNameKey, tableName: 'zhujuexinxi', reason: 'manual_crud', statements: ['INSERT INTO zhujuexinxi VALUES (1)'] },
+                ],
+              }],
+            },
+          },
+        },
+      },
+    ];
+    mockGetChatArray.mockReturnValue(chat);
+
+    try {
+      const result = await replaceManualRefillSheetBaselineInRangeAtomic_ACU({
+        isolationKey: '',
+        targetMessageIndices: [0, 1],
+        targetSheetKeys: [currentKey],
+        baselineData: { [currentKey]: mockCurrentJsonTableData[currentKey] },
+      });
+
+      expect(result.success).toBe(true);
+      const operations = chat[1].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries[0].operations;
+      expect(operations).toEqual([{ kind: 'sql_sheet_batch', sheetKey: nearNameKey, tableName: 'zhujuexinxi', reason: 'manual_crud', statements: ['INSERT INTO zhujuexinxi VALUES (1)'] }]);
+      expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints[currentKey]).toBeDefined();
+    } finally {
+      Object.keys(mockCurrentJsonTableData).forEach(key => delete mockCurrentJsonTableData[key]);
+      Object.assign(mockCurrentJsonTableData, originalRuntime);
+    }
   });
 
   it('严格宿主保存失败时恢复目标范围内字段，避免内存半状态', async () => {

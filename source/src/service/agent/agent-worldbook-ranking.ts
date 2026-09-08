@@ -31,36 +31,51 @@ function extractRankingTerms_ACU(value: unknown): Set<string> {
 }
 
 /** 逐字段比对，绝不把多个字段拼接成一个查询：拼接会让分属不同字段的字凑出词项，产生假命中。 */
-function hasTermOverlap_ACU(left: unknown, right: unknown): boolean {
-  const leftTerms = extractRankingTerms_ACU(left);
-  const rightTerms = extractRankingTerms_ACU(right);
-  for (const term of leftTerms) {
-    if (rightTerms.has(term)) return true;
+function hasPreparedTermOverlap_ACU(queryTerms: Set<string>, fieldValue: unknown): boolean {
+  const fieldTerms = extractRankingTerms_ACU(fieldValue);
+  for (const term of fieldTerms) {
+    if (queryTerms.has(term)) return true;
   }
   return false;
 }
 
+interface PreparedRankingQuery_ACU {
+  userInput: Set<string>;
+  recentContext: Set<string>;
+  taskContext: Set<string>;
+}
+
+// 3000+ 候选时 query 文本（尤其最近上下文）若每条候选重复切词，主线程同步冻结数秒：
+// 三个 query 字段的词项集合只提一次，候选字段仍逐条提取（重叠存在性对称，得分与原来逐字一致）。
+function prepareRankingQuery_ACU(query: AgentWorldbookRankingQuery_ACU): PreparedRankingQuery_ACU {
+  return {
+    userInput: extractRankingTerms_ACU(query.userInput),
+    recentContext: extractRankingTerms_ACU(query.recentContext),
+    taskContext: extractRankingTerms_ACU(query.taskContext),
+  };
+}
+
 /** 确定性打分：用户输入权重最高，其次最近上下文与任务描述；字段越靠近触发判据本体（关键词 > 名称 > 触发时机 > 描述）权重越大。 */
-function scoreCandidate_ACU(candidate: AgentWorldbookRankingCandidate_ACU, query: AgentWorldbookRankingQuery_ACU): number {
+function scoreCandidate_ACU(candidate: AgentWorldbookRankingCandidate_ACU, query: PreparedRankingQuery_ACU): number {
   const userInput = query.userInput;
   const recentContext = query.recentContext;
   const taskContext = query.taskContext;
   let score = 0;
 
   for (const rawKey of candidate.keys || []) {
-    if (hasTermOverlap_ACU(userInput, rawKey)) score += 100;
-    if (hasTermOverlap_ACU(recentContext, rawKey)) score += 50;
-    if (hasTermOverlap_ACU(taskContext, rawKey)) score += 50;
+    if (hasPreparedTermOverlap_ACU(userInput, rawKey)) score += 100;
+    if (hasPreparedTermOverlap_ACU(recentContext, rawKey)) score += 50;
+    if (hasPreparedTermOverlap_ACU(taskContext, rawKey)) score += 50;
   }
-  if (hasTermOverlap_ACU(userInput, candidate.comment)) score += 30;
-  if (hasTermOverlap_ACU(recentContext, candidate.comment)) score += 15;
-  if (hasTermOverlap_ACU(taskContext, candidate.comment)) score += 15;
-  if (hasTermOverlap_ACU(userInput, candidate.triggerWhen)) score += 20;
-  if (hasTermOverlap_ACU(recentContext, candidate.triggerWhen)) score += 10;
-  if (hasTermOverlap_ACU(taskContext, candidate.triggerWhen)) score += 10;
-  if (hasTermOverlap_ACU(userInput, candidate.description)) score += 10;
-  if (hasTermOverlap_ACU(recentContext, candidate.description)) score += 5;
-  if (hasTermOverlap_ACU(taskContext, candidate.description)) score += 5;
+  if (hasPreparedTermOverlap_ACU(userInput, candidate.comment)) score += 30;
+  if (hasPreparedTermOverlap_ACU(recentContext, candidate.comment)) score += 15;
+  if (hasPreparedTermOverlap_ACU(taskContext, candidate.comment)) score += 15;
+  if (hasPreparedTermOverlap_ACU(userInput, candidate.triggerWhen)) score += 20;
+  if (hasPreparedTermOverlap_ACU(recentContext, candidate.triggerWhen)) score += 10;
+  if (hasPreparedTermOverlap_ACU(taskContext, candidate.triggerWhen)) score += 10;
+  if (hasPreparedTermOverlap_ACU(userInput, candidate.description)) score += 10;
+  if (hasPreparedTermOverlap_ACU(recentContext, candidate.description)) score += 5;
+  if (hasPreparedTermOverlap_ACU(taskContext, candidate.description)) score += 5;
   return score;
 }
 
@@ -69,8 +84,9 @@ export function rankAgentWorldbookCandidates_ACU<T extends AgentWorldbookRanking
   candidates: readonly T[],
   query: AgentWorldbookRankingQuery_ACU,
 ): T[] {
+  const prepared = prepareRankingQuery_ACU(query);
   return candidates
-    .map((candidate, index) => ({ candidate, index, score: scoreCandidate_ACU(candidate, query) }))
+    .map((candidate, index) => ({ candidate, index, score: scoreCandidate_ACU(candidate, prepared) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map(item => item.candidate);
 }

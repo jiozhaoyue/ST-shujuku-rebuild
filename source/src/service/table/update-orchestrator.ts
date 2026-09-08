@@ -25,12 +25,14 @@ import { rebindSheetKeysThroughTableAliases_ACU, resolveHistoricalSheetKeyMigrat
 import { recoverProvisionalBridgeSession_ACU, hasActiveProvisionalBridgeAnywhere_ACU } from './manual-catch-up-provisional-bridge';
 import {
   assembleBucketWorkingView_ACU,
+  collectV2SchemaBoundaryIndices_ACU,
   commitStagedSheetsAtFullBoundaryAtomic_ACU,
   createTableFillStagingRunContext_ACU,
   planTableFillBoundaryStaging_ACU,
   publishVerifiedBoundaryHead_ACU,
   readOriginalFullFrameFingerprint_ACU,
   splitMessageIndicesAtBoundary_ACU,
+  splitMessageIndicesAtSchemaBoundaries_ACU,
   type BoundarySegment_ACU,
   type TableFillBoundaryDiagnosticCode_ACU,
   type TableFillBoundaryStagingPlan_ACU,
@@ -858,6 +860,16 @@ async function loadV2ReplayMergeBase_ACU(
             throwOnRecoveryRequired: true,
             ...(replayEvidence ? { replayEvidence } : {}),
         });
+        // 回放宽容、写入严格：Tier-1 宽容回放结果可读，但不是严格可写历史，不能作为
+        // 填表 merge base 喂给 AI（否则本轮生成基于兼容态数据，提交时才被 persist 写前门
+        // 拒绝，浪费 AI 调用）。在 AI 调用前中止本批（catch 会转为 failed 并阻止本批继续）；
+        // 历史修复走数据管理的显式恢复，不在写路径里隐式改历史。
+        if (replayResult?.baseKind === 'compat_tolerant_replay') {
+            throw new Error(
+                `V2 replay 仅可经兼容宽容回放读出（严格回放失败：${replayResult.legacyToleranceDiagnosis?.strictError || '未知错误'}），不能作为填表基底；`
+                + '请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。',
+            );
+        }
         if (hasStructuralReplayCompatibilityRepairs_ACU(replayResult?.compatibilityRepairs)) {
             const affectedSheetKeys = [...new Set((replayResult.compatibilityRepairs || []).map(item => item.sheetKey))];
             throw new Error(`V2 replay 存在结构性兼容修复（${affectedSheetKeys.join('、') || '未知 Sheet'}）；请先执行 V2 恢复或边界 compaction，再继续生成新表格增量。`);
@@ -2729,12 +2741,17 @@ export async function executeAutoFillStagingGroups_ACU(
         return { ok: true };
     };
 
+    // P3: 冻结本次 auto_fill 的 schema timeline；组内索引同时按 full 根与
+    // schema introduction/rebase/reveal/hide 边界拆段，避免跨结构切换的补写在
+    // 单一批次内用错误旧结构生成增量。
+    const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), getCurrentIsolationKey_ACU());
+
     for (const group of normalizedGroups) {
         if (options.abortController?.signal.aborted) {
             return { success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount };
         }
         const groupIndices = [...(group.indices || [])].sort((a, b) => a - b);
-        const segments = splitMessageIndicesAtBoundary_ACU(groupIndices, originalFullIndex);
+        const segments = splitMessageIndicesAtSchemaBoundaries_ACU(groupIndices, originalFullIndex, schemaBoundaries);
         const preSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] < originalFullIndex);
         const postSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] >= originalFullIndex);
 
@@ -3657,6 +3674,48 @@ export async function prepareManualCatchUpPlan_ACU(
 }
 
 /**
+ * 追平预检（回放宽容、写入严格）：首目标楼层的 bounded 回放与无界回放都必须严格可回放。
+ *
+ * bucket 提交写到首目标楼层帧、终态校验做无界回放，两条边界任一只能兼容读出，
+ * 后续提交就必然被 persist 写前门闸拒绝——那时 AI 调用已经消耗。这里只检测不修复：
+ * 兼容态历史在任何 AI 调用前阻断，并把用户指向数据管理的显式恢复。
+ * chat 非 V2 或无帧时回放为 null，直接放行。
+ */
+async function ensureStrictlyReplayableHistoryForCatchUp_ACU(
+    targetMessageIndex: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+    const chat = getChatArray_ACU();
+    if (!Array.isArray(chat) || chat.length === 0) return { ok: true };
+    const isolationKey = getCurrentIsolationKey_ACU();
+    const bounds: Array<{ label: string; maxMessageIndex?: number }> = [
+        { label: `目标楼层 ${targetMessageIndex} 边界`, maxMessageIndex: targetMessageIndex },
+        { label: '聊天末尾', maxMessageIndex: undefined },
+    ];
+    for (const bound of bounds) {
+        let replay;
+        try {
+            replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
+                updateRuntimeState: false,
+                ...(Number.isInteger(bound.maxMessageIndex) ? { maxMessageIndex: bound.maxMessageIndex } : {}),
+            });
+        } catch (error) {
+            return {
+                ok: false,
+                error: `追平前无法回放聊天历史（${bound.label}）：${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+        if (replay?.baseKind === 'compat_tolerant_replay') {
+            return {
+                ok: false,
+                error: `追平前检测到聊天历史（${bound.label}）仅可经兼容宽容回放读出（严格回放失败：${replay.legacyToleranceDiagnosis?.strictError || '未知错误'}），`
+                    + '不能继续写入；请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。',
+            };
+        }
+    }
+    return { ok: true };
+}
+
+/**
  * 按聊天中已提交的 scheduleSummary/事件事实规划并执行所选表的后缀追平。
  * 不扫描或声称修复历史内部空洞；一期只处理每表连续前沿后的缺口。
  */
@@ -3779,6 +3838,20 @@ export async function orchestrateManualCatchUp_ACU(
     // 伪提交后由 terminal progress-only 写入兜底报错。
     const preflightTargetIndex = plan.waves[0]?.messageIndices[0] ?? plan.targetMessageIndex;
     if (preflightTargetIndex !== null && preflightTargetIndex !== undefined) {
+        // 历史处于兼容只读态（严格回放失败、只能宽容回放）时，所有 bucket 提交都会被
+        // persist 写前门闸拒绝——这时还去调用 AI 只是浪费，在任何 AI 调用前阻断。
+        const strictHistory = await ensureStrictlyReplayableHistoryForCatchUp_ACU(preflightTargetIndex);
+        if (strictHistory.ok === false) {
+            return {
+                success: false,
+                outcome: 'blocked',
+                error: strictHistory.error,
+                catchUpPlan: plan,
+                committedBucketCount: 0,
+                dataCommitted: false,
+                diagnosticCode: 'replay_requires_checkpoint_convergence',
+            };
+        }
         const anchorPreflight = await ensureManualCatchUpAnchorBeforeTarget_ACU(preflightTargetIndex, getCurrentIsolationKey_ACU());
         if (anchorPreflight.status === 'blocked') {
             return {
@@ -3953,6 +4026,14 @@ export async function orchestrateManualCatchUp_ACU(
                 maxMessageIndex: safeTargetMessageIndex,
                 updateRuntimeState: false,
             });
+            // F2：宽容回放态说明提交后的历史仍未严格可读——终态验证必须报恢复需求，
+            // 不得把兼容数据当作验证通过并回写运行时视图。
+            if (replay?.baseKind === 'compat_tolerant_replay') {
+                return {
+                    error: `V2 replay 仅可经兼容宽容回放读出（严格回放失败：${replay.legacyToleranceDiagnosis?.strictError || '未知错误'}）。请先执行恢复收敛。`,
+                    diagnosticCode: 'replay_requires_checkpoint_convergence',
+                };
+            }
             if (hasStructuralReplayCompatibilityRepairs_ACU(replay?.compatibilityRepairs)) {
                 const affectedSheetKeys = [...new Set((replay.compatibilityRepairs || []).map(item => item.sheetKey))];
                 return {
@@ -4063,6 +4144,11 @@ export async function orchestrateManualCatchUp_ACU(
     };
     _set_isAutoUpdatingCard_ACU(true);
 
+    // P3: capture schema timeline boundaries once after runtime admission. These are
+    // structural switch points (introduction/rebase/reveal/hide) that a catch-up wave
+    // must not silently cross inside a single persisted batch.
+    const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), getCurrentIsolationKey_ACU());
+
     try {
         for (let waveIndex = 0; waveIndex < plan.waves.length; waveIndex += 1) {
             activeWaveIndex = waveIndex;
@@ -4103,9 +4189,10 @@ export async function orchestrateManualCatchUp_ACU(
             const originalFullIndex = boundaryPlan?.scope.originalFullIndex ?? null;
             const isBoundaryActive = originalFullIndex !== null && !boundaryCommitted;
             const fullMessageIndexSet = new Set<number>(isBoundaryActive ? [originalFullIndex as number] : []);
-            const waveSegments: BoundarySegment_ACU[] = splitMessageIndicesAtBoundary_ACU(
+            const waveSegments: BoundarySegment_ACU[] = splitMessageIndicesAtSchemaBoundaries_ACU(
                 wave.messageIndices,
                 originalFullIndex,
+                schemaBoundaries,
                 fullMessageIndexSet,
             );
             for (const segment of waveSegments) {
@@ -5012,11 +5099,16 @@ export async function orchestrateManualUpdate_ACU(
                         }
                     }
                 } else {
-                    // 跨根 staging：组内索引按原 full 边界拆段，pre 段 stage_only、边界汇合、post 段 persist。
+                    // 跨根 staging：组内索引按原 full 边界与 schema 边界拆段，
+                    // pre 段 stage_only、边界汇合、post 段 persist。schema 边界段同样携带
+                    // boundaryKind，供逐段冻结目标结构并在对应楼层使用当时结构补写。
+                    // 注意：此处已离开 manualRefillEnabled 的 currentIsolationKey 词法作用域；
+                    // 必须使用 boundaryPlan.scope.isolationKey（冻结自 planning 阶段）。
+                    const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), boundaryPlan.scope.isolationKey);
                     for (const group of groupedChunk) {
                         let groupFailed = false;
                         const groupIndices = [...(group.indices || [])].sort((a, b) => a - b);
-                        const segments = splitMessageIndicesAtBoundary_ACU(groupIndices, boundaryPlan.scope.originalFullIndex);
+                        const segments = splitMessageIndicesAtSchemaBoundaries_ACU(groupIndices, boundaryPlan.scope.originalFullIndex, schemaBoundaries);
                         const preSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] < boundaryPlan!.scope.originalFullIndex!);
                         const postSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] >= boundaryPlan!.scope.originalFullIndex!);
 

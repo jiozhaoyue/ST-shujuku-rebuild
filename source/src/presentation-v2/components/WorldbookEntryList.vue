@@ -26,7 +26,7 @@
         @toggle="$emit('toggle-group', group.bookName)"
       >
         <div
-          v-for="entry in group.entries"
+          v-for="entry in visibleEntriesOf(group)"
           :key="`${group.bookName}-${entry.uid}`"
           class="acu-v2-wb-entry-item"
           :class="{ 'acu-v2-wb-entry-item--disabled': entry.disabled }"
@@ -79,13 +79,20 @@
             </div>
           </div>
         </div>
+        <AcuButton
+          v-if="hiddenCountOf(group) > 0"
+          size="sm"
+          @click="showMoreEntries(group.bookName)"
+        >
+          加载更多（剩余 {{ hiddenCountOf(group) }} 条）
+        </AcuButton>
       </AcuDisclosureGroup>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from 'vue';
+import { computed, reactive, watch } from 'vue';
 import AcuButton from './_lib/AcuButton.vue';
 import AcuCheckbox from './_lib/AcuCheckbox.vue';
 import AcuDisclosureGroup from './_lib/AcuDisclosureGroup.vue';
@@ -129,6 +136,22 @@ const emit = defineEmits<{
 const skillEditorOpen = reactive<Record<string, boolean>>({});
 const skillDrafts = reactive<Record<string, WorldbookSkillDraft>>({});
 
+// 大分组分页：3000+ 条目全量渲染是挂载卡顿的主因，默认只渲前 200 行，按需加载更多。
+const ENTRY_PAGE_SIZE_ACU = 200;
+const visibleCountByBook = reactive<Record<string, number>>({});
+watch(() => [props.groups, props.filter], () => {
+  for (const key of Object.keys(visibleCountByBook)) delete visibleCountByBook[key];
+});
+function visibleEntriesOf(group: WorldbookEntryDisplayGroup_ACU): WorldbookEntryDisplayItem_ACU[] {
+  return group.entries.slice(0, visibleCountByBook[group.bookName] ?? ENTRY_PAGE_SIZE_ACU);
+}
+function hiddenCountOf(group: WorldbookEntryDisplayGroup_ACU): number {
+  return Math.max(0, group.entries.length - (visibleCountByBook[group.bookName] ?? ENTRY_PAGE_SIZE_ACU));
+}
+function showMoreEntries(bookName: string): void {
+  visibleCountByBook[bookName] = (visibleCountByBook[bookName] ?? ENTRY_PAGE_SIZE_ACU) + ENTRY_PAGE_SIZE_ACU;
+}
+
 const filteredGroups = computed(() => {
   const q = props.filter.trim().toLowerCase();
   if (!q) return props.groups;
@@ -146,9 +169,15 @@ const filteredGroups = computed(() => {
 });
 
 function formatGroupMeta(group: WorldbookEntryDisplayGroup_ACU): string {
-  const checkedCount = props.showEntryToggle ? group.entries.filter(entry => entry.checked).length : null;
-  const skillCount = group.entries.filter(entry => entry.hasSkill).length;
-  const controlledCount = group.entries.filter(entry => entry.agentTakeoverState === 'taken_over' || entry.agentTakeoverState === 'final_greenlight').length;
+  let checked = 0;
+  let skillCount = 0;
+  let controlledCount = 0;
+  for (const entry of group.entries) {
+    if (props.showEntryToggle && entry.checked) checked += 1;
+    if (entry.hasSkill) skillCount += 1;
+    if (entry.agentTakeoverState === 'taken_over' || entry.agentTakeoverState === 'final_greenlight') controlledCount += 1;
+  }
+  const checkedCount = props.showEntryToggle ? checked : null;
   const suffix = [
     props.showSkillifyControls && skillCount > 0 ? `Skill ${skillCount}` : '',
     props.showAgentTakeoverState && controlledCount > 0 ? `接管 ${controlledCount}` : '',

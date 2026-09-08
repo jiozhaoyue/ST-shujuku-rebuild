@@ -460,6 +460,83 @@ describe('persistTableMutationLogV2_ACU incremental replacement', () => {
     expect(mocks.saveChat).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { label: '严格回放抛错（UNIQUE 冲突）', probe: () => Promise.reject(new Error('[V2 Replay] operation failed: messageIndex=0, seq=1, operationIndex=0, kind=sql_sheet_batch: UNIQUE constraint failed: a.row_id')), detail: 'UNIQUE constraint failed' },
+    { label: '严格回放降级为兼容宽容回放', probe: () => Promise.resolve({ baseKind: 'compat_tolerant_replay', data: {}, legacyToleranceDiagnosis: { strictError: 'strict failed at appended entry', tolerances: [], identityRemaps: [] } }), detail: 'strict failed at appended entry' },
+  ])('回放宽容、写入严格：追加 entry 后候选历史 $label 时拒绝落盘，聊天与宿主零写入', async ({ probe, detail }) => {
+    const message = seedFrame({ logEntries: [] });
+    message.TavernDB_ACU_Identity = 'identity-before-rejection';
+    const messageBefore = JSON.parse(JSON.stringify(message));
+    // 写前门闸 / replayBeforeAppend 走普通回放（mock 返回 undefined 视为无可验证根）；
+    // 只有候选探针以 compatibilityMode:'disabled' 调用，在这里注入失败。
+    const probeCalls: any[] = [];
+    mocks.loadReplayDetailed.mockImplementation(async (chat: any[], _key: string, options: any) => {
+      if (options?.compatibilityMode === 'disabled') {
+        probeCalls.push({ chat, options });
+        return probe();
+      }
+      return undefined;
+    });
+    const { persistTableMutationLogV2_ACU } = await import('../../../src/service/table/storage-frame-v2-persist');
+
+    const result = await persistTableMutationLogV2_ACU({
+      targetMessageIndex: 0,
+      source: 'manual_fill',
+      afterData: { mate: { type: 'acu' }, sheet_a: sheetA, sheet_b: sheetB } as any,
+      filledSheetKeys: [],
+      candidateChangedSheetKeys: ['sheet_a'],
+      operations: [{ kind: 'sql_sheet_batch', sheetKey: 'sheet_a', tableName: 'a', reason: 'system', statements: ["INSERT INTO a (row_id, value) VALUES (1, 'dup')"] }] as any,
+      transactionContext: makeTransaction(),
+      assumeCommitLock: true,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.error).toContain('写入时基底与回放基底不一致');
+    expect(result.error).toContain(detail);
+    // 探针在候选 chat（含本次 entry 的深拷贝）上以目标楼层为界严格回放，不是在宿主 chat 上。
+    expect(probeCalls).toHaveLength(1);
+    expect(probeCalls[0].chat).not.toBe(mocks.chat);
+    expect(probeCalls[0].chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries).toHaveLength(1);
+    expect(probeCalls[0].options).toMatchObject({ maxMessageIndex: 0, updateRuntimeState: false, compatibilityMode: 'disabled' });
+    // 宿主 chat 与消息完全未变，未保存。
+    expect(message).toEqual(messageBefore);
+    expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.logEntries).toHaveLength(0);
+    expect(mocks.saveChat).not.toHaveBeenCalled();
+    expect(mocks.saveChatStrict).not.toHaveBeenCalled();
+  });
+
+  it('双身份写入口门闸：新引入表与既有活跃表物理表名冲突时拒绝补写 per-sheet 锚点', async () => {
+    // 既有活跃表 sheet_a（名 A）已在回放基底；本次要引入 sheet_new（同名 A）→ 同一物理表名。
+    mocks.loadReplayDetailed.mockImplementation(async () => ({
+      baseKind: 'full_checkpoint',
+      data: { mate: { type: 'acu' }, sheet_a: sheetA },
+    }));
+    const message = seedFrame({ logEntries: [] });
+    const { persistTableMutationLogV2_ACU } = await import('../../../src/service/table/storage-frame-v2-persist');
+
+    const result = await persistTableMutationLogV2_ACU({
+      targetMessageIndex: 0,
+      source: 'manual_fill',
+      afterData: {
+        mate: { type: 'acu' },
+        sheet_a: sheetA,
+        sheet_b: sheetB,
+        sheet_new: { uid: 'new', name: 'A', sourceData: {}, content: [['row_id', 'value']], updateConfig: {}, exportConfig: {}, orderNo: 3 },
+      } as any,
+      filledSheetKeys: [],
+      candidateChangedSheetKeys: ['sheet_new'],
+      operations: [{ kind: 'sql_sheet_batch', sheetKey: 'sheet_new', tableName: 'a', reason: 'system', statements: ["INSERT INTO a (row_id, value) VALUES (1, 'x')"] }] as any,
+      transactionContext: makeTransaction(),
+      assumeCommitLock: true,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.error).toContain('物理表名冲突');
+    expect(result.error).toContain('sheet_new');
+    expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.logEntries).toHaveLength(0);
+    expect(mocks.saveChatStrict).not.toHaveBeenCalled();
+  });
+
   it('已有 checkpoint 的单表增量只复制相关 afterData，不遍历未写入表', async () => {
     const message = seedFrame({ logEntries: [] });
     const untouchedToJson = vi.fn(() => {

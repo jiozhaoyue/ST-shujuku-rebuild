@@ -53,9 +53,21 @@ describe('resolveLogErrorHint', () => {
     ['deleteRow: Row index 12 out of bounds.', 'row-out-of-bounds'],
     ['[SQLite引擎] query 执行失败: SELECT * FROM x | 错误: no such table: x', 'table-not-found'],
     ['[SQLite引擎] run 执行失败: INSERT ... | 错误: UNIQUE constraint failed: t.row_id', 'sql-constraint'],
+    // V2 历史回放 / 恢复：正文带 UNIQUE constraint failed，但根因是历史只能宽容回放，必须先于 sql-constraint 命中。
+    ['[TableUpdateCommit] applyUnifiedGroupFillResponses:snapshot failed: TableUpdateCommitError: V2 写入前检测到聊天历史仅可经兼容宽容回放读出（严格回放失败：[V2 Replay] operation failed: messageIndex=20, seq=2, operationIndex=0, kind=sql_sheet_batch: 第 1 条语句失败: INSERT INTO zhujuexinxi (row_id, character_name) VALUES (1, \'李长风\') → UNIQUE constraint failed: zhujuexinxi.row_id），不能继续写入；请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。', 'v2-compat-readonly'],
+    ['V2 replay 仅可经兼容宽容回放读出（严格回放失败：x），不能作为填表基底', 'v2-compat-readonly'],
+    ['[TableUpdateCommit] fill failed: V2 写入被拒绝：本次增量与聊天历史回放状态不一致（写入时基底与回放基底不一致），已阻止写出不可严格回放的历史：第 1 条语句失败: INSERT INTO t (row_id) VALUES (1) → UNIQUE constraint failed: t.row_id', 'v2-write-guard'],
     ['[SQL Console] 执行失败: near "SELEC": syntax error', 'sql-syntax'],
     ['[SQLite引擎] sql.js 初始化失败: WebAssembly.instantiate failed', 'sqlite-init'],
     ['[StorageStrategy] SQLite 加载失败，自动 fallback 到原生模式: wasm not found', 'sqlite-init'],
+    ['[SQLite] schema_missing_column: sheet_a (physical_a).col 未在 SQLite runtime 中创建。', 'schema-mismatch'],
+    ['[SQLite] schema_missing_table: sheet_a (physical_a) 未在 SQLite runtime 中创建。', 'schema-mismatch'],
+    ['[SQLite] schema_missing_runtime_descriptor: sheet_a 缺少 SyncBridge 实际执行 schema。', 'schema-mismatch'],
+    ['[SQLite] DDL 执行失败: Error: duplicate column', 'sqlite-ddl-exec'],
+    ['[SQLite] candidate SQLite hydrate 失败: Error: no such table', 'sqlite-ddl-exec'],
+    ['表身份解析失败：Error: boom', 'identity-conflict'],
+    ['表身份重绑定存在歧义：别名「x」同时指向多张物理表。', 'identity-conflict'],
+    ['SQLite 物理表名冲突：相同规范表名被保留为多个 key', 'identity-conflict'],
     ['Cannot apply edits, tableData is not loaded.', 'table-data-not-loaded'],
     ['Save failed: Chat history is empty.', 'table-data-not-loaded'],
     ['Table persistence requires table update commit model; direct unsafe writes are not allowed.', 'table-persist-model'],
@@ -102,6 +114,17 @@ describe('resolveLogErrorHint', () => {
 
   it('SQLite 标签下的普通查询失败不会被误判为引擎加载失败', () => {
     expect(hintIdFor('query 执行失败: SELECT 1 | 错误: boom', 'SQLite引擎')).toBe('sql-syntax');
+  });
+
+  it('缺列 / schema 不一致不再提示下载 wasm（不命中 sqlite-init）', () => {
+    const hint = resolveLogErrorHint({
+      level: 'error',
+      tag: 'SQLite',
+      message: 'schema_missing_column: sheet_a (physical_a).name 未在 SQLite runtime 中创建。',
+    });
+    expect(hint?.id).toBe('schema-mismatch');
+    expect(hint?.steps.join(' ')).toContain('不需要检查下载拦截');
+    expect(hint?.steps.join(' ')).not.toContain('检查浏览器的广告拦截 / 安全插件是否拦截了 .wasm 文件下载');
   });
 
   it('规则 ID 唯一', () => {

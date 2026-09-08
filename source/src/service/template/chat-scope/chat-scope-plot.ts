@@ -20,6 +20,8 @@ import { normalizeChatScopedConfigSource_ACU } from './chat-scope-base';
       delete snapshot.promptPresets;
       delete snapshot.lastUsedPresetName;
       delete snapshot.enabled;
+      // 剧情世界书选择以角色卡为单位持久化（plotWorldbookConfigByCharacter），不进聊天快照。
+      delete snapshot.plotWorldbookConfig;
 
       ensurePlotPromptsArray_ACU(snapshot);
       ensureLoopPromptsArray_ACU(snapshot);

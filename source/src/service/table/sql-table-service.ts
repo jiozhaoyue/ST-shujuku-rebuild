@@ -1962,6 +1962,7 @@ export class SqlTableService implements ITableStorageProvider {
    */
   private _validateRuntimeSchema_ACU(data: TableDataObject_ACU): void {
     const actualTables = new Set(this.engine.getTableNames());
+    const runtimeSchemas = this.syncBridge.getRuntimeEffectiveSchemas_ACU();
     for (const key of Object.keys(data).filter(key => key.startsWith('sheet_'))) {
       const sheet = (data as any)[key];
       if (!sheet || typeof sheet !== 'object') continue;
@@ -1972,9 +1973,12 @@ export class SqlTableService implements ITableStorageProvider {
       if (!actualTables.has(runtimeTableName)) {
         throw new Error(`schema_missing_table: ${key} (${runtimeTableName}) 未在 SQLite runtime 中创建。`);
       }
-      const effectiveDDL = resolveEffectiveDDL(sheet, sheet.uid || key, runtimeTableName);
+      const runtimeSchema = runtimeSchemas.get(key);
+      if (!runtimeSchema) {
+        throw new Error(`schema_missing_runtime_descriptor: ${key} 缺少 SyncBridge 实际执行 schema。`);
+      }
       const actualColumns = new Set(this.engine.getTableInfo(runtimeTableName).map(column => column.name));
-      for (const mapping of effectiveDDL.columnMap.mappings) {
+      for (const mapping of runtimeSchema.columnMap.mappings) {
         if (!actualColumns.has(mapping.sqlName)) {
           throw new Error(`schema_missing_column: ${key} (${runtimeTableName}).${mapping.sqlName} 未在 SQLite runtime 中创建。`);
         }
@@ -1991,6 +1995,7 @@ export class SqlTableService implements ITableStorageProvider {
   private _buildNameMapper(data: TableDataObject_ACU): boolean {
     try {
       const ddlMap = new Map<string, string>();
+      const runtimeSchemas = this.syncBridge.getRuntimeEffectiveSchemas_ACU();
       for (const [key, value] of Object.entries(data)) {
         if (!key.startsWith('sheet_')) continue;
         const sheet = value as any;
@@ -2001,7 +2006,12 @@ export class SqlTableService implements ITableStorageProvider {
         // NameMapper 必须和 SQLite 实际采用的 schema 一致。直接读取 sourceData.ddl
         // 会在 fallback_invalid 场景留下无法映射运行时物理列名的陈旧映射。
         const runtimeTableName = getPhysicalTableNameForSheet_ACU(data, key);
-        const effectiveDDL = resolveEffectiveDDL(sheet, sheet.uid || key, runtimeTableName).effectiveDDL;
+        const runtimeSchema = runtimeSchemas.get(key);
+        if (!runtimeSchema) {
+          logWarn_ACU(`[SqlTableService] 构建 NameMapper 失败: ${key} 缺少 SyncBridge 实际执行 schema。`);
+          return false;
+        }
+        const effectiveDDL = runtimeSchema.effectiveDDL;
         ddlMap.set(runtimeTableName, effectiveDDL);
       }
       return publishGlobalNameMapperForDDLs_ACU(ddlMap, this.nameMapperOwner_ACU);
