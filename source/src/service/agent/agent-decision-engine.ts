@@ -273,11 +273,13 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
 
   for (const [bookName, snapshotEntries] of Object.entries(snapshot.books || {})) {
     const entries = await getAgentRuntimeLorebookEntries_ACU(bookName, readContext);
+    // 3000+ 条目时逐条 find 是 O(n^2) 同步冻结：按 uid 建一次索引。
+    const entryByUid = new Map((entries || []).map(item => [String(item?.uid), item]));
     const list = Array.isArray(snapshotEntries) ? snapshotEntries : [];
     for (const snapshotEntry of list) {
       const uid = snapshotEntry?.uid;
       if (uid === null || uid === undefined || String(uid).trim() === '') continue;
-      const entry = (entries || []).find(item => String(item?.uid) === String(uid));
+      const entry = entryByUid.get(String(uid));
       if (!entry) continue;
       const candidate = buildDecisionCandidate_ACU(bookName, entry);
       if (candidate) snapshotCandidates.push(candidate);

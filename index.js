@@ -76459,14 +76459,22 @@ function extractRankingTerms_ACU(value) {
     return terms;
 }
 /** 逐字段比对，绝不把多个字段拼接成一个查询：拼接会让分属不同字段的字凑出词项，产生假命中。 */
-function hasTermOverlap_ACU(left, right) {
-    const leftTerms = extractRankingTerms_ACU(left);
-    const rightTerms = extractRankingTerms_ACU(right);
-    for (const term of leftTerms) {
-        if (rightTerms.has(term))
+function hasPreparedTermOverlap_ACU(queryTerms, fieldValue) {
+    const fieldTerms = extractRankingTerms_ACU(fieldValue);
+    for (const term of fieldTerms) {
+        if (queryTerms.has(term))
             return true;
     }
     return false;
+}
+// 3000+ 候选时 query 文本（尤其最近上下文）若每条候选重复切词，主线程同步冻结数秒：
+// 三个 query 字段的词项集合只提一次，候选字段仍逐条提取（重叠存在性对称，得分与原来逐字一致）。
+function prepareRankingQuery_ACU(query) {
+    return {
+        userInput: extractRankingTerms_ACU(query.userInput),
+        recentContext: extractRankingTerms_ACU(query.recentContext),
+        taskContext: extractRankingTerms_ACU(query.taskContext),
+    };
 }
 /** 确定性打分：用户输入权重最高，其次最近上下文与任务描述；字段越靠近触发判据本体（关键词 > 名称 > 触发时机 > 描述）权重越大。 */
 function scoreCandidate_ACU(candidate, query) {
@@ -76475,37 +76483,38 @@ function scoreCandidate_ACU(candidate, query) {
     const taskContext = query.taskContext;
     let score = 0;
     for (const rawKey of candidate.keys || []) {
-        if (hasTermOverlap_ACU(userInput, rawKey))
+        if (hasPreparedTermOverlap_ACU(userInput, rawKey))
             score += 100;
-        if (hasTermOverlap_ACU(recentContext, rawKey))
+        if (hasPreparedTermOverlap_ACU(recentContext, rawKey))
             score += 50;
-        if (hasTermOverlap_ACU(taskContext, rawKey))
+        if (hasPreparedTermOverlap_ACU(taskContext, rawKey))
             score += 50;
     }
-    if (hasTermOverlap_ACU(userInput, candidate.comment))
+    if (hasPreparedTermOverlap_ACU(userInput, candidate.comment))
         score += 30;
-    if (hasTermOverlap_ACU(recentContext, candidate.comment))
+    if (hasPreparedTermOverlap_ACU(recentContext, candidate.comment))
         score += 15;
-    if (hasTermOverlap_ACU(taskContext, candidate.comment))
+    if (hasPreparedTermOverlap_ACU(taskContext, candidate.comment))
         score += 15;
-    if (hasTermOverlap_ACU(userInput, candidate.triggerWhen))
+    if (hasPreparedTermOverlap_ACU(userInput, candidate.triggerWhen))
         score += 20;
-    if (hasTermOverlap_ACU(recentContext, candidate.triggerWhen))
+    if (hasPreparedTermOverlap_ACU(recentContext, candidate.triggerWhen))
         score += 10;
-    if (hasTermOverlap_ACU(taskContext, candidate.triggerWhen))
+    if (hasPreparedTermOverlap_ACU(taskContext, candidate.triggerWhen))
         score += 10;
-    if (hasTermOverlap_ACU(userInput, candidate.description))
+    if (hasPreparedTermOverlap_ACU(userInput, candidate.description))
         score += 10;
-    if (hasTermOverlap_ACU(recentContext, candidate.description))
+    if (hasPreparedTermOverlap_ACU(recentContext, candidate.description))
         score += 5;
-    if (hasTermOverlap_ACU(taskContext, candidate.description))
+    if (hasPreparedTermOverlap_ACU(taskContext, candidate.description))
         score += 5;
     return score;
 }
 /** 相关性排序；同分条目保持输入顺序，保证同一批候选多次排序结果一致（决策分片切分依赖这个稳定性）。 */
 function rankAgentWorldbookCandidates_ACU(candidates, query) {
+    const prepared = prepareRankingQuery_ACU(query);
     return candidates
-        .map((candidate, index) => ({ candidate, index, score: scoreCandidate_ACU(candidate, query) }))
+        .map((candidate, index) => ({ candidate, index, score: scoreCandidate_ACU(candidate, prepared) }))
         .sort((left, right) => right.score - left.score || left.index - right.index)
         .map(item => item.candidate);
 }
@@ -76692,12 +76701,14 @@ async function collectWorldbookSummariesFromSnapshot_ACU(contextSettings, readCo
     const snapshotCandidates = [];
     for (const [bookName, snapshotEntries] of Object.entries(snapshot.books || {})) {
         const entries = await getAgentRuntimeLorebookEntries_ACU(bookName, readContext);
+        // 3000+ 条目时逐条 find 是 O(n^2) 同步冻结：按 uid 建一次索引。
+        const entryByUid = new Map((entries || []).map(item => [String(item?.uid), item]));
         const list = Array.isArray(snapshotEntries) ? snapshotEntries : [];
         for (const snapshotEntry of list) {
             const uid = snapshotEntry?.uid;
             if (uid === null || uid === undefined || String(uid).trim() === '')
                 continue;
-            const entry = (entries || []).find(item => String(item?.uid) === String(uid));
+            const entry = entryByUid.get(String(uid));
             if (!entry)
                 continue;
             const candidate = buildDecisionCandidate_ACU(bookName, entry);
@@ -78498,7 +78509,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.7" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.3.8" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -180810,7 +180821,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.3.7";
+        const v = "9.3.8";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
