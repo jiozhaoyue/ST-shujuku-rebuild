@@ -136,7 +136,8 @@ function stripThinkingBlocks_ACU(text: string): string {
     return String(text || '')
         .replace(/<thinking[^>]*>[\s\S]*?<\/thinking>/gi, '')
         .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
-        .replace(/<\/?(?:thinking|thought)[^>]*>/gi, '')
+        .replace(/<think(?![a-z])[^>]*>[\s\S]*?<\/think(?![a-z])>/gi, '')
+        .replace(/<\/?(?:thinking|thought|think(?![a-z]))[^>]*>/gi, '')
         .trim();
 }
 
