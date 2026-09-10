@@ -401,12 +401,12 @@ export function buildCustomApiRequestBody_ACU(
       ? effectiveApiConfig.streamingEnabled === true
       : settings_ACU.streamingEnabled === true,
     chat_completion_source: 'custom',
-    // 接口协议（预设级）：对齐 TT 四「自定义」选项（custom_api_format 契约）。
+    // 接口协议（预设级）：对齐 TT「自定义」选项（custom_api_format 契约，TT 现有五档）。
     // TT 后端按该值分流上游端点与请求/响应变形：openai_compat→/chat/completions、
     // openai_responses→/responses、claude_messages→/messages、gemini_interactions→/interactions；
     // 非流式响应由 TT 归一化为 OpenAI 形态，流式 Claude 为原样 Anthropic SSE（解析见 prompt-api-call）。
     // 白名单兜底：调用点可能传未归一化的 config，非法值回退 openai_compat。
-    custom_api_format: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'] as const).includes(effectiveApiConfig.customApiFormat as any)
+    custom_api_format: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'] as const).includes(effectiveApiConfig.customApiFormat as any)
       ? effectiveApiConfig.customApiFormat
       : 'openai_compat',
     group_names: [],

@@ -32,7 +32,7 @@ const h = vi.hoisted(() => ({
   writeTagData: vi.fn(),
 }));
 
-vi.mock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logWarn_ACU: vi.fn(), logError_ACU: vi.fn() }));
+vi.mock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logWarn_ACU: vi.fn(), logError_ACU: vi.fn(), assertSafeHttpEndpoint_ACU: vi.fn() }));
 vi.mock('../../../src/service/chat/chat-service', () => ({ getChatArray_ACU: () => h.chat }));
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: () => h.chat,

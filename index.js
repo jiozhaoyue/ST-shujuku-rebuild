@@ -4917,6 +4917,9 @@ async function requestRerankBatch_ACU(request) {
     const payload = { model: request.model, query: request.query, documents: request.documents };
     if (request.instruction)
         payload.instruction = request.instruction;
+    // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
+    // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
+    assertSafeHttpEndpoint_ACU(request.endpoint);
     // 超时可中断：rerank 在发送前同步链路上，挂起的上游不允许无限阻塞生成。
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VECTOR_RERANK_TIMEOUT_MS_ACU);
@@ -47956,6 +47959,9 @@ async function fetchEmbeddingWithTimeout_ACU(endpoint, init, model) {
     }
 }
 async function requestEmbeddingsOnce_ACU(endpoint, model, input, headers) {
+    // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
+    // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
+    assertSafeHttpEndpoint_ACU(endpoint);
     const response = await fetchEmbeddingWithTimeout_ACU(endpoint, {
         method: 'POST',
         headers,
@@ -83503,7 +83509,7 @@ function onApiPresetRevisionChanged_ACU(listener) {
 // V1 presentation 不得直接修改这些字段；V2 必须通过本 service 操作。
 // 写操作流程：校验 → 快照 → 改内存 → saveSettings_ACU → 失败回滚。
 // ═══════════════════════════════════════════════════════════════
-const CUSTOM_API_FORMATS_ACU = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'];
+const CUSTOM_API_FORMATS_ACU = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'];
 function normalizeCustomApiFormat_ACU(value) {
     const raw = String(value ?? '').trim();
     return CUSTOM_API_FORMATS_ACU.includes(raw) ? raw : 'openai_compat';
@@ -84348,12 +84354,12 @@ function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) 
             ? effectiveApiConfig.streamingEnabled === true
             : settings_ACU.streamingEnabled === true,
         chat_completion_source: 'custom',
-        // 接口协议（预设级）：对齐 TT 四「自定义」选项（custom_api_format 契约）。
+        // 接口协议（预设级）：对齐 TT「自定义」选项（custom_api_format 契约，TT 现有五档）。
         // TT 后端按该值分流上游端点与请求/响应变形：openai_compat→/chat/completions、
         // openai_responses→/responses、claude_messages→/messages、gemini_interactions→/interactions；
         // 非流式响应由 TT 归一化为 OpenAI 形态，流式 Claude 为原样 Anthropic SSE（解析见 prompt-api-call）。
         // 白名单兜底：调用点可能传未归一化的 config，非法值回退 openai_compat。
-        custom_api_format: ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'].includes(effectiveApiConfig.customApiFormat)
+        custom_api_format: ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'].includes(effectiveApiConfig.customApiFormat)
             ? effectiveApiConfig.customApiFormat
             : 'openai_compat',
         group_names: [],
@@ -89840,7 +89846,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.7" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.8" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -107233,8 +107239,8 @@ function buildTavernHelperCompat_ACU(rawTH, getStApi) {
  * presentation 层通过本模块发起 AI 请求，不再直接调用 gateway。
  * 后续可在此层统一添加日志、埋点、请求限流等增值逻辑。
  */
-/** 接口协议四值白名单（与 api-call.ts 请求体 custom_api_format 契约同源）。 */
-const CUSTOM_API_FORMAT_WHITELIST_ACU = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'];
+/** 接口协议白名单（与 api-call.ts 请求体 custom_api_format 契约同源；TT 现有第五档 gemini_generate_content）。 */
+const CUSTOM_API_FORMAT_WHITELIST_ACU = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'];
 /** 模型列表探活专用超时（毫秒）：status 请求是轻量探测，15 秒无响应即视为端点不可达。
  *  仅约束本探活请求；主生成出口 postChatCompletion_ACU 不设硬超时（长生成合法，见 api-call.ts）。 */
 const MODEL_PROBE_TIMEOUT_MS_ACU = 15000;
@@ -126649,7 +126655,10 @@ class ContinuationOrchestrator_ACU {
             return null;
         if (task.pendingHostTurn.identity.chatIdentity !== this.dependencies.getChatIdentity())
             return null;
-        return { settings: envelope.settings, pending: task.pendingHostTurn };
+        // 任务被用户停止（或已带错误暂停）时，retry_ready 的待重试轮不得被自动重试复活：
+        // 桥的自动重试只认 pending.status，若不带上这个位，用户在重试等待窗内点停止会被静默撤销。
+        const taskStopped = task.stopReason !== null || task.status === 'failed';
+        return { settings: envelope.settings, pending: task.pendingHostTurn, taskStopped };
     }
     async pauseForHostResultFailure(identity) {
         return this.pauseHostTurn_ACU(identity, 'CONTINUATION_TASK_STATE_INVALID', '宿主正文无法唯一归属当前轮次', 'state_invalid');
@@ -134137,6 +134146,10 @@ class ContinuationHostGenerationBridge_ACU {
         const beforeRetry = this.dependencies.runtime.readPendingHostTurn();
         if (beforeRetry?.pending.status !== 'retry_ready' || beforeRetry.pending.identity.attemptId !== identity.attemptId)
             return;
+        // 等待期间用户点了停止（或任务已失败）→ 放弃自动重试：否则 retryCurrentTurn 会把任务置回
+        // running 并清空 stopReason，等于静默撤销用户的停止并多烧一次宿主生成。
+        if (beforeRetry.taskStopped)
+            return;
         const action = await this.dependencies.runtime.retryCurrentTurn();
         if (!action.retryHostGeneration)
             return;
@@ -140904,7 +140917,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260910-13";
+        const stamp = "20260910-14";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -158384,7 +158397,7 @@ function apiPresetFromDraft(draft) {
             ...(typeof draft.reasoningEffort === 'string' && ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'false', 'auto'].includes(draft.reasoningEffort)
                 ? { reasoningEffort: draft.reasoningEffort }
                 : {}),
-            customApiFormat: ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'].includes(draft.customApiFormat)
+            customApiFormat: ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'].includes(draft.customApiFormat)
                 ? draft.customApiFormat
                 : 'openai_compat',
             // 白名单校验仿 customApiFormat：显式 ''（未选择）保留，非法值降级 strict，不写入预设。
@@ -159673,6 +159686,7 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
             { value: "openai_responses", label: "兼容 OpenAI Responses" },
             { value: "claude_messages", label: "兼容 Claude Messages" },
             { value: "gemini_interactions", label: "兼容 Gemini Interactions" },
+            { value: "gemini_generate_content", label: "兼容 Gemini generateContent" },
         ];
         // ─── 提示词后处理选项（custom_prompt_post_processing 八值契约；'' 为「未选择」，默认 'strict'） ───
         const promptPostProcessingOptions = [
@@ -159861,8 +159875,8 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-api-config-panel__hint[data-v-f35e6041] {\r\n  color: var(--acu-text-3, #9e978e);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-api-config-panel__hint-danger[data-v-f35e6041] {\r\n  color: var(--acu-danger, #e5484d);\n}\n.acu-api-config-panel__select-row[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) max-content max-content;\r\n  gap: 6px;\r\n  align-items: stretch;\n}\n.acu-api-config-panel__behavior[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  margin-top: 14px;\r\n  padding-top: 12px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\n}\n.acu-api-config-panel__editor[data-v-f35e6041] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-api-config-panel__editor-section[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-api-config-panel__inline-action[data-v-f35e6041] {\r\n  display: flex;\r\n  align-items: center;\r\n  flex-wrap: wrap;\r\n  gap: 10px;\n}\n.acu-api-config-panel__two-col[data-v-f35e6041] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-api-config-panel__muted[data-v-f35e6041] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__danger[data-v-f35e6041] {\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__actions[data-v-f35e6041] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\n}\r\n", "src/presentation-v2/components/ApiConfigPanel.vue#style-0-f35e6041");
-var ApiConfigPanel_vue_vue_type_style_index_0_scoped_f35e6041_lang = null;
+injectSfcStyle("\n.acu-api-config-panel__hint[data-v-bc049595] {\r\n  color: var(--acu-text-3, #9e978e);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-api-config-panel__hint-danger[data-v-bc049595] {\r\n  color: var(--acu-danger, #e5484d);\n}\n.acu-api-config-panel__select-row[data-v-bc049595] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) max-content max-content;\r\n  gap: 6px;\r\n  align-items: stretch;\n}\n.acu-api-config-panel__behavior[data-v-bc049595] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  margin-top: 14px;\r\n  padding-top: 12px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\n}\n.acu-api-config-panel__editor[data-v-bc049595] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-api-config-panel__editor-section[data-v-bc049595] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-api-config-panel__inline-action[data-v-bc049595] {\r\n  display: flex;\r\n  align-items: center;\r\n  flex-wrap: wrap;\r\n  gap: 10px;\n}\n.acu-api-config-panel__two-col[data-v-bc049595] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-api-config-panel__muted[data-v-bc049595] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__danger[data-v-bc049595] {\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__actions[data-v-bc049595] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\n}\r\n", "src/presentation-v2/components/ApiConfigPanel.vue#style-0-bc049595");
+var ApiConfigPanel_vue_vue_type_style_index_0_scoped_bc049595_lang = null;
 
 const _hoisted_1$S = { class: "acu-api-config-panel__select-row" };
 const _hoisted_2$L = { class: "acu-api-config-panel__editor-section" };
@@ -160198,7 +160212,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-f35e6041"]]);
+var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-bc049595"]]);
 
 // ═══════════════════════════════════════════════════════════
 // service/settings/feature-preset-reference-service.ts — 功能级 API 预设引用
@@ -169985,9 +169999,18 @@ var _sfc_main$x = /*@__PURE__*/ defineComponent({
         const skillDrafts = reactive({});
         // 大分组分页：3000+ 条目全量渲染是挂载卡顿的主因，默认只渲前 200 行，按需加载更多。
         const visibleCountByBook = reactive({});
-        watch(() => [props.groups, props.filter], () => {
+        // 只有筛选变化才重置分页：勾选 Skill / 展开分组都会换 groups 数组，绑 groups 会让
+        // 「加载更多」每次被打回 200 行（列表联动反而抵消分页收益）。groups 变化只裁剪消失的书。
+        watch(() => props.filter, () => {
             for (const key of Object.keys(visibleCountByBook))
                 delete visibleCountByBook[key];
+        });
+        watch(() => props.groups, (groups) => {
+            const live = new Set((groups || []).map(group => group.bookName));
+            for (const key of Object.keys(visibleCountByBook)) {
+                if (!live.has(key))
+                    delete visibleCountByBook[key];
+            }
         });
         function visibleEntriesOf(group) {
             return group.entries.slice(0, visibleCountByBook[group.bookName] ?? ENTRY_PAGE_SIZE_ACU);
@@ -170089,8 +170112,8 @@ var _sfc_main$x = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-wb-entries[data-v-b02c6846] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-wb-entries__status[data-v-b02c6846] {\r\n  padding: 8px 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-wb-entries__status--error[data-v-b02c6846] { color: var(--acu-danger);\n}\n.acu-v2-wb-entry-item[data-v-b02c6846] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 6px 8px;\r\n  align-items: center;\r\n  padding: 3px 10px;\r\n  transition: background 0.08s ease;\n}\n.acu-v2-wb-entry-item[data-v-b02c6846]:hover { background: var(--acu-hover-overlay);\n}\n.acu-v2-wb-entry-item--disabled[data-v-b02c6846] {\r\n  opacity: 0.5;\n}\n.acu-v2-wb-entry-item__actions[data-v-b02c6846] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 6px;\n}\n.acu-v2-wb-entry-item__label[data-v-b02c6846] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\r\n\r\n/* 剧情页 / 填表页走 AcuCheckbox 分支；:deep 把夹断锁在本列表内，避免改动全局组件 */\n.acu-v2-wb-entry-item[data-v-b02c6846] .acu-checkbox__label {\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\n.acu-v2-wb-entry-item__skill-badge[data-v-b02c6846] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-accent) 14%, transparent);\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-item__state-badge[data-v-b02c6846] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-warning) 14%, transparent);\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-skill[data-v-b02c6846] {\r\n  grid-column: 1 / -1;\r\n  display: grid;\r\n  gap: 8px;\r\n  margin: 4px 0 6px 24px;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border-1);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-wb-entry-skill__actions[data-v-b02c6846] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\n}\n@media (max-width: 640px) {\n.acu-v2-wb-entry-item[data-v-b02c6846] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-wb-entry-item__actions[data-v-b02c6846] {\r\n    justify-content: flex-start;\r\n    padding-left: 24px;\n}\n.acu-v2-wb-entry-skill[data-v-b02c6846] {\r\n    margin-left: 0;\n}\n}\r\n", "src/presentation-v2/components/WorldbookEntryList.vue#style-0-b02c6846");
-var WorldbookEntryList_vue_vue_type_style_index_0_scoped_b02c6846_lang = null;
+injectSfcStyle("\n.acu-v2-wb-entries[data-v-db02b974] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-wb-entries__status[data-v-db02b974] {\r\n  padding: 8px 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-wb-entries__status--error[data-v-db02b974] { color: var(--acu-danger);\n}\n.acu-v2-wb-entry-item[data-v-db02b974] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 6px 8px;\r\n  align-items: center;\r\n  padding: 3px 10px;\r\n  transition: background 0.08s ease;\n}\n.acu-v2-wb-entry-item[data-v-db02b974]:hover { background: var(--acu-hover-overlay);\n}\n.acu-v2-wb-entry-item--disabled[data-v-db02b974] {\r\n  opacity: 0.5;\n}\n.acu-v2-wb-entry-item__actions[data-v-db02b974] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 6px;\n}\n.acu-v2-wb-entry-item__label[data-v-db02b974] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\r\n\r\n/* 剧情页 / 填表页走 AcuCheckbox 分支；:deep 把夹断锁在本列表内，避免改动全局组件 */\n.acu-v2-wb-entry-item[data-v-db02b974] .acu-checkbox__label {\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\n.acu-v2-wb-entry-item__skill-badge[data-v-db02b974] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-accent) 14%, transparent);\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-item__state-badge[data-v-db02b974] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-warning) 14%, transparent);\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-skill[data-v-db02b974] {\r\n  grid-column: 1 / -1;\r\n  display: grid;\r\n  gap: 8px;\r\n  margin: 4px 0 6px 24px;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border-1);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-wb-entry-skill__actions[data-v-db02b974] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\n}\n@media (max-width: 640px) {\n.acu-v2-wb-entry-item[data-v-db02b974] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-wb-entry-item__actions[data-v-db02b974] {\r\n    justify-content: flex-start;\r\n    padding-left: 24px;\n}\n.acu-v2-wb-entry-skill[data-v-db02b974] {\r\n    margin-left: 0;\n}\n}\r\n", "src/presentation-v2/components/WorldbookEntryList.vue#style-0-db02b974");
+var WorldbookEntryList_vue_vue_type_style_index_0_scoped_db02b974_lang = null;
 
 const _hoisted_1$x = { class: "acu-v2-wb-entries" };
 const _hoisted_2$s = {
@@ -170299,7 +170322,7 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 		/* KEYED_FRAGMENT */
 	))]);
 }
-var WorldbookEntryList = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$x], ["__scopeId", "data-v-b02c6846"]]);
+var WorldbookEntryList = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$x], ["__scopeId", "data-v-db02b974"]]);
 
 var _sfc_main$w = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookEntryToolbar',
@@ -185361,7 +185384,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260910-13";
+        const stamp = "20260910-14";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -185370,7 +185393,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.7";
+        const v = "9.4.8";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -185385,12 +185408,18 @@ function maskSecret(value) {
     return `${value.slice(0, 3)}***${value.slice(-3)}`;
 }
 const SENSITIVE_KEYS = /^(api[_-]?key|apikey|key|token|authorization|auth|password|proxy[_-]?password|secret|bearer|accessToken|access_token)$/i;
+// 复合键后缀：embeddingApiKey / rerankApiKey 这类以敏感词结尾但带前缀的键，锚定式漏网（与 log-buffer 同规则）。
+const SENSITIVE_KEY_SUFFIX = /(api[_-]?key|apikey|token|authorization|password|secret|bearer)$/i;
+function isSensitiveKey(key) {
+    return SENSITIVE_KEYS.test(key) || SENSITIVE_KEY_SUFFIX.test(key);
+}
 function maskSensitiveString(str) {
     return str
         .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
         .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
         .replace(/([?&](?:api[_-]?key|token|authorization)=)([^&#\s"',}]+)/gi, '$1***')
-        .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3');
+        .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
+        .replace(/(^|[\s"',{;])(x-api-key|x-opencode-session|api[_-]?key|apikey|token|password|secret)(\s*[:=]\s*)(?!["\'])([^\s"',;}\n]+)/gi, '$1$2$3***');
 }
 /** 递归脱敏对象中的敏感字段（API 请求/响应快照可能含 Authorization/key 回显） */
 function maskSensitiveFields(value, depth = 0, seen = new WeakSet()) {
@@ -185409,7 +185438,7 @@ function maskSensitiveFields(value, depth = 0, seen = new WeakSet()) {
         seen.add(value);
         const out = {};
         for (const [k, v] of Object.entries(value)) {
-            if (SENSITIVE_KEYS.test(k)) {
+            if (isSensitiveKey(k)) {
                 out[k] = v && typeof v === 'object' ? maskSensitiveFields(v, depth + 1, seen) : maskSecret(v);
             }
             else {
@@ -185448,7 +185477,7 @@ function useDebugPanel() {
     let unsubscribeClear = null;
     const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
     function refreshCount() {
-        entryCount.value = getAllLogs().length;
+        entryCount.value = getLogCount();
     }
     function startDebug() {
         // 以本面板会话态为准（而非原始 flag）：flag 可能被外部提前打开，
@@ -185527,7 +185556,7 @@ function useDebugPanel() {
                         const content = Array.isArray(sheet?.content) ? sheet.content : [];
                         const rows = Math.max(0, content.length - 1);
                         const headers = Array.isArray(content[0]) ? content[0].map(String) : [];
-                        const sensitiveCols = new Set(headers.map((h, idx) => SENSITIVE_KEYS.test(h) ? idx : -1).filter((idx) => idx !== -1));
+                        const sensitiveCols = new Set(headers.map((h, idx) => isSensitiveKey(h) ? idx : -1).filter((idx) => idx !== -1));
                         const sampleRows = content.slice(1, 4).map((r) => Array.isArray(r) ? r.slice(0, 8).map((c, colIdx) => {
                             if (sensitiveCols.has(colIdx))
                                 return '***';

@@ -1,4 +1,5 @@
 import { isCrossOriginFetchRejection_ACU, VECTOR_CROSS_ORIGIN_FAILURE_HINT_ACU } from '../../shared/vector-cross-origin-error';
+import { assertSafeHttpEndpoint_ACU } from '../../shared/utils';
 
 export type VectorEmbeddingErrorKind_ACU =
     | 'credential' | 'request' | 'provider-contract' | 'retryable' | 'limited-retryable';
@@ -184,6 +185,9 @@ async function requestEmbeddingsOnce_ACU(
     input: string[],
     headers: Record<string, string>,
 ): Promise<VectorEmbeddingResult_ACU[]> {
+    // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
+    // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
+    assertSafeHttpEndpoint_ACU(endpoint);
     const response = await fetchEmbeddingWithTimeout_ACU(endpoint, {
         method: 'POST',
         headers,

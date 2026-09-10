@@ -139,8 +139,16 @@ const skillDrafts = reactive<Record<string, WorldbookSkillDraft>>({});
 // 大分组分页：3000+ 条目全量渲染是挂载卡顿的主因，默认只渲前 200 行，按需加载更多。
 const ENTRY_PAGE_SIZE_ACU = 200;
 const visibleCountByBook = reactive<Record<string, number>>({});
-watch(() => [props.groups, props.filter], () => {
+// 只有筛选变化才重置分页：勾选 Skill / 展开分组都会换 groups 数组，绑 groups 会让
+// 「加载更多」每次被打回 200 行（列表联动反而抵消分页收益）。groups 变化只裁剪消失的书。
+watch(() => props.filter, () => {
   for (const key of Object.keys(visibleCountByBook)) delete visibleCountByBook[key];
+});
+watch(() => props.groups, (groups) => {
+  const live = new Set((groups || []).map(group => group.bookName));
+  for (const key of Object.keys(visibleCountByBook)) {
+    if (!live.has(key)) delete visibleCountByBook[key];
+  }
 });
 function visibleEntriesOf(group: WorldbookEntryDisplayGroup_ACU): WorldbookEntryDisplayItem_ACU[] {
   return group.entries.slice(0, visibleCountByBook[group.bookName] ?? ENTRY_PAGE_SIZE_ACU);

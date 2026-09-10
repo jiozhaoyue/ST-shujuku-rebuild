@@ -1,4 +1,5 @@
 import { isCrossOriginFetchRejection_ACU, VECTOR_CROSS_ORIGIN_FAILURE_HINT_ACU } from '../../shared/vector-cross-origin-error';
+import { assertSafeHttpEndpoint_ACU } from '../../shared/utils';
 
 /** Rerank 请求超时上界；超时抛错由调用方回退到 embedding 排序。 */
 const VECTOR_RERANK_TIMEOUT_MS_ACU = 30_000;
@@ -115,6 +116,9 @@ async function requestRerankBatch_ACU(request: RerankBatchRequest_ACU): Promise<
     const payload: Record<string, any> = { model: request.model, query: request.query, documents: request.documents };
     if (request.instruction) payload.instruction = request.instruction;
 
+    // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
+    // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
+    assertSafeHttpEndpoint_ACU(request.endpoint);
     // 超时可中断：rerank 在发送前同步链路上，挂起的上游不允许无限阻塞生成。
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VECTOR_RERANK_TIMEOUT_MS_ACU);

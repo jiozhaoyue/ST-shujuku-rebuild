@@ -25,8 +25,8 @@ export interface FetchModelsResult {
     error?: string;
 }
 
-/** 接口协议四值白名单（与 api-call.ts 请求体 custom_api_format 契约同源）。 */
-const CUSTOM_API_FORMAT_WHITELIST_ACU: readonly string[] = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'];
+/** 接口协议白名单（与 api-call.ts 请求体 custom_api_format 契约同源；TT 现有第五档 gemini_generate_content）。 */
+const CUSTOM_API_FORMAT_WHITELIST_ACU: readonly string[] = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'];
 
 /** 模型列表探活专用超时（毫秒）：status 请求是轻量探测，15 秒无响应即视为端点不可达。
  *  仅约束本探活请求；主生成出口 postChatCompletion_ACU 不设硬超时（长生成合法，见 api-call.ts）。 */

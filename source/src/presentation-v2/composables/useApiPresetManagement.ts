@@ -109,8 +109,8 @@ export function apiPresetFromDraft(draft: ApiPresetDraft): AcuV2ApiPreset {
       ...(typeof draft.reasoningEffort === 'string' && (['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'false', 'auto'] as const).includes(draft.reasoningEffort as any)
         ? { reasoningEffort: draft.reasoningEffort as 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'false' | 'auto' }
         : {}),
-      customApiFormat: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'] as const).includes(draft.customApiFormat as any)
-        ? (draft.customApiFormat as 'openai_compat' | 'openai_responses' | 'claude_messages' | 'gemini_interactions')
+      customApiFormat: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'] as const).includes(draft.customApiFormat as any)
+        ? (draft.customApiFormat as 'openai_compat' | 'openai_responses' | 'claude_messages' | 'gemini_interactions' | 'gemini_generate_content')
         : 'openai_compat',
       // 白名单校验仿 customApiFormat：显式 ''（未选择）保留，非法值降级 strict，不写入预设。
       promptPostProcessing: normalizePromptPostProcessing_ACU(draft.promptPostProcessing),

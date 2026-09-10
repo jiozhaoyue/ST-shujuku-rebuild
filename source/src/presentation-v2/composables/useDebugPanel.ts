@@ -17,6 +17,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   clearLogs,
   getAllLogs,
+  getLogCount,
   getClearHistory_ACU,
   isDebugLogEnabled,
   isWarnLogEnabled,
@@ -56,13 +57,20 @@ function maskSecret(value: unknown): string {
 }
 
 const SENSITIVE_KEYS = /^(api[_-]?key|apikey|key|token|authorization|auth|password|proxy[_-]?password|secret|bearer|accessToken|access_token)$/i;
+// 复合键后缀：embeddingApiKey / rerankApiKey 这类以敏感词结尾但带前缀的键，锚定式漏网（与 log-buffer 同规则）。
+const SENSITIVE_KEY_SUFFIX = /(api[_-]?key|apikey|token|authorization|password|secret|bearer)$/i;
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEYS.test(key) || SENSITIVE_KEY_SUFFIX.test(key);
+}
 
 function maskSensitiveString(str: string): string {
   return str
     .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
     .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
     .replace(/([?&](?:api[_-]?key|token|authorization)=)([^&#\s"',}]+)/gi, '$1***')
-    .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3');
+    .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
+    .replace(/(^|[\s"',{;])(x-api-key|x-opencode-session|api[_-]?key|apikey|token|password|secret)(\s*[:=]\s*)(?!["\'])([^\s"',;}\n]+)/gi, '$1$2$3***');
 }
 
  /** 递归脱敏对象中的敏感字段（API 请求/响应快照可能含 Authorization/key 回显） */
@@ -78,7 +86,7 @@ function maskSensitiveFields(value: unknown, depth = 0, seen = new WeakSet<objec
     seen.add(value as object);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEYS.test(k)) {
+      if (isSensitiveKey(k)) {
         out[k] = v && typeof v === 'object' ? maskSensitiveFields(v, depth + 1, seen) : maskSecret(v);
       } else {
         out[k] = maskSensitiveFields(v, depth + 1, seen);
@@ -121,7 +129,7 @@ export function useDebugPanel() {
   const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
 
   function refreshCount(): void {
-    entryCount.value = getAllLogs().length;
+    entryCount.value = getLogCount();
   }
 
   function startDebug(): void {
@@ -197,7 +205,7 @@ export function useDebugPanel() {
             const content = Array.isArray((sheet as any)?.content) ? (sheet as any).content : [];
             const rows = Math.max(0, content.length - 1);
             const headers = Array.isArray(content[0]) ? content[0].map(String) : [];
-            const sensitiveCols = new Set(headers.map((h: string, idx: number) => SENSITIVE_KEYS.test(h) ? idx : -1).filter((idx: number) => idx !== -1));
+            const sensitiveCols = new Set(headers.map((h: string, idx: number) => isSensitiveKey(h) ? idx : -1).filter((idx: number) => idx !== -1));
             const sampleRows = content.slice(1, 4).map((r: any) => Array.isArray(r) ? r.slice(0, 8).map((c: any, colIdx: number) => {
               if (sensitiveCols.has(colIdx)) return '***';
               if (typeof c === 'string') {

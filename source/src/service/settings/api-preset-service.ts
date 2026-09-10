@@ -19,9 +19,9 @@ export type ApiPresetApiMode_ACU = 'custom';
 export type ReasoningEffort_ACU = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'false' | 'auto';
 
 /** 接口协议（预设级）：对齐 TauriTavern 主 API 的四个「自定义」选项（custom_api_format 四值契约） */
-export type CustomApiFormat_ACU = 'openai_compat' | 'openai_responses' | 'claude_messages' | 'gemini_interactions';
+export type CustomApiFormat_ACU = 'openai_compat' | 'openai_responses' | 'claude_messages' | 'gemini_interactions' | 'gemini_generate_content';
 
-const CUSTOM_API_FORMATS_ACU: readonly CustomApiFormat_ACU[] = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'];
+const CUSTOM_API_FORMATS_ACU: readonly CustomApiFormat_ACU[] = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'];
 
 export function normalizeCustomApiFormat_ACU(value: unknown): CustomApiFormat_ACU {
   const raw = String(value ?? '').trim();

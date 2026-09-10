@@ -7,13 +7,14 @@ function createHarness(options: { tags?: string; chat?: any[]; send?: boolean; r
   let chat = options.chat ?? [{ is_user: true }];
   let chatIdentity = 'chat-a';
   let pending: any = null;
+  let taskStopped = false;
   const autoContinueStates = [...(options.autoContinueStates ?? [])];
   const continuePreparedTurn: any = { identity, instruction: { instruction: '自动续写的下一轮文本' } };
   const retryCurrentTurn = vi.fn(async () => ({ retryHostGeneration: true }));
   const continueTask = vi.fn(async () => ({ preparedTurn: continuePreparedTurn }));
   const runtime = {
     getChatIdentity: () => chatIdentity, getChat: () => chat,
-    readPendingHostTurn: () => pending ? { settings: { loopTags: options.tags ?? '<ok>', minGenerationTokens: options.minTokens ?? 0 }, pending } : null,
+    readPendingHostTurn: () => pending ? { settings: { loopTags: options.tags ?? '<ok>', minGenerationTokens: options.minTokens ?? 0 }, pending, taskStopped } : null,
     readAutoContinueState: vi.fn(() => autoContinueStates.length ? autoContinueStates.shift()! : { eligible: false, delaySeconds: 0 }),
     retryCurrentTurn,
     continueTask,
@@ -44,7 +45,7 @@ function createHarness(options: { tags?: string; chat?: any[]; send?: boolean; r
     countTokens: async () => options.tokens ?? 2000,
     ...(options.invalidatePendingAutoFill ? { invalidatePendingAutoFill: options.invalidatePendingAutoFill } : {}),
   });
-  return { bridge, runtime, hostInput, retryCurrentTurn, continueTask, wait, setChat: (value: any[]) => { chat = value; }, setChatIdentity: (value: string) => { chatIdentity = value; } };
+  return { bridge, runtime, hostInput, retryCurrentTurn, continueTask, wait, setChat: (value: any[]) => { chat = value; }, setChatIdentity: (value: string) => { chatIdentity = value; }, setTaskStopped: (value: boolean) => { taskStopped = value; } };
 }
 
 describe('ContinuationHostGenerationBridge_ACU', () => {
@@ -113,8 +114,22 @@ describe('ContinuationHostGenerationBridge_ACU', () => {
     expect(listener).toHaveBeenCalledTimes(4);
   });
 
-  it('waits for a makeFirst-era AI floor to materialize before resolving the claimed host result', async () => {
-    let setChat: (value: any[]) => void;
+  it('重试等待窗内用户点停止 → 放弃自动重试，不复活任务也不重发宿主生成', async () => {
+    let harnessRef: ReturnType<typeof createHarness> | null = null;
+    const h = createHarness({ onWait: () => { harnessRef?.setTaskStopped(true); } });
+    harnessRef = h;
+    h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
+    await h.bridge.send(prepared);
+
+    // 生成出错进入 retry_ready；等待期间用户点停止（taskStopped 变真）。
+    await h.bridge.onGenerationEnded(undefined, 7);
+
+    expect(h.retryCurrentTurn).not.toHaveBeenCalled();
+    expect(h.hostInput.retryGeneration).not.toHaveBeenCalled();
+    expect(h.hostInput.send).toHaveBeenCalledOnce();
+  });
+
+  it('waits for a makeFirst-era AI floor to materialize before resolving the claimed host result', async () => {    let setChat: (value: any[]) => void;
     const h = createHarness({ onWait: () => setChat([{ is_user: true }, { is_user: false, mes: '<ok>延迟物化', message_id: 9 }]) });
     setChat = h.setChat;
     h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
