@@ -89740,7 +89740,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.1" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.2" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -140796,7 +140796,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260910-08";
+        const stamp = "20260910-11";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -185206,7 +185206,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260910-08";
+        const stamp = "20260910-11";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -185215,7 +185215,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.1";
+        const v = "9.4.2";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -185278,23 +185278,32 @@ function downloadJson(filename, data) {
     // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+/** Debug 开启时刻（模块级，与采集开关同寿命）：导出时只包含开启后的日志 */
+let debugStartedAt_ACU = 0;
+/** 采集开关显示态（模块级）：与 log-buffer 真实开关一致，跨 UI 开关不丢。 */
+const debugActive_ACU = ref(false);
 function useDebugPanel() {
     const toast = useToastStore();
-    const active = ref(false);
+    // 模块级共享：关闭/重开数据库 UI 只是组件卸载，采集开关（log-buffer 模块级）
+    // 不受影响；按钮状态必须跟开关一致，否则出现“显示未开启、实际采集中”，
+    // 且再次点开始会 clearLogs 洗掉已采集的日志。
+    const active = debugActive_ACU;
     const entryCount = ref(0);
-    /** Debug 开启时刻：导出时只包含开启后的日志（避免无关历史噪音） */
-    let startedAt = 0;
     let unsubscribe = null;
     const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
     function refreshCount() {
         entryCount.value = getAllLogs().length;
     }
     function startDebug() {
+        // 已在采集中（比如关 UI 前开的）不再清日志：clearLogs 会洗掉已采集的内容。
+        const alreadyCollecting = isDebugLogEnabled();
         setDebugLogEnabled(true);
         setWarnLogEnabled(true);
-        // 清空旧日志，让导出只含本次排查内容
-        clearLogs();
-        startedAt = Date.now();
+        if (!alreadyCollecting) {
+            // 清空旧日志，让导出只含本次排查内容
+            clearLogs();
+            debugStartedAt_ACU = Date.now();
+        }
         active.value = true;
         refreshCount();
         toast.info('Debug 采集已开启：请复现问题，完成后点「导出 Debug 数据」。');
@@ -185307,10 +185316,10 @@ function useDebugPanel() {
         // 增强：停止时自动导出一次，避免用户忘记点导出
         try {
             const allLogs = getAllLogs();
-            const logs = startedAt ? allLogs.filter((e) => e.timestamp >= startedAt) : allLogs;
+            const logs = debugStartedAt_ACU ? allLogs.filter((e) => e.timestamp >= debugStartedAt_ACU) : allLogs;
             if (logs.length > 0) {
                 // 复用导出逻辑但不依赖 active 状态
-                const effectiveStart = startedAt || (allLogs[0]?.timestamp ?? Date.now());
+                const effectiveStart = debugStartedAt_ACU || (allLogs[0]?.timestamp ?? Date.now());
                 const cfg = settings_ACU?.apiConfig || {};
                 const activePreset = (() => {
                     try {
@@ -185443,6 +185452,7 @@ function useDebugPanel() {
         setDebugLogEnabled(false);
         setWarnLogEnabled(false);
         active.value = false;
+        debugStartedAt_ACU = 0;
     }
     function toggleDebug() {
         if (active.value)
@@ -185457,8 +185467,8 @@ function useDebugPanel() {
         }
         const allLogs = getAllLogs();
         // 仅当通过本页 startDebug 启动时才按时间切片；持久化 active 导致 startedAt===0 时不切片，避免空导出
-        const logs = startedAt ? allLogs.filter((e) => e.timestamp >= startedAt) : allLogs;
-        const effectiveStart = startedAt || (allLogs[0]?.timestamp ?? Date.now());
+        const logs = debugStartedAt_ACU ? allLogs.filter((e) => e.timestamp >= debugStartedAt_ACU) : allLogs;
+        const effectiveStart = debugStartedAt_ACU || (allLogs[0]?.timestamp ?? Date.now());
         const cfg = settings_ACU?.apiConfig || {};
         const activePreset = (() => {
             try {
@@ -185573,12 +185583,11 @@ function useDebugPanel() {
         toast.success(`已导出 ${logs.length} 条日志。`);
     }
     onMounted(() => {
-        // 默认关闭：每次进入高级工具均不自动开启，需用户显式点“开始 Debug”。
-        // 只强制关 debug；warn 采集是开发者选项里的持久化开关（dev-options-store 初始化时已应用），
-        // 在这里一并强关会每次进入页面都清掉用户的常开设置。
-        setDebugLogEnabled(false);
-        active.value = false;
-        startedAt = 0;
+        // 进页不自动开启，但也不强关：如有关闭 UI 前开的采集（log-buffer 开关还在），
+        // 按钮必须显示“采集中”，否则用户会以为没开、重按开始把已采日志洗掉。
+        active.value = isDebugLogEnabled();
+        if (!active.value)
+            debugStartedAt_ACU = 0;
         refreshCount();
         unsubscribe = subscribe(() => refreshCount());
     });
