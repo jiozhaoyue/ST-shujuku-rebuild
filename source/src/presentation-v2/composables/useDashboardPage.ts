@@ -48,6 +48,7 @@ import {
 import {
   getAllLogs,
   subscribe,
+  subscribeToClear,
   type LogEntry
 } from "../../shared/log-buffer";
 import {
@@ -703,6 +704,7 @@ export function useDashboardPage(): DashboardPageState {
   const dataRefreshTick = ref(0);
   const logRefreshTick = ref(0);
   let unsubscribeLogs: (() => void) | null = null;
+  let unsubscribeLogsClear: (() => void) | null = null;
   let logRefreshQueued = false;
 
   const sheetKeys = computed(() => {
@@ -941,11 +943,17 @@ export function useDashboardPage(): DashboardPageState {
         });
       }
     });
+    // 清空不产日志条目：健康卡片的「N 个错误」必须跟着清空走，否则会一直显示已清掉的旧计数。
+    unsubscribeLogsClear = subscribeToClear(() => {
+      logRefreshTick.value++;
+    });
   });
 
   onBeforeUnmount(() => {
     unsubscribeLogs?.();
     unsubscribeLogs = null;
+    unsubscribeLogsClear?.();
+    unsubscribeLogsClear = null;
   });
 
   async function refresh(): Promise<void> {

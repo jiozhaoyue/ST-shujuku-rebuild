@@ -1982,6 +1982,8 @@ const _subscribers = new Set();
 const _knownTags = new Set();
 /** 清空留痕：谁在何时清了缓冲区（导出自带，丢日志先查它）。保留最近 20 条。 */
 const _clearHistory = [];
+/** 清空事件订阅者：清空不产日志条目，视图必须靠这条通道刷新，否则会继续显示已清空的旧数组。 */
+const _clearSubscribers = new Set();
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
 /** warn 级别日志是否写入缓冲区（默认关闭，用户显式开启后才采集） */
@@ -2213,6 +2215,14 @@ function clearLogs(caller = 'unknown') {
     _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
     if (_clearHistory.length > 20)
         _clearHistory.splice(0, _clearHistory.length - 20);
+    for (const notify of _clearSubscribers) {
+        try {
+            notify();
+        }
+        catch {
+            // 订阅者回调出错不影响日志系统
+        }
+    }
 }
 /** 取清空留痕（只读快照）。 */
 function getClearHistory_ACU() {
@@ -2232,6 +2242,15 @@ function subscribe(callback) {
     _subscribers.add(callback);
     return () => {
         _subscribers.delete(callback);
+    };
+}
+/**
+ * 订阅「缓冲区被清空」事件。返回取消订阅的函数。
+ */
+function subscribeToClear(callback) {
+    _clearSubscribers.add(callback);
+    return () => {
+        _clearSubscribers.delete(callback);
     };
 }
 /**
@@ -2257,6 +2276,7 @@ function _resetForTesting() {
     _subscribers.clear();
     _knownTags.clear();
     _clearHistory.length = 0;
+    _clearSubscribers.clear();
     _debugLogEnabled = false;
     _warnLogEnabled = false;
 }
@@ -89750,7 +89770,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.3" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.4" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -167900,6 +167920,7 @@ function useDashboardPage() {
     const dataRefreshTick = ref(0);
     const logRefreshTick = ref(0);
     let unsubscribeLogs = null;
+    let unsubscribeLogsClear = null;
     let logRefreshQueued = false;
     const sheetKeys = computed(() => {
         void dataRefreshTick.value;
@@ -168106,10 +168127,16 @@ function useDashboardPage() {
                 });
             }
         });
+        // 清空不产日志条目：健康卡片的「N 个错误」必须跟着清空走，否则会一直显示已清掉的旧计数。
+        unsubscribeLogsClear = subscribeToClear(() => {
+            logRefreshTick.value++;
+        });
     });
     onBeforeUnmount(() => {
         unsubscribeLogs?.();
         unsubscribeLogs = null;
+        unsubscribeLogsClear?.();
+        unsubscribeLogsClear = null;
     });
     async function refresh() {
         refreshDevOptions();
@@ -184983,6 +185010,7 @@ function useLogViewer() {
     const debugLogEnabled = ref(isDebugLogEnabled());
     const message = ref(null);
     let unsubscribe = null;
+    let unsubscribeClear = null;
     let rafId = null;
     const tagOptions = computed(() => [
         { value: 'all', label: '全部模块' },
@@ -185063,10 +185091,17 @@ function useLogViewer() {
             }
             scheduleRefresh();
         });
+        // 清空不产日志条目，必须订阅清空事件：否则页面继续显示已清空的旧数组（收起重开才刷新）。
+        unsubscribeClear = subscribeToClear(() => {
+            pendingEntries.value = [];
+            refresh();
+        });
     });
     onBeforeUnmount(() => {
         unsubscribe?.();
         unsubscribe = null;
+        unsubscribeClear?.();
+        unsubscribeClear = null;
         if (rafId !== null) {
             acuCancelAnimationFrame(rafId);
             rafId = null;
@@ -185225,7 +185260,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.3";
+        const v = "9.4.4";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -185300,6 +185335,7 @@ function useDebugPanel() {
     const active = debugActive_ACU;
     const entryCount = ref(0);
     let unsubscribe = null;
+    let unsubscribeClear = null;
     const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
     function refreshCount() {
         entryCount.value = getAllLogs().length;
@@ -185582,6 +185618,7 @@ function useDebugPanel() {
             lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
             lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
             logCount: logs.length,
+            clearHistory: getClearHistory_ACU(),
             logs: logs.map((e) => ({
                 time: new Date(e.timestamp).toISOString(),
                 level: e.level,
@@ -185602,10 +185639,13 @@ function useDebugPanel() {
             debugStartedAt_ACU = 0;
         refreshCount();
         unsubscribe = subscribe(() => refreshCount());
+        unsubscribeClear = subscribeToClear(() => refreshCount());
     });
     onBeforeUnmount(() => {
         unsubscribe?.();
         unsubscribe = null;
+        unsubscribeClear?.();
+        unsubscribeClear = null;
     });
     return {
         active,

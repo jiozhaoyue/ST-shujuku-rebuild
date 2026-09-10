@@ -15,6 +15,7 @@ import {
   getLogCount,
   isDebugLogEnabled,
   subscribe,
+  subscribeToClear,
 } from '../../shared/log-buffer';
 import { acuCancelAnimationFrame, acuRequestAnimationFrame } from '../bootstrap/host-env';
 import { getAcuHostDocument } from '../bootstrap/host-document';
@@ -63,6 +64,7 @@ export function useLogViewer() {
   const debugLogEnabled = ref(isDebugLogEnabled());
   const message = ref<LogViewerMessage | null>(null);
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeClear: (() => void) | null = null;
   let rafId: number | null = null;
 
   const tagOptions = computed(() => [
@@ -147,11 +149,18 @@ export function useLogViewer() {
       }
       scheduleRefresh();
     });
+    // 清空不产日志条目，必须订阅清空事件：否则页面继续显示已清空的旧数组（收起重开才刷新）。
+    unsubscribeClear = subscribeToClear(() => {
+      pendingEntries.value = [];
+      refresh();
+    });
   });
 
   onBeforeUnmount(() => {
     unsubscribe?.();
     unsubscribe = null;
+    unsubscribeClear?.();
+    unsubscribeClear = null;
     if (rafId !== null) {
       acuCancelAnimationFrame(rafId);
       rafId = null;

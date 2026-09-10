@@ -20,6 +20,7 @@ import {
   getClearHistory_ACU,
   isDebugLogEnabled,
   isWarnLogEnabled,
+  subscribeToClear,
   setDebugLogEnabled,
   setWarnLogEnabled,
   subscribe,
@@ -115,6 +116,7 @@ export function useDebugPanel() {
   const active = debugActive_ACU;
   const entryCount = ref(0);
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeClear: (() => void) | null = null;
 
   const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
 
@@ -349,6 +351,7 @@ export function useDebugPanel() {
       lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
       lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
       logCount: logs.length,
+      clearHistory: getClearHistory_ACU(),
       logs: logs.map((e) => ({
         time: new Date(e.timestamp).toISOString(),
         level: e.level,
@@ -370,10 +373,13 @@ export function useDebugPanel() {
     if (!active.value) debugStartedAt_ACU = 0;
     refreshCount();
     unsubscribe = subscribe(() => refreshCount());
+    unsubscribeClear = subscribeToClear(() => refreshCount());
   });
   onBeforeUnmount(() => {
     unsubscribe?.();
     unsubscribe = null;
+    unsubscribeClear?.();
+    unsubscribeClear = null;
   });
 
   return {

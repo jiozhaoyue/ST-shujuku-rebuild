@@ -62,6 +62,9 @@ const _knownTags: Set<string> = new Set();
 /** 清空留痕：谁在何时清了缓冲区（导出自带，丢日志先查它）。保留最近 20 条。 */
 const _clearHistory: Array<{ at: number; caller: string }> = [];
 
+/** 清空事件订阅者：清空不产日志条目，视图必须靠这条通道刷新，否则会继续显示已清空的旧数组。 */
+const _clearSubscribers: Set<() => void> = new Set();
+
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
 
@@ -293,6 +296,13 @@ export function clearLogs(caller = 'unknown'): void {
   _knownTags.clear();
   _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
   if (_clearHistory.length > 20) _clearHistory.splice(0, _clearHistory.length - 20);
+  for (const notify of _clearSubscribers) {
+    try {
+      notify();
+    } catch {
+      // 订阅者回调出错不影响日志系统
+    }
+  }
 }
 
 /** 取清空留痕（只读快照）。 */
@@ -315,6 +325,16 @@ export function subscribe(callback: LogSubscriber): () => void {
   _subscribers.add(callback);
   return () => {
     _subscribers.delete(callback);
+  };
+}
+
+/**
+ * 订阅「缓冲区被清空」事件。返回取消订阅的函数。
+ */
+export function subscribeToClear(callback: () => void): () => void {
+  _clearSubscribers.add(callback);
+  return () => {
+    _clearSubscribers.delete(callback);
   };
 }
 
@@ -343,6 +363,7 @@ export function _resetForTesting(): void {
   _subscribers.clear();
   _knownTags.clear();
   _clearHistory.length = 0;
+  _clearSubscribers.clear();
   _debugLogEnabled = false;
   _warnLogEnabled = false;
 }

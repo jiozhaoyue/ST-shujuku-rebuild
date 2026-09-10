@@ -19,6 +19,7 @@ import {
   setDebugLogEnabled,
   setWarnLogEnabled,
   isWarnLogEnabled,
+  subscribeToClear,
 } from '../../src/shared/log-buffer';
 
 beforeEach(() => {
@@ -369,5 +370,50 @@ describe('_resetForTesting', () => {
     expect(getKnownTags()).toEqual([]);
     expect(getSubscriberCount()).toBe(0);
     expect(isWarnLogEnabled()).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// subscribeToClear
+// ═══════════════════════════════════════════════════════════════
+describe('subscribeToClear', () => {
+  it('清空时通知订阅者，取消后不再通知', () => {
+    const seen: string[] = [];
+    const off = subscribeToClear(() => seen.push('cleared'));
+    clearLogs('unit');
+    clearLogs('unit2');
+    expect(seen).toEqual(['cleared', 'cleared']);
+    off();
+    clearLogs('unit3');
+    expect(seen).toEqual(['cleared', 'cleared']);
+  });
+
+  it('通知发生在缓冲重置之后，回调读到的计数已是 0', () => {
+    pushLog('error', ['[ACU]', 'x']);
+    let seenCount = -1;
+    const off = subscribeToClear(() => { seenCount = getLogCount(); });
+    clearLogs('unit');
+    off();
+    expect(seenCount).toBe(0);
+  });
+
+  it('订阅者抛错不影响清空本身，也不影响后续订阅者', () => {
+    const seen: string[] = [];
+    const offBad = subscribeToClear(() => { throw new Error('boom'); });
+    const offGood = subscribeToClear(() => seen.push('ok'));
+    pushLog('error', ['[ACU]', 'x']);
+    expect(() => clearLogs('unit')).not.toThrow();
+    expect(getLogCount()).toBe(0);
+    expect(seen).toEqual(['ok']);
+    offBad();
+    offGood();
+  });
+
+  it('_resetForTesting 清掉清空订阅者', () => {
+    const seen: string[] = [];
+    subscribeToClear(() => seen.push('cleared'));
+    _resetForTesting();
+    clearLogs('unit');
+    expect(seen).toEqual([]);
   });
 });
