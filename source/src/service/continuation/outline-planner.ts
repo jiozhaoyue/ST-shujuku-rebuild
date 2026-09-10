@@ -40,6 +40,8 @@ export interface ContinuationOutlinePlanningRequest_ACU {
   /** 跨阶段节奏上下文。缺省按「第一个阶段、无历史连续高压」处理。 */
   pacingContext?: StageOutlinePacingContext_ACU;
   resolvers?: Partial<Record<ContinuationPromptPlaceholder_ACU, () => string | Promise<string | null | undefined> | null | undefined>>;
+  /** 中止信号：透传到内部 AI 调用，使阶段大纲生成（大输出）可被停止中断，而不是只能等它返回。 */
+  signal?: AbortSignal | null;
 }
 
 export interface ContinuationOutlinePlanningResult_ACU {
@@ -279,7 +281,7 @@ export class ContinuationOutlinePlanner_ACU {
       if (!isCurrent(identity)) {
         throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'outline_call', '阶段大纲内部请求已失效', false));
       }
-      const raw = await this.dependencies.callInternalAi(messages, preset, identity, undefined, {
+      const raw = await this.dependencies.callInternalAi(messages, preset, identity, request.signal ?? null, {
         promptCacheEnabled: request.settings.promptCacheEnabled,
         cacheScope: 'outline',
         minOutputTokens: CONTINUATION_ROLE_OUTPUT_TOKEN_FLOORS_ACU.outline,

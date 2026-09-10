@@ -140,6 +140,19 @@ describe('五域搜索', () => {
     expect(result).toContain('去掉 isRegex');
   });
 
+  it('嵌套量词/重复交替等病态正则直接拒绝执行，避免灾难性回溯卡死', () => {
+    for (const query of ['(a+)+b', '(.*)+', '(a|a)+', '(x*)*']) {
+      const result = runAgentSearch_ACU(call_ACU({ query, isRegex: true }), context_ACU());
+      expect(result).toContain('灾难性回溯');
+      expect(result).toContain('已拒绝执行');
+    }
+  });
+
+  it('正常正则不受病态启发式误伤', () => {
+    const result = runAgentSearch_ACU(call_ACU({ query: '晶屑|低语', isRegex: true }), context_ACU());
+    expect(result).not.toContain('灾难性回溯');
+  });
+
   it('无命中时给出可执行的调整建议', () => {
     const result = runAgentSearch_ACU(call_ACU({ query: '不存在的词汇' }), context_ACU());
     expect(result).toContain('没有命中');

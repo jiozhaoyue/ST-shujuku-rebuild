@@ -162,9 +162,11 @@ function normalizeLogArg_ACU(arg: any): string {
   const maybeErrorStack = typeof arg?.stack === 'string' ? arg.stack : '';
   if (arg instanceof Error || maybeErrorMessage || maybeErrorStack) {
     const parts: string[] = [];
-    const header = `${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`;
+    // Error 文本同样过脱敏：网关/上游错误常把请求头（Authorization / x-api-key）或端点
+    // 回显进 message，此前只有对象分支脱敏，Error 分支是明文旁路。
+    const header = maskSensitiveInLogValue(`${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`);
     parts.push(header);
-    if (maybeErrorStack && maybeErrorStack !== header) parts.push(maybeErrorStack);
+    if (maybeErrorStack && maybeErrorStack !== header) parts.push(maskSensitiveInLogValue(maybeErrorStack));
     if (arg?.cause !== undefined) parts.push(`cause=${normalizeLogArg_ACU(arg.cause)}`);
     return parts.join(' | ');
   }

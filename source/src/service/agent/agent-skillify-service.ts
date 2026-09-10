@@ -94,6 +94,8 @@ export interface AgentSkillifyOptions_ACU {
   maxConcurrency?: number;
   maxAiRetries?: number;
   cursor?: AgentSkillifyCursor_ACU;
+  /** 中止信号：透传到 AI 调用，使在途 skill 化请求可被停止中断（此前只读 (options as any).signal，恒 undefined → 中止分支不可达）。 */
+  signal?: AbortSignal | null;
   onProgress?: (event: AgentSkillifyProgressEvent_ACU) => void;
 }
 
@@ -264,7 +266,7 @@ async function skillifySingleEntry_ACU(
     let retryable = true;
     // AI 调用异常只作为该条目的失败原因参与重试，不允许穿透 runWithConcurrency 拖垮整批 skillify。
     try {
-      const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
+      const response = await callAIWithPreset_ACU(messages, presetName, undefined, options?.signal ?? null, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
       if (!response) {
         lastReason = 'AI 未返回内容';
       } else {
@@ -275,7 +277,7 @@ async function skillifySingleEntry_ACU(
     } catch (error) {
       // 与 agent-decision-engine 同约定，Abort 先行：用户「停止」触发的 Abort 直接以
       // aborted 码终止整批，不当成普通失败 break→failed，更不重试。
-      if ((options as any)?.signal?.aborted || (error as any)?.name === 'AbortError') {
+      if (options?.signal?.aborted || (error as any)?.name === 'AbortError') {
         throw new Error(`agent_skillify_entry_aborted:${summary.bookName}:${String(summary.uid)}`);
       }
       lastReason = `AI 调用异常：${error instanceof Error ? error.message : String(error)}`;

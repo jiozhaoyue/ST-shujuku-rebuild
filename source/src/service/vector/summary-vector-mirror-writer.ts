@@ -34,6 +34,7 @@ import type {
     TableStorageFrameV2_ACU,
 } from '../table/storage-frame-v2-types';
 import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { deleteVectorIndexFile_ACU } from '../../data/storage/vector-index-st-files-storage';
 import { normalizeSummaryVectorIndexScope_ACU, toChatIsolationSlotKey_ACU } from '../../shared/summary-vector-index-scope';
 import { buildPreparedRows_ACU, buildRowChunkTexts_ACU, findSummaryTable_ACU } from './summary-vector-index-archive-service';
 import { getEffectiveSummaryVectorIndexConfig_ACU, validateSummaryVectorIndexConfig_ACU } from './vector-memory-config';
@@ -393,12 +394,16 @@ export async function flushSummaryVectorMirrorNow_ACU(options: {
         } catch (error: any) {
             const embeddingError = error instanceof EmbeddingBatchExecutionError_ACU ? (error as any).cause : error;
             const message = error?.message || String(error || 'embedding 失败');
-            const credential = isVectorEmbeddingError_ACU(embeddingError)
-                && (Number((embeddingError as any).httpStatus) === 401 || Number((embeddingError as any).httpStatus) === 403);
+            // 失败分类与归档路径对齐（archive-service）：凭据/请求/协议契约三类错误重试无意义，
+            // 一律 terminal，避免把必然失败的请求烧满重试额度；其余（网络/限流/5xx）保持可重试。
+            const kind = isVectorEmbeddingError_ACU(embeddingError) ? String((embeddingError as any).kind || '') : '';
+            const credential = kind === 'credential'
+                || Number((embeddingError as any).httpStatus) === 401 || Number((embeddingError as any).httpStatus) === 403;
+            const terminal = credential || kind === 'request' || kind === 'provider-contract';
             return emptyResult_ACU({
                 reason: credential ? 'embedding_unauthorized' : 'embedding_failed',
                 errors: [message],
-                retryability: 'retryable',
+                retryability: terminal ? 'terminal' : 'retryable',
                 ...(credential ? {
                     credentialFingerprint: hashUserInput_ACU([
                         String(config.embeddingEndpoint || '').trim(),
@@ -504,6 +509,16 @@ export async function flushSummaryVectorMirrorNow_ACU(options: {
         });
     } catch (error: any) {
         restoreIsolatedData_ACU(snapshots);
+        // 提交失败 → 本次不会再 finalize，prepared pack 永远不会被引用（GC 出于保护 finalize 窗口
+        // 而保留所有 prepared pack），不主动回收就会永久累积。此处显式丢弃并留下可检索告警。
+        if (packPersist?.file?.path) {
+            try {
+                const discarded = await deleteVectorIndexFile_ACU(packPersist.file.path);
+                logWarn_ACU(`[向量镜像] delta 提交失败，已丢弃未引用的 prepared pack：${packPersist.file.path}（删除结果 ${JSON.stringify(discarded)}）`);
+            } catch (cleanupError: any) {
+                logWarn_ACU(`[向量镜像] delta 提交失败，且 prepared pack 清理失败（将由 GC 保留，需人工关注）：${packPersist.file.path}`, cleanupError?.message || cleanupError);
+            }
+        }
         return emptyResult_ACU({
             reason: 'vector_mirror_commit_failed',
             errors: [error?.message || String(error || '镜像 delta 落盘失败')],

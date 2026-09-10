@@ -490,6 +490,8 @@ export class AgentSubagentRuntime_ACU {
       usage: usageTotal,
     });
 
+    // 跨层总预算同上：单次派工内「对话级尝试 × 传输重试」不得无界相乘。
+    const transportBudget = { remaining: Math.max(1, maxCalls + retries) };
     for (let call = 0; call < maxCalls; call += 1) {
       const identity = input.createIdentity(definition.name, attempt);
       attempt += 1;
@@ -511,6 +513,7 @@ export class AgentSubagentRuntime_ACU {
           transportRetries: retries,
           retryDelaySeconds: input.settings.retryDelaySeconds,
           isCurrent: () => input.isCurrent(identity) && !input.signal?.aborted,
+          transportBudget,
         },
       );
       if (!input.isCurrent(identity)) {
@@ -707,6 +710,8 @@ export class AgentSubagentRuntime_ACU {
       },
     };
     const maxCalls = 1 + maxToolRounds + retries + 1;
+    // 跨层总预算同上：单次派工内「对话级尝试 × 传输重试」不得无界相乘。
+    const transportBudget = { remaining: Math.max(1, maxCalls + retries) };
     for (let call = 0; call < maxCalls; call += 1) {
       const identity = input.createIdentity(AGENT_FINAL_REVIEWER_NAME_ACU, attempt);
       attempt += 1;
@@ -719,6 +724,7 @@ export class AgentSubagentRuntime_ACU {
           transportRetries: retries,
           retryDelaySeconds: input.settings.retryDelaySeconds,
           isCurrent: () => input.isCurrent(identity) && !input.signal?.aborted,
+          transportBudget,
         },
       );
       if (!input.isCurrent(identity)) {

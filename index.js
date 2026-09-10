@@ -2083,10 +2083,12 @@ function normalizeLogArg_ACU(arg) {
     const maybeErrorStack = typeof arg?.stack === 'string' ? arg.stack : '';
     if (arg instanceof Error || maybeErrorMessage || maybeErrorStack) {
         const parts = [];
-        const header = `${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`;
+        // Error 文本同样过脱敏：网关/上游错误常把请求头（Authorization / x-api-key）或端点
+        // 回显进 message，此前只有对象分支脱敏，Error 分支是明文旁路。
+        const header = maskSensitiveInLogValue(`${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`);
         parts.push(header);
         if (maybeErrorStack && maybeErrorStack !== header)
-            parts.push(maybeErrorStack);
+            parts.push(maskSensitiveInLogValue(maybeErrorStack));
         if (arg?.cause !== undefined)
             parts.push(`cause=${normalizeLogArg_ACU(arg.cause)}`);
         return parts.join(' | ');
@@ -55350,12 +55352,16 @@ async function flushSummaryVectorMirrorNow_ACU(options = {}) {
         catch (error) {
             const embeddingError = error instanceof EmbeddingBatchExecutionError_ACU ? error.cause : error;
             const message = error?.message || String(error || 'embedding 失败');
-            const credential = isVectorEmbeddingError_ACU(embeddingError)
-                && (Number(embeddingError.httpStatus) === 401 || Number(embeddingError.httpStatus) === 403);
+            // 失败分类与归档路径对齐（archive-service）：凭据/请求/协议契约三类错误重试无意义，
+            // 一律 terminal，避免把必然失败的请求烧满重试额度；其余（网络/限流/5xx）保持可重试。
+            const kind = isVectorEmbeddingError_ACU(embeddingError) ? String(embeddingError.kind || '') : '';
+            const credential = kind === 'credential'
+                || Number(embeddingError.httpStatus) === 401 || Number(embeddingError.httpStatus) === 403;
+            const terminal = credential || kind === 'request' || kind === 'provider-contract';
             return emptyResult_ACU$1({
                 reason: credential ? 'embedding_unauthorized' : 'embedding_failed',
                 errors: [message],
-                retryability: 'retryable',
+                retryability: terminal ? 'terminal' : 'retryable',
                 ...(credential ? {
                     credentialFingerprint: hashUserInput_ACU([
                         String(config.embeddingEndpoint || '').trim(),
@@ -55463,6 +55469,17 @@ async function flushSummaryVectorMirrorNow_ACU(options = {}) {
     }
     catch (error) {
         restoreIsolatedData_ACU(snapshots);
+        // 提交失败 → 本次不会再 finalize，prepared pack 永远不会被引用（GC 出于保护 finalize 窗口
+        // 而保留所有 prepared pack），不主动回收就会永久累积。此处显式丢弃并留下可检索告警。
+        if (packPersist?.file?.path) {
+            try {
+                const discarded = await deleteVectorIndexFile_ACU(packPersist.file.path);
+                logWarn_ACU(`[向量镜像] delta 提交失败，已丢弃未引用的 prepared pack：${packPersist.file.path}（删除结果 ${JSON.stringify(discarded)}）`);
+            }
+            catch (cleanupError) {
+                logWarn_ACU(`[向量镜像] delta 提交失败，且 prepared pack 清理失败（将由 GC 保留，需人工关注）：${packPersist.file.path}`, cleanupError?.message || cleanupError);
+            }
+        }
         return emptyResult_ACU$1({
             reason: 'vector_mirror_commit_failed',
             errors: [error?.message || String(error || '镜像 delta 落盘失败')],
@@ -56017,10 +56034,14 @@ async function rebuildSummaryVectorMirror_ACU(options) {
         }
         catch (error) {
             const embeddingError = error instanceof EmbeddingBatchExecutionError_ACU ? error.cause : error;
-            const credential = isVectorEmbeddingError_ACU(embeddingError)
-                && (Number(embeddingError.httpStatus) === 401 || Number(embeddingError.httpStatus) === 403);
+            // 与归档路径同口径：凭据/请求/协议契约三类错误重试无意义，标 terminal 早停。
+            const kind = isVectorEmbeddingError_ACU(embeddingError) ? String(embeddingError.kind || '') : '';
+            const credential = kind === 'credential'
+                || Number(embeddingError.httpStatus) === 401 || Number(embeddingError.httpStatus) === 403;
+            const terminal = credential || kind === 'request' || kind === 'provider-contract';
             return emptyResult_ACU({
                 reason: credential ? 'embedding_unauthorized' : 'embedding_failed',
+                retryability: terminal ? 'terminal' : 'retryable',
                 errors: [error?.message || String(error || 'embedding 失败')],
             });
         }
@@ -79663,7 +79684,7 @@ async function skillifySingleEntry_ACU(summary, options, control, progressState)
         let retryable = true;
         // AI 调用异常只作为该条目的失败原因参与重试，不允许穿透 runWithConcurrency 拖垮整批 skillify。
         try {
-            const response = await callAIWithPreset_ACU(messages, presetName, undefined, undefined, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
+            const response = await callAIWithPreset_ACU(messages, presetName, undefined, options?.signal ?? null, { needsJsonFormat: true, sessionNamespace: 'agent-skillify' });
             if (!response) {
                 lastReason = 'AI 未返回内容';
             }
@@ -89846,7 +89867,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.8" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.9" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -123517,6 +123538,12 @@ async function callContinuationInternalAiWithRetry_ACU(invoke, options) {
     const retries = Math.max(0, Math.floor(options.transportRetries));
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
+        if (options.transportBudget) {
+            if (options.transportBudget.remaining <= 0) {
+                throw lastError ?? new Error('内部 AI 调用预算已耗尽');
+            }
+            options.transportBudget.remaining -= 1;
+        }
         try {
             return await invoke();
         }
@@ -124461,7 +124488,7 @@ class ContinuationOutlinePlanner_ACU {
             if (!isCurrent(identity)) {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'outline_call', '阶段大纲内部请求已失效', false));
             }
-            const raw = await this.dependencies.callInternalAi(messages, preset, identity, undefined, {
+            const raw = await this.dependencies.callInternalAi(messages, preset, identity, request.signal ?? null, {
                 promptCacheEnabled: request.settings.promptCacheEnabled,
                 cacheScope: 'outline',
                 minOutputTokens: CONTINUATION_ROLE_OUTPUT_TOKEN_FLOORS_ACU.outline,
@@ -127241,6 +127268,8 @@ class ContinuationOrchestrator_ACU {
             resolvers: this.dependencies.createOutlineResolvers(context),
             createInternalRequestIdentity: attempt => ({ source: 'outline', requestId: this.dependencies.allocateId('outline-request'), chatIdentity, taskId: context.task.taskId, stageId, revision, attemptId: `outline-${attempt}` }),
             isInternalRequestCurrent: identity => this.isLeaseCurrent_ACU(chatIdentity, lease) && identity.chatIdentity === chatIdentity && identity.taskId === context.task.taskId && identity.stageId === stageId && identity.revision === revision,
+            // 停止/租约失效会 abort 本聊天的控制器：把信号透传给大纲生成，使其可被中断。
+            signal: abortControllersByChat_ACU.get(chatIdentity)?.signal ?? null,
         });
     }
     /**
@@ -130756,6 +130785,22 @@ const SEARCH_TOTAL_CHAR_BUDGET_ACU = 20000;
 const SEARCH_HIT_OVERHEAD_ACU = 60;
 /** isRegex 模式的正则长度上限：模型产出的超长模式几乎必然是错误或病态回溯，直接拒绝并要求修正。 */
 const SEARCH_REGEX_MAX_LENGTH_ACU = 300;
+/** 正则搜索的总时间护栏（毫秒）：跨行累计超时即停止收集，避免病态模式长占主线程。 */
+const SEARCH_REGEX_TIME_BUDGET_MS_ACU = 1500;
+/**
+ * 灾难性回溯风险启发式。长度上限拦不住 `(a+)+b` 这类短而病态的模式，而 exec 在主线程同步执行，
+ * 一旦回溯爆炸会把界面卡死到用户无法操作（正则由模型产出，可被卡片正文提示注入诱导）。
+ * 保守判定：命中即拒绝执行并给出改写提示——宁可让模型换个写法，也不赌单次 exec 的耗时。
+ */
+function hasReDoSRisk_ACU(pattern) {
+    // 嵌套量词：组内已含量词，整组又被量词修饰，如 (a+)+ / (.*)+ / (ab*)*
+    if (/\([^()]*[+*]\)\s*(?:[+*]|\{\d+,\s*\})/.test(pattern))
+        return true;
+    // 相同分支的交替被量化，如 (a|a)+ / (|x)+
+    if (/\(([^()|]*)\|\1\)\s*(?:[+*]|\{\d+,\s*\})/.test(pattern))
+        return true;
+    return false;
+}
 /** 匹配词居中开窗截断单行，沿用奶龙code createMatchLineSnippet 的思路。 */
 function createAgentMatchSnippet_ACU(line, matchStart, matchLength, limit = SEARCH_LINE_SNIPPET_LIMIT_ACU) {
     if (line.length <= limit)
@@ -130936,6 +130981,10 @@ function runAgentSearch_ACU(call, context) {
     if (call.isRegex && call.query.length > SEARCH_REGEX_MAX_LENGTH_ACU) {
         return `搜索正则过长（${call.query.length} > ${SEARCH_REGEX_MAX_LENGTH_ACU} 字符），已拒绝执行。请精简正则，或拆分为多次搜索。`;
     }
+    if (call.isRegex && hasReDoSRisk_ACU(call.query)) {
+        return `搜索正则「${call.query}」含嵌套量词或重复交替，可能触发灾难性回溯并卡死界面，已拒绝执行。`
+            + `请改写为不含嵌套量词的形式（例如用 [ab]* 代替 (a|b)*），或去掉 isRegex 按字面关键词搜索。`;
+    }
     let regex;
     try {
         regex = call.isRegex ? new RegExp(call.query, 'i') : new RegExp(escapeRegExp_ACU(call.query), 'i');
@@ -130946,11 +130995,19 @@ function runAgentSearch_ACU(call, context) {
     const hits = [];
     let budget = SEARCH_TOTAL_CHAR_BUDGET_ACU;
     let truncated = false;
+    // 时间护栏：启发式拒绝不了的模式仍可能单行慢，跨行累计超预算即收手。
+    const startedAtMs = Date.now();
+    let timedOut = false;
     for (const scope of call.scope) {
         if (truncated)
             break;
         for (const line of SCOPE_COLLECTORS_ACU[scope](context)) {
             if (hits.length >= call.maxResults || budget <= 0) {
+                truncated = true;
+                break;
+            }
+            if (Date.now() - startedAtMs > SEARCH_REGEX_TIME_BUDGET_MS_ACU) {
+                timedOut = true;
                 truncated = true;
                 break;
             }
@@ -130973,7 +131030,7 @@ function runAgentSearch_ACU(call, context) {
     }
     const lines = hits.map(hit => `- [${SCOPE_LABELS_ACU[hit.scope]}] ${hit.label}：${hit.snippet}｜读取地址 ${hit.address}`);
     const tail = truncated
-        ? `\n（结果已截断：达到条数上限 ${call.maxResults} 或总量预算。请用更精确的关键词缩小范围，或分域搜索。）`
+        ? `\n（结果已截断：${timedOut ? `正则搜索超过 ${SEARCH_REGEX_TIME_BUDGET_MS_ACU}ms 时间预算，已停止收集` : `达到条数上限 ${call.maxResults} 或总量预算`}。请用更精确的关键词缩小范围，或分域搜索。）`
         : '';
     return `搜索「${call.query}」命中 ${hits.length} 处（域：${scopeText}）。命中行右侧附读取地址，可直接复制进 read：\n${lines.join('\n')}${tail}`;
 }
@@ -131834,6 +131891,8 @@ class AgentSubagentRuntime_ACU {
             readRevisions,
             usage: usageTotal,
         });
+        // 跨层总预算同上：单次派工内「对话级尝试 × 传输重试」不得无界相乘。
+        const transportBudget = { remaining: Math.max(1, maxCalls + retries) };
         for (let call = 0; call < maxCalls; call += 1) {
             const identity = input.createIdentity(definition.name, attempt);
             attempt += 1;
@@ -131847,6 +131906,7 @@ class AgentSubagentRuntime_ACU {
                 transportRetries: retries,
                 retryDelaySeconds: input.settings.retryDelaySeconds,
                 isCurrent: () => input.isCurrent(identity) && !input.signal?.aborted,
+                transportBudget,
             });
             if (!input.isCurrent(identity)) {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '子代理结果已失效', false));
@@ -132041,6 +132101,8 @@ class AgentSubagentRuntime_ACU {
             },
         };
         const maxCalls = 1 + maxToolRounds + retries + 1;
+        // 跨层总预算同上：单次派工内「对话级尝试 × 传输重试」不得无界相乘。
+        const transportBudget = { remaining: Math.max(1, maxCalls + retries) };
         for (let call = 0; call < maxCalls; call += 1) {
             const identity = input.createIdentity(AGENT_FINAL_REVIEWER_NAME_ACU, attempt);
             attempt += 1;
@@ -132051,6 +132113,7 @@ class AgentSubagentRuntime_ACU {
                 transportRetries: retries,
                 retryDelaySeconds: input.settings.retryDelaySeconds,
                 isCurrent: () => input.isCurrent(identity) && !input.signal?.aborted,
+                transportBudget,
             });
             if (!input.isCurrent(identity)) {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '终审结果已失效', false));
@@ -133129,6 +133192,10 @@ class ContinuationAgentTurnPlanner_ACU {
             needsJsonFormat: true,
             onUsage: usage => { callUsage = usage; },
         };
+        // 跨层总调用预算：外层对话级尝试 × 内层传输重试原本是乘积（默认 3 → 最多 16 次请求），
+        // 把「重试次数」当上限的用户会得到远超预期的调用量。这里给整轮主循环一个总预算
+        // （基础尝试各一次 + 全局传输重试 retries 次），耗尽即停，不再新增请求。
+        const transportBudget = { remaining: Math.max(1, (retries + 1) + retries) };
         for (let attempt = 0; attempt <= retries; attempt += 1) {
             const base = request.createInternalRequestIdentity(attempt);
             const identity = { ...base, source: 'agent_main' };
@@ -133153,6 +133220,7 @@ class ContinuationAgentTurnPlanner_ACU {
                 transportRetries: retries,
                 retryDelaySeconds: request.settings.retryDelaySeconds,
                 isCurrent: () => request.isInternalRequestCurrent(base) && !request.signal?.aborted,
+                transportBudget,
             });
             if (!request.isInternalRequestCurrent(base)) {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '主 Agent 结果已失效', false));
@@ -185393,7 +185461,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.8";
+        const v = "9.4.9";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {

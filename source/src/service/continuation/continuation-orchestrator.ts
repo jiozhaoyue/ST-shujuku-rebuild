@@ -1123,6 +1123,8 @@ export class ContinuationOrchestrator_ACU {
       resolvers: this.dependencies.createOutlineResolvers(context),
       createInternalRequestIdentity: attempt => ({ source: 'outline', requestId: this.dependencies.allocateId('outline-request'), chatIdentity, taskId: context.task.taskId, stageId, revision, attemptId: `outline-${attempt}` }),
       isInternalRequestCurrent: identity => this.isLeaseCurrent_ACU(chatIdentity, lease) && identity.chatIdentity === chatIdentity && identity.taskId === context.task.taskId && identity.stageId === stageId && identity.revision === revision,
+      // 停止/租约失效会 abort 本聊天的控制器：把信号透传给大纲生成，使其可被中断。
+      signal: abortControllersByChat_ACU.get(chatIdentity)?.signal ?? null,
     });
   }
 

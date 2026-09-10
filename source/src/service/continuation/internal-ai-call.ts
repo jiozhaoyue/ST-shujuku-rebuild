@@ -167,6 +167,12 @@ export interface ContinuationInternalAiRetryOptions_ACU {
   wait?: (ms: number) => Promise<void>;
   /** 等待结束后的存活检查：返回 false 表示任务已被停止/换轮，立即抛出原错误不再重试。 */
   isCurrent?: () => boolean;
+  /**
+   * 跨层总调用预算（可选，调用方共享同一个对象）：外层对话级尝试 × 内层传输重试是乘积关系，
+   * 光按 retries 命名会让「重试上限」名不副实（默认 3 → 单轮最多 16 次请求）。
+   * 预算耗尽即抛最后一次错误，不再发起新请求。
+   */
+  transportBudget?: { remaining: number };
 }
 
 function defaultWait_ACU(ms: number): Promise<void> {
@@ -204,6 +210,12 @@ export async function callContinuationInternalAiWithRetry_ACU<T>(
   const retries = Math.max(0, Math.floor(options.transportRetries));
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (options.transportBudget) {
+      if (options.transportBudget.remaining <= 0) {
+        throw lastError ?? new Error('内部 AI 调用预算已耗尽');
+      }
+      options.transportBudget.remaining -= 1;
+    }
     try {
       return await invoke();
     } catch (error) {

@@ -64,6 +64,8 @@ export interface SummaryVectorMirrorRebuildResult_ACU {
     skippedRowCount: number;
     chunkCount: number;
     reason?: string;
+    /** 失败可重试性（与归档路径同口径）：凭据/请求/协议契约类错误为 terminal，重试无意义。 */
+    retryability?: 'retryable' | 'terminal';
     errors: string[];
 }
 
@@ -493,10 +495,14 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
             embedding.dimension = embeddings[0].length;
         } catch (error: any) {
             const embeddingError = error instanceof EmbeddingBatchExecutionError_ACU ? (error as any).cause : error;
-            const credential = isVectorEmbeddingError_ACU(embeddingError)
-                && (Number((embeddingError as any).httpStatus) === 401 || Number((embeddingError as any).httpStatus) === 403);
+            // 与归档路径同口径：凭据/请求/协议契约三类错误重试无意义，标 terminal 早停。
+            const kind = isVectorEmbeddingError_ACU(embeddingError) ? String((embeddingError as any).kind || '') : '';
+            const credential = kind === 'credential'
+                || Number((embeddingError as any).httpStatus) === 401 || Number((embeddingError as any).httpStatus) === 403;
+            const terminal = credential || kind === 'request' || kind === 'provider-contract';
             return emptyResult_ACU({
                 reason: credential ? 'embedding_unauthorized' : 'embedding_failed',
+                retryability: terminal ? 'terminal' : 'retryable',
                 errors: [error?.message || String(error || 'embedding 失败')],
             });
         }
