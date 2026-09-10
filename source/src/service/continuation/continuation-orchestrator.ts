@@ -43,7 +43,7 @@ export interface ContinuationHostTurnActionResult_ACU extends ContinuationOrches
 }
 export interface RecordHostTurnInput_ACU { identity: TurnAttemptIdentity_ACU; capture: ContinuationHostGenerationCapture_ACU; }
 export interface RejectHostTurnInput_ACU { identity: TurnAttemptIdentity_ACU; messageIndex: number; }
-export interface ContinuationPendingHostTurnSnapshot_ACU { settings: ContinuationEnvelope_ACU['settings']; pending: NonNullable<ContinuationTask_ACU['pendingHostTurn']>; }
+export interface ContinuationPendingHostTurnSnapshot_ACU { settings: ContinuationEnvelope_ACU['settings']; pending: NonNullable<ContinuationTask_ACU['pendingHostTurn']>; /** 任务是否已被停止/失败：自动重试据此拒绝复活。 */ taskStopped: boolean; }
 
 export interface ContinuationOrchestratorDependencies_ACU {
   store: FirstFloorContinuationStore_ACU;
@@ -506,7 +506,10 @@ export class ContinuationOrchestrator_ACU {
     const task = envelope?.activeTask;
     if (!envelope || !task || !task.pendingHostTurn || task.pendingHostTurn.status === 'exhausted') return null;
     if (task.pendingHostTurn.identity.chatIdentity !== this.dependencies.getChatIdentity()) return null;
-    return { settings: envelope.settings, pending: task.pendingHostTurn };
+    // 任务被用户停止（或已带错误暂停）时，retry_ready 的待重试轮不得被自动重试复活：
+    // 桥的自动重试只认 pending.status，若不带上这个位，用户在重试等待窗内点停止会被静默撤销。
+    const taskStopped = task.stopReason !== null || task.status === 'failed';
+    return { settings: envelope.settings, pending: task.pendingHostTurn, taskStopped };
   }
 
   async pauseForHostResultFailure(identity: TurnAttemptIdentity_ACU): Promise<ContinuationOrchestratorResult_ACU> {
@@ -1120,6 +1123,8 @@ export class ContinuationOrchestrator_ACU {
       resolvers: this.dependencies.createOutlineResolvers(context),
       createInternalRequestIdentity: attempt => ({ source: 'outline', requestId: this.dependencies.allocateId('outline-request'), chatIdentity, taskId: context.task.taskId, stageId, revision, attemptId: `outline-${attempt}` }),
       isInternalRequestCurrent: identity => this.isLeaseCurrent_ACU(chatIdentity, lease) && identity.chatIdentity === chatIdentity && identity.taskId === context.task.taskId && identity.stageId === stageId && identity.revision === revision,
+      // 停止/租约失效会 abort 本聊天的控制器：把信号透传给大纲生成，使其可被中断。
+      signal: abortControllersByChat_ACU.get(chatIdentity)?.signal ?? null,
     });
   }
 

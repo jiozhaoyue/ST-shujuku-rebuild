@@ -401,23 +401,23 @@ export function buildCustomApiRequestBody_ACU(
       ? effectiveApiConfig.streamingEnabled === true
       : settings_ACU.streamingEnabled === true,
     chat_completion_source: 'custom',
-    // 接口协议（预设级）：对齐 TT 四「自定义」选项（custom_api_format 契约）。
+    // 接口协议（预设级）：对齐 TT「自定义」选项（custom_api_format 契约，TT 现有五档）。
     // TT 后端按该值分流上游端点与请求/响应变形：openai_compat→/chat/completions、
     // openai_responses→/responses、claude_messages→/messages、gemini_interactions→/interactions；
     // 非流式响应由 TT 归一化为 OpenAI 形态，流式 Claude 为原样 Anthropic SSE（解析见 prompt-api-call）。
     // 白名单兜底：调用点可能传未归一化的 config，非法值回退 openai_compat。
-    custom_api_format: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'] as const).includes(effectiveApiConfig.customApiFormat as any)
+    custom_api_format: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'] as const).includes(effectiveApiConfig.customApiFormat as any)
       ? effectiveApiConfig.customApiFormat
       : 'openai_compat',
     group_names: [],
     include_reasoning: false,
-    // 思考强度（预设级优先）：low/medium/high/xhigh/max 原样透传；'false' 传布尔 false 关闭思考；
+    // 思考强度（预设级优先）：minimal/low/medium/high/xhigh/max/ultra 原样透传；'false' 传布尔 false 关闭思考；
     // 'auto' 则省略该参数由服务端自定；非法值回退 medium
     ...(((): Record<string, unknown> => {
       const raw = String(effectiveApiConfig.reasoningEffort || settings_ACU.reasoningEffort || 'medium').trim().toLowerCase();
       if (raw === 'auto') return {};
       if (raw === 'false') return { reasoning_effort: false };
-      return { reasoning_effort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(raw) ? raw : 'medium' };
+      return { reasoning_effort: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(raw) ? raw : 'medium' };
     })()),
     enable_web_search: false,
     request_images: false,

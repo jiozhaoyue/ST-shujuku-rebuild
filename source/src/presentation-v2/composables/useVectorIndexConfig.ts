@@ -52,12 +52,8 @@ import {
 
 type MessageKind = 'info' | 'success' | 'warning' | 'error';
 type BadgeVariant = 'neutral' | 'accent' | 'success' | 'warning' | 'danger';
-type VectorMemoryConfigWithSummaryConcurrency = VectorMemoryConfig_ACU & {
-  summaryIndexArchiveMaxConcurrency?: number;
-};
-
-function getDefaultVectorMemoryConfigForV2(): VectorMemoryConfigWithSummaryConcurrency {
-  return defaultVectorMemoryConfig_ACU as VectorMemoryConfigWithSummaryConcurrency;
+function getDefaultVectorMemoryConfigForV2(): VectorMemoryConfig_ACU {
+  return defaultVectorMemoryConfig_ACU as VectorMemoryConfig_ACU;
 }
 
 function getDefaultRecentFixedInjectCount(): number {
@@ -93,7 +89,10 @@ export interface VectorIndexForm {
   vectorNamespace: string;
   // 归档分块
   summaryChunkSentenceCount: number;
+  summaryIndexChunkChronicleBySentence: boolean;
   summaryIndexArchiveMaxConcurrency: number;
+  summaryIndexArchiveMaxInputChars: number;
+  summaryIndexArchiveEmbeddingConcurrency: number;
   summaryIndexRollingDeltaEnabled: boolean;
   summaryIndexRollingDeltaFoldThreshold: number;
   summaryIndexV2WriteEnabled: boolean;
@@ -101,6 +100,7 @@ export interface VectorIndexForm {
   summaryIndexContentPackWriteEnabled: boolean;
   summaryIndexContentPackWriteScopeAllowlistText: string;
   // 关键词生成
+  keywordGenerationEnabled: boolean;
   keywordApiPreset: string;
   keywordContextPairCount: number;
   keywordGenerationMaxAttempts: number;
@@ -158,7 +158,10 @@ function createEmptyForm(): VectorIndexForm {
     recentFixedInjectCount: defaults.recentFixedInjectCount,
     vectorNamespace: defaults.vectorNamespace || 'chat',
     summaryChunkSentenceCount: defaults.summaryChunkSentenceCount,
+    summaryIndexChunkChronicleBySentence: (defaults as any).summaryIndexChunkChronicleBySentence === true,
     summaryIndexArchiveMaxConcurrency: defaults.summaryIndexArchiveMaxConcurrency ?? 30,
+    summaryIndexArchiveMaxInputChars: defaults.summaryIndexArchiveMaxInputChars ?? 24000,
+    summaryIndexArchiveEmbeddingConcurrency: defaults.summaryIndexArchiveEmbeddingConcurrency ?? 3,
     summaryIndexRollingDeltaEnabled: defaults.summaryIndexRollingDeltaEnabled === true,
     summaryIndexRollingDeltaFoldThreshold: defaults.summaryIndexRollingDeltaFoldThreshold,
     summaryIndexV2WriteEnabled: defaults.summaryIndexV2WriteEnabled === true,
@@ -166,6 +169,7 @@ function createEmptyForm(): VectorIndexForm {
     summaryIndexContentPackWriteEnabled: defaults.summaryIndexContentPackWriteEnabled === true,
     summaryIndexContentPackWriteScopeAllowlistText: Array.isArray(defaults.summaryIndexContentPackWriteScopeAllowlist) ? defaults.summaryIndexContentPackWriteScopeAllowlist.join('\n') : '',
     keywordApiPreset: defaults.keywordApiPreset || '',
+    keywordGenerationEnabled: (defaults as any).keywordGenerationEnabled === true,
     keywordContextPairCount: defaults.keywordContextPairCount,
     keywordGenerationMaxAttempts: defaults.keywordGenerationMaxAttempts,
   };
@@ -242,7 +246,7 @@ export function useVectorIndexConfig() {
   }
 
   function readFromConfig(): void {
-    const config = getCurrentVectorMemoryConfig_ACU() as VectorMemoryConfigWithSummaryConcurrency;
+    const config = getCurrentVectorMemoryConfig_ACU();
     form.embeddingEndpoint = config.embeddingEndpoint || '';
     form.embeddingModel = config.embeddingModel || '';
     form.embeddingApiKey = config.embeddingApiKey || '';
@@ -256,7 +260,10 @@ export function useVectorIndexConfig() {
     form.recentFixedInjectCount = config.recentFixedInjectCount;
     form.vectorNamespace = config.vectorNamespace || 'chat';
     form.summaryChunkSentenceCount = config.summaryChunkSentenceCount;
+    form.summaryIndexChunkChronicleBySentence = config.summaryIndexChunkChronicleBySentence === true;
     form.summaryIndexArchiveMaxConcurrency = config.summaryIndexArchiveMaxConcurrency;
+    form.summaryIndexArchiveMaxInputChars = config.summaryIndexArchiveMaxInputChars;
+    form.summaryIndexArchiveEmbeddingConcurrency = config.summaryIndexArchiveEmbeddingConcurrency;
     form.summaryIndexRollingDeltaEnabled = config.summaryIndexRollingDeltaEnabled === true;
     form.summaryIndexRollingDeltaFoldThreshold = config.summaryIndexRollingDeltaFoldThreshold;
     form.summaryIndexV2WriteEnabled = config.summaryIndexV2WriteEnabled === true;
@@ -264,6 +271,7 @@ export function useVectorIndexConfig() {
     form.summaryIndexContentPackWriteEnabled = config.summaryIndexContentPackWriteEnabled === true;
     form.summaryIndexContentPackWriteScopeAllowlistText = Array.isArray(config.summaryIndexContentPackWriteScopeAllowlist) ? config.summaryIndexContentPackWriteScopeAllowlist.join('\n') : '';
     form.keywordApiPreset = config.keywordApiPreset || '';
+    form.keywordGenerationEnabled = config.keywordGenerationEnabled === true;
     form.keywordContextPairCount = config.keywordContextPairCount;
     form.keywordGenerationMaxAttempts = config.keywordGenerationMaxAttempts;
     promptSegments.value = cloneSegments(config.keywordPromptGroup);
@@ -303,7 +311,8 @@ export function useVectorIndexConfig() {
   function setNumberField<
     K extends 'summaryIndexKeywordMinRows' | 'topK' | 'recallCandidateLimit'
       | 'recentFixedInjectCount' | 'summaryChunkSentenceCount'
-      | 'summaryIndexArchiveMaxConcurrency' | 'keywordContextPairCount'
+      | 'summaryIndexArchiveMaxConcurrency' | 'summaryIndexArchiveMaxInputChars'
+      | 'summaryIndexArchiveEmbeddingConcurrency' | 'keywordContextPairCount'
       | 'keywordGenerationMaxAttempts'
       | 'summaryIndexRollingDeltaFoldThreshold',
   >(key: K, raw: number | string): void {
@@ -358,7 +367,8 @@ export function useVectorIndexConfig() {
   }
 
   function setBooleanField<
-    K extends 'summaryIndexRollingDeltaEnabled' | 'summaryIndexV2WriteEnabled' | 'summaryIndexContentPackWriteEnabled',
+    K extends 'summaryIndexRollingDeltaEnabled' | 'summaryIndexV2WriteEnabled' | 'summaryIndexContentPackWriteEnabled'
+      | 'keywordGenerationEnabled' | 'summaryIndexChunkChronicleBySentence',
   >(key: K, value: boolean): void {
     const next = value === true;
     (form as any)[key] = next;

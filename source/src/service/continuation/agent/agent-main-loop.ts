@@ -952,6 +952,10 @@ export class ContinuationAgentTurnPlanner_ACU {
       onUsage: usage => { callUsage = usage; },
     };
 
+    // 跨层总调用预算：外层对话级尝试 × 内层传输重试原本是乘积（默认 3 → 最多 16 次请求），
+    // 把「重试次数」当上限的用户会得到远超预期的调用量。这里给整轮主循环一个总预算
+    // （基础尝试各一次 + 全局传输重试 retries 次），耗尽即停，不再新增请求。
+    const transportBudget = { remaining: Math.max(1, (retries + 1) + retries) };
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const base = request.createInternalRequestIdentity(attempt);
       const identity: ContinuationInternalAiRequestIdentity_ACU = { ...base, source: 'agent_main' };
@@ -978,6 +982,7 @@ export class ContinuationAgentTurnPlanner_ACU {
           transportRetries: retries,
           retryDelaySeconds: request.settings.retryDelaySeconds,
           isCurrent: () => request.isInternalRequestCurrent(base) && !request.signal?.aborted,
+          transportBudget,
         },
       );
       if (!request.isInternalRequestCurrent(base)) {

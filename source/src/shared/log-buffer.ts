@@ -50,6 +50,13 @@ let _writeIndex = 0;
 /** 当前缓冲区中的有效条数 */
 let _count = 0;
 
+/**
+ * 各级别条数增量计数。调用方（如 Dashboard 健康卡）每次只要计数，不该为此整表拷贝：
+ * 缓冲区上限 5 万条，日志持续写入时逐条 O(n) 扫描是卡顿主因之一。
+ * 环形覆盖写命中旧条目时，先从旧条目对应级别减一（见 pushLog）。
+ */
+const _countsByLevel: Record<string, number> = {};
+
 /** 自增 ID 计数器 */
 let _nextId = 1;
 
@@ -58,6 +65,12 @@ const _subscribers: Set<LogSubscriber> = new Set();
 
 /** 已出现过的所有标签（供 UI 过滤器使用） */
 const _knownTags: Set<string> = new Set();
+
+/** 清空留痕：谁在何时清了缓冲区（导出自带，丢日志先查它）。保留最近 20 条。 */
+const _clearHistory: Array<{ at: number; caller: string }> = [];
+
+/** 清空事件订阅者：清空不产日志条目，视图必须靠这条通道刷新，否则会继续显示已清空的旧数组。 */
+const _clearSubscribers: Set<() => void> = new Set();
 
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
@@ -156,9 +169,11 @@ function normalizeLogArg_ACU(arg: any): string {
   const maybeErrorStack = typeof arg?.stack === 'string' ? arg.stack : '';
   if (arg instanceof Error || maybeErrorMessage || maybeErrorStack) {
     const parts: string[] = [];
-    const header = `${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`;
+    // Error 文本同样过脱敏：网关/上游错误常把请求头（Authorization / x-api-key）或端点
+    // 回显进 message，此前只有对象分支脱敏，Error 分支是明文旁路。
+    const header = maskSensitiveInLogValue(`${maybeErrorName || 'Error'}${maybeErrorMessage ? `: ${maybeErrorMessage}` : ''}`);
     parts.push(header);
-    if (maybeErrorStack && maybeErrorStack !== header) parts.push(maybeErrorStack);
+    if (maybeErrorStack && maybeErrorStack !== header) parts.push(maskSensitiveInLogValue(maybeErrorStack));
     if (arg?.cause !== undefined) parts.push(`cause=${normalizeLogArg_ACU(arg.cause)}`);
     return parts.join(' | ');
   }
@@ -245,6 +260,9 @@ export function pushLog(level: LogLevel, args: any[]): void {
   };
 
   // 环形缓冲区：固定容量覆盖写，O(1) 无数组拷贝
+  const overwritten = _buffer[_writeIndex];
+  if (overwritten) _countsByLevel[overwritten.level] = Math.max(0, (_countsByLevel[overwritten.level] || 0) - 1);
+  _countsByLevel[level] = (_countsByLevel[level] || 0) + 1;
   _buffer[_writeIndex] = entry;
   _writeIndex = (_writeIndex + 1) % MAX_BUFFER_SIZE;
   if (_count < MAX_BUFFER_SIZE) _count++;
@@ -280,14 +298,47 @@ export function getLogCount(): number {
   return _count;
 }
 
+/** 各级别条数（O(1) 读，增量维护）。 */
+export function getLogCountsByLevel_ACU(): Record<string, number> {
+  return { ..._countsByLevel };
+}
+
+/** 最近 limit 条日志（只读尾部，不整表拷贝）。 */
+export function getRecentLogs_ACU(limit: number): LogEntry[] {
+  const take = Math.max(0, Math.min(Math.floor(Number(limit) || 0), _count));
+  if (take === 0) return [];
+  const result: LogEntry[] = [];
+  for (let offset = take; offset >= 1; offset -= 1) {
+    const index = (_writeIndex - offset + MAX_BUFFER_SIZE * 2) % MAX_BUFFER_SIZE;
+    const entry = _buffer[index];
+    if (entry) result.push(entry);
+  }
+  return result;
+}
+
 /**
- * 清空缓冲区
+ * 清空缓冲区（调用方必须传 caller 留痕，导出自带清空记录）。
  */
-export function clearLogs(): void {
+export function clearLogs(caller = 'unknown'): void {
   _buffer = new Array(MAX_BUFFER_SIZE);
   _writeIndex = 0;
   _count = 0;
+  for (const key of Object.keys(_countsByLevel)) delete _countsByLevel[key];
   _knownTags.clear();
+  _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
+  if (_clearHistory.length > 20) _clearHistory.splice(0, _clearHistory.length - 20);
+  for (const notify of _clearSubscribers) {
+    try {
+      notify();
+    } catch {
+      // 订阅者回调出错不影响日志系统
+    }
+  }
+}
+
+/** 取清空留痕（只读快照）。 */
+export function getClearHistory_ACU(): Array<{ at: string; caller: string }> {
+  return _clearHistory.map(item => ({ at: new Date(item.at).toISOString(), caller: item.caller }));
 }
 
 /**
@@ -305,6 +356,16 @@ export function subscribe(callback: LogSubscriber): () => void {
   _subscribers.add(callback);
   return () => {
     _subscribers.delete(callback);
+  };
+}
+
+/**
+ * 订阅「缓冲区被清空」事件。返回取消订阅的函数。
+ */
+export function subscribeToClear(callback: () => void): () => void {
+  _clearSubscribers.add(callback);
+  return () => {
+    _clearSubscribers.delete(callback);
   };
 }
 
@@ -332,6 +393,9 @@ export function _resetForTesting(): void {
   _nextId = 1;
   _subscribers.clear();
   _knownTags.clear();
+  for (const key of Object.keys(_countsByLevel)) delete _countsByLevel[key];
+  _clearHistory.length = 0;
+  _clearSubscribers.clear();
   _debugLogEnabled = false;
   _warnLogEnabled = false;
 }

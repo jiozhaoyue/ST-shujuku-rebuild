@@ -29,6 +29,21 @@ const SEARCH_TOTAL_CHAR_BUDGET_ACU = 20000;
 const SEARCH_HIT_OVERHEAD_ACU = 60;
 /** isRegex 模式的正则长度上限：模型产出的超长模式几乎必然是错误或病态回溯，直接拒绝并要求修正。 */
 const SEARCH_REGEX_MAX_LENGTH_ACU = 300;
+/** 正则搜索的总时间护栏（毫秒）：跨行累计超时即停止收集，避免病态模式长占主线程。 */
+const SEARCH_REGEX_TIME_BUDGET_MS_ACU = 1500;
+
+/**
+ * 灾难性回溯风险启发式。长度上限拦不住 `(a+)+b` 这类短而病态的模式，而 exec 在主线程同步执行，
+ * 一旦回溯爆炸会把界面卡死到用户无法操作（正则由模型产出，可被卡片正文提示注入诱导）。
+ * 保守判定：命中即拒绝执行并给出改写提示——宁可让模型换个写法，也不赌单次 exec 的耗时。
+ */
+function hasReDoSRisk_ACU(pattern: string): boolean {
+  // 嵌套量词：组内已含量词，整组又被量词修饰，如 (a+)+ / (.*)+ / (ab*)*
+  if (/\([^()]*[+*]\)\s*(?:[+*]|\{\d+,\s*\})/.test(pattern)) return true;
+  // 相同分支的交替被量化，如 (a|a)+ / (|x)+
+  if (/\(([^()|]*)\|\1\)\s*(?:[+*]|\{\d+,\s*\})/.test(pattern)) return true;
+  return false;
+}
 
 interface AgentSearchLine_ACU {
   /** 人类可读位置，如「楼层12 第3行」「角色表 第5行」。 */
@@ -227,6 +242,10 @@ export function runAgentSearch_ACU(call: AgentSearchCall_ACU, context: AgentReso
   if (call.isRegex && call.query.length > SEARCH_REGEX_MAX_LENGTH_ACU) {
     return `搜索正则过长（${call.query.length} > ${SEARCH_REGEX_MAX_LENGTH_ACU} 字符），已拒绝执行。请精简正则，或拆分为多次搜索。`;
   }
+  if (call.isRegex && hasReDoSRisk_ACU(call.query)) {
+    return `搜索正则「${call.query}」含嵌套量词或重复交替，可能触发灾难性回溯并卡死界面，已拒绝执行。`
+      + `请改写为不含嵌套量词的形式（例如用 [ab]* 代替 (a|b)*），或去掉 isRegex 按字面关键词搜索。`;
+  }
   let regex: RegExp;
   try {
     regex = call.isRegex ? new RegExp(call.query, 'i') : new RegExp(escapeRegExp_ACU(call.query), 'i');
@@ -237,10 +256,18 @@ export function runAgentSearch_ACU(call: AgentSearchCall_ACU, context: AgentReso
   const hits: AgentSearchHit_ACU[] = [];
   let budget = SEARCH_TOTAL_CHAR_BUDGET_ACU;
   let truncated = false;
+  // 时间护栏：启发式拒绝不了的模式仍可能单行慢，跨行累计超预算即收手。
+  const startedAtMs = Date.now();
+  let timedOut = false;
   for (const scope of call.scope) {
     if (truncated) break;
     for (const line of SCOPE_COLLECTORS_ACU[scope](context)) {
       if (hits.length >= call.maxResults || budget <= 0) {
+        truncated = true;
+        break;
+      }
+      if (Date.now() - startedAtMs > SEARCH_REGEX_TIME_BUDGET_MS_ACU) {
+        timedOut = true;
         truncated = true;
         break;
       }
@@ -263,7 +290,7 @@ export function runAgentSearch_ACU(call: AgentSearchCall_ACU, context: AgentReso
   }
   const lines = hits.map(hit => `- [${SCOPE_LABELS_ACU[hit.scope]}] ${hit.label}：${hit.snippet}｜读取地址 ${hit.address}`);
   const tail = truncated
-    ? `\n（结果已截断：达到条数上限 ${call.maxResults} 或总量预算。请用更精确的关键词缩小范围，或分域搜索。）`
+    ? `\n（结果已截断：${timedOut ? `正则搜索超过 ${SEARCH_REGEX_TIME_BUDGET_MS_ACU}ms 时间预算，已停止收集` : `达到条数上限 ${call.maxResults} 或总量预算`}。请用更精确的关键词缩小范围，或分域搜索。）`
     : '';
   return `搜索「${call.query}」命中 ${hits.length} 处（域：${scopeText}）。命中行右侧附读取地址，可直接复制进 read：\n${lines.join('\n')}${tail}`;
 }

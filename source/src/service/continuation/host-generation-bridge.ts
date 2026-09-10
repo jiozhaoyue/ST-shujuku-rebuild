@@ -11,7 +11,7 @@ export interface ContinuationHostTurnRuntime_ACU {
   getChatIdentity(): string;
   getChat(): any[];
   retryCurrentTurn(): Promise<{ retryHostGeneration?: boolean }>;
-  readPendingHostTurn(): { settings: { loopTags: string; retryDelaySeconds?: number; minGenerationTokens?: number }; pending: { identity: TurnAttemptIdentity_ACU; capture: ContinuationHostGenerationCapture_ACU; status: 'awaiting_generation' | 'retry_ready' | 'exhausted' } } | null;
+  readPendingHostTurn(): { settings: { loopTags: string; retryDelaySeconds?: number; minGenerationTokens?: number }; pending: { identity: TurnAttemptIdentity_ACU; capture: ContinuationHostGenerationCapture_ACU; status: 'awaiting_generation' | 'retry_ready' | 'exhausted' }; taskStopped?: boolean } | null;
   readAutoContinueState(): { eligible: boolean; delaySeconds: number };
   continueTask(): Promise<{ preparedTurn?: ContinuationPreparedTurnInstruction_ACU; retryHostGeneration?: boolean }>;
   recordHostTurn(input: { identity: TurnAttemptIdentity_ACU; capture: ContinuationHostGenerationCapture_ACU }): Promise<unknown>;
@@ -367,6 +367,9 @@ export class ContinuationHostGenerationBridge_ACU {
     await this.dependencies.wait(Math.max(0, retryDelaySeconds) * 1_000);
     const beforeRetry = this.dependencies.runtime.readPendingHostTurn();
     if (beforeRetry?.pending.status !== 'retry_ready' || beforeRetry.pending.identity.attemptId !== identity.attemptId) return;
+    // 等待期间用户点了停止（或任务已失败）→ 放弃自动重试：否则 retryCurrentTurn 会把任务置回
+    // running 并清空 stopReason，等于静默撤销用户的停止并多烧一次宿主生成。
+    if (beforeRetry.taskStopped) return;
     const action = await this.dependencies.runtime.retryCurrentTurn();
     if (!action.retryHostGeneration) return;
     await this.retryHostGeneration();

@@ -9,6 +9,7 @@ import {
   apiPresetFromDraft,
   createEmptyApiPresetDraft,
 } from '../../../src/presentation-v2/composables/useApiPresetManagement';
+import { normalizeApiConfig_ACU } from '../../../src/service/settings/api-preset-service';
 
 describe('api preset draft helpers', () => {
   it('从空白草稿开始新建预设', () => {
@@ -137,8 +138,8 @@ describe('api preset draft helpers', () => {
     expect(preset.apiConfig.reasoningEffort).toBe('xhigh');
   });
 
-  it('思考强度 false / auto 往返保留（字符串档位不被当成未配置丢弃）', () => {
-    for (const value of ['false', 'auto']) {
+  it('思考强度新增档位与 false / auto 往返保留（字符串档位不被当成未配置丢弃）', () => {
+    for (const value of ['minimal', 'ultra', 'false', 'auto']) {
       const draft = apiPresetDraftFromPreset({
         name: 'effort-modes',
         apiMode: 'custom',
@@ -150,6 +151,15 @@ describe('api preset draft helpers', () => {
       expect(draft.reasoningEffort).toBe(value);
       expect(apiPresetFromDraft(draft).apiConfig.reasoningEffort).toBe(value);
     }
+  });
+
+  it('归一白名单放行全部合法档位，非法档位落回 undefined', () => {
+    for (const value of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'false', 'auto']) {
+      const normalized = normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e', reasoningEffort: value } as any);
+      expect(normalized.reasoningEffort).toBe(value);
+    }
+    const invalid = normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e', reasoningEffort: 'extreme' } as any);
+    expect(invalid.reasoningEffort).toBeUndefined();
   });
 
   // ═══ 提示词后处理 / 接口协议：与请求体共用归一化 ═══

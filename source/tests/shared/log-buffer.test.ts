@@ -11,6 +11,9 @@ import {
   getKnownTags,
   subscribe,
   unsubscribe,
+  getClearHistory_ACU,
+  getLogCountsByLevel_ACU,
+  getRecentLogs_ACU,
   getSubscriberCount,
   extractTag,
   formatArgs,
@@ -18,6 +21,7 @@ import {
   setDebugLogEnabled,
   setWarnLogEnabled,
   isWarnLogEnabled,
+  subscribeToClear,
 } from '../../src/shared/log-buffer';
 
 beforeEach(() => {
@@ -138,8 +142,35 @@ describe('clearLogs', () => {
     expect(getLogCount()).toBe(0);
     expect(getAllLogs()).toEqual([]);
   });
+
+  it('记录调用方留痕供导出自查', () => {
+    clearLogs('debugPanel.startDebug');
+    clearLogs('logViewer.clearAll');
+    const history = getClearHistory_ACU();
+    expect(history.map(item => item.caller)).toEqual(['debugPanel.startDebug', 'logViewer.clearAll']);
+    expect(history[0].at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
 });
 
+describe('getLogCountsByLevel_ACU / getRecentLogs_ACU', () => {
+  it('按级别增量计数，清空后归零', () => {
+    pushLog('debug', ['[ACU]', 'd1']);
+    pushLog('warn', ['[ACU]', 'w1']);
+    pushLog('warn', ['[ACU]', 'w2']);
+    pushLog('error', ['[ACU]', 'e1']);
+    expect(getLogCountsByLevel_ACU()).toMatchObject({ debug: 1, warn: 2, error: 1 });
+    clearLogs('unit');
+    expect(getLogCountsByLevel_ACU()).toEqual({});
+  });
+
+  it('只读最近 N 条，不整表拷贝', () => {
+    for (let index = 1; index <= 10; index += 1) pushLog('error', ['[ACU]', `line-${index}`]);
+    const recent = getRecentLogs_ACU(3);
+    expect(recent.map(entry => entry.message)).toEqual(['[ACU] line-8', '[ACU] line-9', '[ACU] line-10']);
+    expect(getRecentLogs_ACU(0)).toEqual([]);
+    expect(getRecentLogs_ACU(999)).toHaveLength(10);
+  });
+});
 // ═══════════════════════════════════════════════════════════════
 // extractTag
 // ═══════════════════════════════════════════════════════════════
@@ -360,5 +391,50 @@ describe('_resetForTesting', () => {
     expect(getKnownTags()).toEqual([]);
     expect(getSubscriberCount()).toBe(0);
     expect(isWarnLogEnabled()).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// subscribeToClear
+// ═══════════════════════════════════════════════════════════════
+describe('subscribeToClear', () => {
+  it('清空时通知订阅者，取消后不再通知', () => {
+    const seen: string[] = [];
+    const off = subscribeToClear(() => seen.push('cleared'));
+    clearLogs('unit');
+    clearLogs('unit2');
+    expect(seen).toEqual(['cleared', 'cleared']);
+    off();
+    clearLogs('unit3');
+    expect(seen).toEqual(['cleared', 'cleared']);
+  });
+
+  it('通知发生在缓冲重置之后，回调读到的计数已是 0', () => {
+    pushLog('error', ['[ACU]', 'x']);
+    let seenCount = -1;
+    const off = subscribeToClear(() => { seenCount = getLogCount(); });
+    clearLogs('unit');
+    off();
+    expect(seenCount).toBe(0);
+  });
+
+  it('订阅者抛错不影响清空本身，也不影响后续订阅者', () => {
+    const seen: string[] = [];
+    const offBad = subscribeToClear(() => { throw new Error('boom'); });
+    const offGood = subscribeToClear(() => seen.push('ok'));
+    pushLog('error', ['[ACU]', 'x']);
+    expect(() => clearLogs('unit')).not.toThrow();
+    expect(getLogCount()).toBe(0);
+    expect(seen).toEqual(['ok']);
+    offBad();
+    offGood();
+  });
+
+  it('_resetForTesting 清掉清空订阅者', () => {
+    const seen: string[] = [];
+    subscribeToClear(() => seen.push('cleared'));
+    _resetForTesting();
+    clearLogs('unit');
+    expect(seen).toEqual([]);
   });
 });

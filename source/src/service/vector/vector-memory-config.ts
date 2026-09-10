@@ -58,10 +58,16 @@ export interface VectorMemoryConfig_ACU {
     rrfK: number;
     summaryIndexKeywordMinRows: number;
     summaryChunkSentenceCount: number;
+    /** 上游 required；本地 optional 兼容旧持久化缺字段（UI 开关 split3 已落盘，缺省 false，归一化恒输出 boolean）。 */
+    summaryIndexChunkChronicleBySentence?: boolean;
+    summaryIndexArchiveMaxConcurrency: number;
+    summaryIndexArchiveMaxInputChars: number;
+    summaryIndexArchiveEmbeddingConcurrency: number;
     summaryPromptGroupId: string;
     archiveWithoutSummary: boolean;
     summaryPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
     keywordApiPreset: string;
+    keywordGenerationEnabled: boolean;
     keywordContextPairCount: number;
     keywordGenerationMaxAttempts: number;
     keywordPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
@@ -200,10 +206,25 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
             (defaults as any).summaryIndexKeywordMinRows || 100,
         ),
         summaryChunkSentenceCount: normalizePositiveInteger_ACU(source.summaryChunkSentenceCount, defaults.summaryChunkSentenceCount),
+        summaryIndexChunkChronicleBySentence: (source as any).summaryIndexChunkChronicleBySentence === true,
+        summaryIndexArchiveMaxConcurrency: normalizePositiveInteger_ACU(
+            (source as any).summaryIndexArchiveMaxConcurrency,
+            Number((defaults as any).summaryIndexArchiveMaxConcurrency) || 30,
+        ),
+        summaryIndexArchiveMaxInputChars: normalizePositiveInteger_ACU(
+            (source as any).summaryIndexArchiveMaxInputChars,
+            Number((defaults as any).summaryIndexArchiveMaxInputChars) || 24000,
+        ),
+        summaryIndexArchiveEmbeddingConcurrency: normalizePositiveInteger_ACU(
+            (source as any).summaryIndexArchiveEmbeddingConcurrency,
+            Number((defaults as any).summaryIndexArchiveEmbeddingConcurrency) || 3,
+        ),
         summaryPromptGroupId: normalizeTextField_ACU(source.summaryPromptGroupId, defaults.summaryPromptGroupId) || defaults.summaryPromptGroupId,
         archiveWithoutSummary: source.archiveWithoutSummary === true,
         summaryPromptGroup: normalizeKeywordPromptGroup_ACU(source.summaryPromptGroup, (defaults as any).summaryPromptGroup || []),
         keywordApiPreset: normalizeTextField_ACU(source.keywordApiPreset, defaults.keywordApiPreset),
+        // 缺省视为关闭（TT 保守默认：老配置没有这个字段，以前也没有这次 AI 调用）。
+        keywordGenerationEnabled: (source as any).keywordGenerationEnabled === true,
         keywordContextPairCount: normalizePositiveInteger_ACU(source.keywordContextPairCount, defaults.keywordContextPairCount),
         keywordGenerationMaxAttempts: normalizePositiveInteger_ACU((source as any).keywordGenerationMaxAttempts, (defaults as any).keywordGenerationMaxAttempts || 3),
         keywordPromptGroup: normalizeKeywordPromptGroup_ACU(source.keywordPromptGroup, defaults.keywordPromptGroup),
@@ -377,6 +398,7 @@ export interface SummaryVectorIndexEffectiveConfig_ACU extends VectorMemoryConfi
     summaryIndexCandidateLimit: number;
     summaryIndexChunkSentenceCount: number;
     summaryIndexArchiveMaxConcurrency: number;
+    summaryIndexArchiveMaxInputChars: number;
     summaryIndexArchiveEmbeddingConcurrency: number;
     summaryIndexKeywordMinRows: number;
     summaryIndexRecentFixedInjectCount: number;
@@ -407,6 +429,10 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
     const summaryIndexArchiveMaxConcurrency = normalizePositiveInteger_ACU(
         (config as any).summaryIndexArchiveMaxConcurrency,
         Number(defaults.summaryIndexArchiveMaxConcurrency) || 30,
+    );
+    const summaryIndexArchiveMaxInputChars = normalizePositiveInteger_ACU(
+        (config as any).summaryIndexArchiveMaxInputChars,
+        Number((defaults as any).summaryIndexArchiveMaxInputChars) || 24000,
     );
     // T9：归档 embedding 批次的有界并发度（同时进行中的批次上限）。独立于 summaryIndexArchiveMaxConcurrency（批大小）。
     const summaryIndexArchiveEmbeddingConcurrency = normalizePositiveInteger_ACU(
@@ -444,6 +470,7 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
         summaryIndexCandidateLimit: recallCandidateLimit,
         summaryIndexChunkSentenceCount: summaryChunkSentenceCount,
         summaryIndexArchiveMaxConcurrency,
+        summaryIndexArchiveMaxInputChars,
         summaryIndexArchiveEmbeddingConcurrency,
         summaryIndexKeywordMinRows,
         summaryIndexRecentFixedInjectCount: recentFixedInjectCount,

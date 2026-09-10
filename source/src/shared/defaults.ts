@@ -207,7 +207,10 @@ export const defaultVectorMemoryConfig_ACU = {
   archiveTriggerCount: 9,
   archiveBatchSize: 3,
   archiveMaxConcurrency: 3,
+  // 单个 embedding HTTP 请求最多覆盖的 source rows。
   summaryIndexArchiveMaxConcurrency: 30,
+  // 本地字符预算，不等同于 provider token 限制。
+  summaryIndexArchiveMaxInputChars: 24000,
   summaryIndexArchiveEmbeddingConcurrency: 3,
   topK: 200,
   // spv9.2 召回新默认：旧默认 0.45 配合新召回参数会过滤掉大量相关行，一次性覆盖时统一刷成 0.35。
@@ -229,6 +232,8 @@ export const defaultVectorMemoryConfig_ACU = {
   rrfK: 60,
   summaryIndexKeywordMinRows: 200,
   summaryChunkSentenceCount: 2,
+  // 默认每行一个向量（概览 + 纪要正文整体 embedding），索引体积与行数线性；开启后按 summaryChunkSentenceCount 切纪要正文。
+  summaryIndexChunkChronicleBySentence: false,
   summaryPromptGroupId: 'remote-memory-archive-default',
   archiveWithoutSummary: false,
   recentFixedInjectCount: 50,
@@ -262,6 +267,8 @@ export const defaultVectorMemoryConfig_ACU = {
     },
   ],
   keywordApiPreset: '',
+  // 关闭后发送前不再调用关键词 AI，query 只用用户输入本身（省一次 LLM 往返）。
+  keywordGenerationEnabled: false,
   keywordContextPairCount: 1,
   keywordGenerationMaxAttempts: 3,
   keywordPromptGroup: [
@@ -312,6 +319,8 @@ export const defaultWorldbookConfig_ACU = {
   outlineEntryEnabled: false, // 0TK 占用模式恒开启：大纲条目不占用上下文
   zeroTkOccupyMode: true, // 0TK 占用模式恒开启（开关已剥离）
   summaryVectorIndexModeEnabled: false,
+  /** 纪要向量镜像协议开关。关闭只停召回与 flush，不拆已有镜像。 */
+  summaryVectorMirrorEnabled: true,
   // vectorMemory 保留引用以兼容旧数据迁移读取，但新数据写入 settings_ACU.vectorMemoryConfig
   vectorMemory: defaultVectorMemoryConfig_ACU,
 };

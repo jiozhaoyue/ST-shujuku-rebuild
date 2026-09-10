@@ -17,8 +17,11 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   clearLogs,
   getAllLogs,
+  getLogCount,
+  getClearHistory_ACU,
   isDebugLogEnabled,
   isWarnLogEnabled,
+  subscribeToClear,
   setDebugLogEnabled,
   setWarnLogEnabled,
   subscribe,
@@ -55,13 +58,20 @@ function maskSecret(value: unknown): string {
 }
 
 const SENSITIVE_KEYS = /^(api[_-]?key|apikey|key|token|authorization|auth|password|proxy[_-]?password|secret|bearer|accessToken|access_token)$/i;
+// 复合键后缀：embeddingApiKey / rerankApiKey 这类以敏感词结尾但带前缀的键，锚定式漏网（与 log-buffer 同规则）。
+const SENSITIVE_KEY_SUFFIX = /(api[_-]?key|apikey|token|authorization|password|secret|bearer)$/i;
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEYS.test(key) || SENSITIVE_KEY_SUFFIX.test(key);
+}
 
 function maskSensitiveString(str: string): string {
   return str
     .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
     .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
     .replace(/([?&](?:api[_-]?key|token|authorization)=)([^&#\s"',}]+)/gi, '$1***')
-    .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3');
+    .replace(/("(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
+    .replace(/(^|[\s"',{;])(x-api-key|x-opencode-session|api[_-]?key|apikey|token|password|secret)(\s*[:=]\s*)(?!["\'])([^\s"',;}\n]+)/gi, '$1$2$3***');
 }
 
  /** 递归脱敏对象中的敏感字段（API 请求/响应快照可能含 Authorization/key 回显） */
@@ -77,7 +87,7 @@ function maskSensitiveFields(value: unknown, depth = 0, seen = new WeakSet<objec
     seen.add(value as object);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEYS.test(k)) {
+      if (isSensitiveKey(k)) {
         out[k] = v && typeof v === 'object' ? maskSensitiveFields(v, depth + 1, seen) : maskSecret(v);
       } else {
         out[k] = maskSensitiveFields(v, depth + 1, seen);
@@ -102,26 +112,38 @@ function downloadJson(filename: string, data: unknown): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Debug 开启时刻（模块级，与采集开关同寿命）：导出时只包含开启后的日志 */
+let debugStartedAt_ACU = 0;
+/** 采集开关显示态（模块级）：与 log-buffer 真实开关一致，跨 UI 开关不丢。 */
+const debugActive_ACU = ref(false);
+
 export function useDebugPanel() {
   const toast = useToastStore();
-  const active = ref(false);
+  // 模块级共享：关闭/重开数据库 UI 只是组件卸载，采集开关（log-buffer 模块级）
+  // 不受影响；按钮状态必须跟开关一致，否则出现“显示未开启、实际采集中”，
+  // 且再次点开始会 clearLogs 洗掉已采集的日志。
+  const active = debugActive_ACU;
   const entryCount = ref(0);
-  /** Debug 开启时刻：导出时只包含开启后的日志（避免无关历史噪音） */
-  let startedAt = 0;
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeClear: (() => void) | null = null;
 
   const statusLabel = computed(() => (active.value ? '采集中' : '未开启'));
 
   function refreshCount(): void {
-    entryCount.value = getAllLogs().length;
+    entryCount.value = getLogCount();
   }
 
   function startDebug(): void {
+    // 以本面板会话态为准（而非原始 flag）：flag 可能被外部提前打开，
+    // 此时旧日志不属于本次排查，必须清掉；只有本会话已在采集中才保留。
+    const alreadyCollecting = active.value;
     setDebugLogEnabled(true);
     setWarnLogEnabled(true);
-    // 清空旧日志，让导出只含本次排查内容
-    clearLogs();
-    startedAt = Date.now();
+    if (!alreadyCollecting) {
+      // 清空旧日志，让导出只含本次排查内容
+      clearLogs('debugPanel.startDebug');
+      debugStartedAt_ACU = Date.now();
+    }
     active.value = true;
     refreshCount();
     toast.info('Debug 采集已开启：请复现问题，完成后点「导出 Debug 数据」。');
@@ -135,10 +157,10 @@ export function useDebugPanel() {
     // 增强：停止时自动导出一次，避免用户忘记点导出
     try {
       const allLogs = getAllLogs();
-      const logs: LogEntry[] = startedAt ? allLogs.filter((e) => e.timestamp >= startedAt) : allLogs;
+      const logs: LogEntry[] = debugStartedAt_ACU ? allLogs.filter((e) => e.timestamp >= debugStartedAt_ACU) : allLogs;
       if (logs.length > 0) {
         // 复用导出逻辑但不依赖 active 状态
-        const effectiveStart = startedAt || (allLogs[0]?.timestamp ?? Date.now());
+        const effectiveStart = debugStartedAt_ACU || (allLogs[0]?.timestamp ?? Date.now());
         const cfg = settings_ACU?.apiConfig || {};
         const activePreset = (() => {
           try {
@@ -185,7 +207,7 @@ export function useDebugPanel() {
             const content = Array.isArray((sheet as any)?.content) ? (sheet as any).content : [];
             const rows = Math.max(0, content.length - 1);
             const headers = Array.isArray(content[0]) ? content[0].map(String) : [];
-            const sensitiveCols = new Set(headers.map((h: string, idx: number) => SENSITIVE_KEYS.test(h) ? idx : -1).filter((idx: number) => idx !== -1));
+            const sensitiveCols = new Set(headers.map((h: string, idx: number) => isSensitiveKey(h) ? idx : -1).filter((idx: number) => idx !== -1));
             const sampleRows = content.slice(1, 4).map((r: any) => Array.isArray(r) ? r.slice(0, 8).map((c: any, colIdx: number) => {
               if (sensitiveCols.has(colIdx)) return '***';
               if (typeof c === 'string') {
@@ -223,6 +245,7 @@ export function useDebugPanel() {
           lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
           lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
           logCount: logs.length,
+          clearHistory: getClearHistory_ACU(),
           logs: logs.map((e) => ({
             time: new Date(e.timestamp).toISOString(),
             level: e.level,
@@ -243,6 +266,7 @@ export function useDebugPanel() {
     setDebugLogEnabled(false);
     setWarnLogEnabled(false);
     active.value = false;
+    debugStartedAt_ACU = 0;
   }
 
   function toggleDebug(): void {
@@ -257,8 +281,8 @@ export function useDebugPanel() {
     }
     const allLogs = getAllLogs();
     // 仅当通过本页 startDebug 启动时才按时间切片；持久化 active 导致 startedAt===0 时不切片，避免空导出
-    const logs: LogEntry[] = startedAt ? allLogs.filter((e) => e.timestamp >= startedAt) : allLogs;
-    const effectiveStart = startedAt || (allLogs[0]?.timestamp ?? Date.now());
+    const logs: LogEntry[] = debugStartedAt_ACU ? allLogs.filter((e) => e.timestamp >= debugStartedAt_ACU) : allLogs;
+    const effectiveStart = debugStartedAt_ACU || (allLogs[0]?.timestamp ?? Date.now());
     const cfg = settings_ACU?.apiConfig || {};
     const activePreset = (() => {
       try {
@@ -337,6 +361,7 @@ export function useDebugPanel() {
       lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
       lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
       logCount: logs.length,
+      clearHistory: getClearHistory_ACU(),
       logs: logs.map((e) => ({
         time: new Date(e.timestamp).toISOString(),
         level: e.level,
@@ -352,18 +377,19 @@ export function useDebugPanel() {
   }
 
   onMounted(() => {
-    // 默认关闭：每次进入高级工具均不自动开启，需用户显式点“开始 Debug”。
-    // 只强制关 debug；warn 采集是开发者选项里的持久化开关（dev-options-store 初始化时已应用），
-    // 在这里一并强关会每次进入页面都清掉用户的常开设置。
-    setDebugLogEnabled(false);
-    active.value = false;
-    startedAt = 0;
+    // 进页不自动开启，但也不强关：如有关闭 UI 前开的采集（log-buffer 开关还在），
+    // 按钮必须显示“采集中”，否则用户会以为没开、重按开始把已采日志洗掉。
+    active.value = isDebugLogEnabled();
+    if (!active.value) debugStartedAt_ACU = 0;
     refreshCount();
     unsubscribe = subscribe(() => refreshCount());
+    unsubscribeClear = subscribeToClear(() => refreshCount());
   });
   onBeforeUnmount(() => {
     unsubscribe?.();
     unsubscribe = null;
+    unsubscribeClear?.();
+    unsubscribeClear = null;
   });
 
   return {
