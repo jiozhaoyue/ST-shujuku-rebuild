@@ -5,7 +5,7 @@
 
 import { ACU_TOAST_CATEGORY_ACU } from '../../../shared/constants';
 import { topLevelWindow_ACU } from '../../../shared/env';
-import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
 import { SillyTavern_API_ACU } from '../../../shared/host-api';
 import {
     currentJsonTableData_ACU,
@@ -53,11 +53,14 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
 
                         await refreshMergedDataAndNotifyWithUI_ACU();
 
-                        if (commitResult.hasSummaryTables && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+                        const sourceTableKey = Object.keys(commitResult.tableData || {}).find((sheetKey) => {
+                            const table = (commitResult.tableData as any)?.[sheetKey];
+                            return sheetKey.startsWith('sheet_') && !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name));
+                        });
+                        if (sourceTableKey && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
                             try {
                                 const queueResult = await enqueueSummaryVectorIndexFlush_ACU({
-                                    targetMessageIndex: targetMessageIndexForVectorSync >= 0 ? targetMessageIndexForVectorSync : undefined,
-                                    mode: 'sync',
+                                    sourceTableKey,
                                     reason: 'importTableAsJson',
                                 });
                                 if (!queueResult.queued && !queueResult.skipped) {
@@ -66,7 +69,7 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
                                     logDebug_ACU(`[importTableAsJson] 交火向量索引防抖归档已入队: queued=${queueResult.queued}, reason=${queueResult.reason || 'ok'}`);
                                 }
                             } catch (syncError) {
-                                logWarn_ACU('[importTableAsJson] 交火向量索引防抖归档入队异常（表格导入已完成）:', syncError);
+                                logError_ACU('[importTableAsJson] 交火向量索引防抖归档入队异常（表格导入已完成）:', syncError);
                             }
                         }
                     } else {

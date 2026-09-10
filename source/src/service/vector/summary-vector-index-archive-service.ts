@@ -17,7 +17,7 @@ import { createEmbeddings_ACU, isVectorEmbeddingError_ACU, VectorEmbeddingError_
 import type { VectorEmbeddingResult_ACU } from '../../data/gateways/vector-embedding-gateway';
 import { buildVectorIndexSingleSnapshotV2FilePath_ACU } from '../../data/storage/vector-index-st-files-storage';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
-import { getChatArray_ACU } from '../chat/chat-service';
+import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { getLatestAiMessageIndexFromChat_ACU } from '../table/table-history';
 import {
     persistRemoteMemorySnapshotAnchorIfNeeded_ACU,
@@ -41,6 +41,7 @@ import {
     persistSummaryVectorIndexSnapshot_ACU,
 } from './summary-vector-index-storage-service';
 import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { hashSummaryVectorSourceText_ACU } from './summary-vector-row-fingerprint';
 import { normalizeSummaryVectorIndexScope_ACU, serializeSummaryVectorIndexScope_ACU } from '../../shared/summary-vector-index-scope';
 
 type SummaryVectorIndexArchiveMode_ACU = 'append' | 'sync';
@@ -109,6 +110,8 @@ export interface SummaryVectorArchivePreparedRow_ACU {
     chronicleText: string;
     /** 参与 embedding/BM25 的源文本：概览 + 纪要正文（截断到上限）。 */
     vectorSourceText: string;
+    /** 源文本哈希（与 summary-vector-row-fingerprint 同公式）：镜像 delta 只记 rowId 增减时用它作诊断，不回读原文。 */
+    vectorSourceHash: string;
     sourceFingerprint: string;
 }
 
@@ -129,6 +132,17 @@ export function buildSummaryVectorSourceText_ACU(summary: string, chronicleText:
     return combined.length > SUMMARY_VECTOR_SOURCE_TEXT_MAX_CHARS_ACU
         ? combined.slice(0, SUMMARY_VECTOR_SOURCE_TEXT_MAX_CHARS_ACU)
         : combined;
+}
+
+/**
+ * 判断已落盘索引是否仍是 spv9.2 之前的源文本格式（只用概览、行内无 vectorSourceHash）。
+ * 旧格式索引在下一次发送/填表时会因指纹全量 mismatch 自动重建；聊天加载时提前发现可以后台先建。
+ */
+export function isSummaryVectorIndexSourceTextOutdated_ACU(state: ChatSummaryVectorIndexState_ACU | null | undefined): boolean {
+    if (!state || !Array.isArray(state.rows)) return false;
+    const activeRows = state.rows.filter((row) => row && row.status !== 'removed');
+    if (activeRows.length === 0) return false;
+    return activeRows.some((row) => !row.vectorSourceHash);
 }
 
 const summaryVectorIndexArchiveLocks_ACU = new Map<string, Promise<void>>();
@@ -417,6 +431,21 @@ function chunkTextBySentenceCount_ACU(text: string, sentenceCount: number): stri
     return chunks;
 }
 
+/**
+ * 一行源文本 → 待 embedding 的 chunk 文本。
+ * 默认整行一个 chunk（向量数 = 行数，索引体积不随正文长度膨胀）；
+ * 只有显式开启按句切分时才用 sentenceCount 切纪要正文。
+ */
+export function buildRowChunkTexts_ACU(
+    vectorSourceText: string,
+    options: { sentenceCount: number; chunkBySentence: boolean },
+): string[] {
+    const normalized = normalizeText_ACU(vectorSourceText);
+    if (!normalized) return [];
+    if (!options.chunkBySentence) return [normalized];
+    return chunkTextBySentenceCount_ACU(normalized, options.sentenceCount);
+}
+
 export function buildPreparedRows_ACU(table: any, summaryKey: string): {
     rows: SummaryVectorArchivePreparedRow_ACU[];
     skippedRowCount: number;
@@ -440,14 +469,17 @@ export function buildPreparedRows_ACU(table: any, summaryKey: string): {
     const preparedRows: SummaryVectorArchivePreparedRow_ACU[] = [];
     let skippedRowCount = 0;
     dataRows.forEach((row: any[], rowIndex: number) => {
-        const rowId = normalizeText_ACU(row?.[0]) || String(rowIndex + 1);
         const timeSpan = timeSpanColIdx >= 0 ? normalizeText_ACU(row?.[timeSpanColIdx]) : '';
         const location = locationColIdx >= 0 ? normalizeText_ACU(row?.[locationColIdx]) : '';
         const summary = normalizeText_ACU(row?.[summaryColIdx]);
         const indexCode = normalizeText_ACU(row?.[indexColIdx]);
         const chronicleText = chronicleColIdx >= 0 && chronicleColIdx !== summaryColIdx ? normalizeText_ACU(row?.[chronicleColIdx]) : '';
         const vectorSourceText = buildSummaryVectorSourceText_ACU(summary, chronicleText);
-        if (!summary || !indexCode || !vectorSourceText) {
+        // SQL 表物理 [0] 是 row_id；个别路径清空了 row_id 时用编码索引保住身份，避免 3 行全被 skip。
+        // 与 inspectCheckpointRowIds_ACU / resolver head 的 rowId 口径一致（physicalId || indexCode），
+        // 否则重建无法复用保留行 refs，每次全量重嵌。禁止用行号回退：行号随增删位移，不稳定。
+        const rowId = normalizeText_ACU(row?.[0]) || indexCode;
+        if (!rowId || !summary || !indexCode || !vectorSourceText) {
             skippedRowCount += 1;
             return;
         }
@@ -461,6 +493,7 @@ export function buildPreparedRows_ACU(table: any, summaryKey: string): {
             indexCode,
             chronicleText,
             vectorSourceText,
+            vectorSourceHash: hashSummaryVectorSourceText_ACU(vectorSourceText),
             sourceFingerprint: '',
         };
         preparedRow.sourceFingerprint = buildPreparedRowFingerprint_ACU(preparedRow);

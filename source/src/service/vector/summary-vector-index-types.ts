@@ -1,5 +1,10 @@
 import type { IsolationTagData_ACU } from '../../data/models/chat-message-data';
 import type { SummaryVectorIndexCanonicalScope_ACU } from '../../shared/summary-vector-index-scope';
+import type {
+    SummaryVectorChunkRef_ACU,
+    SummaryVectorIndexMirrorCheckpointV2_ACU,
+    SummaryVectorPackRef_ACU,
+} from '../table/storage-frame-v2-types';
 
 export type SummaryVectorIndexBackend_ACU = 'embedded' | 'st-files';
 
@@ -31,7 +36,11 @@ export interface ChatSummaryVectorIndexChunk_ACU {
     rowKey: string;
     rowOrder: number;
     text: string;
-    vector: number[];
+    /**
+     * 内存表示以 Float32Array 为主（解码路径）；兼容旧 number[]（IDB 缓存、聊天元数据回读）。
+     * 磁盘格式（f32b64 字符串 / legacy number[]）保持不变。
+     */
+    vector: Float32Array | number[];
     sequence: number;
     sourceFingerprint?: string;
     textHash?: string;
@@ -142,7 +151,13 @@ export interface ChatSummaryVectorIndexRow_ACU {
     location: string;
     summary: string;
     indexCode: string;
+    /**
+     * 参与 embedding 的源文本。spv9.2 起源文本含纪要正文，行落盘时只保留 vectorSourceHash，
+     * 该字段写空串以免几百字正文随聊天元数据重复存储；旧索引仍带 30 字概览原文。
+     */
     vectorSourceText: string;
+    /** 源文本哈希（spv9.2+）。缺失即旧格式索引，需要重建。 */
+    vectorSourceHash?: string;
     chunkIds: string[];
     sourceFingerprint?: string;
     shardIds?: string[];
@@ -386,8 +401,8 @@ export interface SummaryVectorIndexReachableFile_ACU {
      * messageIndex/isolationKey，完整引用集用于诊断与 purge 安全审计。
      */
     references?: Array<{ messageIndex: number; isolationKey: string }>;
-    expectedIdentity: SummaryVectorIndexExpectedFileIdentity_ACU;
-    manifest: ChatSummaryVectorIndexManifest_ACU;
+    expectedIdentity?: SummaryVectorIndexExpectedFileIdentity_ACU;
+    manifest?: ChatSummaryVectorIndexManifest_ACU;
     indexId?: string;
     messageIndex: number;
     isolationKey: string;
@@ -466,3 +481,90 @@ export interface SummaryVectorIndexSafeGcResult_ACU {
 
 export const SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU = 1;
 export const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry';
+
+// ─── 纪要向量镜像（表格 V2 同层镜像协议）────────────────────────────────
+
+export type {
+    SummaryVectorChunkRef_ACU,
+    SummaryVectorEmbeddingIdentity_ACU,
+    SummaryVectorIndexMirrorCheckpointV2_ACU,
+    SummaryVectorIndexMirrorFrameV2_ACU,
+    SummaryVectorIndexMirrorLogEntryV2_ACU,
+    SummaryVectorIndexMirrorOperationV2_ACU,
+    SummaryVectorManifestRef_ACU,
+    SummaryVectorMirrorCheckpointReason_ACU,
+    SummaryVectorPackRef_ACU,
+} from '../table/storage-frame-v2-types';
+
+/** 外置 checkpoint manifest 文件的 rows 结构（不含向量本体）。 */
+export interface SummaryVectorMirrorManifestRow_ACU {
+    rowId: string;
+    chunks: SummaryVectorChunkRef_ACU[];
+}
+
+export interface SummaryVectorMirrorManifestRows_ACU {
+    schema: 'summary_vector_mirror_manifest';
+    version: 1;
+    sourceTableKey: string;
+    rows: SummaryVectorMirrorManifestRow_ACU[];
+}
+
+/**
+ * resolver 状态：
+ * - ok：head 可用（可能 stale / chainConflict，由调用方决定是否触发 flush 或修复重建）；
+ * - no_mirror：表格 full checkpoint frame 上没有 vector checkpoint，需要 initial 构建；
+ * - unsupported_replay_base：表格基底不是 full checkpoint（过渡根 / 替换锚点 / 临时基线 / 无基底）；
+ * - source_table_changed：镜像的 sourceTableKey 与当前纪要表不一致；
+ * - checkpoint_mismatch：vector checkpoint 记录的表格 checkpoint 指纹与实际不一致；
+ * - embedding_identity_changed：checkpoint 的 embedding 身份与当前配置不一致；
+ * - manifest_unavailable：checkpoint manifest 无法读取或校验失败。
+ */
+export type SummaryVectorMirrorHeadStatus_ACU =
+    | 'ok'
+    | 'no_mirror'
+    | 'unsupported_replay_base'
+    | 'source_table_changed'
+    | 'checkpoint_mismatch'
+    | 'embedding_identity_changed'
+    | 'manifest_unavailable';
+
+export type SummaryVectorMirrorDiagnosticCode_ACU =
+    | 'orphan_delta'
+    | 'chain_conflict'
+    | 'invalid_delta'
+    | 'delta_embedding_mismatch'
+    | 'duplicate_delta_seq'
+    | 'misplaced_checkpoint'
+    | 'manifest_duplicate_row_id'
+    | 'manifest_load_failed';
+
+export interface SummaryVectorMirrorDiagnostic_ACU {
+    code: SummaryVectorMirrorDiagnosticCode_ACU;
+    messageIndex?: number;
+    entryId?: string;
+    rowId?: string;
+    detail: string;
+}
+
+export interface SummaryVectorMirrorHeadResult_ACU {
+    status: SummaryVectorMirrorHeadStatus_ACU;
+    sourceTableKey: string;
+    /** 表格 full checkpoint 所在楼层；unsupported 时为 null。 */
+    checkpointMessageIndex: number | null;
+    checkpoint: SummaryVectorIndexMirrorCheckpointV2_ACU | null;
+    /** rowId → 该行的 chunk 引用。status !== 'ok' 时为空 Map。 */
+    head: Map<string, SummaryVectorChunkRef_ACU[]>;
+    /** sha256(checkpoint.vectorRevision + 按序 applied delta entryId)。对 messageIndex 位移不敏感。 */
+    vectorRevision: string;
+    /** head 引用的全部 pack（checkpoint + applied delta，按 packHash 去重）。 */
+    packRefs: SummaryVectorPackRef_ACU[];
+    /** 按应用顺序排列的 vector delta entryId。 */
+    appliedDeltaEntryIds: string[];
+    /** 已镜像的 table entryId（applied delta 的 sourceTableEntry.entryId）。 */
+    appliedTableEntryIds: string[];
+    /** 存在被丢弃的 delta（orphan / 结构非法 / embedding 不一致），head 可能落后于实时表。 */
+    stale: boolean;
+    /** 存在 R6 链冲突，需要 rebuild_repair。 */
+    chainConflict: boolean;
+    diagnostics: SummaryVectorMirrorDiagnostic_ACU[];
+}

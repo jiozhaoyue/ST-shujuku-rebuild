@@ -111,6 +111,7 @@ import {
 import {
   processSummaryVectorIndexBeforeGenerationWithUI_ACU,
   rebuildCurrentSummaryVectorIndexWithUI_ACU,
+  rebuildOutdatedSummaryVectorIndexInBackground_ACU,
   shouldRebuildSummaryVectorIndexWithUI_ACU
 } from '../components/summary-vector-index-ui';
 import {
@@ -473,6 +474,11 @@ async function runChatChangedDelayedRebuild_ACU(chatFileName: string): Promise<v
       } catch (rebuildError) {
         logWarn_ACU('[交火向量索引] 失效索引已删除，但普通重建路径执行失败:', rebuildError);
       }
+    } else if (vectorCacheResult.success && !vectorCacheResult.skipped) {
+      // spv9.2 源文本升级：旧格式索引在后台静默重建，不阻塞 CHAT_CHANGED 后续步骤。
+      void rebuildOutdatedSummaryVectorIndexInBackground_ACU().catch((error: any) => {
+        logWarn_ACU('[交火向量索引] 旧源文本索引后台重建异常:', error);
+      });
     }
     const shouldRestoreFlushQueue = !String(vectorCacheResult.reason || '').startsWith('external_files_missing_state_clear');
     if (!shouldRestoreFlushQueue) {

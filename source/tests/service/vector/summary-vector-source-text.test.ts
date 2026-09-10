@@ -1,7 +1,9 @@
 /**
  * tests/service/vector/summary-vector-source-text.test.ts
  * spv9.2 remainder：向量源文本 = 概览 + 纪要正文（chronicle aliases）。
- * 说明：指纹哈希化落盘（vectorSourceHash）、按句切分与旧格式识别未随本次移植，
+ * 说明：指纹哈希化落盘（vectorSourceHash）；旧格式识别 split3 已随
+ * isSummaryVectorIndexSourceTextOutdated_ACU 落盘（archive-service），
+ * 后台静默重建与 UI 自愈链路见 summary-vector-index-ui。
  * 本地存储格式不变，指纹仍对 vectorSourceText 内容计算。
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -16,6 +18,7 @@ vi.mock('../../../src/service/chat/chat-service', () => ({
   getChatArray_ACU: () => [],
 }));
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
+  getChatArray_ACU: () => [],
   saveChatToHost_ACU: vi.fn(),
   saveChatToHostStrict_ACU: vi.fn(),
 }));
@@ -113,6 +116,21 @@ describe('buildPreparedRows_ACU 源文本含纪要正文', () => {
       expect(prepared.rows[0].chronicleText).toBe('正文内容');
       expect(prepared.rows[0].vectorSourceText).toBe('概览内容\n正文内容');
     }
+  });
+
+  it('row_id 为空时回退用编码索引作为行身份', () => {
+    const prepared = buildPreparedRows_ACU({
+      name: '纪要表',
+      content: [
+        ['row_id', '编码索引', '时间跨度', '概览', '纪要', '重要对话'],
+        ['', 'AM0001', '1184-11-15 17:55 ~ 1184-11-15 18:00', '江南急报', '师徒启程前往江南查案。', '对话'],
+      ],
+    }, 'sheet_summary');
+    expect(prepared.error).toBe('');
+    expect(prepared.rows).toHaveLength(1);
+    expect(prepared.rows[0].rowId).toBe('AM0001');
+    expect(prepared.rows[0].indexCode).toBe('AM0001');
+    expect(prepared.skippedRowCount).toBe(0);
   });
 
   it('只改纪要正文（概览不变）也会让指纹变化 → 增量归档会重新 embedding 该行', () => {

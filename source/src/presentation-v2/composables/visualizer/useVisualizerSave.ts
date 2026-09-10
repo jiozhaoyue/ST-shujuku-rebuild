@@ -458,15 +458,14 @@ async function saveCurrentDataToChat(
 
   await refreshMergedDataAndNotify_ACU();
 
-  const shouldSyncSummaryVectorIndex = allSheetKeys.some(sheetKey => {
+  const sourceTableKey = allSheetKeys.find(sheetKey => {
     const table = currentJsonTableData_ACU?.[sheetKey];
     return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
   });
-  if (shouldSyncSummaryVectorIndex && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+  if (sourceTableKey && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
     try {
       await enqueueSummaryVectorIndexFlush_ACU({
-        targetMessageIndex: latestAiIndex !== -1 ? latestAiIndex : undefined,
-        mode: 'sync',
+        sourceTableKey,
         reason: 'visualizer_v2_save',
       });
     } catch (error) {
@@ -556,6 +555,16 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
           throw new Error(`数据已持久化，但本地运行时刷新失败：${error?.message || String(error)}`);
         }
         throw error;
+      }
+      const sourceTableKey = (result.changedSheetKeys || []).find((sheetKey: string) => {
+        const table = currentJsonTableData_ACU?.[sheetKey];
+        return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
+      });
+      if (sourceTableKey && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+        await enqueueSummaryVectorIndexFlush_ACU({
+          sourceTableKey,
+          reason: 'visualizer_v2_save',
+        });
       }
       replaceVisualizerTemporaryRowIds_ACU(visualizer, result.insertedRowIds || {});
       try {
@@ -1085,8 +1094,12 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       }
       if (deletedSummarySheetKeys.length > 0) {
         try {
-          if (hasRemainingSummarySheet && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
-            await enqueueSummaryVectorIndexFlush_ACU({ mode: 'sync', reason: 'visualizer_v2_template_sheet_delete' });
+          const sourceTableKey = Object.keys(orderedData).find((sheetKey) => {
+            const table = orderedData[sheetKey];
+            return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name));
+          });
+          if (sourceTableKey && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+            await enqueueSummaryVectorIndexFlush_ACU({ sourceTableKey, reason: 'visualizer_v2_template_sheet_delete' });
           } else if (!hasRemainingSummarySheet) {
             await deleteCurrentSummaryVectorIndexFromChat_ACU();
           }
