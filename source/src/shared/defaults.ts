@@ -207,7 +207,10 @@ export const defaultVectorMemoryConfig_ACU = {
   archiveTriggerCount: 9,
   archiveBatchSize: 3,
   archiveMaxConcurrency: 3,
+  // 单个 embedding HTTP 请求最多覆盖的 source rows。
   summaryIndexArchiveMaxConcurrency: 30,
+  // 本地字符预算，不等同于 provider token 限制。
+  summaryIndexArchiveMaxInputChars: 24000,
   summaryIndexArchiveEmbeddingConcurrency: 3,
   topK: 200,
   // spv9.2 召回新默认：旧默认 0.45 配合新召回参数会过滤掉大量相关行，一次性覆盖时统一刷成 0.35。
