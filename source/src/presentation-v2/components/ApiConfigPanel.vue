@@ -265,11 +265,13 @@ import {
 
 // ─── 思考强度选项（每个 API 预设独立；Auto 档不传输 reasoning_effort 参数） ───
 const reasoningEffortOptions: AcuSelectOption[] = [
+  { value: "minimal", label: "Minimal" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
   { value: "max", label: "Max" },
+  { value: "ultra", label: "Ultra" },
   { value: "false", label: "False（关闭思考）" },
   { value: "auto", label: "Auto（自动）" },
 ];

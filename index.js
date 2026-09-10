@@ -83478,7 +83478,7 @@ function normalizeApiConfig_ACU(value) {
     else
         streamingEnabled = undefined;
     const rawReasoning = String(source.reasoningEffort ?? '').trim().toLowerCase();
-    const reasoningEffort = ['low', 'medium', 'high', 'xhigh', 'max', 'false', 'auto'].includes(rawReasoning)
+    const reasoningEffort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'false', 'auto'].includes(rawReasoning)
         ? rawReasoning
         : undefined;
     // [修复] 保留源对象中所有非白名单字段（如 topP/top_p/frequency_penalty），
@@ -84288,7 +84288,7 @@ function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) 
             : 'openai_compat',
         group_names: [],
         include_reasoning: false,
-        // 思考强度（预设级优先）：low/medium/high/xhigh/max 原样透传；'false' 传布尔 false 关闭思考；
+        // 思考强度（预设级优先）：minimal/low/medium/high/xhigh/max/ultra 原样透传；'false' 传布尔 false 关闭思考；
         // 'auto' 则省略该参数由服务端自定；非法值回退 medium
         ...((() => {
             const raw = String(effectiveApiConfig.reasoningEffort || settings_ACU.reasoningEffort || 'medium').trim().toLowerCase();
@@ -84296,7 +84296,7 @@ function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) 
                 return {};
             if (raw === 'false')
                 return { reasoning_effort: false };
-            return { reasoning_effort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(raw) ? raw : 'medium' };
+            return { reasoning_effort: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(raw) ? raw : 'medium' };
         })()),
         enable_web_search: false,
         request_images: false,
@@ -89770,7 +89770,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.4" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.5" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -158303,7 +158303,7 @@ function apiPresetFromDraft(draft) {
             ...(draft.streamingEnabled === true || draft.streamingEnabled === false
                 ? { streamingEnabled: draft.streamingEnabled }
                 : {}),
-            ...(typeof draft.reasoningEffort === 'string' && ['low', 'medium', 'high', 'xhigh', 'max', 'false', 'auto'].includes(draft.reasoningEffort)
+            ...(typeof draft.reasoningEffort === 'string' && ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'false', 'auto'].includes(draft.reasoningEffort)
                 ? { reasoningEffort: draft.reasoningEffort }
                 : {}),
             customApiFormat: ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions'].includes(draft.customApiFormat)
@@ -159579,11 +159579,13 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
     setup(__props, { expose: __expose }) {
         __expose();
         const reasoningEffortOptions = [
+            { value: "minimal", label: "Minimal" },
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
             { value: "high", label: "High" },
             { value: "xhigh", label: "XHigh" },
             { value: "max", label: "Max" },
+            { value: "ultra", label: "Ultra" },
             { value: "false", label: "False（关闭思考）" },
             { value: "auto", label: "Auto（自动）" },
         ];
@@ -159781,8 +159783,8 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-api-config-panel__hint[data-v-1df2982b] {\r\n  color: var(--acu-text-3, #9e978e);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-api-config-panel__hint-danger[data-v-1df2982b] {\r\n  color: var(--acu-danger, #e5484d);\n}\n.acu-api-config-panel__select-row[data-v-1df2982b] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) max-content max-content;\r\n  gap: 6px;\r\n  align-items: stretch;\n}\n.acu-api-config-panel__behavior[data-v-1df2982b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  margin-top: 14px;\r\n  padding-top: 12px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\n}\n.acu-api-config-panel__editor[data-v-1df2982b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-api-config-panel__editor-section[data-v-1df2982b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-api-config-panel__inline-action[data-v-1df2982b] {\r\n  display: flex;\r\n  align-items: center;\r\n  flex-wrap: wrap;\r\n  gap: 10px;\n}\n.acu-api-config-panel__two-col[data-v-1df2982b] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-api-config-panel__muted[data-v-1df2982b] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__danger[data-v-1df2982b] {\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__actions[data-v-1df2982b] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\n}\r\n", "src/presentation-v2/components/ApiConfigPanel.vue#style-0-1df2982b");
-var ApiConfigPanel_vue_vue_type_style_index_0_scoped_1df2982b_lang = null;
+injectSfcStyle("\n.acu-api-config-panel__hint[data-v-f35e6041] {\r\n  color: var(--acu-text-3, #9e978e);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-api-config-panel__hint-danger[data-v-f35e6041] {\r\n  color: var(--acu-danger, #e5484d);\n}\n.acu-api-config-panel__select-row[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) max-content max-content;\r\n  gap: 6px;\r\n  align-items: stretch;\n}\n.acu-api-config-panel__behavior[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  margin-top: 14px;\r\n  padding-top: 12px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\n}\n.acu-api-config-panel__editor[data-v-f35e6041] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-api-config-panel__editor-section[data-v-f35e6041] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-api-config-panel__inline-action[data-v-f35e6041] {\r\n  display: flex;\r\n  align-items: center;\r\n  flex-wrap: wrap;\r\n  gap: 10px;\n}\n.acu-api-config-panel__two-col[data-v-f35e6041] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-api-config-panel__muted[data-v-f35e6041] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__danger[data-v-f35e6041] {\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__actions[data-v-f35e6041] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\n}\r\n", "src/presentation-v2/components/ApiConfigPanel.vue#style-0-f35e6041");
+var ApiConfigPanel_vue_vue_type_style_index_0_scoped_f35e6041_lang = null;
 
 const _hoisted_1$S = { class: "acu-api-config-panel__select-row" };
 const _hoisted_2$L = { class: "acu-api-config-panel__editor-section" };
@@ -160118,7 +160120,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-1df2982b"]]);
+var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-f35e6041"]]);
 
 // ═══════════════════════════════════════════════════════════
 // service/settings/feature-preset-reference-service.ts — 功能级 API 预设引用
@@ -185260,7 +185262,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.4";
+        const v = "9.4.5";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {

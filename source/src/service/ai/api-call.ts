@@ -411,13 +411,13 @@ export function buildCustomApiRequestBody_ACU(
       : 'openai_compat',
     group_names: [],
     include_reasoning: false,
-    // 思考强度（预设级优先）：low/medium/high/xhigh/max 原样透传；'false' 传布尔 false 关闭思考；
+    // 思考强度（预设级优先）：minimal/low/medium/high/xhigh/max/ultra 原样透传；'false' 传布尔 false 关闭思考；
     // 'auto' 则省略该参数由服务端自定；非法值回退 medium
     ...(((): Record<string, unknown> => {
       const raw = String(effectiveApiConfig.reasoningEffort || settings_ACU.reasoningEffort || 'medium').trim().toLowerCase();
       if (raw === 'auto') return {};
       if (raw === 'false') return { reasoning_effort: false };
-      return { reasoning_effort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(raw) ? raw : 'medium' };
+      return { reasoning_effort: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(raw) ? raw : 'medium' };
     })()),
     enable_web_search: false,
     request_images: false,

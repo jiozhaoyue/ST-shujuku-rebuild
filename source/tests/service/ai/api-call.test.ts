@@ -294,8 +294,8 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(body.custom_prompt_post_processing).toBe('strict');
   });
 
-  it('reasoning_effort 五档原样透传（xhigh 位于 high 与 max 之间）', () => {
-    for (const value of ['low', 'medium', 'high', 'xhigh', 'max']) {
+  it('reasoning_effort 七档原样透传（minimal 最低、ultra 最高）', () => {
+    for (const value of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
       const body = buildCustomApiRequestBody_ACU(
         [{ role: 'user', content: 'test' }],
         { url: 'https://api.example.com', model: 'gpt-4', reasoningEffort: value },
@@ -323,7 +323,7 @@ describe('buildCustomApiRequestBody_ACU', () => {
   it('reasoningEffort 非法值回退 medium', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', reasoningEffort: 'ultra' },
+      { url: 'https://api.example.com', model: 'gpt-4', reasoningEffort: 'extreme' },
     );
     expect(body.reasoning_effort).toBe('medium');
   });

@@ -247,4 +247,24 @@ describe('ApiPage', () => {
 
     mount.__resetAcuV2MountForTests();
   });
+
+  it('思考强度下拉包含全部档位（含 Minimal / Ultra）', async () => {
+    const { mount } = await mountApiPage();
+
+    const page = document.querySelector(".acu-v2-api-page") as HTMLElement;
+    const effortRow = Array.from(page.querySelectorAll(".acu-form-row"))
+      .find(row => (row.textContent || "").includes("思考强度")) as HTMLElement;
+    expect(effortRow).toBeTruthy();
+
+    const trigger = effortRow.querySelector<HTMLButtonElement>(".acu-select__trigger") as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    trigger.click();
+    await Promise.resolve();
+
+    const labels = Array.from(effortRow.querySelectorAll(".acu-select__item"))
+      .map(item => (item.textContent || "").trim());
+    expect(labels).toEqual(["Minimal", "Low", "Medium", "High", "XHigh", "Max", "Ultra", "False（关闭思考）", "Auto（自动）"]);
+
+    mount.__resetAcuV2MountForTests();
+  });
 });
