@@ -12,6 +12,8 @@ import {
   subscribe,
   unsubscribe,
   getClearHistory_ACU,
+  getLogCountsByLevel_ACU,
+  getRecentLogs_ACU,
   getSubscriberCount,
   extractTag,
   formatArgs,
@@ -150,6 +152,25 @@ describe('clearLogs', () => {
   });
 });
 
+describe('getLogCountsByLevel_ACU / getRecentLogs_ACU', () => {
+  it('按级别增量计数，清空后归零', () => {
+    pushLog('debug', ['[ACU]', 'd1']);
+    pushLog('warn', ['[ACU]', 'w1']);
+    pushLog('warn', ['[ACU]', 'w2']);
+    pushLog('error', ['[ACU]', 'e1']);
+    expect(getLogCountsByLevel_ACU()).toMatchObject({ debug: 1, warn: 2, error: 1 });
+    clearLogs('unit');
+    expect(getLogCountsByLevel_ACU()).toEqual({});
+  });
+
+  it('只读最近 N 条，不整表拷贝', () => {
+    for (let index = 1; index <= 10; index += 1) pushLog('error', ['[ACU]', `line-${index}`]);
+    const recent = getRecentLogs_ACU(3);
+    expect(recent.map(entry => entry.message)).toEqual(['[ACU] line-8', '[ACU] line-9', '[ACU] line-10']);
+    expect(getRecentLogs_ACU(0)).toEqual([]);
+    expect(getRecentLogs_ACU(999)).toHaveLength(10);
+  });
+});
 // ═══════════════════════════════════════════════════════════════
 // extractTag
 // ═══════════════════════════════════════════════════════════════

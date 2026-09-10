@@ -50,6 +50,13 @@ let _writeIndex = 0;
 /** 当前缓冲区中的有效条数 */
 let _count = 0;
 
+/**
+ * 各级别条数增量计数。调用方（如 Dashboard 健康卡）每次只要计数，不该为此整表拷贝：
+ * 缓冲区上限 5 万条，日志持续写入时逐条 O(n) 扫描是卡顿主因之一。
+ * 环形覆盖写命中旧条目时，先从旧条目对应级别减一（见 pushLog）。
+ */
+const _countsByLevel: Record<string, number> = {};
+
 /** 自增 ID 计数器 */
 let _nextId = 1;
 
@@ -253,6 +260,9 @@ export function pushLog(level: LogLevel, args: any[]): void {
   };
 
   // 环形缓冲区：固定容量覆盖写，O(1) 无数组拷贝
+  const overwritten = _buffer[_writeIndex];
+  if (overwritten) _countsByLevel[overwritten.level] = Math.max(0, (_countsByLevel[overwritten.level] || 0) - 1);
+  _countsByLevel[level] = (_countsByLevel[level] || 0) + 1;
   _buffer[_writeIndex] = entry;
   _writeIndex = (_writeIndex + 1) % MAX_BUFFER_SIZE;
   if (_count < MAX_BUFFER_SIZE) _count++;
@@ -288,6 +298,24 @@ export function getLogCount(): number {
   return _count;
 }
 
+/** 各级别条数（O(1) 读，增量维护）。 */
+export function getLogCountsByLevel_ACU(): Record<string, number> {
+  return { ..._countsByLevel };
+}
+
+/** 最近 limit 条日志（只读尾部，不整表拷贝）。 */
+export function getRecentLogs_ACU(limit: number): LogEntry[] {
+  const take = Math.max(0, Math.min(Math.floor(Number(limit) || 0), _count));
+  if (take === 0) return [];
+  const result: LogEntry[] = [];
+  for (let offset = take; offset >= 1; offset -= 1) {
+    const index = (_writeIndex - offset + MAX_BUFFER_SIZE * 2) % MAX_BUFFER_SIZE;
+    const entry = _buffer[index];
+    if (entry) result.push(entry);
+  }
+  return result;
+}
+
 /**
  * 清空缓冲区（调用方必须传 caller 留痕，导出自带清空记录）。
  */
@@ -295,6 +323,7 @@ export function clearLogs(caller = 'unknown'): void {
   _buffer = new Array(MAX_BUFFER_SIZE);
   _writeIndex = 0;
   _count = 0;
+  for (const key of Object.keys(_countsByLevel)) delete _countsByLevel[key];
   _knownTags.clear();
   _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
   if (_clearHistory.length > 20) _clearHistory.splice(0, _clearHistory.length - 20);
@@ -364,6 +393,7 @@ export function _resetForTesting(): void {
   _nextId = 1;
   _subscribers.clear();
   _knownTags.clear();
+  for (const key of Object.keys(_countsByLevel)) delete _countsByLevel[key];
   _clearHistory.length = 0;
   _clearSubscribers.clear();
   _debugLogEnabled = false;

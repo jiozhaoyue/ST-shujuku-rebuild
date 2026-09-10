@@ -56,6 +56,32 @@ beforeEach(() => {
   setWarnLogEnabled(true);
 });
 
+describe('useLogViewer 显示窗口', () => {
+  it('超过窗口上限只保留最近 N 条，并累计折叠条数', async () => {
+    const viewer = mountViewer();
+    const limit = viewer.windowSizeLimit;
+    for (let index = 1; index <= limit + 25; index += 1) pushLog('error', ['[ACU]', `w-${index}`]);
+    await flush();
+
+    expect(viewer.logs.value.length).toBe(limit);
+    expect(viewer.hiddenByWindow.value).toBe(25);
+    expect(viewer.totalCount.value).toBe(limit + 25);
+    // 窗口保留的是最新一段（末尾是最后写入的那条）
+    expect(viewer.logs.value[viewer.logs.value.length - 1]!.message).toBe(`[ACU] w-${limit + 25}`);
+  });
+
+  it('窗口封顶后总量继续增长，不会继续膨胀列表', async () => {
+    const viewer = mountViewer();
+    const limit = viewer.windowSizeLimit;
+    for (let index = 1; index <= limit * 2; index += 1) pushLog('error', ['[ACU]', `x-${index}`]);
+    await flush();
+
+    expect(viewer.logs.value.length).toBe(limit);
+    expect(viewer.totalCount.value).toBe(limit * 2);
+    expect(viewer.hiddenByWindow.value).toBe(limit);
+  });
+});
+
 describe('useLogViewer 清空刷新', () => {
   it('清空缓冲区后已展示的日志立即消失（不需要重挂页面）', async () => {
     const viewer = mountViewer();

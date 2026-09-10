@@ -46,7 +46,8 @@ import {
   validateDDLTextAgainstHeaders_ACU
 } from "../../shared/ddl-utils";
 import {
-  getAllLogs,
+  getLogCountsByLevel_ACU,
+  getRecentLogs_ACU,
   subscribe,
   subscribeToClear,
   type LogEntry
@@ -660,10 +661,15 @@ function interpretLogEntry(entry: LogEntry): string {
 }
 
 function buildLogHealthItem(showDeveloperDiagnostics: boolean): DashboardHealthItem {
-  const logs = getAllLogs();
-  const errorEntries = logs.filter((entry) => entry.level === "error");
-  const warnCount = logs.filter((entry) => entry.level === "warn").length;
-  if (!errorEntries.length) {
+  // 健康卡只要「各级别条数」与「最近一条错误」：用 O(1) 增量计数 + 尾部只读，
+  // 不再整表拷贝 5 万条再过滤两遍（日志持续写入时那是逐条 O(n) 的卡顿源）。
+  const counts = getLogCountsByLevel_ACU();
+  const errorCount = counts.error || 0;
+  const warnCount = counts.warn || 0;
+  const recentErrors = errorCount > 0
+    ? getRecentLogs_ACU(200).filter((entry) => entry.level === "error")
+    : [];
+  if (!errorCount || recentErrors.length === 0) {
     return makeHealthItem({
       key: "logs",
       title: dashboardCopy.logs.title,
@@ -675,15 +681,15 @@ function buildLogHealthItem(showDeveloperDiagnostics: boolean): DashboardHealthI
       ),
     });
   }
-  const latest = errorEntries[errorEntries.length - 1];
+  const latest = recentErrors[recentErrors.length - 1];
   return makeHealthItem({
     key: "logs",
     title: dashboardCopy.logs.title,
-    badge: dashboardCopy.logs.errorBadge(errorEntries.length),
+    badge: dashboardCopy.logs.errorBadge(errorCount),
     kind: "error",
     summary: dashboardCopy.logs.errorSummary(
       interpretLogEntry(latest),
-      errorEntries.length,
+      errorCount,
       warnCount,
       latest.tag,
     ),

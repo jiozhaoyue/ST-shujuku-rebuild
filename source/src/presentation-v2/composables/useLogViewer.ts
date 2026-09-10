@@ -23,6 +23,13 @@ import { useToastStore } from '../stores/toast-store';
 
 export type LogLevelFilter = LogLevel | 'all';
 
+/**
+ * 日志页显示窗口上限。缓冲区上限是 5 万条，页面若全量跟随会出现三个 O(n) 叠加：
+ * 每帧整表拷贝（getAllLogs）、filter/reverse 全量重算、DOM 全量渲染——Debug 开着时
+ * 日志持续写入，久了必然卡死。这里只保留最近 N 条做现实时视图，全量仍在缓冲区里可导出。
+ */
+const LOG_VIEW_MAX_ENTRIES_ACU = 300;
+
 export interface LogViewerMessage {
   kind: 'success' | 'info' | 'warning' | 'error';
   text: string;
@@ -54,6 +61,8 @@ export function useLogViewer() {
   const logs = ref<LogEntry[]>([]);
   const knownTags = ref<string[]>([]);
   const totalCount = ref(0);
+  /** 被显示窗口裁掉的条数（只影响列表展示，导出仍取全量过滤结果）。 */
+  const hiddenByWindow = ref(0);
   const levelFilter = ref<LogLevelFilter>('all');
   const tagFilter = ref('all');
   const keyword = ref('');
@@ -66,6 +75,8 @@ export function useLogViewer() {
   let unsubscribe: (() => void) | null = null;
   let unsubscribeClear: (() => void) | null = null;
   let rafId: number | null = null;
+  /** 本帧待追加的新日志：一帧只做一次响应式变更，避免逐条 push 触发多次重算。 */
+  const pendingAppend: LogEntry[] = [];
 
   const tagOptions = computed(() => [
     { value: 'all', label: '全部模块' },
@@ -91,8 +102,11 @@ export function useLogViewer() {
   });
   const debugLabel = computed(() => (debugLogEnabled.value ? 'Debug 采集中' : 'Debug 未采集'));
 
+  /** 全量重读（仅挂载/清空/恢复暂停时用）；展示只取最近窗口。 */
   function refresh(): void {
-    logs.value = getAllLogs();
+    const all = getAllLogs();
+    logs.value = all.length > LOG_VIEW_MAX_ENTRIES_ACU ? all.slice(-LOG_VIEW_MAX_ENTRIES_ACU) : all;
+    hiddenByWindow.value = Math.max(0, all.length - logs.value.length);
     knownTags.value = getKnownTags();
     totalCount.value = getLogCount();
     debugLogEnabled.value = isDebugLogEnabled();
@@ -101,11 +115,30 @@ export function useLogViewer() {
     }
   }
 
+  /** 增量追加：把本帧累积的新日志一次性并入窗口并裁剪，全程不拷贝整个缓冲区。 */
+  function flushAppend(): void {
+    if (pendingAppend.length === 0) {
+      totalCount.value = getLogCount();
+      debugLogEnabled.value = isDebugLogEnabled();
+      return;
+    }
+    const merged = logs.value.concat(pendingAppend);
+    pendingAppend.length = 0;
+    if (merged.length > LOG_VIEW_MAX_ENTRIES_ACU) {
+      hiddenByWindow.value += merged.length - LOG_VIEW_MAX_ENTRIES_ACU;
+      logs.value = merged.slice(-LOG_VIEW_MAX_ENTRIES_ACU);
+    } else {
+      logs.value = merged;
+    }
+    totalCount.value = getLogCount();
+    debugLogEnabled.value = isDebugLogEnabled();
+  }
+
   function scheduleRefresh(): void {
     if (rafId !== null) return;
     rafId = acuRequestAnimationFrame(() => {
       rafId = null;
-      refresh();
+      flushAppend();
     });
   }
 
@@ -113,6 +146,7 @@ export function useLogViewer() {
     paused.value = value;
     if (!value) {
       pendingEntries.value = [];
+      pendingAppend.length = 0;
       refresh();
     }
   }
@@ -120,6 +154,8 @@ export function useLogViewer() {
   function clearAll(): void {
     clearLogs('logViewer.clearAll');
     pendingEntries.value = [];
+    pendingAppend.length = 0;
+    hiddenByWindow.value = 0;
     refresh();
     message.value = null;
     toast.success('日志缓冲区已清空。');
@@ -141,12 +177,13 @@ export function useLogViewer() {
   onMounted(() => {
     refresh();
     unsubscribe = subscribe(entry => {
-      totalCount.value = getLogCount();
-      knownTags.value = getKnownTags();
+      // 逐条只做 O(1) 累积：整表拷贝/排序放到本帧一次的 flushAppend 里。
+      if (!knownTags.value.includes(entry.tag)) knownTags.value = getKnownTags();
       if (paused.value) {
         pendingEntries.value = [...pendingEntries.value, entry];
         return;
       }
+      pendingAppend.push(entry);
       scheduleRefresh();
     });
     // 清空不产日志条目，必须订阅清空事件：否则页面继续显示已清空的旧数组（收起重开才刷新）。
@@ -180,6 +217,8 @@ export function useLogViewer() {
     debugLogEnabled,
     message,
     totalCount,
+    hiddenByWindow,
+    windowSizeLimit: LOG_VIEW_MAX_ENTRIES_ACU,
     filteredCount,
     pendingCount,
     statusLabel,

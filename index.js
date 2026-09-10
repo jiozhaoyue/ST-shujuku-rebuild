@@ -1974,6 +1974,12 @@ let _buffer = new Array(MAX_BUFFER_SIZE);
 let _writeIndex = 0;
 /** 当前缓冲区中的有效条数 */
 let _count = 0;
+/**
+ * 各级别条数增量计数。调用方（如 Dashboard 健康卡）每次只要计数，不该为此整表拷贝：
+ * 缓冲区上限 5 万条，日志持续写入时逐条 O(n) 扫描是卡顿主因之一。
+ * 环形覆盖写命中旧条目时，先从旧条目对应级别减一（见 pushLog）。
+ */
+const _countsByLevel = {};
 /** 自增 ID 计数器 */
 let _nextId = 1;
 /** 订阅者列表 */
@@ -2171,6 +2177,10 @@ function pushLog(level, args) {
         message: formatArgs(args),
     };
     // 环形缓冲区：固定容量覆盖写，O(1) 无数组拷贝
+    const overwritten = _buffer[_writeIndex];
+    if (overwritten)
+        _countsByLevel[overwritten.level] = Math.max(0, (_countsByLevel[overwritten.level] || 0) - 1);
+    _countsByLevel[level] = (_countsByLevel[level] || 0) + 1;
     _buffer[_writeIndex] = entry;
     _writeIndex = (_writeIndex + 1) % MAX_BUFFER_SIZE;
     if (_count < MAX_BUFFER_SIZE)
@@ -2206,6 +2216,24 @@ function getAllLogs() {
 function getLogCount() {
     return _count;
 }
+/** 各级别条数（O(1) 读，增量维护）。 */
+function getLogCountsByLevel_ACU() {
+    return { ..._countsByLevel };
+}
+/** 最近 limit 条日志（只读尾部，不整表拷贝）。 */
+function getRecentLogs_ACU(limit) {
+    const take = Math.max(0, Math.min(Math.floor(Number(limit) || 0), _count));
+    if (take === 0)
+        return [];
+    const result = [];
+    for (let offset = take; offset >= 1; offset -= 1) {
+        const index = (_writeIndex - offset + MAX_BUFFER_SIZE * 2) % MAX_BUFFER_SIZE;
+        const entry = _buffer[index];
+        if (entry)
+            result.push(entry);
+    }
+    return result;
+}
 /**
  * 清空缓冲区（调用方必须传 caller 留痕，导出自带清空记录）。
  */
@@ -2213,6 +2241,8 @@ function clearLogs(caller = 'unknown') {
     _buffer = new Array(MAX_BUFFER_SIZE);
     _writeIndex = 0;
     _count = 0;
+    for (const key of Object.keys(_countsByLevel))
+        delete _countsByLevel[key];
     _knownTags.clear();
     _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
     if (_clearHistory.length > 20)
@@ -2277,6 +2307,8 @@ function _resetForTesting() {
     _nextId = 1;
     _subscribers.clear();
     _knownTags.clear();
+    for (const key of Object.keys(_countsByLevel))
+        delete _countsByLevel[key];
     _clearHistory.length = 0;
     _clearSubscribers.clear();
     _debugLogEnabled = false;
@@ -89867,7 +89899,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.9" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.10" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -168051,10 +168083,15 @@ function interpretLogEntry(entry) {
         : dashboardCopy.logs.genericWarning;
 }
 function buildLogHealthItem(showDeveloperDiagnostics) {
-    const logs = getAllLogs();
-    const errorEntries = logs.filter((entry) => entry.level === "error");
-    const warnCount = logs.filter((entry) => entry.level === "warn").length;
-    if (!errorEntries.length) {
+    // 健康卡只要「各级别条数」与「最近一条错误」：用 O(1) 增量计数 + 尾部只读，
+    // 不再整表拷贝 5 万条再过滤两遍（日志持续写入时那是逐条 O(n) 的卡顿源）。
+    const counts = getLogCountsByLevel_ACU();
+    const errorCount = counts.error || 0;
+    const warnCount = counts.warn || 0;
+    const recentErrors = errorCount > 0
+        ? getRecentLogs_ACU(200).filter((entry) => entry.level === "error")
+        : [];
+    if (!errorCount || recentErrors.length === 0) {
         return makeHealthItem({
             key: "logs",
             title: dashboardCopy.logs.title,
@@ -168063,13 +168100,13 @@ function buildLogHealthItem(showDeveloperDiagnostics) {
             summary: dashboardCopy.logs.noErrorSummary(showDeveloperDiagnostics ? warnCount : 0, showDeveloperDiagnostics),
         });
     }
-    const latest = errorEntries[errorEntries.length - 1];
+    const latest = recentErrors[recentErrors.length - 1];
     return makeHealthItem({
         key: "logs",
         title: dashboardCopy.logs.title,
-        badge: dashboardCopy.logs.errorBadge(errorEntries.length),
+        badge: dashboardCopy.logs.errorBadge(errorCount),
         kind: "error",
-        summary: dashboardCopy.logs.errorSummary(interpretLogEntry(latest), errorEntries.length, warnCount, latest.tag),
+        summary: dashboardCopy.logs.errorSummary(interpretLogEntry(latest), errorCount, warnCount, latest.tag),
         action: { label: dashboardCopy.logs.action, pageId: "advanced-tools" },
     });
 }
@@ -185177,6 +185214,12 @@ const LOG_ERROR_HINT_RULE_IDS = RULES.map(rule => rule.id);
  * 页面只消费本 composable；日志读写集中对接 shared/log-buffer，避免 v2
  * Vue 组件复用旧 presentation/log-viewer 的 jQuery 状态机。
  */
+/**
+ * 日志页显示窗口上限。缓冲区上限是 5 万条，页面若全量跟随会出现三个 O(n) 叠加：
+ * 每帧整表拷贝（getAllLogs）、filter/reverse 全量重算、DOM 全量渲染——Debug 开着时
+ * 日志持续写入，久了必然卡死。这里只保留最近 N 条做现实时视图，全量仍在缓冲区里可导出。
+ */
+const LOG_VIEW_MAX_ENTRIES_ACU = 300;
 const levelOptions = [
     { value: 'all', label: '全部级别' },
     { value: 'debug', label: 'Debug' },
@@ -185201,6 +185244,8 @@ function useLogViewer() {
     const logs = ref([]);
     const knownTags = ref([]);
     const totalCount = ref(0);
+    /** 被显示窗口裁掉的条数（只影响列表展示，导出仍取全量过滤结果）。 */
+    const hiddenByWindow = ref(0);
     const levelFilter = ref('all');
     const tagFilter = ref('all');
     const keyword = ref('');
@@ -185213,6 +185258,8 @@ function useLogViewer() {
     let unsubscribe = null;
     let unsubscribeClear = null;
     let rafId = null;
+    /** 本帧待追加的新日志：一帧只做一次响应式变更，避免逐条 push 触发多次重算。 */
+    const pendingAppend = [];
     const tagOptions = computed(() => [
         { value: 'all', label: '全部模块' },
         ...knownTags.value.map(tag => ({ value: tag, label: tag })),
@@ -185238,8 +185285,11 @@ function useLogViewer() {
         return '实时更新中';
     });
     const debugLabel = computed(() => (debugLogEnabled.value ? 'Debug 采集中' : 'Debug 未采集'));
+    /** 全量重读（仅挂载/清空/恢复暂停时用）；展示只取最近窗口。 */
     function refresh() {
-        logs.value = getAllLogs();
+        const all = getAllLogs();
+        logs.value = all.length > LOG_VIEW_MAX_ENTRIES_ACU ? all.slice(-LOG_VIEW_MAX_ENTRIES_ACU) : all;
+        hiddenByWindow.value = Math.max(0, all.length - logs.value.length);
         knownTags.value = getKnownTags();
         totalCount.value = getLogCount();
         debugLogEnabled.value = isDebugLogEnabled();
@@ -185247,24 +185297,46 @@ function useLogViewer() {
             tagFilter.value = 'all';
         }
     }
+    /** 增量追加：把本帧累积的新日志一次性并入窗口并裁剪，全程不拷贝整个缓冲区。 */
+    function flushAppend() {
+        if (pendingAppend.length === 0) {
+            totalCount.value = getLogCount();
+            debugLogEnabled.value = isDebugLogEnabled();
+            return;
+        }
+        const merged = logs.value.concat(pendingAppend);
+        pendingAppend.length = 0;
+        if (merged.length > LOG_VIEW_MAX_ENTRIES_ACU) {
+            hiddenByWindow.value += merged.length - LOG_VIEW_MAX_ENTRIES_ACU;
+            logs.value = merged.slice(-LOG_VIEW_MAX_ENTRIES_ACU);
+        }
+        else {
+            logs.value = merged;
+        }
+        totalCount.value = getLogCount();
+        debugLogEnabled.value = isDebugLogEnabled();
+    }
     function scheduleRefresh() {
         if (rafId !== null)
             return;
         rafId = acuRequestAnimationFrame(() => {
             rafId = null;
-            refresh();
+            flushAppend();
         });
     }
     function setPaused(value) {
         paused.value = value;
         if (!value) {
             pendingEntries.value = [];
+            pendingAppend.length = 0;
             refresh();
         }
     }
     function clearAll() {
         clearLogs('logViewer.clearAll');
         pendingEntries.value = [];
+        pendingAppend.length = 0;
+        hiddenByWindow.value = 0;
         refresh();
         message.value = null;
         toast.success('日志缓冲区已清空。');
@@ -185284,12 +185356,14 @@ function useLogViewer() {
     onMounted(() => {
         refresh();
         unsubscribe = subscribe(entry => {
-            totalCount.value = getLogCount();
-            knownTags.value = getKnownTags();
+            // 逐条只做 O(1) 累积：整表拷贝/排序放到本帧一次的 flushAppend 里。
+            if (!knownTags.value.includes(entry.tag))
+                knownTags.value = getKnownTags();
             if (paused.value) {
                 pendingEntries.value = [...pendingEntries.value, entry];
                 return;
             }
+            pendingAppend.push(entry);
             scheduleRefresh();
         });
         // 清空不产日志条目，必须订阅清空事件：否则页面继续显示已清空的旧数组（收起重开才刷新）。
@@ -185321,6 +185395,8 @@ function useLogViewer() {
         debugLogEnabled,
         message,
         totalCount,
+        hiddenByWindow,
+        windowSizeLimit: LOG_VIEW_MAX_ENTRIES_ACU,
         filteredCount,
         pendingCount,
         statusLabel,
@@ -185461,7 +185537,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.9";
+        const v = "9.4.10";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -185960,8 +186036,8 @@ var _sfc_main$c = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-2f070065] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-2f070065] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-2f070065] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-2f070065] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-2f070065] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-2f070065] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-2f070065] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-2f070065] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-2f070065] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-2f070065] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-2f070065] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-2f070065] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-2f070065] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-2f070065] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-2f070065] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-2f070065] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-2f070065] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-2f070065] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-2f070065] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-2f070065] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-2f070065]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-2f070065] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-2f070065] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-2f070065] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-2f070065] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-2f070065] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-2f070065] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-2f070065] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2f070065] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2f070065] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2f070065] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-2f070065] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-list[data-v-2f070065] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-2f070065] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__log-list[data-v-2f070065] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-row[data-v-2f070065] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2f070065] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-2f070065] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-2f070065] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-2f070065] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2f070065]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-2f070065]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-2f070065] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-2f070065] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2f070065]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2f070065]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-2f070065],\r\n.acu-v2-advanced-tools-page__log-message[data-v-2f070065] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-2f070065] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-2f070065] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-2f070065] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-2f070065] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-2f070065] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2f070065] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2f070065]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2f070065]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2f070065]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-2f070065] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-2f070065] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-2f070065] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-2f070065]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-2f070065]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-2f070065] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-2f070065] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-2f070065] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-2f070065] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-2f070065] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-2f070065] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-2f070065] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2f070065] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2f070065],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-2f070065] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-2f070065");
-var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_2f070065_lang = null;
+injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-3319b194] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-3319b194] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-3319b194] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-3319b194] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-3319b194] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-3319b194] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-3319b194] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-3319b194] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-3319b194] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-3319b194] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-3319b194] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-3319b194] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-3319b194] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-3319b194] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-3319b194] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-3319b194] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-3319b194] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-3319b194] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-3319b194] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-3319b194] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-3319b194]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-3319b194] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-3319b194] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-3319b194] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-3319b194] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-3319b194] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-3319b194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-3319b194] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-3319b194] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-3319b194] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-3319b194] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-3319b194] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-list[data-v-3319b194] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-3319b194] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__log-list[data-v-3319b194] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-row[data-v-3319b194] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-3319b194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-3319b194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-3319b194] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-3319b194] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-3319b194]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-3319b194]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-3319b194] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-3319b194] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-3319b194]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-3319b194]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-3319b194],\r\n.acu-v2-advanced-tools-page__log-message[data-v-3319b194] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-3319b194] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-3319b194] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-3319b194] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-3319b194] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-3319b194] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-3319b194] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-3319b194]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-3319b194]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-3319b194]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-3319b194] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-3319b194] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-3319b194] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-3319b194]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-3319b194]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-3319b194] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-3319b194] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-3319b194] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-3319b194] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-3319b194] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-3319b194] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-3319b194] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-3319b194] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-3319b194],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-3319b194] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-3319b194");
+var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_3319b194_lang = null;
 
 const _hoisted_1$c = { class: "acu-v2-advanced-tools-page" };
 const _hoisted_2$b = {
@@ -186377,7 +186453,7 @@ function _sfc_render$c(_ctx, _cache, $props, $setup, $data, $options) {
 					}, null, 8, ["model-value"])])]), createBaseVNode(
 						"p",
 						_hoisted_23$1,
-						" 最多保留最近 50000 条；当前显示 " + toDisplayString($setup.logFlow.filteredCount.value) + " / " + toDisplayString($setup.logFlow.totalCount.value) + " 条。" + toDisplayString($setup.logFlow.pendingCount.value ? `${$setup.logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : "没有暂停期间积压的日志。"),
+						" 最多保留最近 50000 条；列表只渲染最近 " + toDisplayString($setup.logFlow.windowSizeLimit) + " 条（" + toDisplayString($setup.logFlow.hiddenByWindow.value ? `已折叠较早的 ${$setup.logFlow.hiddenByWindow.value} 条，` : "") + "当前显示 " + toDisplayString($setup.logFlow.filteredCount.value) + " / " + toDisplayString($setup.logFlow.totalCount.value) + " 条，导出仍取全部）。" + toDisplayString($setup.logFlow.pendingCount.value ? `${$setup.logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : "没有暂停期间积压的日志。"),
 						1
 						/* TEXT */
 					)]),
@@ -186553,7 +186629,7 @@ function _sfc_render$c(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$c], ["__scopeId", "data-v-2f070065"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$c], ["__scopeId", "data-v-3319b194"]]);
 
 const developerCopy = {
     panels: {

@@ -190,7 +190,7 @@
           </div>
 
           <p class="acu-v2-advanced-tools-page__hint">
-            最多保留最近 50000 条；当前显示 {{ logFlow.filteredCount.value }} / {{ logFlow.totalCount.value }} 条。{{ logFlow.pendingCount.value ? `${logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : '没有暂停期间积压的日志。' }}
+            最多保留最近 50000 条；列表只渲染最近 {{ logFlow.windowSizeLimit }} 条（{{ logFlow.hiddenByWindow.value ? `已折叠较早的 ${logFlow.hiddenByWindow.value} 条，` : '' }}当前显示 {{ logFlow.filteredCount.value }} / {{ logFlow.totalCount.value }} 条，导出仍取全部）。{{ logFlow.pendingCount.value ? `${logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : '没有暂停期间积压的日志。' }}
           </p>
         </div>
 
