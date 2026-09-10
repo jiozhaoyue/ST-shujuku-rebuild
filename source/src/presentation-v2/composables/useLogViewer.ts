@@ -10,6 +10,7 @@ import {
   type LogLevel,
   clearLogs,
   getAllLogs,
+  getClearHistory_ACU,
   getKnownTags,
   getLogCount,
   isDebugLogEnabled,
@@ -115,7 +116,7 @@ export function useLogViewer() {
   }
 
   function clearAll(): void {
-    clearLogs();
+    clearLogs('logViewer.clearAll');
     pendingEntries.value = [];
     refresh();
     message.value = null;
@@ -130,7 +131,7 @@ export function useLogViewer() {
       message: entry.message,
     }));
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadJson(`acu-logs-${stamp}.json`, exportData);
+    downloadJson(`acu-logs-${stamp}.json`, { exportedAt: new Date().toISOString(), clearHistory: getClearHistory_ACU(), logs: exportData });
     message.value = null;
     toast.success(`已导出 ${exportData.length} 条日志。`);
   }

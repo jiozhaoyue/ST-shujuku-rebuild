@@ -1980,6 +1980,8 @@ let _nextId = 1;
 const _subscribers = new Set();
 /** 已出现过的所有标签（供 UI 过滤器使用） */
 const _knownTags = new Set();
+/** 清空留痕：谁在何时清了缓冲区（导出自带，丢日志先查它）。保留最近 20 条。 */
+const _clearHistory = [];
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
 /** warn 级别日志是否写入缓冲区（默认关闭，用户显式开启后才采集） */
@@ -2201,13 +2203,20 @@ function getLogCount() {
     return _count;
 }
 /**
- * 清空缓冲区
+ * 清空缓冲区（调用方必须传 caller 留痕，导出自带清空记录）。
  */
-function clearLogs() {
+function clearLogs(caller = 'unknown') {
     _buffer = new Array(MAX_BUFFER_SIZE);
     _writeIndex = 0;
     _count = 0;
     _knownTags.clear();
+    _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
+    if (_clearHistory.length > 20)
+        _clearHistory.splice(0, _clearHistory.length - 20);
+}
+/** 取清空留痕（只读快照）。 */
+function getClearHistory_ACU() {
+    return _clearHistory.map(item => ({ at: new Date(item.at).toISOString(), caller: item.caller }));
 }
 /**
  * 获取所有已知的模块标签（供 UI 过滤器使用）
@@ -2247,6 +2256,7 @@ function _resetForTesting() {
     _nextId = 1;
     _subscribers.clear();
     _knownTags.clear();
+    _clearHistory.length = 0;
     _debugLogEnabled = false;
     _warnLogEnabled = false;
 }
@@ -89740,7 +89750,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.2" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.3" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -140796,7 +140806,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260910-11";
+        const stamp = "20260910-12";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -185024,7 +185034,7 @@ function useLogViewer() {
         }
     }
     function clearAll() {
-        clearLogs();
+        clearLogs('logViewer.clearAll');
         pendingEntries.value = [];
         refresh();
         message.value = null;
@@ -185038,7 +185048,7 @@ function useLogViewer() {
             message: entry.message,
         }));
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        downloadJson$1(`acu-logs-${stamp}.json`, exportData);
+        downloadJson$1(`acu-logs-${stamp}.json`, { exportedAt: new Date().toISOString(), clearHistory: getClearHistory_ACU(), logs: exportData });
         message.value = null;
         toast.success(`已导出 ${exportData.length} 条日志。`);
     }
@@ -185206,7 +185216,7 @@ async function waitForAcuHostReady(maxWaitMs = 15000) {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260910-11";
+        const stamp = "20260910-12";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -185215,7 +185225,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.2";
+        const v = "9.4.3";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
@@ -185295,13 +185305,14 @@ function useDebugPanel() {
         entryCount.value = getAllLogs().length;
     }
     function startDebug() {
-        // 已在采集中（比如关 UI 前开的）不再清日志：clearLogs 会洗掉已采集的内容。
-        const alreadyCollecting = isDebugLogEnabled();
+        // 以本面板会话态为准（而非原始 flag）：flag 可能被外部提前打开，
+        // 此时旧日志不属于本次排查，必须清掉；只有本会话已在采集中才保留。
+        const alreadyCollecting = active.value;
         setDebugLogEnabled(true);
         setWarnLogEnabled(true);
         if (!alreadyCollecting) {
             // 清空旧日志，让导出只含本次排查内容
-            clearLogs();
+            clearLogs('debugPanel.startDebug');
             debugStartedAt_ACU = Date.now();
         }
         active.value = true;
@@ -185430,6 +185441,7 @@ function useDebugPanel() {
                     lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
                     lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
                     logCount: logs.length,
+                    clearHistory: getClearHistory_ACU(),
                     logs: logs.map((e) => ({
                         time: new Date(e.timestamp).toISOString(),
                         level: e.level,

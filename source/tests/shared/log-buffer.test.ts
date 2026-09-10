@@ -11,6 +11,7 @@ import {
   getKnownTags,
   subscribe,
   unsubscribe,
+  getClearHistory_ACU,
   getSubscriberCount,
   extractTag,
   formatArgs,
@@ -137,6 +138,14 @@ describe('clearLogs', () => {
     clearLogs();
     expect(getLogCount()).toBe(0);
     expect(getAllLogs()).toEqual([]);
+  });
+
+  it('记录调用方留痕供导出自查', () => {
+    clearLogs('debugPanel.startDebug');
+    clearLogs('logViewer.clearAll');
+    const history = getClearHistory_ACU();
+    expect(history.map(item => item.caller)).toEqual(['debugPanel.startDebug', 'logViewer.clearAll']);
+    expect(history[0].at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
 

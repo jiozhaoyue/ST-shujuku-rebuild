@@ -17,6 +17,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   clearLogs,
   getAllLogs,
+  getClearHistory_ACU,
   isDebugLogEnabled,
   isWarnLogEnabled,
   setDebugLogEnabled,
@@ -122,13 +123,14 @@ export function useDebugPanel() {
   }
 
   function startDebug(): void {
-    // 已在采集中（比如关 UI 前开的）不再清日志：clearLogs 会洗掉已采集的内容。
-    const alreadyCollecting = isDebugLogEnabled();
+    // 以本面板会话态为准（而非原始 flag）：flag 可能被外部提前打开，
+    // 此时旧日志不属于本次排查，必须清掉；只有本会话已在采集中才保留。
+    const alreadyCollecting = active.value;
     setDebugLogEnabled(true);
     setWarnLogEnabled(true);
     if (!alreadyCollecting) {
       // 清空旧日志，让导出只含本次排查内容
-      clearLogs();
+      clearLogs('debugPanel.startDebug');
       debugStartedAt_ACU = Date.now();
     }
     active.value = true;
@@ -231,6 +233,7 @@ export function useDebugPanel() {
           lastApiBody: lastApiBody ? maskSensitiveFields(lastApiBody) : null,
           lastApiBodyAt: lastApiBodyAt ? new Date(lastApiBodyAt).toISOString() : null,
           logCount: logs.length,
+          clearHistory: getClearHistory_ACU(),
           logs: logs.map((e) => ({
             time: new Date(e.timestamp).toISOString(),
             level: e.level,

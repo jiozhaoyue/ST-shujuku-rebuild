@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { type App, createApp, defineComponent, h } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useDebugPanel } from '../../../src/presentation-v2/composables/useDebugPanel';
-import { isDebugLogEnabled, setDebugLogEnabled } from '../../../src/shared/log-buffer';
+import { getAllLogs, isDebugLogEnabled, pushLog, setDebugLogEnabled } from '../../../src/shared/log-buffer';
 
 const mounted: Array<{ app: App<Element>; el: HTMLElement }> = [];
 
@@ -82,5 +82,33 @@ describe('useDebugPanel 跨 UI 开关', () => {
     second.toggleDebug();
     expect(second.active.value).toBe(false);
     expect(isDebugLogEnabled()).toBe(false);
+  });
+
+  it('复现：开始采集后写入的日志，关 UI 重开后仍在缓冲区', () => {
+    const first = mountPanel();
+    first.toggleDebug();
+    pushLog('debug', ['[repro] 采集中的标记日志']);
+    const before = getAllLogs().length;
+    expect(before).toBeGreaterThan(0);
+    unmountAll();
+
+    mountPanel();
+    // 缓冲区是模块级的，UI 开关不应影响内容
+    expect(getAllLogs().length).toBe(before);
+    expect(getAllLogs().some(e => e.message.includes('[repro]'))).toBe(true);
+  });
+
+  it('复现：全新开始时清掉采集前旧日志', () => {
+    setDebugLogEnabled(true);
+    pushLog('debug', ['[repro] 采集前旧日志']);
+    setDebugLogEnabled(false);
+    expect(getAllLogs().length).toBeGreaterThan(0);
+
+    const panel = mountPanel();
+    expect(panel.active.value).toBe(false);
+    panel.toggleDebug();
+    // 新会话开始，旧日志被清空
+    expect(getAllLogs().some(e => e.message.includes('[repro]'))).toBe(false);
+    panel.toggleDebug();
   });
 });

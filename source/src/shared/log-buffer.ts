@@ -59,6 +59,9 @@ const _subscribers: Set<LogSubscriber> = new Set();
 /** 已出现过的所有标签（供 UI 过滤器使用） */
 const _knownTags: Set<string> = new Set();
 
+/** 清空留痕：谁在何时清了缓冲区（导出自带，丢日志先查它）。保留最近 20 条。 */
+const _clearHistory: Array<{ at: number; caller: string }> = [];
+
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
 
@@ -281,13 +284,20 @@ export function getLogCount(): number {
 }
 
 /**
- * 清空缓冲区
+ * 清空缓冲区（调用方必须传 caller 留痕，导出自带清空记录）。
  */
-export function clearLogs(): void {
+export function clearLogs(caller = 'unknown'): void {
   _buffer = new Array(MAX_BUFFER_SIZE);
   _writeIndex = 0;
   _count = 0;
   _knownTags.clear();
+  _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
+  if (_clearHistory.length > 20) _clearHistory.splice(0, _clearHistory.length - 20);
+}
+
+/** 取清空留痕（只读快照）。 */
+export function getClearHistory_ACU(): Array<{ at: string; caller: string }> {
+  return _clearHistory.map(item => ({ at: new Date(item.at).toISOString(), caller: item.caller }));
 }
 
 /**
@@ -332,6 +342,7 @@ export function _resetForTesting(): void {
   _nextId = 1;
   _subscribers.clear();
   _knownTags.clear();
+  _clearHistory.length = 0;
   _debugLogEnabled = false;
   _warnLogEnabled = false;
 }
