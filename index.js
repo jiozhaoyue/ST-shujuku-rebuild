@@ -48130,8 +48130,17 @@ async function executeEmbeddingBatchPlan_ACU(plan, options) {
         totalRows: new Set(plan.sources.map(source => source.rowKey)).size,
         totalChunks: plan.sources.length,
         maxInputChars: Math.max(0, ...plan.batches.map(batch => batch.inputChars)),
+        overBudgetBatchCount: plan.batches.filter(batch => batch.singleRowOverBudget).length,
         elapsedMs: Date.now() - startedAt,
     };
+    if (stats.overBudgetBatchCount > 0) {
+        const overBudgetRowKeys = plan.batches
+            .filter(batch => batch.singleRowOverBudget)
+            .slice(0, 5)
+            .map(batch => batch.sources[0]?.source?.rowKey || '未知');
+        logWarn_ACU(`[向量索引] ${stats.overBudgetBatchCount} 个 embedding 批次单行即超出字符预算，只能单独发送；`
+            + `超预算行（前 5 个）：${overBudgetRowKeys.join('、')}。可调大「每请求字符预算」或精简对应纪要行。`);
+    }
     if (firstFailure) {
         const message = firstFailure.error instanceof Error ? firstFailure.error.message : String(firstFailure.error || 'Embedding 批次失败');
         throw new EmbeddingBatchExecutionError_ACU(message, firstFailure.batch, firstFailure.error);
@@ -89831,7 +89840,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.6" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.4.7" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -185361,7 +185370,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.4.6";
+        const v = "9.4.7";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {

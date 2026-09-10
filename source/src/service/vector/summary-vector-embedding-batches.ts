@@ -1,4 +1,5 @@
 import type { VectorEmbeddingResult_ACU } from '../../data/gateways/vector-embedding-gateway';
+import { logWarn_ACU } from '../../shared/utils';
 
 export interface EmbeddingBatchSource_ACU {
     rowKey: string;
@@ -26,6 +27,8 @@ export interface EmbeddingBatchStats_ACU {
     totalRows: number;
     totalChunks: number;
     maxInputChars: number;
+    /** 单行即超字符预算的批次数（这类批次只能单独发送，上游可能拒绝或截断）。 */
+    overBudgetBatchCount: number;
     elapsedMs: number;
 }
 
@@ -131,8 +134,19 @@ export async function executeEmbeddingBatchPlan_ACU<T extends EmbeddingBatchSour
         totalRows: new Set(plan.sources.map(source => source.rowKey)).size,
         totalChunks: plan.sources.length,
         maxInputChars: Math.max(0, ...plan.batches.map(batch => batch.inputChars)),
+        overBudgetBatchCount: plan.batches.filter(batch => batch.singleRowOverBudget).length,
         elapsedMs: Date.now() - startedAt,
     };
+    if (stats.overBudgetBatchCount > 0) {
+        const overBudgetRowKeys = plan.batches
+            .filter(batch => batch.singleRowOverBudget)
+            .slice(0, 5)
+            .map(batch => batch.sources[0]?.source?.rowKey || '未知');
+        logWarn_ACU(
+            `[向量索引] ${stats.overBudgetBatchCount} 个 embedding 批次单行即超出字符预算，只能单独发送；`
+            + `超预算行（前 5 个）：${overBudgetRowKeys.join('、')}。可调大「每请求字符预算」或精简对应纪要行。`,
+        );
+    }
     if (firstFailure) {
         const message = firstFailure.error instanceof Error ? firstFailure.error.message : String(firstFailure.error || 'Embedding 批次失败');
         throw new EmbeddingBatchExecutionError_ACU(message, firstFailure.batch, firstFailure.error);

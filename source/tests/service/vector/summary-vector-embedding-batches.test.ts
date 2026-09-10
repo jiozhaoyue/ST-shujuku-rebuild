@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+
+const { mockLogWarn } = vi.hoisted(() => ({ mockLogWarn: vi.fn() }));
+vi.mock('../../../src/shared/utils', async () => {
+  const actual = await vi.importActual<any>('../../../src/shared/utils');
+  return { ...actual, logWarn_ACU: mockLogWarn };
+});
 import {
   EmbeddingBatchExecutionError_ACU,
   executeEmbeddingBatchPlan_ACU,
@@ -6,6 +12,9 @@ import {
 } from '../../../src/service/vector/summary-vector-embedding-batches';
 
 describe('summary-vector-embedding-batches', () => {
+  beforeEach(() => { mockLogWarn.mockClear(); });
+  afterEach(() => { mockLogWarn.mockClear(); });
+
   it('keeps rows intact and applies row/character limits with an explicit over-budget row', () => {
     const plan = planEmbeddingBatches_ACU([
       { rowKey: 'a', text: 'aa' }, { rowKey: 'a', text: 'bb' },
@@ -68,5 +77,34 @@ describe('summary-vector-embedding-batches', () => {
       },
     })).rejects.toBeInstanceOf(EmbeddingBatchExecutionError_ACU);
     expect(started).toEqual(['a', 'b']);
+  });
+
+  it('单行超预算时记录一次诊断，正常批次不记录', async () => {
+    const plan = planEmbeddingBatches_ACU([
+      { rowKey: 'a', text: 'aa' }, { rowKey: 'over', text: '123456' },
+    ], { maxRowsPerRequest: 5, maxInputCharsPerRequest: 3 });
+    expect(plan.batches.filter(batch => batch.singleRowOverBudget).map(batch => batch.sources[0].source.rowKey)).toEqual(['over']);
+
+    const result = await executeEmbeddingBatchPlan_ACU(plan, {
+      maxConcurrentRequests: 1,
+      requestEmbeddings: async input => [{ index: 0, embedding: [input[0].length] }],
+    });
+
+    expect(result.stats.overBudgetBatchCount).toBe(1);
+    expect(mockLogWarn).toHaveBeenCalledTimes(1);
+    const text = String(mockLogWarn.mock.calls[0][0]);
+    expect(text).toContain('1 个 embedding 批次单行即超出字符预算');
+    expect(text).toContain('over');
+  });
+
+  it('无超预算批次时不记录诊断', async () => {
+    const plan = planEmbeddingBatches_ACU([{ rowKey: 'a', text: 'aa' }], { maxRowsPerRequest: 5, maxInputCharsPerRequest: 100 });
+    const result = await executeEmbeddingBatchPlan_ACU(plan, {
+      maxConcurrentRequests: 1,
+      requestEmbeddings: async input => [{ index: 0, embedding: [input[0].length] }],
+    });
+
+    expect(result.stats.overBudgetBatchCount).toBe(0);
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 });
