@@ -13,7 +13,7 @@ const kiloPreset = CLIENT_HEADER_PRESETS_ACU.find((p) => p.id === 'kilo-code')!;
 describe('client-header-presets · 客户端伪装头预设', () => {
   it('空文本应用预设：追加全部预设行', () => {
     const out = applyClientHeaderPreset_ACU('', claudePreset);
-    expect(out).toBe('x-app: cli\nUser-Agent: claude-cli/2.1.207 (external, cli)');
+    expect(out).toBe('x-app: cli\nUser-Agent: claude-cli/2.1.283 (external, cli)');
   });
 
   it('受管身份键被替换为预设值，无关行（Authorization/自定义键）保留', () => {
@@ -23,7 +23,7 @@ describe('client-header-presets · 客户端伪装头预设', () => {
     expect(lines).toContain('Authorization: Bearer sk-xxx');
     expect(lines).toContain('X-Custom: keep-me');
     expect(lines.filter((l) => /^user-agent:/i.test(l)).length).toBe(1);
-    expect(lines.find((l) => /^user-agent:/i.test(l))).toBe('User-Agent: claude-cli/2.1.207 (external, cli)');
+    expect(lines.find((l) => /^user-agent:/i.test(l))).toBe('User-Agent: claude-cli/2.1.283 (external, cli)');
     expect(lines.filter((l) => /^x-app:/i.test(l)).length).toBe(1);
   });
 
@@ -42,7 +42,7 @@ describe('client-header-presets · 客户端伪装头预设', () => {
     expect(switched).toContain('x-app: cli');
     const uaLines = switched.split('\n').filter((l) => /^user-agent:/i.test(l));
     expect(uaLines.length).toBe(1);
-    expect(uaLines[0]).toBe('User-Agent: claude-cli/2.1.207 (external, cli)');
+    expect(uaLines[0]).toBe('User-Agent: claude-cli/2.1.283 (external, cli)');
   });
 
   it('matchClientHeaderPreset：键+值双匹配，值不同不回显', () => {
@@ -60,5 +60,62 @@ describe('client-header-presets · 客户端伪装头预设', () => {
     expect(matchClientHeaderPreset_ACU(withKilo)).not.toBe('opencode');
     const withOpenCode = applyClientHeaderPreset_ACU('', opencodePreset);
     expect(matchClientHeaderPreset_ACU(withOpenCode)).toBe('opencode');
+  });
+});
+
+// 版本刷新与新预设判别：查证于 2026-09-27，证据见数据文件头注释
+describe('client-header-presets · 版本刷新与新预设（2026-09-27 查证）', () => {
+  const expectedUa: Record<string, string> = {
+    'claude-code': 'User-Agent: claude-cli/2.1.283 (external, cli)',
+    'zcode': 'User-Agent: ZCode/3.14.3',
+    'codex-cli': 'User-Agent: codex_cli_rs/0.157.1 (Windows 10.0; x86_64) WindowsTerminal',
+    'gemini-cli': 'User-Agent: GeminiCLI/0.61.0/gemini-pro (win32; x64; terminal)',
+    'qwen-code': 'User-Agent: QwenCode/0.24.6 (win32; x64)',
+    'roo-code': 'User-Agent: RooCode/3.54.0',
+    'grok-build': 'User-Agent: grok-shell/1.0.41 (windows; x86_64)',
+    'openclaw': 'User-Agent: openclaw/2026.9.6',
+  };
+
+  it('刷新预设的 User-Agent 为查证后的最新模板', () => {
+    for (const [id, ua] of Object.entries(expectedUa)) {
+      const preset = CLIENT_HEADER_PRESETS_ACU.find((p) => p.id === id);
+      expect(preset, id).toBeDefined();
+      expect(preset!.headers.find((h) => /^user-agent:/i.test(h)), id).toBe(ua);
+    }
+  });
+
+  it('被刷新的旧版本串不再残留于任何预设', () => {
+    const stale = ['2.1.207', 'ZCode/3.7.7', 'codex_cli_rs/0.46.0', 'GeminiCLI/v0.8.1',
+      'QwenCode/v3.1.0', 'RooCode/3.20.0', 'grok-shell/0.1.171', 'openclaw/1.0.0'];
+    const all = CLIENT_HEADER_PRESETS_ACU.map((p) => p.headers.join('\n')).join('\n');
+    for (const s of stale) expect(all).not.toContain(s);
+  });
+
+  const newPresetHeaders: Record<string, string[]> = {
+    'cline': ['HTTP-Referer: https://cline.bot', 'X-Title: Cline', 'User-Agent: Cline/3.0.65'],
+    'iflow': ['User-Agent: iFlowCLI/0.5.19 (win32; x64)'],
+    'cherry-studio': ['HTTP-Referer: https://cherry-ai.com', 'X-Title: Cherry Studio'],
+    'lobehub': ['HTTP-Referer: https://lobehub.com', 'X-Title: LobeHub'],
+  };
+
+  it('新增预设存在、头与查证值一致、应用→回显闭环成立', () => {
+    for (const [id, headers] of Object.entries(newPresetHeaders)) {
+      const preset = CLIENT_HEADER_PRESETS_ACU.find((p) => p.id === id);
+      expect(preset, id).toBeDefined();
+      expect(preset!.headers, id).toEqual(headers);
+      const applied = applyClientHeaderPreset_ACU('', preset!);
+      expect(matchClientHeaderPreset_ACU(applied), id).toBe(id);
+    }
+  });
+
+  it('新预设受管键被切换统一接管：切到 Claude Code 后无残留', () => {
+    const clinePreset = CLIENT_HEADER_PRESETS_ACU.find((p) => p.id === 'cline')!;
+    const switched = applyClientHeaderPreset_ACU(applyClientHeaderPreset_ACU('', clinePreset), claudePreset);
+    expect(switched).toBe('x-app: cli\nUser-Agent: claude-cli/2.1.283 (external, cli)');
+  });
+
+  it('预设 id 全局唯一', () => {
+    const ids = CLIENT_HEADER_PRESETS_ACU.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

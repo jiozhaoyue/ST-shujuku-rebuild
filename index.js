@@ -91229,7 +91229,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.7.3" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.7.4" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -168922,9 +168922,16 @@ var AcuToggle = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render
 /**
  * 客户端身份头预设清单（键值对经源码/文档查证；版本号随上游更新会过期，
  * 仅作为「像该客户端」的伪装基线，用户可在文本框中手动改版本号）。
- * 查证结论（2026-08-26）：Codex/Gemini/Qwen/OpenCode/Roo/Kilo/Grok Build/MiMo Code/
- * DeepSeek Harness/OpenClaw/OpenDesign 源码实证；Claude Code/Z Code 为用户提供样本；
- * Trae（IDE 闭源未查到，trae-agent 无硬编码头）未实证故不收录。
+ * 查证结论（2026-08-26 建档；2026-09-27 全量刷新）：
+ * - 版本号取 npm/GitHub/官网 changelog 的当前 latest；UA 模板以客户端发行包源码 grep 为准。
+ * - 本轮模板级修正：Gemini CLI 现行 UA 为 `GeminiCLI/<ver>/<model> (<platform>; <arch>; <surface>)`
+ *   （发行包与官方遥测文档实证，旧「v 前缀/windows/cli」形态作废）；Qwen Code 为
+ *   `QwenCode/<ver> (<platform>; <arch>)` 无 v 前缀（发行包模板实证，旧 v3.1.0 系错误资料）。
+ * - 新增：Cline/iFlow CLI/Cherry Studio/LobeHub（发行包或仓库源码头实证）。
+ * - 未刷新：MiMo Code、DeepSeek Harness（无公开可实证的现行版本号，维持建档值）；
+ *   OpenCode/Kilo Code/OpenDesign 预设头不含版本字段，本轮不涉及；
+ *   Trae 闭源未实证仍不收录。
+ *   注：Gemini UA 的 gemini-pro 为遥测文档示例模型段，真实值随所配模型变化。
  */
 const CLIENT_HEADER_PRESETS_ACU = [
     {
@@ -168932,7 +168939,7 @@ const CLIENT_HEADER_PRESETS_ACU = [
         label: 'Claude Code CLI',
         headers: [
             'x-app: cli',
-            'User-Agent: claude-cli/2.1.207 (external, cli)',
+            'User-Agent: claude-cli/2.1.283 (external, cli)',
         ],
     },
     {
@@ -168941,7 +168948,7 @@ const CLIENT_HEADER_PRESETS_ACU = [
         headers: [
             'HTTP-Referer: https://zcode.z.ai/',
             'X-Title: Z Code@electron',
-            'User-Agent: ZCode/3.7.7',
+            'User-Agent: ZCode/3.14.3',
         ],
     },
     {
@@ -168949,21 +168956,21 @@ const CLIENT_HEADER_PRESETS_ACU = [
         label: 'OpenAI Codex CLI',
         headers: [
             'originator: codex_cli_rs',
-            'User-Agent: codex_cli_rs/0.46.0 (Windows 10.0; x86_64) WindowsTerminal',
+            'User-Agent: codex_cli_rs/0.157.1 (Windows 10.0; x86_64) WindowsTerminal',
         ],
     },
     {
         id: 'gemini-cli',
         label: 'Gemini CLI',
         headers: [
-            'User-Agent: GeminiCLI/v0.8.1 (windows; x86_64; cli)',
+            'User-Agent: GeminiCLI/0.61.0/gemini-pro (win32; x64; terminal)',
         ],
     },
     {
         id: 'qwen-code',
         label: 'Qwen Code',
         headers: [
-            'User-Agent: QwenCode/v3.1.0 (windows; x86_64)',
+            'User-Agent: QwenCode/0.24.6 (win32; x64)',
         ],
     },
     {
@@ -168972,7 +168979,7 @@ const CLIENT_HEADER_PRESETS_ACU = [
         headers: [
             'HTTP-Referer: https://github.com/RooVetGit/Roo-Cline',
             'X-Title: Roo Code',
-            'User-Agent: RooCode/3.20.0',
+            'User-Agent: RooCode/3.54.0',
         ],
     },
     {
@@ -168995,7 +169002,7 @@ const CLIENT_HEADER_PRESETS_ACU = [
         id: 'grok-build',
         label: 'Grok Build',
         headers: [
-            'User-Agent: grok-shell/0.1.171 (windows; x86_64)',
+            'User-Agent: grok-shell/1.0.41 (windows; x86_64)',
         ],
     },
     {
@@ -169018,7 +169025,7 @@ const CLIENT_HEADER_PRESETS_ACU = [
         id: 'openclaw',
         label: 'OpenClaw',
         headers: [
-            'User-Agent: openclaw/1.0.0',
+            'User-Agent: openclaw/2026.9.6',
             'HTTP-Referer: https://openclaw.ai',
             'X-OpenRouter-Title: OpenClaw',
         ],
@@ -169028,6 +169035,38 @@ const CLIENT_HEADER_PRESETS_ACU = [
         label: 'OpenDesign',
         headers: [
             'APP-Code: DMCY9912',
+        ],
+    },
+    {
+        id: 'cline',
+        label: 'Cline',
+        headers: [
+            'HTTP-Referer: https://cline.bot',
+            'X-Title: Cline',
+            'User-Agent: Cline/3.0.65',
+        ],
+    },
+    {
+        id: 'iflow',
+        label: 'iFlow CLI',
+        headers: [
+            'User-Agent: iFlowCLI/0.5.19 (win32; x64)',
+        ],
+    },
+    {
+        id: 'cherry-studio',
+        label: 'Cherry Studio',
+        headers: [
+            'HTTP-Referer: https://cherry-ai.com',
+            'X-Title: Cherry Studio',
+        ],
+    },
+    {
+        id: 'lobehub',
+        label: 'LobeHub',
+        headers: [
+            'HTTP-Referer: https://lobehub.com',
+            'X-Title: LobeHub',
         ],
     },
 ];
@@ -196204,7 +196243,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.7.3";
+        const v = "9.7.4";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {
