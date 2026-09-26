@@ -27,6 +27,7 @@ vi.mock('../../../src/shared/utils', () => ({ logWarn_ACU: vi.fn() }));
 
 import {
   ContinuationWorldbookContext_ACU,
+  isSummaryIndexEntryComment_ACU,
   normalizeAmCode_ACU,
   resolveRelevantBookNames_ACU,
   type ContinuationWorldbookAdapterDependencies_ACU,
@@ -57,7 +58,18 @@ describe('ContinuationWorldbookContext_ACU', () => {
       baseScanText: '最近剧情',
     }));
     const options = vi.mocked(dependencies.buildRelevantWorldbookContent).mock.calls[0][0] as any;
+    // 屏蔽集合收窄为「纪要 + 纪要索引」：纪要（含旧总结残留）与纪要索引及其数字分片必须屏蔽，
+    // 其余已启用条目（表格导出、大纲载体、重要人物等）交由世界书方案决定是否注入。
     expect(options.excludeEntry({ comment: 'ACU-[chat-a]-总结条目1' })).toBe(true);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-小总结条目2' })).toBe(true);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-纪要索引' })).toBe(true);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-纪要索引-1' })).toBe(true);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-纪要索引-2' })).toBe(true);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-角色表-1' })).toBe(false);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-角色表-索引' })).toBe(false);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-CustomExport-纪要-3' })).toBe(false);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-TavernDB-ACU-OutlineTable-1' })).toBe(false);
+    expect(options.excludeEntry({ comment: 'ACU-[chat-a]-重要人物条目3' })).toBe(false);
     expect(options.excludeEntry({ comment: '普通设定' })).toBe(false);
     expect(dependencies.resolveInjectionTarget).not.toHaveBeenCalled();
     expect(dependencies.readLorebookEntries).not.toHaveBeenCalled();
@@ -123,5 +135,19 @@ describe('normalizeAmCode_ACU', () => {
     expect(normalizeAmCode_ACU('not-an-am')).toBeNull();
     expect(normalizeAmCode_ACU('')).toBeNull();
     expect(normalizeAmCode_ACU(null)).toBeNull();
+  });
+});
+
+describe('纪要索引识别（TT 移植上游 86be318e 屏蔽判据）', () => {
+  it('只识别纪要索引及数字分片，不屏蔽普通表格及其索引', () => {
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-纪要索引')).toBe(true);
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-纪要索引-12')).toBe(true);
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-角色表-索引')).toBe(false);
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-纪要索引-说明')).toBe(false);
+    // 数字分片必须以 1 开头的十进制序号出现；前导零与其它后缀都不算索引分片。
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-纪要索引-0')).toBe(false);
+    expect(isSummaryIndexEntryComment_ACU('TavernDB-ACU-CustomExport-纪要索引-01')).toBe(false);
+    // 外部导入变体不带 CustomExport 标记时按普通条目放行。
+    expect(isSummaryIndexEntryComment_ACU('外部导入-纪要索引')).toBe(false);
   });
 });

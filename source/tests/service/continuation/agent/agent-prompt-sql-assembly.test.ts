@@ -30,7 +30,7 @@ describe('续写维护代理最终组装的 SQL 写集提示', () => {
     expect(text).toContain('DELETE 必须给出理由');
   });
 
-  it('V33 旧默认逐段升级，自定义和追加段原样保留；恢复默认使用 V34', async () => {
+  it('V33 旧默认逐段升级，自定义和追加段原样保留；恢复默认使用当前版本组', async () => {
     const settings = buildDefaultContinuationSettings_ACU();
     settings.promptForceDefaultVersion = 'spv4.1-continuation-information-boundary-v33';
     settings.agentPrompts = buildV33ContinuationAgentPrompts_ACU();
