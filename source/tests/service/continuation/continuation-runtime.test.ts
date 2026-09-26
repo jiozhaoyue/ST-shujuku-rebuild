@@ -218,3 +218,48 @@ describe('全局续写设置副本', () => {
     expect(h.settings.continuationGlobalSettings.generationRetryLimit).toBe(9);
   });
 });
+
+describe('持久版本≠当前版本即重校验（TT 移植上游 ce867f86 continuation-runtime else 分支）', () => {
+  it('首楼已存 V35 标记信封：initialize 走校验链推进到 V37 并原子落盘', async () => {
+    const h = await createHarness();
+    const { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU } = await import('../../../src/service/continuation/defaults');
+    const { buildV35ContinuationAgentPrompts_ACU } = await import('../../../src/service/continuation/agent/agent-defaults');
+    const { USER_PREFILL_CONTENT_ACU } = await import('../../../src/shared/user-prefill.js');
+    const settings = buildDefaultContinuationSettings_ACU();
+    h.chat[0]._qrf_continuation = {
+      schemaVersion: 1,
+      settings: {
+        ...settings,
+        outlinePrompt: settings.outlinePrompt.slice(0, -1),
+        agentPrompts: buildV35ContinuationAgentPrompts_ACU(),
+        promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU,
+      },
+      activeTask: null,
+    };
+    const runtime = h.runtime.getContinuationRuntime_ACU();
+
+    await runtime.initialize();
+
+    const persisted = h.chat[0]._qrf_continuation;
+    expect(persisted.settings.promptForceDefaultVersion).toBe('spv4.5-continuation-outline-user-prefill-v37');
+    expect(persisted.settings.agentPrompts.main[persisted.settings.agentPrompts.main.length - 1]).toMatchObject({
+      role: 'user',
+      content: USER_PREFILL_CONTENT_ACU,
+    });
+    expect(persisted.settings.outlinePrompt[persisted.settings.outlinePrompt.length - 1].content).toBe(USER_PREFILL_CONTENT_ACU);
+    h.runtime.resetContinuationRuntimeForTests_ACU();
+  });
+
+  it('首楼已存当前 V37 标记信封：initialize 不触发多余持久化写', async () => {
+    const h = await createHarness();
+    const { buildDefaultContinuationSettings_ACU } = await import('../../../src/service/continuation/defaults');
+    const settings = buildDefaultContinuationSettings_ACU();
+    h.chat[0]._qrf_continuation = { schemaVersion: 1, settings, activeTask: null };
+    const runtime = h.runtime.getContinuationRuntime_ACU();
+
+    await runtime.initialize();
+
+    expect(h.saveChat).not.toHaveBeenCalled();
+    h.runtime.resetContinuationRuntimeForTests_ACU();
+  });
+});

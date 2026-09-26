@@ -46,8 +46,9 @@ export function saveGlobalMeta_ACU(): boolean {
     try {
         const store = getConfigStorage_ACU();
         const payload = safeJsonStringify_ACU(globalMeta_ACU);
-        store.setItem(STORAGE_KEY_GLOBAL_META_ACU, payload);
-        return true;
+        const writeResult = store.setItem(STORAGE_KEY_GLOBAL_META_ACU, payload);
+        // 存储门面明确返回 false（宿主持久化失败）不得谎报成功；undefined 视为兼容旧实现的成功。
+        return writeResult !== false;
     } catch (e) {
         logWarn_ACU('[GlobalMeta] Failed to save:', e);
         return false;

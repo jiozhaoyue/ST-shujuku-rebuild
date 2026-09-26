@@ -23,6 +23,7 @@ import {
   type ContinuationSettings_ACU,
 } from '../model';
 import { AGENT_PREFILLS_ACU } from './agent-defaults';
+import { USER_PREFILL_CONTENT_ACU } from '../../../shared/user-prefill.js';
 import { findAgentSubagentDefinition_ACU, renderAgentReadCatalog_ACU, renderAgentWebToolCatalog_ACU, type AgentSubagentDefinition_ACU } from './agent-catalog';
 import { hasActiveStoryArc_ACU, readAgentModuleFoldState_ACU, readAgentModuleSnapshot_ACU } from './agent-module-store';
 import { continuationWorkflowContractTouched_ACU } from './agent-workflow';
@@ -319,7 +320,8 @@ interface SubagentMaterial_ACU {
 }
 
 /**
- * 把一条运行时消息插到尾部预填充之前。渲染后的消息序列若以 assistant 预填充收尾，
+ * 把一条运行时消息插到尾部预填充之前。渲染后的消息序列若以尾部预填充收尾——
+ * assistant 旧形态（role==='assistant'）或 user + USER_PREFILL 新形态（V36 起）——
  * 追加内容必须放在它前面，否则预填充不再是最后一条消息、失去续写引导作用。
  */
 export function insertBeforeTrailingPrefill_ACU(
@@ -327,7 +329,7 @@ export function insertBeforeTrailingPrefill_ACU(
   extra: { role: string; content: string },
 ): Array<{ role: string; content: string }> {
   const last = messages[messages.length - 1];
-  if (last && last.role === 'assistant') return [...messages.slice(0, -1), extra, last];
+  if (last && (last.role === 'assistant' || (last.role === 'user' && last.content === USER_PREFILL_CONTENT_ACU))) return [...messages.slice(0, -1), extra, last];
   return [...messages, extra];
 }
 

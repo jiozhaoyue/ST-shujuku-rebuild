@@ -377,18 +377,26 @@ export function renderAgentUnsettledHistory_ACU(context: AgentResolveContext_ACU
 }
 
 /**
- * 拼装世界书关键词命中的扫描文本：本轮目标 + 未结算正文 + 尾部全文楼层 + 用户初始要求。
- * 主循环与子代理运行时共用，保证命中提示在两侧口径一致。
- * @param context 解析上下文
- * @returns 扫描文本
+ * 世界书触发只扫描最近一个用户楼层与最近一个 AI 楼层；不拼入任务、初始要求或旧历史
+ * （TT 移植上游 ce867f86-B：命中扫描收敛）。文本变短是收敛不是放宽：级联触发、
+ * exclude/prevent-recursion 语义与命中清单口径都由 renderAgentWorldbookHits_ACU 原样承担。
  */
+export function buildRecentWorldbookScanText_ACU(chat: readonly any[], rules?: AgentContextRules_ACU): string {
+  let user = '';
+  let assistant = '';
+  let foundUser = false;
+  let foundAssistant = false;
+  const floors = Array.isArray(chat) ? chat : [];
+  for (let index = floors.length - 1; index >= 0 && (!foundUser || !foundAssistant); index -= 1) {
+    const message = floors[index];
+    if (!foundUser && message?.is_user === true) { user = messageText_ACU(message, rules); foundUser = true; }
+    if (!foundAssistant && isAiFloor_ACU(message)) { assistant = messageText_ACU(message, rules); foundAssistant = true; }
+  }
+  return [user, assistant].filter(Boolean).join('\n');
+}
+
 export function buildAgentWorldbookScanText_ACU(context: AgentResolveContext_ACU): string {
-  return [
-    context.originInstruction,
-    context.execution.turn?.goal ?? '',
-    renderAgentUnsettledHistory_ACU(context),
-    renderAgentStoryTail_ACU(context),
-  ].filter(Boolean).join('\n');
+  return buildRecentWorldbookScanText_ACU(context.chat, context.contextRules);
 }
 
 /** 四档节奏标签的语义与写作指导。低压轮的约束写成禁令，否则模型会习惯性地往每一轮里塞冲突。 */

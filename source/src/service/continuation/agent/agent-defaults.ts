@@ -17,6 +17,7 @@
 
 import type { ContinuationAgentPrompts_ACU, ContinuationPromptSegment_ACU } from '../model';
 import { cloneAgentPromptSegments_ACU } from './agent-model';
+import { USER_PREFILL_CONTENT_ACU } from '../../../shared/user-prefill.js';
 
 /** 主 Agent 提示词里标记会话记录插入位置的段。装配器遇到该段时插入会话消息而不发送本段。 */
 export const AGENT_HISTORY_ANCHOR_TOKEN_ACU = '$HISTORY_ANCHOR';
@@ -1093,17 +1094,52 @@ export function applyCurrentContinuationPromptRules_ACU(prompts: ContinuationAge
 }
 
 /**
- * 构造全部当前 Agent 默认提示词；SQL 只改变资料写集，其他 JSON 动作保持原协议。
- * V34 的 dispatch 补齐在冻结装配里完成；V35 只在未改写的 V34 默认段上收窄排布问答的快照枚举。
+ * 冻结 V35 装配结果（本地链：V34 dispatch 补齐在 buildV34 装配里完成；V35 只在未改写的
+ * V34 默认段上收窄排布问答的快照枚举）。V36 起当前默认改由 buildV36 承担，本函数保持
+ * V35 原形状供迁移链与谱系表比对使用，不可再随默认改动。
  * @returns 十组提示词的深拷贝，可安全写入 settings
  */
-export function buildDefaultContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+export function buildV35ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
   const previous = buildV34ContinuationAgentPrompts_ACU();
   const v35: ContinuationAgentPrompts_ACU = { ...previous };
   for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
     v35[role] = previous[role].map(segment => ({ ...segment, content: v35Content_ACU(role, segment.content) }));
   }
   return v35;
+}
+
+/**
+ * V36（TT 移植上游 ce867f86 用户预填充切换批）：仅替换每组尾部 assistant 预填充段为
+ * user + USER_PREFILL（保留 enabled/deletable/pinned 旗标），并在主 Agent 文本协议段与
+ * 子代理 system 段各追加「独立 read/search 同回复并发」协议。本地未移植 native-tool 步，
+ * 因此 V36 直接冻结在 V35 之上；尾段本就非 assistant 的组（如终审任务收尾组）原样保留。
+ * 上游注释同样成立：任务段连同资料占位符不能被按块删除——只动尾段与协议追加。
+ */
+export function buildV36ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  const previous = buildV35ContinuationAgentPrompts_ACU();
+  const current: ContinuationAgentPrompts_ACU = { ...previous };
+  for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
+    const segments = previous[role].map(segment => ({ ...segment }));
+    const tail = segments[segments.length - 1];
+    if (tail && tail.role === 'assistant') {
+      segments[segments.length - 1] = { ...tail, role: 'user', content: USER_PREFILL_CONTENT_ACU };
+    }
+    if (role === 'main') {
+      const protocol = segments.find(segment => segment.content.includes('【工具动作：read / search'));
+      if (protocol) protocol.content += '\n独立 read/search 请在预算许可范围内于同一回复并发调用，不要分批等待；仅搜索结果决定的精读须等回执。上一轮的工具指令（尤其 SQL）和真实回执在会话历史中，按实际已存/未存栏目行动。';
+      current[role] = segments;
+      continue;
+    }
+    const protocol = segments.find(segment => segment.role === 'system');
+    if (protocol) protocol.content += '\n独立 read/search 在授权和预算内于同一回复并发调用，不拆批等待；搜索结果决定的精读等回执后再读。逐栏写入只认真实回执中的已存栏目，缺栏只补缺失项。';
+    current[role] = segments;
+  }
+  return current;
+}
+
+/** 当前默认组：V36（user 预填充尾段 + 同回复并发协议）。 */
+export function buildDefaultContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  return buildV36ContinuationAgentPrompts_ACU();
 }
 
 /**
@@ -1118,5 +1154,23 @@ export const CONTINUATION_V34_DEFAULT_LINEAGE_ACU = Object.fromEntries(
     segments.map((segment, index) => ({
       index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
     })).filter(({ index }) => v35Content_ACU(role, segments[index].content) !== segments[index].content)];
+  }),
+) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;
+
+/**
+ * 冻结 V35 装配结果的谱系表（同上，模块求值顺序不可调换；条目按 V35→V36 逐段 diff
+ * 运行时计算，哈希与长度对冻结正文实测，不做手抄常量——T5 教训）。只收录 V36 会改写
+ * （正文或角色变化）的段；迁移替换会同步 role，user 预填充尾段才能从 assistant 换过来。
+ */
+const V35_AGENT_PROMPTS_ACU = buildV35ContinuationAgentPrompts_ACU();
+const V36_AGENT_PROMPTS_ACU = buildV36ContinuationAgentPrompts_ACU();
+export const CONTINUATION_V35_DEFAULT_LINEAGE_ACU = Object.fromEntries(
+  (Object.keys(V35_AGENT_PROMPTS_ACU) as Array<keyof ContinuationAgentPrompts_ACU>).map(role => {
+    const segments = V35_AGENT_PROMPTS_ACU[role];
+    return [role,
+    segments.map((segment, index) => ({
+      index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+    })).filter(({ index }) => V36_AGENT_PROMPTS_ACU[role][index]?.role !== segments[index].role
+      || V36_AGENT_PROMPTS_ACU[role][index]?.content !== segments[index].content)];
   }),
 ) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;

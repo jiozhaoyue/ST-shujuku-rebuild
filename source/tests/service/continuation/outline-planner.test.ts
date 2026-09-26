@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildDefaultContinuationSettings_ACU } from '../../../src/service/continuation/defaults';
+import { buildDefaultContinuationOutlinePrompt_ACU, buildDefaultContinuationSettings_ACU } from '../../../src/service/continuation/defaults';
 import { ContinuationValidationError_ACU, type StageOutline_ACU } from '../../../src/service/continuation/model';
 import { ContinuationOutlinePlanner_ACU, acceptPlannedStageRevision_ACU, createPlannedStageRevision_ACU, freezePlannedStageRevision_ACU } from '../../../src/service/continuation/outline-planner';
+import { USER_PREFILL_CONTENT_ACU } from '../../../src/shared/user-prefill.js';
 
 /** 每三轮一个低压轮：足以满足 mixed 形态四分之一的低压下限。 */
 function pacingAt_ACU(index: number): 'setup' | 'pressure' {
@@ -373,5 +374,75 @@ describe('ContinuationOutlinePlanner_ACU', () => {
     await expectCode_ACU(async () => acceptPlannedStageRevision_ACU(invalidEdited, settings_ACU(), constraints), 'CONTINUATION_OUTLINE_TOTAL_TURNS_OUT_OF_RANGE');
     const rewrittenCompleted = { ...planned, outline: { ...planned.outline, nodes: [{ ...planned.outline.nodes[0], turns: [{ ...planned.outline.nodes[0].turns[0], goal: '篡改已完成轮次' }, ...planned.outline.nodes[0].turns.slice(1)] }, ...planned.outline.nodes.slice(1)] } };
     await expectCode_ACU(async () => acceptPlannedStageRevision_ACU(rewrittenCompleted, settings_ACU(), constraints), 'CONTINUATION_REPLAN_COMPLETED_PREFIX_CHANGED');
+  });
+});
+
+describe('大纲 user 预填充恒收尾（TT 移植上游 255dfd62）', () => {
+  it('补注入 $STORY_ARC/启用大纲时先摘尾段再放回：预填充恒为最后一条消息', async () => {
+    const { planner, callInternalAi } = createPlanner_ACU([tagOutline_ACU(6)]);
+    const settings = {
+      ...settings_ACU(),
+      outlinePrompt: [
+        { role: 'user', content: '$ORIGIN_INSTRUCTION $VALIDATION_ERRORS' },
+        { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true },
+      ],
+    };
+    await planner.plan(request_ACU(settings, {
+      resolvers: {
+        $ORIGIN_INSTRUCTION: () => '推进剧情',
+        $STORY_ARC: () => '总纲全文标记STORY',
+        $OUTLINE_WINDOW: () => '启用大纲全文标记OUTLINE',
+      },
+    }));
+    const messages = callInternalAi.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    const tail = messages[messages.length - 1];
+    expect(tail.content).toBe(USER_PREFILL_CONTENT_ACU);
+    expect(tail.role).toBe('user');
+    // 注入段落在预填充之前，而不是把预填充挤出收尾位。
+    const injected = messages[messages.length - 2];
+    expect(injected.content).toContain('【当前故事总纲】');
+    expect(injected.content).toContain('启用大纲全文标记OUTLINE');
+    expect(messages.filter(message => message.content === USER_PREFILL_CONTENT_ACU)).toHaveLength(1);
+  });
+
+  it('重试轮 transcript 回灌后预填充仍收尾，缓存前缀与注入段保持原位', async () => {
+    const { planner, callInternalAi } = createPlanner_ACU(['乱码输出无标签', tagOutline_ACU(6)]);
+    const settings = {
+      ...settings_ACU(),
+      outlinePrompt: [
+        { role: 'user', content: '$ORIGIN_INSTRUCTION $VALIDATION_ERRORS' },
+        { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true },
+      ],
+    };
+    await planner.plan(request_ACU(settings, {
+      resolvers: {
+        $ORIGIN_INSTRUCTION: () => '推进剧情',
+        $STORY_ARC: () => '总纲全文标记STORY',
+        $OUTLINE_WINDOW: () => '',
+      },
+    }));
+    expect(callInternalAi.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const [callIndex, call] of callInternalAi.mock.calls.entries()) {
+      const messages = call[0] as Array<{ content: string }>;
+      expect(messages[messages.length - 1].content, `call ${callIndex}`).toBe(USER_PREFILL_CONTENT_ACU);
+    }
+    const retryMessages = callInternalAi.mock.calls[1][0] as Array<{ role: string; content: string }>;
+    expect(retryMessages.some(message => message.content === '乱码输出无标签' && message.role === 'assistant')).toBe(true);
+  });
+
+  it('默认大纲组自带预填充尾段（buildDefaultContinuationOutlinePrompt_ACU）', async () => {
+    const { planner, callInternalAi } = createPlanner_ACU([tagOutline_ACU(6)]);
+    const settings = { ...settings_ACU(), outlinePrompt: buildDefaultContinuationOutlinePrompt_ACU() };
+    await planner.plan(request_ACU(settings, {
+      resolvers: {
+        $ORIGIN_INSTRUCTION: () => '推进剧情',
+        $STORY_ARC: () => '总纲已在提示词引用',
+        $OUTLINE_WINDOW: () => '大纲已在提示词引用',
+      },
+    }));
+    const messages = callInternalAi.mock.calls[0][0] as Array<{ content: string }>;
+    expect(messages[messages.length - 1].content).toBe(USER_PREFILL_CONTENT_ACU);
+    // 默认组已引用 $STORY_ARC/$OUTLINE_WINDOW：不再重复补注入。
+    expect(messages.some(message => message.content.includes('【当前故事总纲】\n总纲已在提示词引用'))).toBe(false);
   });
 });

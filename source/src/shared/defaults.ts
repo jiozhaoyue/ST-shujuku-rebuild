@@ -7,6 +7,8 @@
 // 会把中文引号 "" 当作字符串定界符，破坏产物。这些留在旧文件中。
 // ═══════════════════════════════════════════════════════════════
 
+import { USER_PREFILL_CONTENT_ACU } from './user-prefill.js';
+
 // [剧情推进] 默认世界书选择
 
 
@@ -199,6 +201,9 @@ export const TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU = 'spv8.9.2-force-defau
 // 一次性强制恢复 AI 改表助手提示词；执行后用户仍可继续自定义。
 // 空 segments 是既有契约：运行时回退到内置伪 role 默认提示词。
 export const TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU = 'spv8.9.4-force-default-template-assistant-prompt';
+// 预填充切换为 user 的独立一次性迁移；各权威存储域分别记录标记（TT 移植上游 ce867f86）。
+export const USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU = 'spv9.3-user-prefill-profile';
+export const USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU = 'spv9.3-user-prefill-vector';
 
 // --- 交火模式纪要索引全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
 export const defaultVectorMemoryConfig_ACU = {
@@ -302,8 +307,8 @@ export const defaultVectorMemoryConfig_ACU = {
       deletable: true,
     },
     {
-      role: 'assistant',
-      content: '<thinking>\n',
+      role: 'user',
+      content: USER_PREFILL_CONTENT_ACU,
       deletable: true,
     },
   ],

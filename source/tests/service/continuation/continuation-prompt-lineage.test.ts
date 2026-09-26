@@ -11,10 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { validateContinuationSettings_ACU } from '../../../src/service/continuation/continuation-store';
-import { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU } from '../../../src/service/continuation/defaults';
+import { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU } from '../../../src/service/continuation/defaults';
 import {
   AGENT_PROMPT_DEFAULT_LINEAGE_ACU,
   buildV33ContinuationAgentPrompts_ACU,
+  buildV35ContinuationAgentPrompts_ACU,
   buildDefaultContinuationAgentPrompts_ACU,
   findAgentPromptSlot_ACU,
   hashAgentPromptContent_ACU,
@@ -83,7 +84,7 @@ describe('默认提示词谱系迁移', () => {
   it.each(labels)('%s 的默认组迁移后与当前默认组逐段一致', label => {
     const loaded = validateContinuationSettings_ACU(historicalSettings_ACU(label));
     const defaults = buildDefaultContinuationSettings_ACU();
-    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU);
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
     expect(loaded.outlinePrompt).toEqual(defaults.outlinePrompt);
     for (const role of Object.keys(defaults.agentPrompts) as (keyof typeof defaults.agentPrompts)[]) {
       expect(loaded.agentPrompts[role], `agentPrompts.${role}`).toEqual(defaults.agentPrompts[role]);
@@ -143,7 +144,7 @@ describe('默认提示词谱系迁移', () => {
 
     const loaded = validateContinuationSettings_ACU(settings);
 
-    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU);
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
     expect(loaded.agentPrompts.arcArchitect).toEqual(defaults.arcArchitect);
   });
 
@@ -162,10 +163,12 @@ describe('默认提示词谱系迁移', () => {
     const settings = buildDefaultContinuationSettings_ACU() as any;
     settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU;
     const defaults = buildDefaultContinuationAgentPrompts_ACU();
-    const currentSys = defaults.instructionComposer.find(segment => segment.role === 'system')!.content;
-    // V30 文案与当前默认仅一词之差；回代即真实 V30 文本（已用 hashAgentPromptContent_ACU
+    // 谱系回代必须以冻结的 V35 编排系统段为底：V36 起当前默认 system 段尾部多了
+    // 「同回复并发」追加协议，不再是 737 字的历史基准（T5 教训：历史文本用冻结构建实测）。
+    const v35Sys = buildV35ContinuationAgentPrompts_ACU().instructionComposer.find(segment => segment.role === 'system')!.content;
+    // V30 文案与 V35 默认仅一词之差；回代即真实 V30 文本（已用 hashAgentPromptContent_ACU
     // 对 HEAD blob 逐字核实：len=737 hash=64dc636c，模板拼接部分未动）。
-    const v30System = currentSys.split('用户累计要求与活跃约束').join('用户初始要求与活跃约束');
+    const v30System = v35Sys.split('用户累计要求与活跃约束').join('用户初始要求与活跃约束');
     expect(v30System.length).toBe(737);
     expect(hashAgentPromptContent_ACU(v30System)).toBe('64dc636c');
     settings.agentPrompts.instructionComposer = defaults.instructionComposer.map(segment =>
@@ -174,7 +177,7 @@ describe('默认提示词谱系迁移', () => {
 
     const loaded = validateContinuationSettings_ACU(settings);
 
-    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU);
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
     expect(loaded.agentPrompts.instructionComposer).toEqual(defaults.instructionComposer);
   });
 

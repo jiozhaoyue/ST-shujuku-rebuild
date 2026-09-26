@@ -286,6 +286,17 @@ var DEFAULT_FILL_PROMPT_ACU = [
     }
 ];
 
+// 提示词末尾的用户消息；内部 role 字段是要求原样保留的文本，不是消息身份。
+// （TT 移植上游 ce867f86 src/shared/user-prefill.js，文本逐字一致。）
+const USER_PREFILL_CONTENT_ACU = String.raw `{
+                "role": "assistant",
+                "content": "<thinking>我已经完成了思考。\n</thinking>"
+            },
+{
+                "role": "assistant",
+                "content": "<thinking>让我开始我的任务。\n</thinking>"
+            }`;
+
 /**
  * 全局数据表 — 默认表定义
  */
@@ -1692,8 +1703,8 @@ const DEFAULT_PLOT_PROMPT_GROUP_ACU = [
         "deletable": true
     },
     {
-        "role": "assistant",
-        "content": "<thought>\n收到指令，我将一步一步进行思考，首先让我来根据用户的输入结合上下文与背景设定推测剧情大概会如何发展",
+        "role": "user",
+        "content": USER_PREFILL_CONTENT_ACU,
         "deletable": true
     }
 ];
@@ -4486,6 +4497,9 @@ const TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU = 'spv8.9.2-force-default-tabl
 // 一次性强制恢复 AI 改表助手提示词；执行后用户仍可继续自定义。
 // 空 segments 是既有契约：运行时回退到内置伪 role 默认提示词。
 const TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU = 'spv8.9.4-force-default-template-assistant-prompt';
+// 预填充切换为 user 的独立一次性迁移；各权威存储域分别记录标记（TT 移植上游 ce867f86）。
+const USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU = 'spv9.3-user-prefill-profile';
+const USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU = 'spv9.3-user-prefill-vector';
 // --- 交火模式纪要索引全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
 const defaultVectorMemoryConfig_ACU = {
     enabled: false,
@@ -4588,8 +4602,8 @@ const defaultVectorMemoryConfig_ACU = {
             deletable: true,
         },
         {
-            role: 'assistant',
-            content: '<thinking>\n',
+            role: 'user',
+            content: USER_PREFILL_CONTENT_ACU,
             deletable: true,
         },
     ],
@@ -4663,8 +4677,9 @@ function saveGlobalMeta_ACU() {
     try {
         const store = getConfigStorage_ACU();
         const payload = safeJsonStringify_ACU(globalMeta_ACU);
-        store.setItem(STORAGE_KEY_GLOBAL_META_ACU, payload);
-        return true;
+        const writeResult = store.setItem(STORAGE_KEY_GLOBAL_META_ACU, payload);
+        // 存储门面明确返回 false（宿主持久化失败）不得谎报成功；undefined 视为兼容旧实现的成功。
+        return writeResult !== false;
     }
     catch (e) {
         logWarn_ACU('[GlobalMeta] Failed to save:', e);
@@ -91214,7 +91229,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * 剧情推进 — 规划入口（runOptimizationLogic）
  * 从 helpers-plot-runtime.ts 拆出（L1401-L1512）
  */
-const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.7.2" || 'unknown';
+const PLOT_RUNTIME_BUILD_VERSION_ACU = "9.7.3" || 'unknown';
 /**
  * 精确取消判定：只认 AbortError / TaskAbortedByUser / 世界书读取取消分类，
  * 不再用 message.includes('aborted') 误伤普通错误；并对 null/undefined 拒绝值安全。
@@ -101871,6 +101886,25 @@ function loadSettings_ACU() {
             shouldPersistSettingsAfterLoad_ACU = true;
             logDebug_ACU(`[交火模式配置] 已一次性覆盖召回参数为 spv9.2 默认值${changed.length ? `：${changed.join(', ')}` : '（无变化）'}`);
         }
+        // [spv9.3] user-prefill 切换批（TT 移植上游 ce867f86）：关键词提示词尾段由 assistant
+        // 预填充换成 user 预填充，一次性覆盖为新默认。globalMeta 立即落盘；保存失败必须回滚
+        // 组与 marker（下一次加载重试），绝不谎报已迁移。marker 写入后用户再改被永久保留。
+        if (vectorConfig.keywordPromptForceDefaultVersion !== USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU) {
+            const previousGroup = vectorConfig.keywordPromptGroup;
+            const previousVersion = vectorConfig.keywordPromptForceDefaultVersion;
+            try {
+                vectorConfig.keywordPromptGroup = cloneDefaultValue_ACU(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []);
+                vectorConfig.keywordPromptForceDefaultVersion = USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU;
+                if (!saveGlobalMeta_ACU())
+                    throw new Error('全局元数据保存失败');
+                logDebug_ACU(`[交火关键词提示词] 已一次性覆盖为 user 预填充新默认: ${USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU}`);
+            }
+            catch (error) {
+                vectorConfig.keywordPromptGroup = previousGroup;
+                vectorConfig.keywordPromptForceDefaultVersion = previousVersion;
+                logWarn_ACU('[交火关键词提示词] 一次性覆盖未保存，下一次加载重试:', error);
+            }
+        }
     }
     settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
     settingsStorageReadyForSave_ACU = true;
@@ -101878,6 +101912,7 @@ function loadSettings_ACU() {
     flushPendingSaveAfterStorageReady_ACU();
     refreshDefaultTableTemplateOnce_ACU(activeCode);
     forceDefaultTableFillPromptsOnce_ACU();
+    forceUserPrefillProfilePromptsOnce_ACU();
     forceDefaultTemplateAssistantPromptOnce_ACU();
     // C7：maxConcurrentGroups 归一化移到 persist 之前，修正值随本次落盘
     if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
@@ -102060,6 +102095,41 @@ function forceDefaultTableFillPromptsOnce_ACU() {
     }
     catch (error) {
         logWarn_ACU('[填表提示词] 一次性强制恢复默认提示词失败:', error);
+    }
+}
+/**
+ * [spv9.3] user-prefill 切换批的 profile 侧一次性覆盖（TT 移植上游 ce867f86）：
+ * 剧情推进默认组尾段已由 assistant 预填充换成 user 预填充，一次性把 plotSettings.promptGroup
+ * 刷回新默认。上游同批还刷角色卡组——本地卡组尾段本就是 SYSTEM（Absolute zero），默认未变，
+ * 强刷只会丢掉用户定制，因此本地覆盖集合只含剧情组。marker 持久化失败必须回滚内存态并下次
+ * 加载重试，绝不谎报已迁移；marker 写入后用户再改的提示词永久保留。
+ */
+function forceUserPrefillProfilePromptsOnce_ACU() {
+    try {
+        if (!settings_ACU || typeof settings_ACU !== 'object')
+            return;
+        if (settings_ACU.userPrefillProfileForceDefaultVersion === USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU)
+            return;
+        const previousPlotSettings = settings_ACU.plotSettings;
+        const previousVersion = settings_ACU.userPrefillProfileForceDefaultVersion;
+        try {
+            if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object') {
+                settings_ACU.plotSettings = cloneDefaultValue_ACU(DEFAULT_PLOT_SETTINGS_ACU);
+            }
+            settings_ACU.plotSettings = { ...settings_ACU.plotSettings, promptGroup: cloneDefaultValue_ACU(DEFAULT_PLOT_PROMPT_GROUP_ACU) };
+            settings_ACU.userPrefillProfileForceDefaultVersion = USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU;
+            if (!saveSettings_ACU().saved)
+                throw new Error('profile 设置保存失败');
+            logDebug_ACU(`[提示词预填充] 已一次性覆盖 profile 默认组: ${USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU}`);
+        }
+        catch (error) {
+            settings_ACU.plotSettings = previousPlotSettings;
+            settings_ACU.userPrefillProfileForceDefaultVersion = previousVersion;
+            logWarn_ACU('[提示词预填充] profile 覆盖未保存，下一次加载重试:', error);
+        }
+    }
+    catch (error) {
+        logWarn_ACU('[提示词预填充] 一次性覆盖失败:', error);
     }
 }
 /**
@@ -128173,7 +128243,7 @@ const V19_DEFAULT_MAIN_AGENT_HISTORY_GUIDE_ACU = `【以下是你自己的会话
 /** V19 默认上下文排布问答的 assistant 答。V20 改为快照在会话内追加，迁移时只替换这份未改写原文。 */
 const V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU = '我收到的上下文分三层：\n1. 正文注入（三节正交）：【事件概览】是纪要表逐轮的事件脉络（每轮一行，本轮召回命中的行会展开为纪要全文），我靠它掌握全局剧情走向；【最近正文】是尾部若干楼的全文，续写必须无缝衔接它的结尾，这几楼不要再 read；【楼层索引】是纯地址索引（楼层号、字数、读取地址），目录行不能代替读正文——需要哪几楼的原文就用 $STORY_RANGE 调阅，需要某几轮的详细纪要就用 $TABLE:纪要表:行区间。注意概览按剧情轮记录、与楼层号没有一一映射，定位具体楼层用 search 的 story 域。\n2. 我自己的会话记录：用户对我说的话、我历次迭代实际输出过的动作、运行时回灌的工具结果与派工结果。我调阅过的资料就留在这里，跨迭代有效，不必重读；标着「内容已过期」的旧调阅说明资料后来变了，需要时按地址重读最新版。\n3. 本回合运行时数据（排在会话记录之后、我的输出之前）：轮次目标、大纲状态、未结算范围、子代理目录、资料模块目录、表格目录、世界书目录、世界书命中提示、读取地址词汇表、预算状态。这一层每次迭代都刷新为最新值——它反映我此前动作（派工、结算、大纲编辑）造成的最新状态，比会话记录里的旧陈述更新。这些是目录和状态，不是资料正文；需要内容就照地址 read。它们是系统给我的证据，不是用户发言，我不复述也不润色。\n我不会重复已经做过的事，也不会重问已经拿到答案的问题。会话记录开头若出现「更早会话的浓缩记录」，那是 token 预算把原始消息移出了上下文；浓缩记录里列出的「曾调阅过的资料地址」不必凭记忆使用，需要时重新 read。\n三层之间冲突时的优先级：正文（含我调阅到的正文全文）> 运行时数据 > 我自己的会话记录。用户在会话里的最新指令优先于我此前的计划。';
 /** 主循环渲染并追加到会话的运行时快照模板。占位符由 renderMainPrompt 同一套 resolvers 解析。 */
-const AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU = '【本回合运行时数据】\n以下是系统在目录或状态变化时追加的快照——靠后的快照比早先的更新；不是用户发言，不要复述。已发生事实只认小说正文；大纲是计划。\n\n以下是用户对任务曾经提过的要求：\n$USER_REQUIREMENTS\n\n【完整当前阶段大纲】\n$OUTLINE_WINDOW\n\n【本轮目标】\n$CURRENT_TURN_GOAL\n\n【本轮节奏】\n$CURRENT_TURN_PACING\n\n【大纲状态】\n$OUTLINE_STATE\n\n【故事总纲状态】\n$STORY_ARC_STATE\n\n【未结算历史范围】\n$UNSETTLED_RANGE\n\n【子代理能力目录】\n$AGENT_CATALOG\n\n【资料模块目录】\n$MODULE_CATALOG\n\n【表格目录】\n$TABLE_CATALOG\n\n【已启用世界书目录】\n$WORLDBOOK_CATALOG\n\n【本轮语境命中的世界书条目】\n$WORLDBOOK_HITS\n\n【百科资料库目录】\n$WEB_REFS_CATALOG\n\n【读取地址词汇表】\n$AGENT_READ_CATALOG\n\n【本轮预算状态】\n$BUDGET';
+const AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU = '【本回合运行时数据】\n以下是系统在目录或状态变化时追加的快照——靠后的快照比早先的更新；不是用户发言，不要复述。已发生事实只认小说正文；大纲是计划。\n\n以下是用户对任务曾经提过的要求：\n$USER_REQUIREMENTS\n\n【完整当前阶段大纲】\n$OUTLINE_WINDOW\n\n【本轮目标】\n$CURRENT_TURN_GOAL\n\n【本轮节奏】\n$CURRENT_TURN_PACING\n\n【大纲状态】\n$OUTLINE_STATE\n\n【故事总纲状态】\n$STORY_ARC_STATE\n\n【未结算历史范围】\n$UNSETTLED_RANGE\n\n【子代理能力目录】\n$AGENT_CATALOG\n\n【资料模块目录】\n$MODULE_CATALOG\n\n【已启用世界书目录】\n$WORLDBOOK_CATALOG\n\n【本轮语境命中的世界书条目】\n$WORLDBOOK_HITS\n\n【百科资料库目录】\n$WEB_REFS_CATALOG\n\n【读取地址词汇表】\n$AGENT_READ_CATALOG\n\n【本轮预算状态】\n$BUDGET';
 /** 各请求尾段预填充文本。解析器会在必要时把它拼回模型输出前再解析。 */
 const AGENT_PREFILLS_ACU = {
     main: '{\n  "thought": "',
@@ -128804,7 +128874,7 @@ function currentDefaultMainAgentHistoryGuide_ACU() {
 }
 function currentDefaultMainAgentLayoutAnswer_ACU() {
     const segment = MAIN_AGENT_PROMPT_ACU.find(item => item.content.startsWith('我收到的上下文分三层：'));
-    return segment?.content ?? V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU;
+    return v35Content_ACU('main', segment?.content ?? V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU);
 }
 /**
  * fnv-1a 32 位哈希（十六进制）。谱系表只需要稳定、低碰撞地识别「这段正文就是某个历史默认段」，
@@ -129069,6 +129139,27 @@ const CONTINUATION_V33_DEFAULT_LINEAGE_ACU = Object.fromEntries(Object.keys(V33_
         })).filter(({ index }) => v34Content_ACU(role, segments[index].content) !== segments[index].content)];
 }));
 /**
+ * V35（TT 移植上游 86be318e 的快照资料边界）：运行时快照模板删去【表格目录】$TABLE_CATALOG 段，
+ * 排布问答里描述快照内容的枚举同步去掉「表格目录」；表格的去向指引由读取地址词汇表的
+ * $TABLE 地址与「行号见事件概览」承担，不改写词汇表与子代理段。
+ * 【子代理使用规则】段与 dispatch 补齐链的替换目标一字不动，T13 链路保持原样。
+ */
+function v35Content_ACU(role, content) {
+    if (role === 'main' && content.startsWith('我收到的上下文分三层：')) {
+        return content.replace('资料模块目录、表格目录、世界书目录', '资料模块目录、世界书目录');
+    }
+    return content;
+}
+/** 冻结 V34 已装配默认组（含 T13 dispatch 补齐），供 V35 逐段按完整正文、角色和长度迁移；自定义段不匹配。 */
+function buildV34ContinuationAgentPrompts_ACU() {
+    const previous = buildV33ContinuationAgentPrompts_ACU();
+    const v34 = { ...previous };
+    for (const role of Object.keys(previous)) {
+        v34[role] = previous[role].map(segment => ({ ...segment, content: v34Content_ACU(role, segment.content) }));
+    }
+    return applyCurrentContinuationPromptRules_ACU(v34);
+}
+/**
  * 统一资料维护派遣策略（TT 移植上游 3ba6460d 子集，本地 V34 重写）：
  * 砍掉 continuity-reviewer 独立派遣后，大转折/冲突判定由 composer 自查（保守取舍）+ finalReviewer 兜底承接，
  * 不得出现判定真空；beat-planner 第二轮起保底派遣、无真实操作时以 no_change 结束（单次调用，不突破派工预算/轮次上限）。
@@ -129119,17 +129210,80 @@ function applyCurrentContinuationPromptRules_ACU(prompts) {
     };
 }
 /**
- * 构造全部当前 Agent 默认提示词；SQL 只改变资料写集，其他 JSON 动作保持原协议。
+ * 冻结 V35 装配结果（本地链：V34 dispatch 补齐在 buildV34 装配里完成；V35 只在未改写的
+ * V34 默认段上收窄排布问答的快照枚举）。V36 起当前默认改由 buildV36 承担，本函数保持
+ * V35 原形状供迁移链与谱系表比对使用，不可再随默认改动。
  * @returns 十组提示词的深拷贝，可安全写入 settings
  */
-function buildDefaultContinuationAgentPrompts_ACU() {
-    const previous = buildV33ContinuationAgentPrompts_ACU();
-    const v34 = { ...previous };
+function buildV35ContinuationAgentPrompts_ACU() {
+    const previous = buildV34ContinuationAgentPrompts_ACU();
+    const v35 = { ...previous };
     for (const role of Object.keys(previous)) {
-        v34[role] = previous[role].map(segment => ({ ...segment, content: v34Content_ACU(role, segment.content) }));
+        v35[role] = previous[role].map(segment => ({ ...segment, content: v35Content_ACU(role, segment.content) }));
     }
-    return applyCurrentContinuationPromptRules_ACU(v34);
+    return v35;
 }
+/**
+ * V36（TT 移植上游 ce867f86 用户预填充切换批）：仅替换每组尾部 assistant 预填充段为
+ * user + USER_PREFILL（保留 enabled/deletable/pinned 旗标），并在主 Agent 文本协议段与
+ * 子代理 system 段各追加「独立 read/search 同回复并发」协议。本地未移植 native-tool 步，
+ * 因此 V36 直接冻结在 V35 之上；尾段本就非 assistant 的组（如终审任务收尾组）原样保留。
+ * 上游注释同样成立：任务段连同资料占位符不能被按块删除——只动尾段与协议追加。
+ */
+function buildV36ContinuationAgentPrompts_ACU() {
+    const previous = buildV35ContinuationAgentPrompts_ACU();
+    const current = { ...previous };
+    for (const role of Object.keys(previous)) {
+        const segments = previous[role].map(segment => ({ ...segment }));
+        const tail = segments[segments.length - 1];
+        if (tail && tail.role === 'assistant') {
+            segments[segments.length - 1] = { ...tail, role: 'user', content: USER_PREFILL_CONTENT_ACU };
+        }
+        if (role === 'main') {
+            const protocol = segments.find(segment => segment.content.includes('【工具动作：read / search'));
+            if (protocol)
+                protocol.content += '\n独立 read/search 请在预算许可范围内于同一回复并发调用，不要分批等待；仅搜索结果决定的精读须等回执。上一轮的工具指令（尤其 SQL）和真实回执在会话历史中，按实际已存/未存栏目行动。';
+            current[role] = segments;
+            continue;
+        }
+        const protocol = segments.find(segment => segment.role === 'system');
+        if (protocol)
+            protocol.content += '\n独立 read/search 在授权和预算内于同一回复并发调用，不拆批等待；搜索结果决定的精读等回执后再读。逐栏写入只认真实回执中的已存栏目，缺栏只补缺失项。';
+        current[role] = segments;
+    }
+    return current;
+}
+/** 当前默认组：V36（user 预填充尾段 + 同回复并发协议）。 */
+function buildDefaultContinuationAgentPrompts_ACU() {
+    return buildV36ContinuationAgentPrompts_ACU();
+}
+/**
+ * 冻结 V34 装配结果的谱系表（放在装配函数与规则常量之后，模块求值顺序不可调换：
+ * buildV34ContinuationAgentPrompts_ACU 依赖 applyCurrentContinuationPromptRules_ACU 与 CONTINUATION_CURRENT_* 常量）。
+ */
+const V34_AGENT_PROMPTS_ACU = buildV34ContinuationAgentPrompts_ACU();
+const CONTINUATION_V34_DEFAULT_LINEAGE_ACU = Object.fromEntries(Object.keys(V34_AGENT_PROMPTS_ACU).map(role => {
+    const segments = V34_AGENT_PROMPTS_ACU[role];
+    return [role,
+        segments.map((segment, index) => ({
+            index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+        })).filter(({ index }) => v35Content_ACU(role, segments[index].content) !== segments[index].content)];
+}));
+/**
+ * 冻结 V35 装配结果的谱系表（同上，模块求值顺序不可调换；条目按 V35→V36 逐段 diff
+ * 运行时计算，哈希与长度对冻结正文实测，不做手抄常量——T5 教训）。只收录 V36 会改写
+ * （正文或角色变化）的段；迁移替换会同步 role，user 预填充尾段才能从 assistant 换过来。
+ */
+const V35_AGENT_PROMPTS_ACU = buildV35ContinuationAgentPrompts_ACU();
+const V36_AGENT_PROMPTS_ACU = buildV36ContinuationAgentPrompts_ACU();
+const CONTINUATION_V35_DEFAULT_LINEAGE_ACU = Object.fromEntries(Object.keys(V35_AGENT_PROMPTS_ACU).map(role => {
+    const segments = V35_AGENT_PROMPTS_ACU[role];
+    return [role,
+        segments.map((segment, index) => ({
+            index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+        })).filter(({ index }) => V36_AGENT_PROMPTS_ACU[role][index]?.role !== segments[index].role
+            || V36_AGENT_PROMPTS_ACU[role][index]?.content !== segments[index].content)];
+}));
 
 /** 宿主正文短于该 token 数视为截断或出错，触发与生成失败同构的自动重试。0 表示关闭。 */
 const CONTINUATION_MIN_GENERATION_TOKENS_DEFAULT_ACU = 1000;
@@ -129294,6 +129448,20 @@ const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU = 'spv4.1-continuation-i
 /** 清理活动默认段中的旧 JSON 写集指令，逐段迁移且保留用户自定义（TT 对标上游 V34）。 */
 const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU = 'spv4.2-continuation-sql-prompts-v34';
 /**
+ * V35 运行时快照删去【表格目录】$TABLE_CATALOG 段（TT 移植上游 86be318e 快照资料边界）：
+ * 表格去向由读取地址词汇表的 $TABLE 地址与事件概览行号承担；排布问答的快照枚举按谱系同步，
+ * 用户定制段保留。世界书暴露范围同步收窄为「只屏蔽纪要与纪要索引」。
+ */
+const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU = 'spv4.3-continuation-snapshot-table-catalog-v35';
+/**
+ * V36（TT 移植上游 ce867f86 user-prefill 切换批）：各组尾部 assistant 预填充换成
+ * user + USER_PREFILL，协议段追加同回复并发；本地链未走上游 native-tool 档，V36 直接
+ * 冻结在 V35 之上。尾段本就非 assistant 的组（终审任务段收尾）不动。
+ */
+const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU = 'spv4.4-continuation-user-prefill-v36';
+/** V37（TT 移植上游 255dfd62）：V36 漏掉独立存放的 outlinePrompt，只对它补一次默认预填充尾段。 */
+const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU = 'spv4.5-continuation-outline-user-prefill-v37';
+/**
  * 连续高压轮上限的默认值。8 轮约等于 8000 字全程没有喘息——这才是病态；
  * 更小的值会退化成固定节拍，正是这一版要消灭的东西。
  */
@@ -129331,7 +129499,8 @@ function clonePromptSegments_ACU(segments) {
     return segments.map(segment => ({ ...segment }));
 }
 function buildDefaultContinuationOutlinePrompt_ACU() {
-    return clonePromptSegments_ACU(DEFAULT_OUTLINE_PROMPT_ACU);
+    // 预填充恒在最后一组启用段之后；planner 注入 $STORY_ARC/大纲时会先摘下再放回（移植上游 255dfd62）。
+    return [...clonePromptSegments_ACU(DEFAULT_OUTLINE_PROMPT_ACU), { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true }];
 }
 function buildDefaultContinuationWorkflowSettings_ACU() {
     return { autoFixEnabled: true, autoFixMaxAttempts: 3, reviseLimit: 3, repairMaxExtraReads: 2 };
@@ -129379,7 +129548,7 @@ function buildDefaultContinuationSettings_ACU() {
         agentApiPresets: buildDefaultContinuationAgentApiPresets_ACU(),
         outlinePrompt: buildDefaultContinuationOutlinePrompt_ACU(),
         agentPrompts: buildDefaultContinuationAgentPrompts_ACU(),
-        promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU,
+        promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU,
     };
 }
 function normalizeOptionalInteger_ACU(value, fallback, minimum, field) {
@@ -130840,6 +131009,82 @@ function migrateV33AgentPromptsToV34_ACU(raw) {
     }
     return changed ? next : raw;
 }
+/**
+ * V34 → V35（TT 移植上游 86be318e 的快照资料边界）：运行时快照模板删去【表格目录】$TABLE_CATALOG 段，
+ * 排布问答里描述快照内容的枚举按谱系同步收窄。谱系替换只命中与冻结的 V34 默认全文逐字相同的段
+ * （角色 + 长度 + 哈希 + 原文四重校验），用户改写段原样保留；替换后内容等于当前默认，再跑一遍不再命中，天然幂等。
+ * T13 的 dispatch 补齐链冻结在 buildV34ContinuationAgentPrompts_ACU 装配里，本步不触碰、也不可再触碰。
+ */
+function migrateV34AgentPromptsToV35_ACU(raw) {
+    if (!isRecord_ACU$4(raw))
+        return raw;
+    const previous = buildV34ContinuationAgentPrompts_ACU();
+    const current = buildV35ContinuationAgentPrompts_ACU();
+    let changed = false;
+    const next = { ...raw };
+    for (const role of Object.keys(CONTINUATION_V34_DEFAULT_LINEAGE_ACU)) {
+        if (!Array.isArray(raw[role]))
+            continue;
+        next[role] = raw[role].map(segment => {
+            if (!isRecord_ACU$4(segment) || typeof segment.content !== 'string')
+                return segment;
+            const content = segment.content;
+            const entry = CONTINUATION_V34_DEFAULT_LINEAGE_ACU[role].find(item => item.role === segment.role
+                && item.length === content.length && item.hash === hashAgentPromptContent_ACU(content)
+                && content === previous[role][item.index].content);
+            if (!entry)
+                return segment;
+            changed = true;
+            return { ...segment, content: current[role][entry.index].content };
+        });
+    }
+    return changed ? next : raw;
+}
+/**
+ * V35 → V36（TT 移植上游 ce867f86 user-prefill 切换批）：尾部 assistant 预填充段换成
+ * user + USER_PREFILL，主文本协议段与子代理 system 段的并发协议追加按谱系同步。谱系替换
+ * 只命中与冻结的 V35 默认全文逐字相同的段（角色 + 长度 + 哈希 + 原文四重校验），命中后
+ * 角色随 V36 形态一起换；用户改写段原样保留，终审任务收尾段等本就非 assistant 的尾段不触碰。
+ * 替换后内容等于当前默认，再跑一遍不再命中，天然幂等。
+ */
+function migrateV35AgentPromptsToV36_ACU(raw) {
+    if (!isRecord_ACU$4(raw))
+        return raw;
+    const previous = buildV35ContinuationAgentPrompts_ACU();
+    const current = buildV36ContinuationAgentPrompts_ACU();
+    let changed = false;
+    const next = { ...raw };
+    for (const role of Object.keys(CONTINUATION_V35_DEFAULT_LINEAGE_ACU)) {
+        if (!Array.isArray(raw[role]))
+            continue;
+        next[role] = raw[role].map(segment => {
+            if (!isRecord_ACU$4(segment) || typeof segment.content !== 'string')
+                return segment;
+            const content = segment.content;
+            const entry = CONTINUATION_V35_DEFAULT_LINEAGE_ACU[role].find(item => item.role === segment.role
+                && item.length === content.length && item.hash === hashAgentPromptContent_ACU(content)
+                && content === previous[role][item.index].content);
+            if (!entry)
+                return segment;
+            changed = true;
+            return { ...segment, role: current[role][entry.index].role, content: current[role][entry.index].content };
+        });
+    }
+    return changed ? next : raw;
+}
+/**
+ * V36 → V37（TT 移植上游 255dfd62）：outlinePrompt 独立存放，V36 漏掉了它。
+ * 仅当尾段恰为冻结的 V36 默认上下文注入段（V31 全文逐字）时追加 user 预填充尾段；
+ * 用户定制收尾不强刷。已带预填充尾段的组再跑不命中，幂等。
+ */
+function migrateV36OutlinePromptToV37_ACU(raw) {
+    if (!Array.isArray(raw) || !raw.length)
+        return raw;
+    const last = raw[raw.length - 1];
+    if (!isRecord_ACU$4(last) || last.role !== 'user' || last.content !== V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU)
+        return raw;
+    return [...raw, { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true }];
+}
 function migrateV30OutlinePromptToV31_ACU(raw) {
     if (!Array.isArray(raw))
         return raw;
@@ -131155,7 +131400,10 @@ function validateSettings_ACU(raw) {
         && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU
         && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU
         && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU
-        && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU) {
+        && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU
+        && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU
+        && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU
+        && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU) {
         outlinePrompt = buildDefaultContinuationOutlinePrompt_ACU();
         agentPrompts = buildDefaultContinuationAgentPrompts_ACU();
         promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU;
@@ -131209,6 +131457,18 @@ function validateSettings_ACU(raw) {
     if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU) {
         agentPrompts = migrateV33AgentPromptsToV34_ACU(agentPrompts);
         promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU;
+    }
+    if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU) {
+        agentPrompts = migrateV34AgentPromptsToV35_ACU(agentPrompts);
+        promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU;
+    }
+    if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU) {
+        agentPrompts = migrateV35AgentPromptsToV36_ACU(agentPrompts);
+        promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU;
+    }
+    if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU) {
+        outlinePrompt = migrateV36OutlinePromptToV37_ACU(outlinePrompt);
+        promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU;
     }
     return {
         stageSize: raw.stageSize, customTurnMin, customTurnMax,
@@ -132566,6 +132826,9 @@ class ContinuationOutlinePlanner_ACU {
         // 校验错误不再写回骨架占位符：重试只追加 transcript，前缀保持字节级稳定以便命中缓存。
         const rendered = await renderContinuationPrompt_ACU(request.settings.outlinePrompt, resolvers, request.reason === 'manual_replan' ? 'replan' : 'outline_prompt');
         // 大纲提示词没引用总纲与启用大纲时，运行时补注入一次：模型不能凭空猜方向与既有轮次进度。
+        // 预填充必须恒为最后一条消息：先把尾部 user 预填充摘下来，让补注入落在它之前，发送时再放回
+        // （TT 移植上游 255dfd62——注入落点缺陷的同款修复）。
+        const trailingPrefill = rendered.messages[rendered.messages.length - 1]?.content === USER_PREFILL_CONTENT_ACU ? rendered.messages.pop() : undefined;
         const renderedBlob = rendered.messages.map(message => message.content).join('\n');
         const injected = [];
         const storyArc = resolvers.$STORY_ARC ? String(await resolvers.$STORY_ARC() ?? '').trim() : '';
@@ -132586,7 +132849,7 @@ class ContinuationOutlinePlanner_ACU {
             if (!isCurrent(identity)) {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'outline_call', '阶段大纲内部请求已失效', false));
             }
-            const raw = await this.dependencies.callInternalAi(messages, preset, identity, request.signal ?? null, {
+            const raw = await this.dependencies.callInternalAi(trailingPrefill ? [...messages, trailingPrefill] : messages, preset, identity, request.signal ?? null, {
                 promptCacheEnabled: request.settings.promptCacheEnabled,
                 cacheScope: 'outline',
                 minOutputTokens: CONTINUATION_ROLE_OUTPUT_TOKEN_FLOORS_ACU.outline,
@@ -137669,15 +137932,17 @@ function normalizeGeneratedComment_ACU(entry, isolationPrefix) {
     const raw = String(entry.comment ?? entry.name ?? '').trim();
     return isolationPrefix && raw.startsWith(isolationPrefix) ? raw.slice(isolationPrefix.length) : raw;
 }
+/** 纪要索引和数字分片由事件概览/快照呈现；普通表格的索引不得误屏蔽（TT 移植上游 86be318e）。 */
+function isSummaryIndexEntryComment_ACU(comment) {
+    return /^TavernDB-ACU-CustomExport-纪要索引(?:-[1-9]\d*)?$/.test(comment);
+}
 /** 是否为纪要（总结）条目的显示名。 */
 function isSummaryEntryComment_ACU(comment) {
     return /^(?:总结条目|小总结条目)\d+$/.test(comment);
 }
 function isGeneratedEntryComment_ACU(comment) {
-    return comment.startsWith('TavernDB-ACU-')
-        || comment.startsWith('总结条目')
-        || comment.startsWith('小总结条目')
-        || comment.startsWith('重要人物条目');
+    // 纪要由快照显示；其他已启用世界书条目（包括表格导出）仍由世界书方案决定是否注入。
+    return isSummaryIndexEntryComment_ACU(comment) || isSummaryEntryComment_ACU(comment);
 }
 /** 解析当前生效的世界书名单（手动选择 / 正文接收 / 角色绑定）。同时供 Agent 世界书读取工具使用。 */
 async function resolveRelevantBookNames_ACU() {
@@ -137742,8 +138007,8 @@ class ContinuationWorldbookContext_ACU {
  * 运行起点一次性预取启用条目做运行内快照，之后目录 / 精读 / 命中提示 / 搜索都基于
  * 同一份快照（世界书读取是异步宿主调用，预取后地址在一次运行内不漂移）。
  *
- * 暴露范围：已启用集合内的普通条目全部可读可搜（含插件生成的重要人物条目等）；
- * 遗留的总结条目（旧总结系统的残留）不再暴露；未启用条目不进目录、不进搜索、不可读。
+ * 暴露范围：已启用集合内除纪要与纪要索引外的条目全部可读可搜；
+ * 未启用条目不进目录、不进搜索、不可读。
  */
 function buildEmptyAgentWorldbookSnapshot_ACU(available = true) {
     return { entries: [], available };
@@ -137781,8 +138046,9 @@ async function countEntryTokens_ACU(bookName, uid, content) {
  * 预取当前已启用的世界书条目为运行内快照。
  *
  * 启用判定与提示词注入管线一致：条目自身 enabled 为真、且通过插件侧 enabledEntries
- * 勾选表、且不属于屏蔽名单（当前屏蔽词为空，逻辑保留备用）。遗留总结条目直接跳过。
- * 内部插件条目（TavernDB-ACU- 前缀）是存储载体而非叙事资料，不暴露。
+ * 勾选表、且不属于屏蔽名单（当前屏蔽词为空，逻辑保留备用）。纪要与纪要索引直接跳过。
+ * 其余已启用条目按正常世界书资料域暴露，不按插件前缀额外屏蔽（TT 移植上游 86be318e：
+ * CustomExport 表格导出等载体条目与重要人物条目一样属于可读资料域）。
  * 每条条目在预取时统计 token 数（结果缓存跨运行复用），供目录标注读取预算。
  * @returns 快照；宿主读取失败时返回 available=false 的空快照
  */
@@ -137805,7 +138071,7 @@ async function loadAgentWorldbookSnapshot_ACU() {
                 const uid = String(raw.uid ?? '').trim();
                 const title = normalizeGeneratedComment_ACU(raw, isolationPrefix);
                 const content = String(raw.content ?? '').trim();
-                // 旧总结系统的残留条目不再是可用资料域，静默跳过。
+                // 纪要另由事件概览/快照呈现，不在世界书资料域重复暴露。
                 if (isSummaryEntryComment_ACU(title))
                     continue;
                 if (!uid || !content)
@@ -137814,7 +138080,9 @@ async function loadAgentWorldbookSnapshot_ACU() {
                     continue;
                 if (isEntryBlocked_ACU(raw))
                     continue;
-                if (title.startsWith('TavernDB-ACU-'))
+                // 纪要索引及其数字分片由快照单独呈现；其余已启用条目交由正常世界书读取方案处理，
+                // 不按插件前缀额外屏蔽（TT 移植上游 86be318e，CustomExport 表格导出放行）。
+                if (isSummaryIndexEntryComment_ACU(title))
                     continue;
                 pendingTokens.push({ index: entries.length, bookName, uid, content });
                 entries.push({
@@ -138245,18 +138513,31 @@ function renderAgentUnsettledHistory_ACU(context) {
     return lines.length ? lines.join('\n\n') : '没有尚未结算的真实历史；上一轮已结算到当前最后一楼。';
 }
 /**
- * 拼装世界书关键词命中的扫描文本：本轮目标 + 未结算正文 + 尾部全文楼层 + 用户初始要求。
- * 主循环与子代理运行时共用，保证命中提示在两侧口径一致。
- * @param context 解析上下文
- * @returns 扫描文本
+ * 世界书触发只扫描最近一个用户楼层与最近一个 AI 楼层；不拼入任务、初始要求或旧历史
+ * （TT 移植上游 ce867f86-B：命中扫描收敛）。文本变短是收敛不是放宽：级联触发、
+ * exclude/prevent-recursion 语义与命中清单口径都由 renderAgentWorldbookHits_ACU 原样承担。
  */
+function buildRecentWorldbookScanText_ACU(chat, rules) {
+    let user = '';
+    let assistant = '';
+    let foundUser = false;
+    let foundAssistant = false;
+    const floors = Array.isArray(chat) ? chat : [];
+    for (let index = floors.length - 1; index >= 0 && (!foundUser || !foundAssistant); index -= 1) {
+        const message = floors[index];
+        if (!foundUser && message?.is_user === true) {
+            user = messageText_ACU(message, rules);
+            foundUser = true;
+        }
+        if (!foundAssistant && isAiFloor_ACU(message)) {
+            assistant = messageText_ACU(message, rules);
+            foundAssistant = true;
+        }
+    }
+    return [user, assistant].filter(Boolean).join('\n');
+}
 function buildAgentWorldbookScanText_ACU(context) {
-    return [
-        context.originInstruction,
-        context.execution.turn?.goal ?? '',
-        renderAgentUnsettledHistory_ACU(context),
-        renderAgentStoryTail_ACU(context),
-    ].filter(Boolean).join('\n');
+    return buildRecentWorldbookScanText_ACU(context.chat, context.contextRules);
 }
 /** 四档节奏标签的语义与写作指导。低压轮的约束写成禁令，否则模型会习惯性地往每一轮里塞冲突。 */
 const TURN_PACING_GUIDANCE_ACU = {
@@ -139646,12 +139927,13 @@ function describeWriteScope_ACU(writes) {
     return `你的职责固定写入：${writes.map(item => labels[item]).join('、')}。职责之外的模块一律不许出现在 delta 里。`;
 }
 /**
- * 把一条运行时消息插到尾部预填充之前。渲染后的消息序列若以 assistant 预填充收尾，
+ * 把一条运行时消息插到尾部预填充之前。渲染后的消息序列若以尾部预填充收尾——
+ * assistant 旧形态（role==='assistant'）或 user + USER_PREFILL 新形态（V36 起）——
  * 追加内容必须放在它前面，否则预填充不再是最后一条消息、失去续写引导作用。
  */
 function insertBeforeTrailingPrefill_ACU(messages, extra) {
     const last = messages[messages.length - 1];
-    if (last && last.role === 'assistant')
+    if (last && (last.role === 'assistant' || (last.role === 'user' && last.content === USER_PREFILL_CONTENT_ACU)))
         return [...messages.slice(0, -1), extra, last];
     return [...messages, extra];
 }
@@ -143389,6 +143671,15 @@ async function migrateLegacySettings_ACU(store) {
         if (!migration.didMigrate)
             return null;
         await store.replaceAtomically(migration.envelope);
+    }
+    else {
+        // 持久版本≠当前版本即重校验（TT 移植上游 ce867f86 else 分支）：新版本链上线后，
+        // 存量信封在启动初始化时就跑完迁移链并原子落盘，不等首次 read；同版本则不动，避免无谓写。
+        const first = getChatArray_ACU()?.[0];
+        const raw = first?.[CONTINUATION_FIRST_FLOOR_FIELD_ACU];
+        if (raw && raw.settings?.promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU) {
+            await store.updatePersistedAtomically(current => current ? { ...current, settings: validateContinuationSettings_ACU(current.settings) } : existing);
+        }
     }
     if (!hasLegacyContinuationLoopFields_ACU(legacyPlotSettings))
         return store.read();
@@ -150062,7 +150353,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260926-14";
+        const stamp = "20260926-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -195904,7 +196195,7 @@ function useLogViewer() {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260926-14";
+        const stamp = "20260926-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -195913,7 +196204,7 @@ function getBuildStamp() {
 }
 function getPluginVersion() {
     try {
-        const v = "9.7.2";
+        const v = "9.7.3";
         return typeof v === 'string' && v ? v : 'unknown';
     }
     catch {

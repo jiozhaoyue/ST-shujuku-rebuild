@@ -7,8 +7,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
-import { DEFAULT_BUILTIN_PLOT_PRESETS_ACU, DEFAULT_CHAR_CARD_PROMPT_SQL_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU, TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU, VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU, buildDefaultAgentWorldbookControl_ACU, buildDefaultAgentWorldbookPromptTemplates_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
+import { DEFAULT_BUILTIN_PLOT_PRESETS_ACU, DEFAULT_CHAR_CARD_PROMPT_SQL_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_PROMPT_GROUP_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU, TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU, VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU, buildDefaultAgentWorldbookControl_ACU, buildDefaultAgentWorldbookPromptTemplates_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
 import { backupProfileSettingsRawBeforeDegradation_ACU, globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
@@ -815,6 +815,23 @@ export   function loadSettings_ACU() {
               shouldPersistSettingsAfterLoad_ACU = true;
               logDebug_ACU(`[交火模式配置] 已一次性覆盖召回参数为 spv9.2 默认值${changed.length ? `：${changed.join(', ')}` : '（无变化）'}`);
           }
+          // [spv9.3] user-prefill 切换批（TT 移植上游 ce867f86）：关键词提示词尾段由 assistant
+          // 预填充换成 user 预填充，一次性覆盖为新默认。globalMeta 立即落盘；保存失败必须回滚
+          // 组与 marker（下一次加载重试），绝不谎报已迁移。marker 写入后用户再改被永久保留。
+          if (vectorConfig.keywordPromptForceDefaultVersion !== USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU) {
+              const previousGroup = vectorConfig.keywordPromptGroup;
+              const previousVersion = vectorConfig.keywordPromptForceDefaultVersion;
+              try {
+                  vectorConfig.keywordPromptGroup = cloneDefaultValue_ACU(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []);
+                  vectorConfig.keywordPromptForceDefaultVersion = USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU;
+                  if (!saveGlobalMeta_ACU()) throw new Error('全局元数据保存失败');
+                  logDebug_ACU(`[交火关键词提示词] 已一次性覆盖为 user 预填充新默认: ${USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU}`);
+              } catch (error) {
+                  vectorConfig.keywordPromptGroup = previousGroup;
+                  vectorConfig.keywordPromptForceDefaultVersion = previousVersion;
+                  logWarn_ACU('[交火关键词提示词] 一次性覆盖未保存，下一次加载重试:', error);
+              }
+          }
       }
 
       settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
@@ -824,6 +841,7 @@ export   function loadSettings_ACU() {
       flushPendingSaveAfterStorageReady_ACU();
       refreshDefaultTableTemplateOnce_ACU(activeCode);
       forceDefaultTableFillPromptsOnce_ACU();
+      forceUserPrefillProfilePromptsOnce_ACU();
       forceDefaultTemplateAssistantPromptOnce_ACU();
 
       // C7：maxConcurrentGroups 归一化移到 persist 之前，修正值随本次落盘
@@ -1003,6 +1021,37 @@ function forceDefaultTableFillPromptsOnce_ACU() {
           logDebug_ACU(`[填表提示词] 已一次性强制恢复默认提示词并记录版本: ${TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU}`);
       } catch (error) {
           logWarn_ACU('[填表提示词] 一次性强制恢复默认提示词失败:', error);
+      }
+  }
+
+/**
+ * [spv9.3] user-prefill 切换批的 profile 侧一次性覆盖（TT 移植上游 ce867f86）：
+ * 剧情推进默认组尾段已由 assistant 预填充换成 user 预填充，一次性把 plotSettings.promptGroup
+ * 刷回新默认。上游同批还刷角色卡组——本地卡组尾段本就是 SYSTEM（Absolute zero），默认未变，
+ * 强刷只会丢掉用户定制，因此本地覆盖集合只含剧情组。marker 持久化失败必须回滚内存态并下次
+ * 加载重试，绝不谎报已迁移；marker 写入后用户再改的提示词永久保留。
+ */
+function forceUserPrefillProfilePromptsOnce_ACU() {
+      try {
+          if (!settings_ACU || typeof settings_ACU !== 'object') return;
+          if (settings_ACU.userPrefillProfileForceDefaultVersion === USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU) return;
+          const previousPlotSettings = settings_ACU.plotSettings;
+          const previousVersion = settings_ACU.userPrefillProfileForceDefaultVersion;
+          try {
+              if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object') {
+                  settings_ACU.plotSettings = cloneDefaultValue_ACU(DEFAULT_PLOT_SETTINGS_ACU);
+              }
+              settings_ACU.plotSettings = { ...settings_ACU.plotSettings, promptGroup: cloneDefaultValue_ACU(DEFAULT_PLOT_PROMPT_GROUP_ACU) };
+              settings_ACU.userPrefillProfileForceDefaultVersion = USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU;
+              if (!saveSettings_ACU().saved) throw new Error('profile 设置保存失败');
+              logDebug_ACU(`[提示词预填充] 已一次性覆盖 profile 默认组: ${USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU}`);
+          } catch (error) {
+              settings_ACU.plotSettings = previousPlotSettings;
+              settings_ACU.userPrefillProfileForceDefaultVersion = previousVersion;
+              logWarn_ACU('[提示词预填充] profile 覆盖未保存，下一次加载重试:', error);
+          }
+      } catch (error) {
+          logWarn_ACU('[提示词预填充] 一次性覆盖失败:', error);
       }
   }
 

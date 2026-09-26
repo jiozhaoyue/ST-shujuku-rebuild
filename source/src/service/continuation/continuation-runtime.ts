@@ -1,8 +1,8 @@
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { getActiveChatStorageIdentity_ACU } from '../../data/storage/chat-history';
 import { FirstFloorContinuationStore_ACU } from './continuation-store';
-import { buildMigratedContinuationEnvelope_ACU, stripLegacyContinuationLoopFields_ACU, validateContinuationSettings_ACU } from './continuation-store';
-import { buildDefaultContinuationSettings_ACU } from './defaults';
+import { CONTINUATION_FIRST_FLOOR_FIELD_ACU, buildMigratedContinuationEnvelope_ACU, stripLegacyContinuationLoopFields_ACU, validateContinuationSettings_ACU } from './continuation-store';
+import { CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU, buildDefaultContinuationSettings_ACU } from './defaults';
 import { ContinuationOrchestrator_ACU, type ContinuationPlanningContext_ACU } from './continuation-orchestrator';
 import { ContinuationOutlinePlanner_ACU } from './outline-planner';
 import { StageExecutionEngine_ACU, type ContinuationExecutionSnapshot_ACU } from './stage-execution-engine';
@@ -229,6 +229,14 @@ async function migrateLegacySettings_ACU(store: FirstFloorContinuationStore_ACU)
     const migration = buildMigratedContinuationEnvelope_ACU(legacyPlotSettings, buildInitialContinuationSettings_ACU());
     if (!migration.didMigrate) return null;
     await store.replaceAtomically(migration.envelope);
+  } else {
+    // 持久版本≠当前版本即重校验（TT 移植上游 ce867f86 else 分支）：新版本链上线后，
+    // 存量信封在启动初始化时就跑完迁移链并原子落盘，不等首次 read；同版本则不动，避免无谓写。
+    const first = getChatArray_ACU()?.[0] as Record<string, unknown> | undefined;
+    const raw = first?.[CONTINUATION_FIRST_FLOOR_FIELD_ACU] as { settings?: { promptForceDefaultVersion?: string } } | undefined;
+    if (raw && raw.settings?.promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU) {
+      await store.updatePersistedAtomically(current => current ? { ...current, settings: validateContinuationSettings_ACU(current.settings) } : existing);
+    }
   }
   if (!hasLegacyContinuationLoopFields_ACU(legacyPlotSettings)) return store.read();
   const stripped = stripLegacyContinuationLoopFields_ACU(legacyPlotSettings);
