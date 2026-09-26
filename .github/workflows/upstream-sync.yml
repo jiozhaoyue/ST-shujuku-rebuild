@@ -66,11 +66,14 @@ jobs:
           done
           REMAIN=$(git diff --name-only --diff-filter=U || true)
           if [ -n "$REMAIN" ]; then
+            # 注意：本块的每一行都必须是命令。此前这里把 Markdown 围栏写成了裸引用词
+            # `'```'`，shell 会把它当命令执行（command not found → exit 127），
+            # 导致冲突分支整段崩溃、status=conflict 从未写出、报 issue 步骤被跳过。
             {
               echo "### 冲突文件（自动解决产物后仍剩，需人工甄别）"
-              '```'
+              echo '```'
               echo "$REMAIN"
-              '```'
+              echo '```'
             } > /tmp/conflicts.md
             echo "status=conflict" >> "$GITHUB_OUTPUT"
             git merge --abort
@@ -110,12 +113,23 @@ jobs:
         run: git push origin "$UPSTREAM_BRANCH"
 
       - name: 开/更新人工处置 issue
-        if: ${{ always() && (steps.merge.outputs.status == 'conflict' || (steps.setup.outputs.status == 'pending' && steps.gate.outcome == 'failure')) }}
+        # 三路都要开 issue：合出真冲突（status=conflict）、合并步骤自身崩溃（outcome=failure）、
+        # 合并成功但质量门失败。此前只覆盖第一路与第三路，且第一路依赖 status 已被写出——
+        # 合并步骤崩溃时 status 为空 → 条件不成立 → 真冲突被静默吞掉（连续 5 天无人收到通知）。
+        if: ${{ always() && steps.setup.outputs.status == 'pending' && (steps.merge.outputs.status == 'conflict' || steps.merge.outcome == 'failure' || steps.gate.outcome == 'failure') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 合并步骤崩溃时 /tmp/conflicts.md 可能未写出；先抓当前未解决文件，再 abort（abort 会清掉冲突态）。
+          git diff --name-only --diff-filter=U > /tmp/conflicts-live.md 2>/dev/null || true
           git merge --abort 2>/dev/null || true
           {
+            if [ -s /tmp/conflicts-live.md ]; then
+              echo "### 合并中断时仍处于冲突状态的文件"
+              echo '```'
+              cat /tmp/conflicts-live.md
+              echo '```'
+            fi
             [ -f /tmp/upstream-new.md ] && cat /tmp/upstream-new.md
             [ -f /tmp/conflicts.md ] && cat /tmp/conflicts.md
             if [ -f /tmp/gate-progress.md ] && [ -s /tmp/gate-progress.md ]; then
