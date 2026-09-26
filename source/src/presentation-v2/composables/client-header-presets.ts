@@ -19,9 +19,11 @@ export interface ClientHeaderPreset_ACU {
  *   （发行包与官方遥测文档实证，旧「v 前缀/windows/cli」形态作废）；Qwen Code 为
  *   `QwenCode/<ver> (<platform>; <arch>)` 无 v 前缀（发行包模板实证，旧 v3.1.0 系错误资料）。
  * - 新增：Cline/iFlow CLI/Cherry Studio/LobeHub（发行包或仓库源码头实证）。
- * - 未刷新：MiMo Code、DeepSeek Harness（无公开可实证的现行版本号，维持建档值）；
- *   OpenCode/Kilo Code/OpenDesign 预设头不含版本字段，本轮不涉及；
- *   Trae 闭源未实证仍不收录。
+ * - 未实证：Trae 闭源不收录。MiMo Code 现行模板源码实证为 `mimocode/<channel>/<ver>/<client>`
+ *   （channel=latest 为正式 npm 渠道，旧「stable/1.0.0」系建档期错误；referer/X-Title 亦源码核对）；
+ *   DeepSeek Harness UA=`product/version (+url)`、版本取包自身 package.json（源码 attribution.ts 实证；
+ *   0.1.7-rc.2 为仓库现行 tag，npm 挂 next 预发布渠道）。
+ *   OpenCode/Kilo Code/OpenDesign 预设头不含版本字段，不涉及刷新。
  *   注：Gemini UA 的 gemini-pro 为遥测文档示例模型段，真实值随所配模型变化。
  */
 export const CLIENT_HEADER_PRESETS_ACU: ClientHeaderPreset_ACU[] = [
@@ -100,7 +102,7 @@ export const CLIENT_HEADER_PRESETS_ACU: ClientHeaderPreset_ACU[] = [
     id: 'mimo-code',
     label: 'MiMo Code',
     headers: [
-      'User-Agent: mimocode/stable/1.0.0/cli',
+      'User-Agent: mimocode/latest/0.1.15/cli',
       'HTTP-Referer: https://mimo.xiaomi.com/coder/',
       'X-Title: mimocode',
     ],
@@ -109,7 +111,7 @@ export const CLIENT_HEADER_PRESETS_ACU: ClientHeaderPreset_ACU[] = [
     id: 'deepseek-harness',
     label: 'DeepSeek Harness',
     headers: [
-      'User-Agent: deepseek-harness/0.1.0 (+https://github.com/deepseek-ai/deepseek-harness)',
+      'User-Agent: deepseek-harness/0.1.7-rc.2 (+https://github.com/deepseek-ai/deepseek-harness)',
     ],
   },
   {

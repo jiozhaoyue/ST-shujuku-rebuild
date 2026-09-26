@@ -74,6 +74,8 @@ describe('client-header-presets · 版本刷新与新预设（2026-09-27 查证�
     'roo-code': 'User-Agent: RooCode/3.54.0',
     'grok-build': 'User-Agent: grok-shell/1.0.41 (windows; x86_64)',
     'openclaw': 'User-Agent: openclaw/2026.9.6',
+    'mimo-code': 'User-Agent: mimocode/latest/0.1.15/cli',
+    'deepseek-harness': 'User-Agent: deepseek-harness/0.1.7-rc.2 (+https://github.com/deepseek-ai/deepseek-harness)',
   };
 
   it('刷新预设的 User-Agent 为查证后的最新模板', () => {
@@ -86,7 +88,8 @@ describe('client-header-presets · 版本刷新与新预设（2026-09-27 查证�
 
   it('被刷新的旧版本串不再残留于任何预设', () => {
     const stale = ['2.1.207', 'ZCode/3.7.7', 'codex_cli_rs/0.46.0', 'GeminiCLI/v0.8.1',
-      'QwenCode/v3.1.0', 'RooCode/3.20.0', 'grok-shell/0.1.171', 'openclaw/1.0.0'];
+      'QwenCode/v3.1.0', 'RooCode/3.20.0', 'grok-shell/0.1.171', 'openclaw/1.0.0',
+      'mimocode/stable/1.0.0', 'deepseek-harness/0.1.0 '];
     const all = CLIENT_HEADER_PRESETS_ACU.map((p) => p.headers.join('\n')).join('\n');
     for (const s of stale) expect(all).not.toContain(s);
   });
