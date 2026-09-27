@@ -29,9 +29,10 @@ npm run smoke        # 产物冒烟
 - **单文件标识 `shujuku_v120`**：`UNIQUE_SCRIPT_ID` 常量（`src/shared/constants.ts`）是存储命名空间根（`shujuku_v120__userscript_settings_v1`、`TavernDB_ACU_*` 聊天字段前缀与之配套）。改它 = 换存储身份，会"丢"所有现有数据；独立副本才改。
 - **数据持久化模型**：运行时是 sql.js 内存 SQLite；持久化靠"存储帧"（checkpoint + SQL 操作日志 `logEntries`）写进聊天消息的 `TavernDB_ACU_IsolatedData`，热状态快照在 chat_metadata 的 `TavernDB_ACU_HotSnapshot`，模板在 `TavernDB_ACU_ScopedConfig` / `TavernDB_ACU_InternalSheetGuide`。修数据层必须理解"回放日志 → 重建表"这条链（`data/sqlite/sync-bridge.ts`）。
 - **宿主适配**：TT / Luker / 通用 ST 三态 profile 在 `src/shared/host-bridge.ts`，探测失败自动降级 generic。宿主差异只许进桥，不许散落业务层。
-- **上游同步**：CI 每日自动合并上游 master；冲突按"我方差量"解决（host-bridge、分发产物重建）。上游的数据格式与模板 JSON 必须保持同构，不要私自改 `TavernDB_ACU_*` 结构。
+- **上游同步**：CI 每日自动合并上游 master；冲突按"我方差量"解决（host-bridge、分发产物重建）。上游的数据格式与模板 JSON 必须保持同构，不要私自改 `TavernDB_ACU_*` 结构。**我方差量台账**（追平后 `git diff upstream/master HEAD` 即完整差量，含每次追平的复跑命令与逐类冲突解决口径）见 `docs/superpowers/specs/2026-09-27-fork-delta-ledger.md`。
 - **构建开关**：SQLite 引擎（wasm 默认 / asm 回滚）由 rollup replace 注入（`ACU_SQLITE_ENGINE`）；wasm 以 base64 内联进产物，无外部 fetch。
-- **版本**：source `package.json` 与根 `manifest.json` 的 `version` 需一致；`auto_update: true`，用户从 GitHub 地址安装。
+- **版本**：source `package.json` 与根 `manifest.json` 的 `version` 需一致；`auto_update: true`，用户从 GitHub 地址安装。口径（2026-09-27 确立）：**追平上游后 version 跟随上游**（当前 9.7.2）；追平前两者曾长期不一致（manifest 9.4.0 vs package 9.4.10），已修正。
+- **上游同步 CI 曾静默失败 5 天（2026-09-22 ~ 09-26，已修）**：`upstream-sync.yml` 的冲突分支里 Markdown 围栏被写成裸引用词（三个反引号被单引号包裹），shell 把它当命令执行 → `command not found` / 退出码 127 → 整段冲突处理崩溃。叠加两个后果：`status=conflict` 从未写出，而「开/更新 issue」步骤的条件依赖该 status → 被跳过。于是真冲突被静默吞掉，我方停滞在上游 v9.4.10 落后 36 提交。**判据**：怀疑同步断了先看 `git rev-list --count HEAD..upstream/master`，再看 workflow 运行记录，别只看 `git status`。修复见提交 `bb57a20`。
 - vitest 里宿主模块（`./script.js`、`./scripts/extensions.js`）由 `vitest.config.ts` 的 stub 占位，新增依赖宿主全局时注意补 stub。
 
 ## 文档
