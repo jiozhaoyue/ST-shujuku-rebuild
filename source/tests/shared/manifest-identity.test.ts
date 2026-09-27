@@ -25,6 +25,16 @@ describe('manifest identity', () => {
   it('版本号进入 9.2.x 序列', () => {
     expect(manifest.version).toMatch(/^9\.[2-9]\./);
   });
+  it('version 与 source/package.json 一致（防自动同步把 manifest 留在旧值）', () => {
+    // 背景：upstream-sync 的合并步骤把 manifest.json 整体按「我方」解决（为保住 author/homePage
+    // 身份字段），会连 version 一起留在旧值 —— 2026-09-27 实测：自动同步一次后
+    // manifest 停在 9.7.2 而 source/package.json 已是 9.7.5，两者脱节且无人察觉。
+    // 工作流已在质量门里改写 manifest 的 version；本用例把这类漂移从静默变成响。
+    const pkg = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../../../source/package.json', import.meta.url)), 'utf8'),
+    );
+    expect(manifest.version).toBe(pkg.version);
+  });
   it('保持标准扩展直装形态', () => {
     expect(manifest.js).toBe('index.js');
     expect(manifest.auto_update).toBe(true);

@@ -104,7 +104,13 @@ jobs:
           cmp dist/extension/index.js ../index.js > /dev/null 2>&1 || cp dist/extension/index.js ../index.js
           cmp dist/extension/sql-wasm.wasm ../sql-wasm.wasm > /dev/null 2>&1 || cp dist/extension/sql-wasm.wasm ../sql-wasm.wasm
           cd ..
-          git add index.js sql-wasm.wasm
+          # manifest.json 的 version 必须跟随 source/package.json。
+          # 合并步骤把 manifest.json 整体按「我方」解决（为保住 author/homePage 身份字段），
+          # 这会连 version 一起留在旧值 —— 实测自动同步一次就把 manifest 落到 9.7.2
+          # 而 package.json 已是 9.7.5，两者长期脱节。此处只改写 version，身份字段不动。
+          PKG_VERSION=$(node -p "require('./source/package.json').version")
+          node -e "const fs=require('fs');const p='./manifest.json';const m=JSON.parse(fs.readFileSync(p,'utf8'));m.version=process.argv[1];fs.writeFileSync(p, JSON.stringify(m,null,4)+'\n');" "$PKG_VERSION"
+          git add index.js sql-wasm.wasm manifest.json
           git commit -m "merge: 同步上游 shuiyue-cmyk/shujuku-rebuild@$(git rev-parse --short upstream/$UPSTREAM_BRANCH)（CI 自动同步，质量门通过）"
           echo "status=committed" >> "$GITHUB_OUTPUT"
 
