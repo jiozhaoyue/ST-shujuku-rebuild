@@ -249,6 +249,7 @@ import AcuPresetDropdown from "./_lib/AcuPresetDropdown.vue";
 import AcuSelect, { type AcuSelectOption } from "./_lib/AcuSelect.vue";
 import AcuToggle from "./_lib/AcuToggle.vue";
 import { assertSafeHttpEndpoint_ACU } from "../../shared/utils";
+import { allowUnsafeApiEndpointsEnabled_ACU } from "../../service/settings/settings-readers";
 import {
   CLIENT_HEADER_PRESETS_ACU,
   CLIENT_HEADER_PRESET_NONE_ACU,
@@ -431,7 +432,7 @@ function validateActiveDraft(): boolean {
     return false;
   }
   try {
-    assertSafeHttpEndpoint_ACU(activeDraft.url.trim());
+    assertSafeHttpEndpoint_ACU(activeDraft.url.trim(), { allowUnsafe: allowUnsafeApiEndpointsEnabled_ACU() });
   } catch (e: any) {
     activeDraftError.value = String(e?.message || '端点地址不安全，请检查 URL。');
     return false;

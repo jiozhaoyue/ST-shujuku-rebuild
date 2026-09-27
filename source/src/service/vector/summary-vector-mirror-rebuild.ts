@@ -55,6 +55,7 @@ import {
 } from './summary-vector-mirror-writer';
 import { runScopedRetentionGcAfterFlush_ACU } from './summary-vector-index-chat-deletion-gc';
 import type { SummaryVectorIndexContentPackChunk_ACU, SummaryVectorIndexExternalFileRef_ACU } from './summary-vector-index-types';
+import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 
 export type SummaryVectorMirrorRebuildReason_ACU = 'initial' | 'rebuild_user' | 'rebuild_repair';
 
@@ -526,6 +527,7 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
                     apiKey: config.embeddingApiKey,
                     model: config.embeddingModel,
                     input,
+                    allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
                 }),
             });
             embeddings = executed.embeddings;

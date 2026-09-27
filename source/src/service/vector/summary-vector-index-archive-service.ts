@@ -48,6 +48,7 @@ import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_A
 import { hashSummaryVectorSourceText_ACU } from './summary-vector-row-fingerprint';
 import { normalizeSummaryVectorIndexScope_ACU, serializeSummaryVectorIndexScope_ACU } from '../../shared/summary-vector-index-scope';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
+import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 
 type SummaryVectorIndexArchiveMode_ACU = 'append' | 'sync';
 
@@ -712,6 +713,7 @@ async function buildChunksWithEmbeddings_ACU(
             apiKey: options.embeddingApiKey,
             model: options.embeddingModel,
             input,
+            allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
         }),
     });
 

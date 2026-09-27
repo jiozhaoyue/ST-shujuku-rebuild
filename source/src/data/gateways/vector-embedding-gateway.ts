@@ -9,6 +9,12 @@ export interface VectorEmbeddingRequest_ACU {
     apiKey?: string;
     model: string;
     input: string[];
+    /**
+     * 放行 http:// 远程与私网/环回端点（全局设置 allowUnsafeApiEndpoints）。
+     * 由 service 调用方读取设置后注入 —— data 层不反向 import service 的 settings。
+     * 缺省/false 时门禁行为与文案逐字节不变；链路本地等永久封禁段不受此字段影响。
+     */
+    allowUnsafeEndpoint?: boolean;
 }
 
 export interface VectorEmbeddingResult_ACU {
@@ -188,10 +194,12 @@ async function requestEmbeddingsOnce_ACU(
     model: string,
     input: string[],
     headers: Record<string, string>,
+    allowUnsafeEndpoint?: boolean,
 ): Promise<VectorEmbeddingResult_ACU[]> {
     // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
     // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
-    assertSafeHttpEndpoint_ACU(endpoint);
+    // allowUnsafeEndpoint 由调用方注入（全局「允许不安全端点」开关）；链路本地等永久封禁段照拒。
+    assertSafeHttpEndpoint_ACU(endpoint, { allowUnsafe: allowUnsafeEndpoint === true });
     // 看门狗覆盖「fetch＋响应体消费」整段：成功路径行为不变，只是解除时机移到读完正文之后。
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VECTOR_EMBEDDING_TIMEOUT_MS_ACU);
@@ -272,7 +280,7 @@ export async function createEmbeddings_ACU(request: VectorEmbeddingRequest_ACU):
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= VECTOR_EMBEDDING_MAX_ATTEMPTS_ACU; attempt += 1) {
         try {
-            return await requestEmbeddingsOnce_ACU(endpoint, model, input, headers);
+            return await requestEmbeddingsOnce_ACU(endpoint, model, input, headers, request.allowUnsafeEndpoint === true);
         } catch (error) {
             lastError = error;
             const retryable = isVectorEmbeddingError_ACU(error)

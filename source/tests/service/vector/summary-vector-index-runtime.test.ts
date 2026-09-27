@@ -69,7 +69,13 @@ vi.mock('../../../src/data/gateways/ai-gateway', async (importOriginal) => ({
   getHostRequestHeaders_ACU: () => ({ 'X-CSRF-Token': 'host-csrf-secret' }),
 }));
 vi.mock('../../../src/data/gateways/vector-embedding-gateway', () => ({ createEmbeddings_ACU: (...a: any[]) => h.createEmbeddings(...a) }));
-vi.mock('../../../src/service/settings/settings-readers', () => ({ getCurrentWorldbookConfig_ACU: () => ({ zeroTkOccupyMode: false, summaryVectorIndexModeEnabled: true }) }));
+// 部分工厂 mock：本模块的导出被真实代码用到几个就得给几个 —— Vitest 对 mock 上缺失的导出
+// **取值即抛错**（No "X" export is defined on the mock），表现为「调用点莫名失败」。
+// allowUnsafeApiEndpointsEnabled_ACU：端点安全开关读取口，向量链路每次 embedding/rerank 都会问一次。
+vi.mock('../../../src/service/settings/settings-readers', () => ({
+  getCurrentWorldbookConfig_ACU: () => ({ zeroTkOccupyMode: false, summaryVectorIndexModeEnabled: true }),
+  allowUnsafeApiEndpointsEnabled_ACU: () => false,
+}));
 vi.mock('../../../src/data/repositories/profile-repo', () => ({ globalMeta_ACU: { summaryVectorIndexModeGlobal: true } }));
 vi.mock('../../../src/service/worldbook/injection-engine', () => ({ getInjectionTargetLorebook_ACU: async () => 'book', getIsolationPrefix_ACU: () => '' }));
 vi.mock('../../../src/service/worldbook/worldbook-service', () => ({

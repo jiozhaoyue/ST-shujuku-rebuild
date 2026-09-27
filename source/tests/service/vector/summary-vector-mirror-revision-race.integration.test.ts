@@ -44,6 +44,13 @@ vi.mock('../../../src/service/vector/vector-memory-config', () => ({
   }),
   validateSummaryVectorIndexConfig_ACU: () => ({ valid: true, errors: [] }),
 }));
+// 端点安全开关的读取口：本文件的 state-manager 是**部分工厂 mock**（只给 3 个导出），
+// 而真实 settings-readers 会读 `settings_ACU` —— 直接放它进来会撞上 Vitest「mock 上缺失导出即抛错」
+// （表现是 embedding 被 catch 成 embedding_failed，或 embeddingStarted 永不 resolve 而超时）。
+// 这里显式给出该读取口，语义即「开关关闭」，与本文件断言的安全默认路径一致。
+vi.mock('../../../src/service/settings/settings-readers', () => ({
+  allowUnsafeApiEndpointsEnabled_ACU: () => false,
+}));
 vi.mock('../../../src/service/vector/summary-vector-index-archive-service', () => ({
   findSummaryTable_ACU: () => ({ summaryKey: 'sheet_summary', table: h.table }),
   buildPreparedRows_ACU: () => ({ rows: [{ rowId: 'r1', vectorSourceText: 'race source', vectorSourceHash: 'hash-r1' }], skippedRowCount: 0, error: '' }),

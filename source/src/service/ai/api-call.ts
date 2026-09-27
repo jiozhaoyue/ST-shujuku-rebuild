@@ -8,6 +8,7 @@ import { settings_ACU } from '../runtime/state-manager';
 import { getHostRequestHeaders_ACU } from '../../data/gateways/ai-gateway';
 import { assertSafeHttpEndpoint_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { resolveApiConfigByPreset_ACU, normalizePromptPostProcessing_ACU } from '../settings/api-preset-service';
+import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 import { acquirePresetRateLimitSlot_ACU } from './preset-rate-limiter';
 import { isDebugLogEnabled } from '../../shared/log-buffer';
 
@@ -326,7 +327,7 @@ export function buildCustomApiRequestBody_ACU(
 ): Record<string, any> {
   const opts = overrides || {};
   if (effectiveApiConfig?.url) {
-    assertSafeHttpEndpoint_ACU(String(effectiveApiConfig.url));
+    assertSafeHttpEndpoint_ACU(String(effectiveApiConfig.url), { allowUnsafe: allowUnsafeApiEndpointsEnabled_ACU() });
   }
   const model = opts.stripModelPrefix !== false
     ? (effectiveApiConfig.model || '').replace(/^models\//, '')

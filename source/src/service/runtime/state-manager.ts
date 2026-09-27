@@ -404,6 +404,9 @@ export let settings_ACU: any = {
     apiMode: 'custom',
     tavernProfile: '',
     streamingEnabled: false,
+    // [API] 允许不安全端点：放行 http:// 远程与私网/环回（局域网自建服务、自签名证书）。
+    // 与 buildDefaultSettings_ACU 的同名键保持一致；链路本地等永久封禁段不受此开关影响。
+    allowUnsafeApiEndpoints: false,
     apiPresets: [],
     defaultApiPresetName: '',
     apiPresetBindingsByChat: {},

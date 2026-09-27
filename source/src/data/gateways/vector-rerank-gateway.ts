@@ -31,6 +31,12 @@ export interface VectorRerankRequest_ACU {
     instruction?: string;
     /** 每批 documents 条数；缺省 VECTOR_RERANK_DEFAULT_BATCH_SIZE_ACU，夹在 [10, 500]。 */
     batchSize?: number;
+    /**
+     * 放行 http:// 远程与私网/环回端点（全局设置 allowUnsafeApiEndpoints）。
+     * 由 service 调用方读取设置后注入 —— data 层不反向 import service 的 settings。
+     * 缺省/false 时门禁行为与文案逐字节不变；链路本地等永久封禁段不受此字段影响。
+     */
+    allowUnsafeEndpoint?: boolean;
 }
 
 export function normalizeRerankBatchSize_ACU(value: unknown, fallback = VECTOR_RERANK_DEFAULT_BATCH_SIZE_ACU): number {
@@ -110,6 +116,8 @@ interface RerankBatchRequest_ACU {
     instruction: string;
     documents: string[];
     batchLabel: string;
+    /** 见 VectorRerankRequest_ACU.allowUnsafeEndpoint。 */
+    allowUnsafeEndpoint?: boolean;
 }
 
 async function requestRerankBatch_ACU(request: RerankBatchRequest_ACU): Promise<VectorRerankResult_ACU[]> {
@@ -118,7 +126,8 @@ async function requestRerankBatch_ACU(request: RerankBatchRequest_ACU): Promise<
 
     // 端点安全校验：与主 API 同口径（仅 http(s)、拒私网/回环/非标端口）。守卫抛错即 fail-closed，
     // 避免用户可配置端点被指向内网，或在非 TLS 端点上明文外发 Authorization。
-    assertSafeHttpEndpoint_ACU(request.endpoint);
+    // allowUnsafeEndpoint 由调用方注入（全局「允许不安全端点」开关）；链路本地等永久封禁段照拒。
+    assertSafeHttpEndpoint_ACU(request.endpoint, { allowUnsafe: request.allowUnsafeEndpoint === true });
     // 超时可中断：rerank 在发送前同步链路上，挂起的上游不允许无限阻塞生成。
     // 看门狗覆盖「fetch＋响应体消费」整段：只包 fetch 的话，上游只回响应头、
     // 正文停滞时计时器已解除，请求永久挂起。成功路径行为不变。
@@ -211,6 +220,8 @@ export async function createRerankScores_ACU(request: VectorRerankRequest_ACU): 
             instruction,
             documents: batch.documents,
             batchLabel: `第 ${round + waveIndex + 1}/${batches.length} 批，${batch.documents.length} 条`,
+            // 逐批透传开关：批对象是新构造的，不带上就会被门禁按默认（拒绝）处理。
+            allowUnsafeEndpoint: request.allowUnsafeEndpoint,
         })));
         waveResults.forEach((results, waveIndex) => {
             const offset = wave[waveIndex].offset;

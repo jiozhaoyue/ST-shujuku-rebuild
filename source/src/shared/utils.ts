@@ -12,6 +12,7 @@ import { TABLE_TEMPLATE_ACU } from './defaults-json.js';
 import { DEBUG_MODE_ACU, SCRIPT_ID_PREFIX_ACU, TABLE_ORDER_FIELD_ACU } from './constants';
 import { safeJsonParseWithJsoncComments_ACU } from './json-helpers';
 import { pushLog, isDebugLogEnabled, isWarnLogEnabled } from './log-buffer';
+import { showUiSurfaceToast_ACU } from './ui-surface-registry';
 
 export function cleanChatName_ACU(fileName: string): string {
   if (!fileName || typeof fileName !== 'string') return 'unknown_chat_source';
@@ -377,6 +378,14 @@ export   function cloneScopedConfigData_ACU(value: any, fallback: any = null) {
    * SSRF 防护：校验 HTTP 端点（embedding/rerank 等用户可配置的直连端点）。
    * 仅放行 http(s)；http:// 仅允许 localhost/回环；私网/环回/链路本地/保留 IP 一律拒绝
    * （云元数据 169.254.169.254、内网 10.x/192.168.x、0.0.0.0 等）。
+   *
+   * options.allowUnsafe（默认 false，由全局设置 allowUnsafeApiEndpoints 驱动）：
+   * 开启后放行 http:// 远程主机与私网/环回 IP（局域网自建服务、自签名证书场景），
+   * 但链路本地（含云元数据）、未指定、组播与保留段仍然永久封禁 —— 见 isAlwaysBlockedHost_ACU。
+   * 默认（未传或 false）时行为与文案逐字节不变。
+   *
+   * 副作用（唯一一处）：开关**确实放行**了本会被拒的端点时，经 notifyUnsafeEndpointAllowed_ACU
+   * 记一条 warn 日志（按主机去重）并弹一次提示（每会话一次）。默认路径零副作用。
    */
   /**
    * [L2] 按 inet_aton 语义解析非规范 IPv4 文本（1/2/3/4 段十进制与 0x 前缀十六进制），
@@ -478,7 +487,106 @@ export   function cloneScopedConfigData_ACU(value: any, fallback: any = null) {
     return false;
   }
 
-  export function assertSafeHttpEndpoint_ACU(endpoint: string): void {
+  /**
+   * 已知云元数据**主机名**（字面是域名，解析后指向 169.254.169.254 一类链路本地点）。
+   * 本门禁不做 DNS，故按名封禁 —— 否则「域名一律放行」会成为云元数据保护的旁路。
+   */
+  const ALWAYS_BLOCKED_METADATA_HOSTNAMES_ACU = new Set([
+    'metadata.google.internal', // GCP（含兼容别名 metadata.goog）
+    'metadata.goog',
+    'instance-data',            // AWS EC2 内部主机名
+  ]);
+
+  /**
+   * [允许不安全端点] 开关放行后仍然**永久封禁**的地址族：链路本地（含云元数据
+   * 169.254.169.254 与 IPv6 fe80::/10）、未指定地址（0.0.0.0、::）、组播与保留段
+   * （IPv4 224/4 含 240/4 与 255.255.255.255；IPv6 ff00::/8）。
+   *
+   * 判据：这些地址与「用户自己的局域网自建服务」无关，只与云环境凭据泄漏（元数据端点）
+   * 和未定义路由有关，因此**与开关无关**、任何情况下都拒。
+   * 域名一律放行（由调用方的网络栈解析，本函数不做 DNS）。
+   */
+  function isAlwaysBlockedHost_ACU(host: string): boolean {
+    const normalized = host.replace(/^::ffff:/, '').toLowerCase();
+    // 已知云元数据主机名：字面是域名，但解析结果就是链路本地元数据端点。本门禁不做 DNS，
+    // 若不按名封禁，「域名一律放行」就会成为 169.254.169.254 的旁路（开关一开即失守）。
+    if (ALWAYS_BLOCKED_METADATA_HOSTNAMES_ACU.has(normalized)) return true;
+    if (!/^[\d.]+$/.test(normalized) && !/^[0-9a-f:]+(%[0-9a-z]+)?$/i.test(normalized)) return false; // 域名放行
+    if (normalized.includes(':')) {
+      const bareV6 = normalized.split('%')[0];
+      const groups = expandIpv6Groups_ACU(bareV6);
+      if (groups) {
+        if (groups.every((g) => g === 0)) return true; // '::' 未指定
+        if (groups[0] >= 0xff00) return true; // 组播 ff00::/8
+        if (groups[0] >= 0xfe80 && groups[0] <= 0xfebf) return true; // 链路本地 fe80::/10（含云元数据 v6 形态）
+        return false;
+      }
+      // 无法解析的形态：按首段前缀粗判兜底（与 isPrivateNetworkHost_ACU 同口径）
+      const first = bareV6.split(':')[0];
+      if (/^fe[89ab]/.test(first)) return true;
+      if (/^ff/.test(first)) return true;
+      return false;
+    }
+    const canonicalV4 = canonicalizeNonCanonicalIpv4_ACU(normalized);
+    if (!canonicalV4) return false; // 域名放行
+    const [a, b] = canonicalV4.split('.').map(Number);
+    if (a === 169 && b === 254) return true; // 链路本地：云元数据 169.254.169.254 在此段
+    if (canonicalV4 === '100.100.100.200') return true; // 阿里云元数据服务（100.64/10 共享地址段内的单点）
+    if (a === 0) return true; // 未指定 / 「本网络」
+    if (a >= 224) return true; // 组播 224/4 与保留 240/4（含 255.255.255.255）
+    return false;
+  }
+
+  /**
+   * 「允许不安全端点」放行提示的去重状态。
+   *
+   * 去重口径（为什么必须去重）：门禁在**每次请求**上都会走到（出站请求体构建、embedding/rerank
+   * 网关、模型探活），若每次都提示，日志与 toast 会瞬间被刷满，提示反而被无视。
+   * - warn 日志按**主机**去重：同一主机只记一条，多个不安全端点各记一条；
+   * - toast **每次会话只弹一次**：风险提示一次足够。
+   */
+  const unsafeEndpointNotifiedHosts_ACU = new Set<string>();
+  let unsafeEndpointToastShown_ACU = false;
+
+  /** 仅供测试：清空放行提示的去重状态。不重置会让后续用例拿到「已提示过」的假绿。 */
+  export function _resetUnsafeEndpointNoticeForTests_ACU(): void {
+    unsafeEndpointNotifiedHosts_ACU.clear();
+    unsafeEndpointToastShown_ACU = false;
+  }
+
+  /** 提示主键：优先取 origin（不含凭据与路径），解析失败退化为原文。 */
+  function unsafeEndpointNoticeKey_ACU(endpoint: string): string {
+    try {
+      return new URL(String(endpoint)).origin;
+    } catch (e) {
+      return String(endpoint || '').trim();
+    }
+  }
+
+  /**
+   * 「因开关放行」的可见化提示 —— **只在实际被开关放行时**调用（调用点自己判定，
+   * 见 assertSafeHttpEndpoint_ACU 的 bypassedBySwitch）。本来就被放行的端点
+   * （https 公网、http://localhost）不提示，否则正常请求也会被贴上风险标签。
+   *
+   * 通道复用 showUiSurfaceToast_ACU（已注册 UI surface → 宿主 toastr → 静默三级降级，
+   * 绝不抛错），不新造 UI 通道；日志走既有 warn 通道（受 warn 开关约束）。
+   */
+  function notifyUnsafeEndpointAllowed_ACU(endpoint: string): void {
+    const key = unsafeEndpointNoticeKey_ACU(endpoint);
+    if (!unsafeEndpointNotifiedHosts_ACU.has(key)) {
+      unsafeEndpointNotifiedHosts_ACU.add(key);
+      logWarn_ACU(`[端点安全] 「允许不安全端点」已开启，放行非安全端点 ${key}：请求头（含 API 密钥）可能以明文发往该地址。`);
+    }
+    if (unsafeEndpointToastShown_ACU) return;
+    unsafeEndpointToastShown_ACU = true;
+    showUiSurfaceToast_ACU({
+      kind: 'warning',
+      text: `已放行不安全端点（${key}）：开关开启期间，请求头（含 API 密钥）可能以明文发往该地址。本次会话只提示一次。`,
+    });
+  }
+
+  export function assertSafeHttpEndpoint_ACU(endpoint: string, options: { allowUnsafe?: boolean } = {}): void {
+    const allowUnsafe = options.allowUnsafe === true;
     const raw = String(endpoint || '').trim();
     if (!raw) throw new Error('端点地址为空。');
     if (raw.includes('\\')) throw new Error('端点不能包含反斜杠，请使用正斜杠。');
@@ -498,7 +606,7 @@ export   function cloneScopedConfigData_ACU(value: any, fallback: any = null) {
       throw new Error('端点地址无法解析。');
     }
     const host = url.hostname.replace(/^\[|\]$/g, '');
-    if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '::1'].includes(host)) {
+    if (!allowUnsafe && url.protocol === 'http:' && !['localhost', '127.0.0.1', '::1'].includes(host)) {
       throw new Error('端点使用 http:// 时仅允许 localhost；远程地址请使用 https://。');
     }
     // 处理 IPv4-mapped IPv6：URL 会把 ::ffff:10.0.0.1 规范化为 ::ffff:a00:1，需还原为点分十进制再判定
@@ -524,6 +632,18 @@ export   function cloneScopedConfigData_ACU(value: any, fallback: any = null) {
           }
         }
       }
+    }
+    if (allowUnsafe) {
+      // 开关开启：放行私网/环回（局域网自建服务、自签名证书），但永久封禁段照拒。
+      if (isAlwaysBlockedHost_ACU(numericHost)) {
+        throw new Error('端点指向链路本地/未指定/组播/保留地址（含云元数据 169.254.169.254），这类地址不会因开启「允许不安全端点」而放行。');
+      }
+      // 只对「不开启开关时本会被拒」的端点发提示：否则开关一开，每次正常请求都会刷一条风险提示。
+      // 判据与上面两条拒绝规则一一对应（http 远程；私网/环回），保证提示面 == 放行面。
+      const bypassedBySwitch = (url.protocol === 'http:' && !['localhost', '127.0.0.1', '::1'].includes(host))
+        || (isPrivateNetworkHost_ACU(numericHost) && !['localhost', '127.0.0.1', '::1'].includes(numericHost));
+      if (bypassedBySwitch) notifyUnsafeEndpointAllowed_ACU(raw);
+      return;
     }
     if (isPrivateNetworkHost_ACU(numericHost) && !['localhost', '127.0.0.1', '::1'].includes(numericHost)) {
       throw new Error('端点指向私网/环回/链路本地地址，存在 SSRF 风险，请使用公网 https 地址。');

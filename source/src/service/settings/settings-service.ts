@@ -1081,6 +1081,11 @@ export   function buildDefaultSettings_ACU() {
           apiMode: 'custom',
           tavernProfile: '',
           streamingEnabled: false,
+          // [API] 允许不安全端点（单一切换，全局）：放行 http:// 远程主机与私网/环回 IP，
+          // 用于局域网自建服务 / 自签名证书。默认 false。
+          // 开启后链路本地（含云元数据 169.254.169.254）、未指定、组播与保留段仍被永久封禁
+          // （见 shared/utils.ts 的 isAlwaysBlockedHost_ACU）；默认关闭时门禁行为与文案逐字节不变。
+          allowUnsafeApiEndpoints: false,
           apiPresets: [] as any[],
           defaultApiPresetName: '',
           apiPresetBindingsByChat: {},

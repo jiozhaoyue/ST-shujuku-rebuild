@@ -8,7 +8,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { normalizeSummaryVectorIndexScope_ACU, normalizeSummaryVectorIsolationKey_ACU } from '../../shared/summary-vector-index-scope';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { callAIWithPreset_ACU } from '../ai/api-call';
-import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
+import { allowUnsafeApiEndpointsEnabled_ACU, getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { globalMeta_ACU } from '../../data/repositories/profile-repo';
 import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../worldbook/injection-engine';
 import {
@@ -299,6 +299,7 @@ async function rerankCandidates_ACU(
             documents,
             instruction: normalizeText_ACU(config.rerankInstruction) || undefined,
             batchSize: config.rerankBatchSize,
+            allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
         });
         const byIndex = new Map<number, number>();
         results.forEach((item) => {
@@ -915,6 +916,7 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
             apiKey: config.embeddingApiKey,
             model: config.embeddingModel,
             input: [queryText],
+            allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
         });
         queryVector = embeddings[0]?.embedding || [];
         if (queryVector.length === 0) {

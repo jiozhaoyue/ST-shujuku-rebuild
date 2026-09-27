@@ -48,6 +48,7 @@ import {
 } from './summary-vector-mirror-storage';
 import type { SummaryVectorIndexContentPackChunk_ACU, SummaryVectorIndexExternalFileRef_ACU } from './summary-vector-index-types';
 import type { SummaryVectorMirrorHeadResult_ACU } from './summary-vector-index-types';
+import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 
 export interface SummaryVectorMirrorFlushResult_ACU {
     success: boolean;
@@ -387,6 +388,7 @@ export async function flushSummaryVectorMirrorNow_ACU(options: {
                     apiKey: config.embeddingApiKey,
                     model: config.embeddingModel,
                     input,
+                    allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
                 }),
             });
             embeddings = executed.embeddings;

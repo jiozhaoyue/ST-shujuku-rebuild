@@ -3,7 +3,7 @@ import { assertSafeHttpEndpoint_ACU, cleanChatName_ACU, normalizePositiveInteger
 import { normalizeRerankBatchSize_ACU, VECTOR_RERANK_DEFAULT_BATCH_SIZE_ACU } from '../../data/gateways/vector-rerank-gateway';
 import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
 import { currentChatFileIdentifier_ACU, settings_ACU } from '../runtime/state-manager';
-import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
+import { allowUnsafeApiEndpointsEnabled_ACU, getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { saveSettings_ACU } from '../settings/settings-service';
 
 /**
@@ -494,8 +494,12 @@ export function validateSummaryVectorIndexConfig_ACU(configInput?: any): VectorM
     } else {
         // 端点安全性并入配置校验：不安全端点收敛为 config_invalid（terminal 通道），
         // 不再漏到网关运行期抛裸 Error 被镜像链路按 retryable 白烧重试额度。
+        // 与网关同一开关口径：用户开了「允许不安全端点」却在校验处被拦，会表现为
+        // 「端点填对了、网关也放行，但配置永远 config_invalid」——同一开关必须覆盖校验面。
         try {
-            assertSafeHttpEndpoint_ACU(String(config.embeddingEndpoint));
+            assertSafeHttpEndpoint_ACU(String(config.embeddingEndpoint), {
+                allowUnsafe: allowUnsafeApiEndpointsEnabled_ACU(),
+            });
         } catch (endpointError: any) {
             errors.push(`embeddingEndpoint 不安全：${String(endpointError?.message || endpointError)}`);
         }

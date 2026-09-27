@@ -125,7 +125,10 @@ async function fetchAvailableModelsUncached_ACU(apiUrl: string, apiKey: string, 
     }
     try {
         const { assertSafeHttpEndpoint_ACU } = await import('../../shared/utils');
-        assertSafeHttpEndpoint_ACU(apiUrl);
+        const { allowUnsafeApiEndpointsEnabled_ACU } = await import('../settings/settings-readers');
+        // 模型列表探活与真实调用同口径：全局「允许不安全端点」开关一并生效，
+        // 否则用户开了开关仍会在探活处被拦（表现为「地址填对了但探活失败」）。
+        assertSafeHttpEndpoint_ACU(apiUrl, { allowUnsafe: allowUnsafeApiEndpointsEnabled_ACU() });
     } catch (e: any) {
         const reason = String(e?.message || '端点地址不安全。');
         // 协议非法分支：SSRF 守卫的协议相关拒绝追加可操作提示（其余拒绝保持原文）。

@@ -6,6 +6,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 
+// 本文件首个 mount 要付「整棵 presentation-v2 组件图导入 + SFC 编译」的成本：本机实测约 14.0s，
+// 且与本次改动无关（把 ApiPage.vue / ApiConfigPanel.vue 还原成 HEAD 后对照实测同为 14.0s）。
+// 默认 15s 超时贴着极限，机器一忙就翻成「超时」假失败，真失败会被噪音淹没。后续用例复用编译缓存，
+// 均在 1s 内 —— 所以这里放宽的是**整文件**超时，不是掩盖某条用例的慢。
+vi.setConfig({ testTimeout: 45000 });
+
 const STORAGE_KEY = 'acu_v2_ui_state';
 
 function createSettings() {
@@ -77,7 +83,13 @@ describe('ApiPage', () => {
     const page = document.querySelector('.acu-v2-api-page');
     expect(page).not.toBeNull();
     expect(page!.textContent).toContain('API 预设');
-    expect(page!.querySelectorAll('.acu-panel')).toHaveLength(1);
+    // 面板清单：① API 预设面板（选择与编辑集中于此）② 端点安全面板。
+    // 第二个是本页新增的**全局**开关（allowUnsafeApiEndpoints）——它不属任何预设，
+    // 所以不能塞进预设面板里（会误导成预设级），单独成面板。断言面板清单而非仅计数：
+    // 既钉住「多余面板不得复活」，也钉住第二个面板确实是端点安全。
+    const panels = Array.from(page!.querySelectorAll<HTMLElement>('.acu-panel'));
+    expect(panels).toHaveLength(2);
+    expect(panels[1].querySelector('.acu-panel__title')?.textContent).toContain('端点安全');
     expect(page!.textContent).not.toContain('交火模式向量服务');
     expect(page!.textContent).not.toContain('Embedding Endpoint');
     expect(page!.textContent).not.toContain('去交火模式配置');

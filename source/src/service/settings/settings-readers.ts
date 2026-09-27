@@ -112,7 +112,22 @@ export function getCurrentCharSettings_ACU() {
     return settings_ACU.characterSettings[charId];
 }
 
-/** 获取当前角色的世界书配置 */
+/**
+ * [允许不安全端点] 是否放行 http:// 远程主机与私网/环回端点（局域网自建服务、自签名证书）。
+ *
+ * 默认 false。读取口只此一处：链路门禁 `assertSafeHttpEndpoint_ACU` 的 `allowUnsafe` 参数
+ * 由调用方传入 —— **data 层网关不得反向 import 本函数**（data→service 只允许 type-only），
+ * 故 service 调用方读本函数后经请求对象注入（见 VectorEmbeddingRequest_ACU.allowUnsafeEndpoint）。
+ *
+ * 注意：开关只放行私网/环回；链路本地（含云元数据 169.254.169.254）、未指定、组播与保留段
+ * 在任何情况下都由门禁永久封禁。
+ */
+export function allowUnsafeApiEndpointsEnabled_ACU(): boolean {
+    return settings_ACU?.allowUnsafeApiEndpoints === true;
+}
+
+/**
+ * 获取当前角色的世界书配置 */
 export function getCurrentWorldbookConfig_ACU() {
     return getCurrentCharSettings_ACU().worldbookConfig;
 }
