@@ -11,6 +11,11 @@ import { resolveApiConfigByPreset_ACU, normalizePromptPostProcessing_ACU } from 
 import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 import { acquirePresetRateLimitSlot_ACU } from './preset-rate-limiter';
 import { isDebugLogEnabled } from '../../shared/log-buffer';
+import {
+    isPromptObservationEnabled_ACU,
+    recordPromptAssembly_ACU,
+    type PromptSegmentStat_ACU,
+} from './prompt-observer';
 
 /**
  * OpenCode Go 会话头（x-opencode-session）：Go 官方要求所有请求携带该头做提示缓存优化，
@@ -323,8 +328,11 @@ export const JSON_OBJECT_RESPONSE_FORMAT_ACU = Object.freeze({ type: 'json_objec
 export function buildCustomApiRequestBody_ACU(
   messages: any[],
   effectiveApiConfig: any,
-  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; sessionNamespace?: string }
+  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; sessionNamespace?: string; promptSegments?: PromptSegmentStat_ACU[] }
 ): Record<string, any> {
+  // 提示词观测（R7 零开销）：一次布尔读取 + 末尾一个分支；关闭时后面的记录调用根本不进，
+  // 不分配、不复制字符串、不算 token。放最前是为了让「本次调用是否被观测」在函数入口定死。
+  const observePrompt_ACU = isPromptObservationEnabled_ACU();
   const opts = overrides || {};
   if (effectiveApiConfig?.url) {
     assertSafeHttpEndpoint_ACU(String(effectiveApiConfig.url), { allowUnsafe: allowUnsafeApiEndpointsEnabled_ACU() });
@@ -476,6 +484,20 @@ export function buildCustomApiRequestBody_ACU(
   } else {
     try { delete (globalThis as any).__ACU_DEBUG_LAST_API_BODY__; } catch {}
     try { delete (globalThis as any).__ACU_DEBUG_LAST_API_BODY_AT__; } catch {}
+  }
+
+  // 提示词观测（全插件唯一埋点，覆盖全部 AI 功能域）。
+  //
+  // 只把**实际出站的值**交给观测器，且刻意构造一个最小配置对象：
+  // 不传 effectiveApiConfig 本体 —— 它含 apiKey / requestHeaders / bodyParams / proxyPassword。
+  // 观测器因此**在结构上不可能**采到密钥与请求头，R6 不靠过滤靠"根本拿不到"。
+  // model / stream 取 body 上的终值（已含全局回退），与真实请求逐字一致。
+  if (observePrompt_ACU) {
+    recordPromptAssembly_ACU({
+      messages: Array.isArray(body.messages) ? body.messages : [],
+      effectiveApiConfig: { model: body.model, url: body.reverse_proxy, streamingEnabled: body.stream },
+      overrides: { sessionNamespace: opts.sessionNamespace, promptSegments: opts.promptSegments },
+    });
   }
 
   return body;

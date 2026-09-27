@@ -14,6 +14,13 @@ import {
   buildCustomApiRequestBody_ACU,
   postChatCompletion_ACU
 } from '../api-call';
+import {
+  isPromptObservationEnabled_ACU,
+  PROMPT_PLACEHOLDER_SEGMENT_ACU,
+  PROMPT_SEGMENT_SKELETON_ACU,
+  PROMPT_SEGMENT_TABLE_WORLDBOOK_ACU,
+  type PromptSegmentStat_ACU,
+} from '../prompt-observer';
 import { acquirePresetRateLimitSlot_ACU } from '../preset-rate-limiter';
 import {
   currentJsonTableData_ACU,
@@ -127,6 +134,16 @@ export class RetryableAiResponseError_ACU extends Error {
     const abortSignal = localAbortController.signal;
     const skipProfileSwitch = !!options?.skipProfileSwitch;
     const forceDirectApi = !!options?.forceDirectApi;
+    // 提示词观测（R7 零开销）：关闭时下面所有分段统计全部短路，行为与未见观测器时逐字一致。
+    const observePrompt_ACU = isPromptObservationEnabled_ACU();
+    // 段级统计：段名 → 注入字符数。占位符替换点天然就是分段边界（见下方单遍替换注释）。
+    const segmentChars_ACU = new Map<string, number>();
+    // 每条消息被注入的字符数（下标与 messages 对齐），用于反推「骨架」= 模板自身的静态文本量。
+    const injectedCharsPerMessage_ACU: number[] = [];
+    const addSegmentChars_ACU = (name: string | undefined, chars: number): void => {
+        if (!name || chars <= 0) return;
+        segmentChars_ACU.set(name, (segmentChars_ACU.get(name) || 0) + chars);
+    };
 
     const effectiveTableApiPreset = options?.tableApiPreset !== undefined
         ? String(options.tableApiPreset)
@@ -228,10 +245,22 @@ export class RetryableAiResponseError_ACU extends Error {
         for (let segmentIndex = 0; segmentIndex < promptSegments.length; segmentIndex += 1) {
             const segment = promptSegments[segmentIndex];
             let finalContent = String(segment?.content ?? '');
-            finalContent = finalContent.replace(/\$(?:0|1|4|6|8|9|U|C)/g, (match: string) => (
-                untrustedGuard.protect(untrustedPlaceholderValues[match])
-            ));
+            // 观测开启时顺便记下「本段被注入的字符数」：替换进正文的是占位符值的原样长度
+            // （值先被 nonce 保护、出站前原样还原），因此这里量到的就是该段的真实贡献。
+            let injectedChars_ACU = 0;
+            finalContent = finalContent.replace(/\$(?:0|1|4|6|8|9|U|C)/g, (match: string) => {
+                const placeholderValue = untrustedPlaceholderValues[match];
+                if (observePrompt_ACU && typeof placeholderValue === 'string') {
+                    addSegmentChars_ACU(PROMPT_PLACEHOLDER_SEGMENT_ACU[match], placeholderValue.length);
+                    injectedChars_ACU += placeholderValue.length;
+                }
+                return untrustedGuard.protect(placeholderValue);
+            });
             for (const token of resolvedTableTokensBySegment[segmentIndex] || []) {
+                if (observePrompt_ACU && typeof token.value === 'string') {
+                    addSegmentChars_ACU(PROMPT_SEGMENT_TABLE_WORLDBOOK_ACU, token.value.length);
+                    injectedChars_ACU += token.value.length;
+                }
                 finalContent = finalContent.split(token.raw).join(untrustedGuard.protect(token.value));
             }
 
@@ -264,10 +293,30 @@ export class RetryableAiResponseError_ACU extends Error {
             }
 
             messages.push({ role: normalizeRoleForApi_ACU(segment.role), content: finalContent });
+            injectedCharsPerMessage_ACU.push(injectedChars_ACU);
         }
     } finally {
         // 全部模板处理完成后才把不可信 payload 一次性放回出站文本。
         for (const message of messages) message.content = untrustedGuard.restore(message.content);
+    }
+
+    // 段级报告的收尾：此刻 messages 已是最终出站文本（payload 已还原），
+    // 「骨架」= 每条消息的最终长度 − 该条被注入的字符数（模板自身的静态文本 + 模板处理产物）。
+    // 由此 sum(各段) === 各消息字符总和，账是平的；宿主侧后续的 role 归一 / 非预填充改写
+    // 造成的少量增量由观测器记在 unsegmentedChars，仍可审计。
+    let observedSegments_ACU: PromptSegmentStat_ACU[] | undefined;
+    if (observePrompt_ACU) {
+        let skeletonChars_ACU = 0;
+        for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+            skeletonChars_ACU += Math.max(0, messages[messageIndex].content.length - (injectedCharsPerMessage_ACU[messageIndex] || 0));
+        }
+        addSegmentChars_ACU(PROMPT_SEGMENT_SKELETON_ACU, skeletonChars_ACU);
+        observedSegments_ACU = [...segmentChars_ACU.entries()]
+            .map(([name, chars]) => ({ name, chars }))
+            // 骨架置顶，其余按注入量降序：面板上一眼看到「谁占了预算」。
+            .sort((a, b) => (a.name === PROMPT_SEGMENT_SKELETON_ACU ? -1
+                : b.name === PROMPT_SEGMENT_SKELETON_ACU ? 1
+                : b.chars - a.chars));
     }
 
     logDebug_ACU('Final messages array being sent to API:', messages);
@@ -282,7 +331,7 @@ export class RetryableAiResponseError_ACU extends Error {
             await acquirePresetRateLimitSlot_ACU(effectiveTableApiPreset || '_current_config', { signal: abortSignal });
         }
         logDebug_ACU('ACU: 调用后端生成 API, Model:', effectiveApiConfig.model);
-        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'table-fill' }), abortSignal);
+        const content = await postChatCompletion_ACU(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, sessionNamespace: 'table-fill', ...(observedSegments_ACU ? { promptSegments: observedSegments_ACU } : {}) }), abortSignal);
         if (content) {
             return content.trim();
         }

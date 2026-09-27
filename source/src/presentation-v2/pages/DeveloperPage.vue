@@ -32,6 +32,8 @@
           />
         </AcuFormRow>
       </AcuPanel>
+
+      <PromptInspectionPanel />
     </AcuPanelGrid>
   </section>
 </template>
@@ -42,6 +44,7 @@ import AcuFormRow from "../components/_lib/AcuFormRow.vue";
 import AcuInput from "../components/_lib/AcuInput.vue";
 import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
+import PromptInspectionPanel from "../components/PromptInspectionPanel.vue";
 import ToggleRow from "../components/DashboardToggleRow.vue";
 import { useDevOptions } from "../composables/useDevOptions";
 import { useFormFillSettings } from "../composables/useFormFillSettings";

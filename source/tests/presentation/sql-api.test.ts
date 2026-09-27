@@ -616,7 +616,13 @@ describe('createSqlApi', () => {
   });
 
   it('executeSqlBatch 运行时未就绪时拒绝写入', async () => {
-    mocks.ensureStorageProviderReady.mockRejectedValueOnce(new Error('[StorageStrategy] sqlite 存储运行时未就绪，已阻止 SQL 写入。'));
+    // 必须用持久 reject 而不是 mockRejectedValueOnce：
+    // runTableUpdateCommit_ACU 在进入提交回调前会先跑 flushRuntimeOnlyPendingBeforeCommit_ACU，
+    // 那条路径同样会取存储 provider（runtime-only-pending-flush.readRuntimeSnapshot_ACU →
+    // ensureStorageProviderReady_ACU），且它**刻意吞掉异常继续提交**。
+    // 于是 Once 的拒绝被这次前置调用消费掉，回调里的真正守卫拿到的是默认 mock（resolved）→
+    // 写入意外成功，用例恒红。真实环境下两次调用都会 reject，守卫照常生效。
+    mocks.ensureStorageProviderReady.mockRejectedValue(new Error('[StorageStrategy] sqlite 存储运行时未就绪，已阻止 SQL 写入。'));
 
     const result = await api.executeSqlBatch('UPDATE inventory SET name = \'钢剑\';');
 

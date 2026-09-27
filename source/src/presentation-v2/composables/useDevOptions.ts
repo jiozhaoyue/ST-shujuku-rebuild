@@ -14,6 +14,7 @@ export function useDevOptions() {
     vectorIndexAdvanced,
     warnLogEnabled,
     apiReconfirm,
+    promptInspectEnabled,
   } = storeToRefs(store);
   return {
     developerOptionsEnabled,
@@ -26,6 +27,8 @@ export function useDevOptions() {
     setWarnLogEnabled: (enabled: boolean) => store.setWarnLogEnabled(enabled),
     apiReconfirm,
     setApiReconfirm: (enabled: boolean) => store.setApiReconfirm(enabled),
+    promptInspectEnabled,
+    setPromptInspectEnabled: (enabled: boolean) => store.setPromptInspectEnabled(enabled),
     refresh: () => store.refresh(),
   };
 }

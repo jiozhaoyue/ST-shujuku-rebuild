@@ -58,6 +58,9 @@ export default defineConfig({
     // 全量 8 并行/verify-parallel 三线并行下，重型 jsdom 套件（如 open-visualizer-surface，
     // 每用例 resetModules 冷编译全 app 图）首用例 beforeEach 实测贴 10s 默认线；留 2 倍余量。
     hookTimeout: 20000,
+    // presentation-v2 重套件的一次性 app 图预热（73s 冷转译）从「单条用例预算」挪到 beforeAll，
+    // 否则它恒落在各重文件的首条用例上顶穿 testTimeout。详见该文件头注释。
+    setupFiles: ['./tests/setup/warm-app-graph.ts'],
     // 历史定规为单线程（多运行时峰值内存互踩）。2026-08-31 本机 24 核/32GB 实测：
     // 8 并行 × 2 连跑 6907 全绿零偶发，114s（单线程 537s 的 4.7 倍提速）；默认 8，
     // ACU_VITEST_WORKERS 可临时上调/回退（10 并行仅再省 ~4s，收益递减）。
