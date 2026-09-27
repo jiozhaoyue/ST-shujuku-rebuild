@@ -11,6 +11,7 @@ import {
   AgentWebClient_ACU,
   collapseWhitespace_ACU,
   enabledEncyclopediaSources_ACU,
+  evaluateSearxngBaseUrlPolicy_ACU,
   evaluateWebUrlPolicy_ACU,
   extractReadableText_ACU,
   parseBlockedDomains_ACU,
@@ -101,6 +102,37 @@ describe('AgentWebClient_ACU 百科通道（TT 直连）', () => {
     expect(String(fetch.mock.calls[0][0])).toContain('origin=*');
   });
 
+  it('百科响应体读取阶段也必须响应取消信号', async () => {
+    const controller = new AbortController();
+    const { client } = client_ACU(() => ({ ok: true, json: () => new Promise(() => {}) } as any));
+    const pending = client.readEncyclopedia('wikipedia_zh', '长正文', 4000, controller.signal);
+    await Promise.resolve();
+    controller.abort();
+
+    const outcome = await Promise.race([
+      pending.then(() => 'resolved', error => error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'other'),
+      new Promise<string>(resolve => setTimeout(() => resolve('not-aborted'), 50)),
+    ]);
+    expect(outcome).toBe('aborted');
+  });
+
+  it('响应体一直未结束时仍受请求超时保护', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client } = client_ACU(() => ({ ok: true, json: () => new Promise(() => {}) } as any));
+      const pending = client.readEncyclopedia('wikipedia_zh', '超时正文', 4000);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(20000);
+      const result = await Promise.race([
+        pending,
+        new Promise<'timeout'>(resolve => setTimeout(() => resolve('timeout'), 0)),
+      ]);
+      expect(result).toMatchObject({ status: 'unavailable' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('维基百科 list=search 无命中与词条缺失都以说明文本返回而不抛错', async () => {
     const { client } = client_ACU(url => {
       if (url.includes('list=search')) return jsonResponse_ACU({ query: { search: [] } });
@@ -166,6 +198,24 @@ describe('AgentWebClient_ACU 通用搜索与网页抓取（TT 路由实态）', 
     const omitted = await client.webSearch('Tauri', { searchProvider: 'searxng', searxngBaseUrl: 'http://localhost:8888' });
     expect(omitted.hits).toHaveLength(1);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('SearXNG 实例地址闸门：自建 loopback 放行，内网/非法协议不出网', async () => {
+    // 自建实例是文档化用法（含自定义端口），必须放行。
+    expect(evaluateSearxngBaseUrlPolicy_ACU('http://localhost:8888')).toBeNull();
+    expect(evaluateSearxngBaseUrlPolicy_ACU('http://127.0.0.1:8888')).toBeNull();
+    expect(evaluateSearxngBaseUrlPolicy_ACU('https://searx.example.org')).toBeNull();
+    // 内网直连与非法协议必须在客户端拦下，不发请求。
+    expect(evaluateSearxngBaseUrlPolicy_ACU('http://192.168.1.10:8888')).not.toBeNull();
+    expect(evaluateSearxngBaseUrlPolicy_ACU('http://10.0.0.5/')).not.toBeNull();
+    expect(evaluateSearxngBaseUrlPolicy_ACU('file:///etc/passwd')).not.toBeNull();
+    expect(evaluateSearxngBaseUrlPolicy_ACU('not a url')).not.toBeNull();
+
+    const { client, fetch } = client_ACU(() => textResponse_ACU(''));
+    const blocked = await client.webSearch('q', { searchProvider: 'searxng', searxngBaseUrl: 'http://192.168.1.10:8888' });
+    expect(blocked.hits).toEqual([]);
+    expect(blocked.note).toContain('被拒绝');
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('SearXNG 未填地址时给出可操作提示且不出网；实例失败时说明原因', async () => {

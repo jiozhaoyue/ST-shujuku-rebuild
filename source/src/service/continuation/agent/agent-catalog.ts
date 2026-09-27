@@ -7,14 +7,14 @@
  * 子代理的完整系统提示词不暴露给主 Agent，避免主 Agent 被无关细节淹没。
  */
 
-import { AGENT_FINAL_REVIEWER_NAME_ACU, AGENT_OUTLINE_AGENT_NAME_ACU, AGENT_WEB_RESEARCHER_NAME_ACU, type AgentSubagentKind_ACU, type AgentSubagentName_ACU } from './agent-model';
+import { AGENT_FINAL_REVIEWER_NAME_ACU, AGENT_INSTRUCTION_COMPOSER_NAME_ACU, AGENT_OUTLINE_AGENT_NAME_ACU, AGENT_REQUIREMENTS_MAINTAINER_NAME_ACU, AGENT_WEB_RESEARCHER_NAME_ACU, type AgentSubagentKind_ACU, type AgentSubagentName_ACU } from './agent-model';
 
 export interface AgentSubagentDefinition_ACU {
   name: AgentSubagentName_ACU;
   kind: AgentSubagentKind_ACU;
   description: string;
   triggers: string[];
-  promptKey: 'arcArchitect' | 'maintainer' | 'mainlinePlanner' | 'beatPlanner' | 'reviewer' | 'webResearcher';
+  promptKey: 'arcArchitect' | 'maintainer' | 'mainlinePlanner' | 'beatPlanner' | 'reviewer' | 'webResearcher' | 'instructionComposer' | 'requirementsMaintainer';
 }
 
 /** 目录渲染的可选开关：网页检索关闭时，web-researcher 及其资料模块不进主 Agent 视野。 */
@@ -69,18 +69,25 @@ export const AGENT_SUBAGENT_DEFINITIONS_ACU: readonly AgentSubagentDefinition_AC
     promptKey: 'beatPlanner',
   },
   {
-    name: 'continuity-reviewer',
-    kind: 'review',
-    description: '审查策划结果的连续性与约束合规：输出 pass / revise / block 判词，只读不写',
-    triggers: ['策划结果之间存在冲突', '本轮触碰长期约束红线', '大阶段转折或伏笔密集轮次'],
-    promptKey: 'reviewer',
-  },
-  {
     name: AGENT_WEB_RESEARCHER_NAME_ACU,
     kind: 'research',
     description: '从互联网查原作与公开设定：直连萌娘百科与维基百科，用 SearXNG 搜索引擎补冷门设定；把有用的页面写成带摘要的百科资料库条目（$WEB_REFS）供其它代理阅读。只登记原作/公开常识，不写本故事剧情',
     triggers: ['任务启用了开场检索且资料库为空时由运行时自动派工，无需你派', '正文或大纲新登场了原作人物、组织、地点、能力、术语，而百科资料库与世界书都没有对应条目', '需要核对某个原作设定（关系、能力边界、时间线、禁忌）而现有资料无法回答'],
     promptKey: 'webResearcher',
+  },
+  {
+    name: AGENT_INSTRUCTION_COMPOSER_NAME_ACU,
+    kind: 'compose',
+    description: '通读结算后的资料、策划建议、审查结论、用户要求与活跃约束，产出本轮写作指令。由固定工作流调用，主 Agent 不能派工。',
+    triggers: ['固定工作流在策划与审查之后自动调用'],
+    promptKey: 'instructionComposer',
+  },
+  {
+    name: AGENT_REQUIREMENTS_MAINTAINER_NAME_ACU,
+    kind: 'maintain',
+    description: '整理 Agent 会话里用户提过的要求：去重合并后全量替换 $USER_REQUIREMENTS。由会话压缩后的系统派工触发，不写伏笔或正文事实',
+    triggers: ['主会话历史压缩后，被浓缩范围内仍有实质用户输入'],
+    promptKey: 'requirementsMaintainer',
   },
 ];
 
@@ -121,6 +128,12 @@ export const AGENT_MODULE_DEFINITIONS_ACU: readonly AgentModuleDefinition_ACU[] 
     triggers: ['同人写作需要核对原作人物关系、能力边界、组织与地点设定', '大纲或策划涉及原作术语而世界书没有覆盖', '审查候选指导是否违背原作常识'],
     writableBy: [AGENT_WEB_RESEARCHER_NAME_ACU],
   },
+  {
+    token: '$USER_REQUIREMENTS',
+    description: '用户要求资料区：用户在 Agent 会话里对任务提过的要求，逐条分行。由 requirements-maintainer 在历史压缩后整理；创建任务时机械写入 originInstruction 作为首条',
+    triggers: ['规划、审查或写作需要遵守用户累计提出的任务要求', '用户中途补充、修正或覆盖了此前的要求'],
+    writableBy: [AGENT_REQUIREMENTS_MAINTAINER_NAME_ACU],
+  },
 ];
 
 /** 子代理目录里的类型中文名。 */
@@ -130,6 +143,7 @@ const KIND_DISPLAY_LABELS_ACU: Record<AgentSubagentKind_ACU, string> = {
   plan: '策划',
   review: '审查',
   research: '网页检索',
+  compose: '写作指令',
 };
 
 /** 按职责固定的写入说明，进子代理目录的「写入」行。 */
@@ -139,27 +153,15 @@ const KIND_WRITE_LABELS_ACU: Record<AgentSubagentKind_ACU, string> = {
   plan: '无（只返回建议）',
   review: '无（只返回判词）',
   research: '$WEB_REFS（职责固定；只写外部参考资料，不碰叙事模块）',
+  compose: '无（只产出写作指令；constraints 增量由运行时容错登记）',
 };
 
 function isDefinitionVisible_ACU(name: AgentSubagentName_ACU, options?: AgentCatalogOptions_ACU): boolean {
+  // 总纲、写作指令与用户要求维护都由固定工作流或压缩后系统派工内部调度，不向主 Agent 暴露直接派工入口。
+  if (name === AGENT_INSTRUCTION_COMPOSER_NAME_ACU || name === 'arc-architect' || name === AGENT_REQUIREMENTS_MAINTAINER_NAME_ACU) return false;
   if (name === AGENT_WEB_RESEARCHER_NAME_ACU) return options?.webResearchEnabled === true;
   return true;
 }
-
-/**
- * 大纲子代理的目录块。它不走通用子代理运行时：运行时会按任务状态自动推断
- * 创建 / 维护 / 继续三种操作，并用独立的大纲提示词与既有资料完成生成与校验，
- * 因此这里手写描述而不进入 AGENT_SUBAGENT_DEFINITIONS_ACU。
- */
-const OUTLINE_AGENT_CATALOG_BLOCK_ACU = [
-  `- name: ${AGENT_OUTLINE_AGENT_NAME_ACU}`,
-  '  类型: 大纲',
-  '  职责: 管理阶段大纲的完整生命周期——创建（当前没有任何大纲时）、维护（大纲与真实剧情脱节、需要改写剩余部分时）、继续（当前阶段已全部完成、需要下一阶段时）。具体做哪种操作由运行时按任务状态自动判断，你只需给出要求。',
-  '  适用时机: 大纲状态显示「还没有阶段大纲」时必须先派它；真实剧情已经明显偏离大纲计划时派它改写；大纲状态显示「阶段已全部完成」时派它继续。',
-  '  读取: 无需指定读集（运行时自动注入故事背景、事件概览、尾部正文、阶段历史与故事总纲）',
-  '  写入: 阶段大纲（产出经严格 schema 校验后落盘；改写时已完成的轮次受保护，不会被改掉）',
-  '  执行方式: 串行执行且先于同波次其他派工；计入派工预算；prompt 写清你对大纲的要求（走向、节奏、要保留或回收什么）。',
-].join('\n');
 
 /**
  * 渲染子代理能力目录。
@@ -178,7 +180,7 @@ export function renderAgentSubagentCatalog_ACU(options?: AgentCatalogOptions_ACU
         : '  读取: 全部资料域开放；派工时用 reads 给出种子地址，它还能自己 read/search 补充调阅',
       `  写入: ${KIND_WRITE_LABELS_ACU[definition.kind]}`,
     ].join('\n'));
-  return [OUTLINE_AGENT_CATALOG_BLOCK_ACU, ...blocks].join('\n');
+  return blocks.join('\n');
 }
 
 /**
@@ -215,6 +217,7 @@ export function renderAgentReadCatalog_ACU(): string {
     '- $ACTIVE_CONSTRAINTS / $ACTIVE_CONSTRAINTS:ID,ID：长期约束全部条目，或按 ID 精读。',
     '- $CHRONOLOGY / $CHRONOLOGY:ID,ID：故事年代学账本（已发生正文结算出的时间锚、累计经过时间与转换证据），或按 ID 精读（含已作废条目）。',
     '- $WEB_REFS / $WEB_REFS:ID,ID：百科资料库——全量只给每条「名称 + 一句话简介」预览；按 ID 精读才有自由格式详情与来源链接，不保存网页原文。它是原作/公开设定的外部参考，不是本故事事实。',
+    '- $USER_REQUIREMENTS：用户在 Agent 会话里累计提过的任务要求，逐条分行；由系统在历史压缩后维护，不是正文事实。',
     '- $WORLDBOOK:书名:uid,uid：已启用世界书条目全文。地址从世界书目录复制，条目行尾标注了 token 数便于估算预算。',
     '- $STORY_CATALOG / $STORY_OVERVIEW / $STORY_TAIL / $OUTLINE_WINDOW / $HISTORY_UNSETTLED：楼层索引、事件概览、尾部正文全文、完整大纲窗口、未结算正文全量。',
     '- 早期剧情的详细纪要在纪要表里：$TABLE:纪要表:起始行-结束行 按行区间精读（行号见事件概览与表格目录）。',

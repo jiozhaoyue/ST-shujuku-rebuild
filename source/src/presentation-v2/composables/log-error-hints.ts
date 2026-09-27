@@ -138,7 +138,9 @@ const RULES: HintRule[] = [
   },
   {
     id: 'http-429',
-    test: /\b429\b|rate[ _-]?limit|too many requests|quota|insufficient (balance|funds)|exceeded your current|resource[ _-]?exhausted|请求过于频繁|限流|额度不足|余额不足|欠费|配额/,
+    // 裸 `quota` 只在**不**是「字段名带 quota、值为 false」形态时才命中：中转站错误体常把
+    // `quota_error:false` / `"quota_error": false` 原样回显，此前会把 HTTP 400 误报成限流/余额不足。
+    test: /\b429\b|rate[ _-]?limit|too many requests|quota(?![\w-]*["']?\s*[:=]\s*false)|insufficient (balance|funds)|exceeded your current|resource[ _-]?exhausted|请求过于频繁|限流|额度不足|余额不足|欠费|配额/,
     summary: '请求过于频繁被限流，或账户额度 / 余额已用完（429）。',
     steps: [
       '先等 1–2 分钟再重试；短时间内连续重试只会让限流更久。',
@@ -162,7 +164,7 @@ const RULES: HintRule[] = [
     test: /context[ _-]?length|maximum context|context window|too many tokens|tokens? (exceed|limit|too long)|prompt is too long|input is too long|max_tokens.*(exceed|invalid)|超出.*(上下文|长度)|上下文.*(超限|过长)|token.*超/,
     summary: '发送给模型的内容太长，超出了模型的上下文上限。',
     steps: [
-      '填表：到「填表规则」把「批处理大小」/「上下文楼层数」调小一些。',
+      '填表：到「填表规则」把「批处理层数」/「填表上下文层数」调小一些。',
       '智能续写：调小「正文可读窗口楼数」「会话自动总结阈值」与各项读取预算。',
       '换用上下文更大的模型，或精简过长的自定义提示词与世界书条目。',
     ],
@@ -173,7 +175,7 @@ const RULES: HintRule[] = [
     summary: '服务商认为请求内容有问题（400）：通常是模型名或某个参数不被支持。',
     steps: [
       '到「API」页确认模型名拼写正确，最好通过「拉取模型列表」选择。',
-      '如果调整过 temperature / top_p 等高级参数或开启了「严格 JSON」，先恢复默认再试。',
+      '如果调整过 temperature / top_p 等高级参数，先恢复默认再试（「严格 JSON」开关已移除，无需寻找）。',
       '换一个模型试试：部分模型不支持 system 角色或某些字段。',
     ],
   },
@@ -394,7 +396,7 @@ const RULES: HintRule[] = [
     steps: [
       '这通常是模型偶发抖动，直接重试一次。',
       '频繁出现时换用指令遵循更好的模型（更大参数、或官方渠道）。',
-      '填表可到「填表规则」开启「严格 JSON」或降低 temperature；检查自定义提示词是否要求了额外的输出格式。',
+      '填表可到「填表规则」降低 temperature 或精简自定义提示词；「严格 JSON」开关已移除，无需寻找。',
     ],
   },
   {
@@ -411,7 +413,7 @@ const RULES: HintRule[] = [
   // ─── 向量 / 存储 / 检查点 ───
   {
     id: 'vector',
-    test: /embedding|rerank|向量|vector/,
+    test: /\bembedding\b|\brerank\b|向量|\bvector\b/,
     summary: '交火模式（向量索引）相关操作失败。',
     steps: [
       '到「交火模式」页检查 Embedding / Rerank 的接口地址、密钥和模型名，确认服务商支持该接口。',
@@ -539,7 +541,7 @@ const RULES: HintRule[] = [
     summary: '填表 / 数据合并流程失败。',
     steps: [
       SEE_PREVIOUS_LOG,
-      '到「填表规则」把批处理大小调小后重试。',
+      '到「填表规则」把「批处理层数」调小后重试。',
       '可到「填表工作台」使用手动填表 / 重填。',
     ],
   },
@@ -577,11 +579,33 @@ const RULES: HintRule[] = [
 ];
 
 /**
+ * V8 栈帧行：`    at fn (file:line:col)` / `    at file:line:col` / `    at fn (native)`。
+ * 位置段要求「先有路径样式的 `./\\` 再跟 `:行:列`」，且允许路径含空格/CJK（`at Foo (/x/my app/a.js:1:1)`）：
+ * 收紧过头会让真栈帧漏剥、函数名继续误触发关键词规则；放宽过头则会把 `at 12:34:56` 这类正文行也吃掉。
+ * 已知漏剥（都无插件函数名，不影响本规则要修的那类误报）：`at <anonymous>:1:1`、`at eval (eval:1:1)`、
+ * 以及 Chromium 合并 eval 帧（形如 `at eval (eval at <anonymous> (url:1:1), <anonymous>:1:1)`，括号嵌套）。
+ */
+const STACK_FRAME_LINE_RE = /^\s*at\s+(?:async\s+)?(?:.*?\s+\()?(?:[^()]*[./\\][^()]*:\d+:\d+|native)\)?\s*$/;
+
+/**
+ * 去掉 Error 合并进来的栈帧行（`    at foo (url:1:2)`）。
+ * 日志缓冲会把 Error 的 stack 并进 message（见 shared/log-buffer 的 Error 分支），而栈帧里的
+ * **函数名**会误触发关键词规则：实证一次普通填表失败因栈内 `collectManualRefillSummaryVectorCleanup_ACU`
+ * 命中 `/vector/`，被提示成「交火/Embedding 排查」。只按栈帧形态过滤，不改正文文本。
+ */
+function stripStackFrameLines(message: string): string {
+  return String(message ?? '')
+    .split('\n')
+    .filter(line => !STACK_FRAME_LINE_RE.test(line))
+    .join('\n');
+}
+
+/**
  * 为一条日志匹配处理建议。只对 error 级日志给建议；warn / debug 返回 null。
  */
 export function resolveLogErrorHint(entry: Pick<LogEntry, 'level' | 'tag' | 'message'>): LogErrorHint | null {
   if (entry.level !== 'error') return null;
-  const haystack = `${entry.tag} ${entry.message}`.toLowerCase();
+  const haystack = `${entry.tag} ${stripStackFrameLines(entry.message)}`.toLowerCase();
   for (const rule of RULES) {
     const matched = typeof rule.test === 'function' ? rule.test(haystack) : rule.test.test(haystack);
     if (matched) return { id: rule.id, summary: rule.summary, steps: rule.steps };

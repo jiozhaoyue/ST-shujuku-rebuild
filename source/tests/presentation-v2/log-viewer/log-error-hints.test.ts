@@ -106,6 +106,46 @@ describe('resolveLogErrorHint', () => {
     expect(hintIdFor(message)).toBe(expectedId);
   });
 
+  it('栈帧里的函数名不参与匹配：普通填表失败不再被误报成交火/向量问题', () => {
+    const withStack = [
+      '[Manual Refill] 分组执行或同步聊天失败: Error: boom',
+      '    at collectManualRefillSummaryVectorCleanup_ACU (index.js:1:1)',
+      '    at appendMutationLogEntry_ACU (index.js:2:2)',
+    ].join('\n');
+    expect(hintIdFor(withStack)).toBe('fill');
+  });
+
+  it('真向量/交火报错仍命中 vector 规则（剥离栈帧不误伤）', () => {
+    expect(hintIdFor('embedding 维度不匹配：期望 1024，实际 768')).toBe('vector');
+  });
+
+  it('裸串函数名里的 Vector 不触发 vector 规则（按词边界匹配）', () => {
+    expect(hintIdFor('手动重填被回放根准入阻断：collectManualRefillSummaryVectorCleanup_ACU')).toBe('checkpoint-replay');
+    expect(hintIdFor('vector index rebuild failed: boom')).toBe('vector');
+  });
+
+  it('中转站回显 quota_error:false 时不再误报限流；真额度错误仍命中', () => {
+    expect(hintIdFor('API请求失败: 400 {"error":{"message":"bad request","quota_error":false}}')).not.toBe('http-429');
+    expect(hintIdFor('API请求失败: 400 {"error":{"message":"bad request","quota_error": false}}')).not.toBe('http-429');
+    expect(hintIdFor('API请求失败: 429 insufficient_quota')).toBe('http-429');
+    expect(hintIdFor('You exceeded your current quota, please check your plan')).toBe('http-429');
+  });
+
+  it('只剥真栈帧：以「at 」开头的正文行仍参与匹配（别把日志正文吃掉）', () => {
+    const proseWithAtPrefix = [
+      '[Manual Refill] 填表失败',
+      'at 12:00 请求被限流 rate limit 命中',
+    ].join('\n');
+    expect(hintIdFor(proseWithAtPrefix)).toBe('http-429');
+  });
+
+  it('栈帧的三种形态都被剥掉：带函数名、裸位置、含空格/CJK 的路径', () => {
+    // 函数名里带关键词（rate-limit）也不许穿透成限流建议；裸位置与含空格路径同样要剥。
+    expect(hintIdFor(['[Manual Refill] 填表失败', '    at rateLimitHelper (index.js:1:1)'].join('\n'))).toBe('fill');
+    expect(hintIdFor(['[Manual Refill] 填表失败', '    at rate-limit.js:1:1'].join('\n'))).toBe('fill');
+    expect(hintIdFor(['[Manual Refill] 填表失败', '    at Foo (/x/my app/rate-limit.js:2:3)'].join('\n'))).toBe('fill');
+  });
+
   it('tag 也参与匹配：仅凭 tag 就能落到对应模块的建议', () => {
     expect(hintIdFor('boom', '剧情推进')).toBe('plot');
     expect(hintIdFor('boom', '外部导入')).toBe('import');
@@ -125,6 +165,37 @@ describe('resolveLogErrorHint', () => {
     expect(hint?.id).toBe('schema-mismatch');
     expect(hint?.steps.join(' ')).toContain('不需要检查下载拦截');
     expect(hint?.steps.join(' ')).not.toContain('检查浏览器的广告拦截 / 安全插件是否拦截了 .wasm 文件下载');
+  });
+
+  it('指引只引用页面上真实存在的设置名，且不再引导已移除的「严格 JSON」开关', () => {
+    const fillSteps = resolveLogErrorHint({
+      level: 'error',
+      tag: '手动补填',
+      message: "API请求失败: 400 This model's maximum context length is 128000 tokens",
+    })?.steps.join(' ') ?? '';
+    expect(fillSteps).toContain('「批处理层数」');
+    expect(fillSteps).toContain('「填表上下文层数」');
+    expect(fillSteps).not.toContain('批处理大小');
+    expect(fillSteps).not.toContain('上下文楼层数');
+
+    for (const message of [
+      'Primary JSON parse failed for: "{...". Attempting sanitization pipeline...',
+      '[TemplateAssistant] draft 解析失败',
+    ]) {
+      const hint = resolveLogErrorHint({ level: 'error', tag: 'AI请求', message });
+      const steps = hint?.steps.join(' ') ?? '';
+      expect(hint).not.toBeNull();
+      expect(steps).not.toMatch(/开启「严格 JSON」/);
+      expect(steps).not.toMatch(/可到「填表规则」开启/);
+    }
+
+    const refill = resolveLogErrorHint({ level: 'error', tag: '手动补填', message: '[Manual Refill] 分组执行或同步聊天失败: Error: boom' });
+    expect(refill?.steps.join(' ')).toContain('「批处理层数」');
+
+    // http-400 那条也不得引导已移除的开关（与 json-ai-output 同口径）。
+    const badRequest = resolveLogErrorHint({ level: 'error', tag: 'AI请求', message: 'API请求失败: 400 unsupported parameter: top_k' });
+    expect(badRequest?.id).toBe('http-400');
+    expect(badRequest?.steps.join(' ') ?? '').not.toMatch(/开启了「严格 JSON」/);
   });
 
   it('规则 ID 唯一', () => {

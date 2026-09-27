@@ -57,20 +57,16 @@ function context_ACU(): AgentResolveContext_ACU {
 }
 
 describe('Agent 目录渲染', () => {
-  it('子代理目录暴露职责与读写权限，但不含内部提示词', () => {
+  it('子代理目录暴露公开职责与读写权限，但隐藏固定工作流内部角色和提示词', () => {
     const catalog = renderAgentSubagentCatalog_ACU();
     expect(catalog).toContain('hook-cognition-maintainer');
-    expect(catalog).toContain('continuity-reviewer');
+    expect(catalog).not.toContain('continuity-reviewer');
     expect(catalog).toContain('无（只返回建议）');
     expect(catalog).not.toContain('你只输出一个 JSON 对象');
-  });
-
-  it('大纲子代理排在目录首位，说明三种触发时机与串行执行方式', () => {
-    const catalog = renderAgentSubagentCatalog_ACU();
-    expect(catalog.indexOf('outline-architect')).toBeLessThan(catalog.indexOf('hook-cognition-maintainer'));
-    expect(catalog).toContain('创建（当前没有任何大纲时）');
-    expect(catalog).toContain('串行执行且先于同波次其他派工');
-    expect(catalog).toContain('计入派工预算');
+    expect(catalog).not.toContain('arc-architect');
+    expect(catalog).not.toContain('outline-architect');
+    expect(catalog).not.toContain('instruction-composer');
+    expect(catalog).not.toContain('requirements-maintainer');
   });
 
   it('资料模块目录说明谁能写，长期约束标注仅主 Agent 可登记', () => {
@@ -94,6 +90,15 @@ describe('Agent 目录渲染', () => {
   it('未知代理名查不到定义', () => {
     expect(findAgentSubagentDefinition_ACU('hook-cognition-maintainer')?.kind).toBe('maintain');
     expect(findAgentSubagentDefinition_ACU('不存在的代理')).toBeNull();
+  });
+
+  it('用户要求模块进资料目录与读集词汇表，维护子代理可按名查到但不进主 Agent 目录', () => {
+    const moduleCatalog = renderAgentModuleCatalog_ACU();
+    expect(moduleCatalog).toContain('$USER_REQUIREMENTS');
+    expect(moduleCatalog).toContain('requirements-maintainer');
+    expect(renderAgentReadCatalog_ACU()).toContain('$USER_REQUIREMENTS');
+    expect(findAgentSubagentDefinition_ACU('requirements-maintainer')).toMatchObject({ kind: 'maintain', promptKey: 'requirementsMaintainer' });
+    expect(renderAgentSubagentCatalog_ACU()).not.toContain('name: requirements-maintainer');
   });
 });
 
@@ -148,18 +153,49 @@ describe('Agent 读写集解析', () => {
     expect(text).toContain('大纲是计划，不是已经发生的事实');
   });
 
-  it('无大纲与阶段已完成两种空态都指引派工大纲子代理', () => {
+  it('大纲窗口给出全部启用节点与逐轮目标，并标出本轮', () => {
+    const context = context_ACU();
+    const node2 = {
+      id: 'n2', title: '突入', goal: '进入禁区', turns: [
+        { id: 'turn-3', goal: '第三轮', pacing: 'setup', function: 'transition', mainlineDelta: 'hold', timeAdvance: 'same_day' },
+      ],
+    };
+    context.execution = {
+      ...context.execution,
+      revision: { ...context.execution!.revision!, outline: { ...context.execution!.revision!.outline, nodes: [context.execution!.node!, node2] } },
+      node: node2, turn: node2.turns[0] as any, turnNumber: 3, nodeTurnNumber: 1,
+    } as any;
+    const text = resolveAgentReadToken_ACU('$OUTLINE_WINDOW', context).text;
+    expect(text).toContain('当前启用的阶段大纲（全部节点与轮次');
+    expect(text).toContain('节点：[n1] 试探');
+    expect(text).toContain('节点：[n2] 突入');
+    expect(text).toContain('节点目标：进入禁区');
+    expect(text).toContain('第三轮');
+    expect(text).toContain('← 本轮');
+    expect(text).not.toContain('当前节点：');
+  });
+
+  it('大纲窗口旧快照没有 nodes 数组时回落到当前节点', () => {
+    const text = resolveAgentReadToken_ACU('$OUTLINE_WINDOW', context_ACU()).text;
+    expect(text).toContain('节点：[n1] 试探');
+    expect(text).toContain('第一轮');
+    expect(text).toContain('第二轮');
+    expect(text).toContain('← 本轮');
+  });
+
+  it('无大纲与阶段已完成两种空态都指引 open_round 固定工作流准备大纲', () => {
     const noOutline = context_ACU();
     noOutline.execution = { ...noOutline.execution, stage: null, revision: null, node: null, turn: null, turnNumber: null, nodeTurnNumber: null } as any;
     expect(resolveAgentReadToken_ACU('$OUTLINE_WINDOW', noOutline).text).toContain('还没有阶段大纲');
-    expect(resolveAgentReadToken_ACU('$OUTLINE_WINDOW', noOutline).text).toContain('outline-architect');
+    expect(resolveAgentReadToken_ACU('$OUTLINE_WINDOW', noOutline).text).toContain('输出 open_round');
+    expect(resolveAgentReadToken_ACU('$OUTLINE_WINDOW', noOutline).text).toContain('主 Agent 不直接派工 outline-architect');
     expect(resolveAgentReadToken_ACU('$CURRENT_TURN_GOAL', noOutline).text).toContain('尚无可执行的大纲轮次');
 
     const completed = context_ACU();
     completed.execution = { ...completed.execution, stage: { stageNumber: 2, status: 'completed', completedTurns: 6 } as any, revision: null, node: null, turn: null, turnNumber: null, nodeTurnNumber: null };
     const text = resolveAgentReadToken_ACU('$OUTLINE_WINDOW', completed).text;
     expect(text).toContain('已全部完成');
-    expect(text).toContain('继续大纲');
+    expect(text).toContain('固定工作流会继续下一阶段大纲');
   });
 
   it('$TABLE:<表名> 形式的动态读集直接解析成该表内容', () => {

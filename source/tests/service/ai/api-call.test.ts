@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parse } from 'yaml';
 import { setDebugLogEnabled } from '../../../src/shared/log-buffer';
 
-const { mockSettings, mockIsGenerateRawAvailable, mockGenerateRaw, mockSendConnectionManager, mockGetHeaders, mockHandleApiResponse, mockRateLimitSlot } = vi.hoisted(() => ({
+const { mockSettings, mockGetHeaders, mockHandleApiResponse, mockRateLimitSlot } = vi.hoisted(() => ({
   mockSettings: {
     apiMode: 'custom',
     apiConfig: { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', max_tokens: 4096 },
@@ -15,9 +15,6 @@ const { mockSettings, mockIsGenerateRawAvailable, mockGenerateRaw, mockSendConne
     streamingEnabled: false,
     apiPresets: [] as any[],
   } as any,
-  mockIsGenerateRawAvailable: vi.fn(() => true),
-  mockGenerateRaw: vi.fn(),
-  mockSendConnectionManager: vi.fn(),
   mockGetHeaders: vi.fn(() => ({ 'X-Custom': 'test' })),
   mockHandleApiResponse: vi.fn(),
   mockRateLimitSlot: vi.fn(async () => {}),
@@ -33,9 +30,6 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
 }));
 
 vi.mock('../../../src/data/gateways/ai-gateway', () => ({
-  isGenerateRawAvailable_ACU: mockIsGenerateRawAvailable,
-  generateRaw_ACU: mockGenerateRaw,
-  sendConnectionManagerRequest_ACU: mockSendConnectionManager,
   getHostRequestHeaders_ACU: mockGetHeaders,
 }));
 
@@ -63,7 +57,6 @@ import {
   getApiConfigByPreset_ACU,
   callAIWithPreset_ACU,
   callAIWithResolvedPreset_ACU,
-  callCustomOpenAI_ACU_Direct,
   buildCustomApiRequestBody_ACU,
   postChatCompletion_ACU,
   withOpencodeSessionHeader_ACU,
@@ -72,12 +65,14 @@ import {
   AgentApiHttpError_ACU,
   isRetryableAiRequestError_ACU,
   JSON_OBJECT_RESPONSE_FORMAT_ACU,
-  ENHANCED_THINKING_SYSTEM_PROMPT_ACU,
+  composeCustomIncludeBody_ACU,
+  __clearComposeIncludeBodyCacheForTests_ACU,
 } from '../../../src/service/ai/api-call';
 
 import {
   normalizePreset_ACU,
   resolveApiConfigByPreset_ACU,
+  __clearPresetResolveCacheForTests_ACU,
 } from '../../../src/service/settings/api-preset-service';
 import { resolveContinuationApiPreset_ACU } from '../../../src/service/continuation/api-preset';
 import { callContinuationInternalAi_ACU } from '../../../src/service/continuation/internal-ai-call';
@@ -95,6 +90,8 @@ beforeEach(() => {
   mockSettings.plotApiPreset = '';
   mockSettings.streamingEnabled = false;
   mockSettings.apiPresets = [];
+  __clearPresetResolveCacheForTests_ACU();
+  __clearComposeIncludeBodyCacheForTests_ACU();
 });
 
 // ═══ getApiConfigByPreset_ACU ═══
@@ -121,7 +118,49 @@ describe('getApiConfigByPreset_ACU', () => {
   });
 });
 
-// ═══ callApi_ACU ═══
+// ═══ resolveApiConfigByPreset_ACU memo ═══
+describe('resolveApiConfigByPreset_ACU memo', () => {
+  it('同名连续解析复用缓存：改包装不影响下次结果', () => {
+    mockSettings.apiPresets = [
+      { name: '备忘', apiMode: 'custom', apiConfig: { url: 'https://m.com', model: 'mm' } },
+    ];
+    const a = resolveApiConfigByPreset_ACU('备忘');
+    (a as any).injected = true;
+    const b = resolveApiConfigByPreset_ACU('备忘');
+    expect((b as any).injected).toBeUndefined();
+    expect(b.apiConfig.url).toBe('https://m.com');
+  });
+
+  it('预设内容变化即失效', () => {
+    mockSettings.apiPresets = [
+      { name: '备忘', apiMode: 'custom', apiConfig: { url: 'https://m1.com', model: 'mm' } },
+    ];
+    expect(resolveApiConfigByPreset_ACU('备忘').apiConfig.url).toBe('https://m1.com');
+    mockSettings.apiPresets = [
+      { name: '备忘', apiMode: 'custom', apiConfig: { url: 'https://m2.com', model: 'mm' } },
+    ];
+    expect(resolveApiConfigByPreset_ACU('备忘').apiConfig.url).toBe('https://m2.com');
+  });
+});
+
+// ═══ composeCustomIncludeBody_ACU memo ═══
+describe('composeCustomIncludeBody_ACU memo', () => {
+  it('同输入复用组装结果，diagnostic 每次新对象', () => {
+    const a = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k' });
+    const b = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k' });
+    expect(b).toEqual(a);
+    expect(b.diagnostic).not.toBe(a.diagnostic);
+    expect(JSON.parse(b.value)).toMatchObject({ x: 1, prompt_cache_key: 'k' });
+  });
+
+  it('输入变化重新组装', () => {
+    const a = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k1' });
+    const b = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k2' });
+    expect(JSON.parse(a.value).prompt_cache_key).toBe('k1');
+    expect(JSON.parse(b.value).prompt_cache_key).toBe('k2');
+  });
+});
+
 // ═══ callAIWithPreset_ACU ═══
 describe('callAIWithPreset_ACU', () => {
   it('空消息数组返回 null', async () => {
@@ -163,6 +202,26 @@ describe('callAIWithPreset_ACU', () => {
     expect(error).toBeInstanceOf(AgentApiHttpError_ACU);
     expect(error.status).toBe(503);
     expect(isRetryableAiRequestError_ACU(error)).toBe(true);
+  });
+
+  it('上游错误体进入 AgentApiHttpError 前脱敏敏感值并限长', async () => {
+    const leakedBody = [
+      'Authorization: Bearer bearer-secret-value',
+      'api-key: api-secret-value',
+      'Cookie: session=cookie-secret-value; theme=dark',
+      'x'.repeat(5000),
+    ].join('\n');
+    mockFetch.mockResolvedValue({ ok: false, status: 502, text: () => Promise.resolve(leakedBody) });
+
+    const error = await postChatCompletion_ACU({ stream: false }).catch(e => e);
+
+    expect(error).toBeInstanceOf(AgentApiHttpError_ACU);
+    expect(error.status).toBe(502);
+    expect(error.message).toContain('***');
+    expect(error.message).not.toContain('bearer-secret-value');
+    expect(error.message).not.toContain('api-secret-value');
+    expect(error.message).not.toContain('cookie-secret-value');
+    expect(error.message.length).toBeLessThanOrEqual(2100);
   });
 
   it('isRetryableAiRequestError_ACU 只放行瞬时失败，AbortError 一律立停', () => {
@@ -228,7 +287,6 @@ describe('callAIWithPreset_ACU', () => {
 
 });
 
-// ═══ callCustomOpenAI_ACU_Direct ═══
 // ═══ buildCustomApiRequestBody_ACU ═══
 describe('buildCustomApiRequestBody_ACU', () => {
   it('max_tokens=0 不被回退为 20000', () => {
@@ -739,7 +797,6 @@ describe('callAIWithPreset_ACU 自定义模式 role 归一化', () => {
   });
 });
 
-// ═══ callApi_ACU 温度透传 ═══
 // ═══ callApiWithPlotPreset_ACU 温度透传 ═══
 describe('callApiWithPlotPreset_ACU 温度透传', () => {
   it('custom 模式 fetch body 使用配置温度', async () => {
@@ -849,6 +906,47 @@ describe('callAIWithResolvedPreset_ACU 传输超时', () => {
       expect(failure).toBeInstanceOf(Error);
       expect((failure as Error).message).toContain('内部 AI 请求超时');
       expect((failure as Error).message).toContain('120');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('非流式响应体读取期间外部 abort 仍上报用户取消且不重试', async () => {
+    const controller = new AbortController();
+    mockFetch.mockResolvedValue({ ok: true });
+    let rejectBody!: (error: unknown) => void;
+    mockHandleApiResponse.mockImplementation(() => new Promise((_resolve, reject) => { rejectBody = reject; }));
+
+    const pending = callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved, controller.signal);
+    await vi.waitFor(() => expect(mockHandleApiResponse).toHaveBeenCalled());
+    controller.abort();
+    const abortError = new DOMException('body read aborted', 'AbortError');
+    rejectBody(abortError);
+
+    const failure = await pending.catch((error: Error) => error);
+    expect(failure.name).toBe('AbortError');
+    expect(failure.message).toBe('请求已取消');
+    expect(isRetryableAiRequestError_ACU(failure)).toBe(false);
+  });
+
+  it('流式响应体读取期间内部超时映射为 TimeoutError', async () => {
+    vi.useFakeTimers();
+    try {
+      mockSettings.streamingEnabled = true;
+      mockFetch.mockResolvedValue({ ok: true });
+      let rejectBody!: (error: unknown) => void;
+      mockHandleApiResponse.mockImplementation(() => new Promise((_resolve, reject) => { rejectBody = reject; }));
+
+      const pending = callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved);
+      await vi.waitFor(() => expect(mockHandleApiResponse).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(120_000);
+      const abortError = new DOMException('stream body read aborted', 'AbortError');
+      rejectBody(abortError);
+
+      const failure = await pending.catch((error: Error) => error);
+      expect(failure.name).toBe('TimeoutError');
+      expect(failure.message).toContain('内部 AI 请求超时');
+      expect(isRetryableAiRequestError_ACU(failure)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -1276,149 +1374,77 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
   });
 });
 
-// ═══ enhancedThinking 开关（增强思考 system 前缀） ═══
-// 铁律：开关关闭时请求体与现状逐字一致；只在 build 层统一插入一次，不碰各调用点的 messages 组装。
-describe('enhancedThinking 开关（增强思考 system 前缀）', () => {
+// ═══ enhancedThinking 已移除（增强思考下线） ═══
+// 判别力用例：遗留开关在各层一律无残留——build 不插 system 前缀，预设/解析/草稿/续写均不携带该字段。
+describe('enhancedThinking 已移除', () => {
   const ET_PRESET_CONFIG = { url: 'https://et.test', model: 'm-et', apiKey: 'sk-et', max_tokens: 4096 };
 
-  const EXPECTED_ET_PROMPT = [
-    'Reasoning Effort: Absolute maximum with no shortcuts permitted.',
-    'You MUST be very thorough in your thinking and comprehensively decompose the problem to resolve the root cause, rigorously stress-testing your logic against all potential paths, edge cases, and adversarial scenarios.',
-  ].join('\n');
-
-  function lastEtSentBody(): any {
+  function lastSentBody(): any {
     const call = mockFetch.mock.calls.at(-1);
     expect(call).toBeDefined();
     return JSON.parse(String(call[1].body));
   }
 
-  function primeEtFetchOk(value = 'AI 回复'): void {
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue(value);
-  }
-
-  it('常量逐字等于用户指定英文原文（两行）且换行符为 \\n', () => {
-    expect(ENHANCED_THINKING_SYSTEM_PROMPT_ACU).toBe(EXPECTED_ET_PROMPT);
-    expect(ENHANCED_THINKING_SYSTEM_PROMPT_ACU).not.toContain('\r');
-    expect(ENHANCED_THINKING_SYSTEM_PROMPT_ACU.split('\n')).toHaveLength(2);
-  });
-
-  it('build：开关开→messages[0] 为 system 且 content 逐字等于常量', () => {
+  it('build：即使传入遗留 enhancedThinking 覆盖也不插入 system 前缀', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'hi' }],
       { ...ET_PRESET_CONFIG },
-      { enhancedThinking: true },
+      { enhancedThinking: true } as any,
     );
-    expect(body.messages[0]).toEqual({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-    expect(body.messages).toHaveLength(2);
-    expect(body.messages[1]).toEqual({ role: 'user', content: 'hi' });
+    expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
   });
 
-  it('build：开关开 + messages[0] 已是相同 system→不双插（长度不变）', () => {
-    const input = [
-      { role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU },
-      { role: 'user', content: 'hi' },
-    ];
-    const body = buildCustomApiRequestBody_ACU(input, { ...ET_PRESET_CONFIG }, { enhancedThinking: true });
-    expect(body.messages).toHaveLength(2);
-    expect(body.messages[0]).toEqual({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-    const body2 = buildCustomApiRequestBody_ACU(body.messages, { ...ET_PRESET_CONFIG }, { enhancedThinking: true });
-    expect(body2.messages).toHaveLength(2);
-  });
-
-  it('build：开关关→messages 与现状逐字一致（首条不是插入的 system）', () => {
-    const input = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }];
-    const off = buildCustomApiRequestBody_ACU(input, { ...ET_PRESET_CONFIG });
-    const explicitOff = buildCustomApiRequestBody_ACU(input, { ...ET_PRESET_CONFIG }, { enhancedThinking: false });
-    expect(off.messages).toEqual([{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }]);
-    expect(explicitOff.messages).toEqual(off.messages);
-    expect(off.messages[0]).not.toEqual({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-  });
-
-  it('callAIWithPreset：开关开→首条为插入 system；开关关→逐字一致', async () => {
+  it('callAIWithPreset：遗留 enhancedThinking 预设不再插入首条 system', async () => {
     mockSettings.apiPresets = [
       { name: 'et开', apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, enhancedThinking: true },
-      { name: 'et关', apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG } },
     ];
-    primeEtFetchOk();
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
     await callAIWithPreset_ACU([{ role: 'user', content: 'hi' }], 'et开');
-    expect(lastEtSentBody().messages[0]).toEqual({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-    await callAIWithPreset_ACU([{ role: 'user', content: 'hi' }], 'et关');
-    expect(lastEtSentBody().messages).toEqual([{ role: 'user', content: 'hi' }]);
+    expect(lastSentBody().messages).toEqual([{ role: 'user', content: 'hi' }]);
   });
 
-  it('resolved：开→插入；已存在相同首条→不双插；关→逐字一致', async () => {
-    primeEtFetchOk();
+  it('resolved：遗留 enhancedThinking 不再插入首条 system', async () => {
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
     await callAIWithResolvedPreset_ACU(
       [{ role: 'user', content: 'hi' }],
-      { apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-et', enhancedThinking: true },
+      { apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-et', enhancedThinking: true } as any,
     );
-    expect(lastEtSentBody().messages[0]).toEqual({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-    await callAIWithResolvedPreset_ACU(
-      [{ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU }, { role: 'user', content: 'hi' }],
-      { apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-et', enhancedThinking: true },
-    );
-    expect(lastEtSentBody().messages).toHaveLength(2);
-    await callAIWithResolvedPreset_ACU(
-      [{ role: 'user', content: 'hi' }],
-      { apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-plain' },
-    );
-    expect(lastEtSentBody().messages).toEqual([{ role: 'user', content: 'hi' }]);
+    expect(lastSentBody().messages).toEqual([{ role: 'user', content: 'hi' }]);
   });
 
-  it('draft 往返：开保持开，关与缺省保持关，空草稿默认关', () => {
-    expect(createEmptyApiPresetDraft().enhancedThinking).toBe(false);
-    const on = apiPresetDraftFromPreset({
+  it('归一化丢弃遗留 enhancedThinking 字段', () => {
+    expect('enhancedThinking' in (normalizePreset_ACU({ name: 'a', apiMode: 'custom', apiConfig: {} }) as any)).toBe(false);
+    expect('enhancedThinking' in (normalizePreset_ACU({ name: 'a', apiMode: 'custom', apiConfig: {}, enhancedThinking: true }) as any)).toBe(false);
+  });
+
+  it('draft 不再携带 enhancedThinking 字段', () => {
+    expect('enhancedThinking' in (createEmptyApiPresetDraft() as any)).toBe(false);
+    const draft = apiPresetDraftFromPreset({
       name: 'e', apiMode: 'custom',
       apiConfig: { url: 'https://e.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1 },
       enhancedThinking: true,
     } as any);
-    expect(on.enhancedThinking).toBe(true);
-    expect(apiPresetFromDraft(on).enhancedThinking).toBe(true);
-    for (const flag of [false, undefined]) {
-      const draft = apiPresetDraftFromPreset({
-        name: 'e', apiMode: 'custom',
-        apiConfig: {
-          url: 'https://e.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1,
-          ...(flag === undefined ? {} : { enhancedThinking: flag }),
-        },
-      } as any);
-      expect(draft.enhancedThinking).toBe(false);
-      expect(apiPresetFromDraft(draft).enhancedThinking).toBe(false);
-    }
+    expect('enhancedThinking' in (draft as any)).toBe(false);
+    expect('enhancedThinking' in (apiPresetFromDraft(draft) as any)).toBe(false);
   });
 
-  it('归一白名单：缺省 false、真值保持、非 true 真值归一 false', () => {
-    expect(normalizePreset_ACU({ name: 'a', apiMode: 'custom', apiConfig: {} })!.enhancedThinking).toBe(false);
-    expect(normalizePreset_ACU({ name: 'a', apiMode: 'custom', apiConfig: {}, enhancedThinking: true })!.enhancedThinking).toBe(true);
-    for (const v of [1, 'yes', {}, []]) {
-      expect(normalizePreset_ACU({ name: 'a', apiMode: 'custom', apiConfig: {}, enhancedThinking: v })!.enhancedThinking).toBe(false);
-    }
-  });
-
-  it('resolve：预设取预设值，空名与悬挂引用回退恒 false', () => {
+  it('resolve 与 continuation 不再返回 enhancedThinking 字段', () => {
     mockSettings.apiPresets = [
       { name: 'et开', apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, enhancedThinking: true },
-      { name: 'et关', apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG } },
     ];
-    expect(resolveApiConfigByPreset_ACU('et开').enhancedThinking).toBe(true);
-    expect(resolveApiConfigByPreset_ACU('et关').enhancedThinking).toBe(false);
-    expect(resolveApiConfigByPreset_ACU('').enhancedThinking).toBe(false);
-    expect(resolveApiConfigByPreset_ACU('不存在的预设').enhancedThinking).toBe(false);
-  });
-
-  it('continuation：fixed 透传开，current 回退恒 false', () => {
-    mockSettings.apiPresets = [
-      { name: 'cont-et', apiMode: 'custom', apiConfig: { ...ET_PRESET_CONFIG }, enhancedThinking: true },
-    ];
+    expect('enhancedThinking' in (resolveApiConfigByPreset_ACU('et开') as any)).toBe(false);
+    expect('enhancedThinking' in (resolveApiConfigByPreset_ACU('') as any)).toBe(false);
+    expect('enhancedThinking' in (resolveApiConfigByPreset_ACU('不存在的预设') as any)).toBe(false);
     const deps: any = { resolvePreset: (name: string) => resolveApiConfigByPreset_ACU(name) };
     const on = resolveContinuationApiPreset_ACU(
-      { apiPresetMode: 'fixed', fixedApiPresetName: 'cont-et' } as any, 'agent_loop', deps,
+      { apiPresetMode: 'fixed', fixedApiPresetName: 'et开' } as any, 'agent_loop', deps,
     );
-    expect(on.enhancedThinking).toBe(true);
-    const off = resolveContinuationApiPreset_ACU(
+    expect('enhancedThinking' in (on as any)).toBe(false);
+    const current = resolveContinuationApiPreset_ACU(
       { apiPresetMode: 'current', fixedApiPresetName: '' } as any, 'agent_loop', deps,
     );
-    expect(off.enhancedThinking).toBe(false);
+    expect('enhancedThinking' in (current as any)).toBe(false);
   });
 });

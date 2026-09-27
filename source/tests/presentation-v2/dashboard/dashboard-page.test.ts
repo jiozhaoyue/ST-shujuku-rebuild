@@ -121,9 +121,10 @@ async function mountDashboardPage(
     chatFileIdentifier?: string;
     developerOptionsEnabled?: boolean;
     warnLogEnabled?: boolean;
-    failStorageSwitch?: boolean;
     historyState?: Record<string, unknown>;
     templateData?: Record<string, unknown> | null;
+    failHistory?: boolean;
+    breakLogCopy?: boolean;
   } = {},
 ) {
   vi.resetModules();
@@ -206,6 +207,7 @@ async function mountDashboardPage(
   }));
   vi.doMock("../../../src/service/table/table-history", () => ({
     resolveTableHistoryStatesFromChat_ACU: (_chat: any[], optsList: any[]) => {
+      if (options.failHistory) throw new Error("history boom");
       const map = new Map<string, any>();
       for (const opts of optsList || []) {
         map.set(opts.sheetKey, {
@@ -222,15 +224,23 @@ async function mountDashboardPage(
       return map;
     },
   }));
+  vi.doMock("../../../src/presentation-v2/copy/dashboard-copy", async () => {
+    const actual = await vi.importActual<typeof import("../../../src/presentation-v2/copy/dashboard-copy")>("../../../src/presentation-v2/copy/dashboard-copy");
+    if (!options.breakLogCopy) return actual;
+    return {
+      ...actual,
+      dashboardCopy: {
+        ...actual.dashboardCopy,
+        logs: {
+          ...actual.dashboardCopy.logs,
+          errorSummary: () => { throw new Error("copy boom"); },
+        },
+      },
+    };
+  });
   vi.doMock("../../../src/service/table/storage-mode", () => ({
     getCurrentStorageMode: () => settings.storageMode,
     isSqliteMode: () => settings.storageMode === "sqlite",
-  }));
-  vi.doMock("../../../src/service/table/table-storage-strategy", () => ({
-    switchStorageMode: vi.fn(async (mode: string) => {
-      if (options.failStorageSwitch) throw new Error("switch failed");
-      settings.storageMode = mode;
-    }),
   }));
   vi.doMock("../../../src/service/vector/vector-memory-config", () => ({
     getCurrentVectorMemoryConfig_ACU: () => settings.vectorMemoryConfig || {},
@@ -587,6 +597,22 @@ describe("DashboardPage", () => {
     mount.__resetAcuV2MountForTests();
   });
 
+  it("日志卡独立 tick：推日志只更新 logHealthItem，不重算其余健康卡", async () => {
+    const { mount, dashboard } = await mountDashboardPage();
+    expect(dashboard.healthItems.value.length).toBe(4);
+    expect(dashboard.logHealthItem.value.kind).toBe('ok');
+    const { pushLog } = await import("../../../src/shared/log-buffer");
+    pushLog("error", ["[ACU]", "API请求失败: 500"]);
+    await Promise.resolve();
+    // 挂载页面的日志卡已更新（订阅生效），其余四卡不受影响
+    const text = document.querySelector(".acu-v2-dashboard-page")?.textContent || "";
+    expect(text).toContain("最近日志指向 API 配置或连接问题");
+    expect(document.querySelectorAll(".acu-v2-dashboard-page__health-item").length).toBe(5);
+    expect(dashboard.healthItems.value.length).toBe(4);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
   it("运行日志 Warn 计数默认隐藏，仅开发者模式显示", async () => {
     const normal = await mountDashboardPage();
     let logBuffer = await import("../../../src/shared/log-buffer");
@@ -854,4 +880,37 @@ describe("DashboardPage", () => {
 
     mount.__resetAcuV2MountForTests();
   });
+
+  it("历史解析抛错时表格行降级为空且页面照常渲染", async () => {
+    const { mount, dashboard } = await mountDashboardPage(createSettings(), createTableData(), {
+      failHistory: true,
+    });
+
+    expect(dashboard.tableRows.value).toEqual([]);
+    expect(dashboard.healthItems.value.length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector(".acu-v2-dashboard-page")).not.toBeNull();
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it("运行概览装配抛错时给降级卡而非整页空白", async () => {
+    const { mount, dashboard } = await mountDashboardPage(createSettings(), createTableData(), {
+      breakLogCopy: true,
+    });
+    const { pushLog } = await import("../../../src/shared/log-buffer");
+
+    pushLog("error", ["[ACU]", "API请求失败: 500 bad gateway"]);
+    await Promise.resolve();
+
+    // 装配错落在独立的 logHealthItem：其余四卡正常，日志卡降级
+    expect(dashboard.healthItems.value.length).toBe(4);
+    expect(dashboard.logHealthItem.value.key).toBe("dashboard-log-fallback");
+    const text = document.querySelector(".acu-v2-dashboard-page")?.textContent || "";
+    expect(text).toContain("运行日志卡暂不可用");
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+
 });
+

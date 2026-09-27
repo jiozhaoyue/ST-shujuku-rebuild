@@ -7,7 +7,7 @@ import { appendAgentConversation_ACU, buildEmptyAgentConversation_ACU } from '..
 import { buildEmptyAgentWorldbookSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-worldbook-read';
 import { buildDefaultContinuationSettings_ACU } from '../../../../src/service/continuation/defaults';
 import { ContinuationValidationError_ACU, type ContinuationInternalAiRequestIdentity_ACU } from '../../../../src/service/continuation/model';
-import { readAgentSessionLog_ACU, resetAgentSessionLogForTests_ACU } from '../../../../src/service/continuation/agent/agent-session-log';
+import { isAgentSessionRunning_ACU, readAgentSessionLog_ACU, resetAgentSessionLogForTests_ACU } from '../../../../src/service/continuation/agent/agent-session-log';
 import { readAgentRunState_ACU, resetAgentRunCacheForTests_ACU } from '../../../../src/service/continuation/agent/agent-run-cache';
 import type { AgentConversationCompactionMark_ACU, AgentConversationCompactionMarkV2_ACU, AgentConversationMessage_ACU, AgentConversationSnapshot_ACU, AgentModuleSnapshot_ACU, AgentOutlineOpResult_ACU, AgentRunBudget_ACU, ContinuationAgentTurnPlanRequest_ACU } from '../../../../src/service/continuation/agent/agent-model';
 
@@ -99,7 +99,10 @@ function harness_ACU(options: {
   subReplies?: string[];
   handoffReplies?: string[];
   compactionWrite?: 'success' | 'false' | 'throw';
+  failToolResultWrite?: boolean;
+  mutateChatDuringSubagent?: (chat: any[]) => void;
   mutatePersistedCompactionMark?: (mark: AgentConversationCompactionMarkV2_ACU) => AgentConversationCompactionMark_ACU | null;
+  readCompactionMark?: () => AgentConversationCompactionMark_ACU | null;
   budget?: Partial<AgentRunBudget_ACU>;
   snapshot?: AgentModuleSnapshot_ACU;
   isCurrent?: (identity: ContinuationInternalAiRequestIdentity_ACU) => boolean;
@@ -133,7 +136,12 @@ function harness_ACU(options: {
   const subagentRuntime = new AgentSubagentRuntime_ACU({
     resolveApiPreset: (() => preset_ACU) as any,
     resolveAgentApiPreset: (() => preset_ACU) as any,
-    callInternalAi: async messages => { subCalls.push(messages); return subReplies.shift() ?? '{"summary":"空","recommendation":"随便推进"}'; },
+    callInternalAi: async messages => {
+      subCalls.push(messages);
+      const reply = subReplies.shift() ?? '{"summary":"空","recommendation":"随便推进"}';
+      options.mutateChatDuringSubagent?.(chat);
+      return reply;
+    },
   });
 
   const planner = new ContinuationAgentTurnPlanner_ACU({
@@ -153,6 +161,9 @@ function harness_ACU(options: {
     readConversation: () => conversation,
     // 分段落盘的内存替身：把新消息接到会话尾部，与真实实现同样按 id 去重。
     appendConversationMessages: async (_chat, prepared: readonly AgentConversationMessage_ACU[]) => {
+      if (options.failToolResultWrite && prepared.some(message => message.kind === 'tool')) {
+        throw new Error('simulated tool result persistence failure');
+      }
       const existing = new Set(conversation.messages.map(message => message.id));
       const fresh = prepared.filter(message => !existing.has(message.id));
       if (!fresh.length) return false;
@@ -161,7 +172,7 @@ function harness_ACU(options: {
       conversationWrites.push(conversation);
       return true;
     },
-    readCompactionMark: () => persistedCompactionMark,
+    readCompactionMark: options.readCompactionMark ?? (() => persistedCompactionMark),
     // 压缩标记的内存替身：保存权威 V2 mark，并应用与 readAgentConversation_ACU 相同的投影。
     writeCompactionMark: async (_chat, mark) => {
       if (options.compactionWrite === 'throw') throw new Error('simulated compaction write failure');
@@ -319,6 +330,48 @@ describe('主 Agent 会话记录', () => {
     expect(h.handoffCalls).toHaveLength(2);
   });
 
+  it('交接摘要完成后租约失效时不得写入压缩标记', async () => {
+    let turnInstructionChecks = 0;
+    const leaseChecks: string[] = [];
+    const h = harness_ACU({
+      conversation: overBudgetConversation_ACU('守门人'.repeat(400)),
+      historyTokenBudget: 200,
+      countTokens: fillerTokens_ACU,
+      mainReplies: ['{"action":"finalize","instruction":"不应发送"}'],
+      context: nextTurnContext_ACU,
+      isCurrent: identity => {
+        leaseChecks.push(identity.source);
+        if (identity.source === 'handoff_summary') {
+          handoffFinished = true;
+          return true;
+        }
+        return turnInstructionChecks++ === 0;
+      },
+    });
+
+    let error: unknown;
+    try { await h.planner.plan(h.request); } catch (caught) { error = caught; }
+    expect(h.handoffCalls.length).toBeGreaterThan(0);
+    expect(leaseChecks).toContain('turn_instruction');
+    expect(error).toMatchObject({ error: { code: 'CONTINUATION_INTERNAL_REQUEST_STALE' } });
+    expect(h.conversation().messages.some(message => message.kind === 'handoff')).toBe(false);
+  });
+
+  it('begin session 后初始化异常会清理 running 并记录失败', async () => {
+    const h = harness_ACU({
+      conversation: overBudgetConversation_ACU('守门人'.repeat(400)),
+      historyTokenBudget: 200,
+      countTokens: fillerTokens_ACU,
+      context: nextTurnContext_ACU,
+      mainReplies: ['{"action":"finalize","instruction":"不应发送"}'],
+      readCompactionMark: () => { throw new Error('simulated compaction read failure'); },
+    });
+
+    await expect(h.planner.plan(h.request)).rejects.toThrow(/simulated compaction read failure/);
+    expect(isAgentSessionRunning_ACU()).toBe(false);
+    expect(readAgentSessionLog_ACU().some(entry => entry.kind === 'run_failed')).toBe(true);
+  });
+
   it('同一轮内到达阈值只登记不压缩，留到下一轮开始时再做', async () => {
     const filler = '守门人'.repeat(400);
     // 最后通告的就是本次运行的游标 turn-2：这一轮还没走完（中断恢复或同游标重跑）。
@@ -414,6 +467,55 @@ describe('主 Agent 会话记录', () => {
     expect(h.conversation().messages.some(message => message.kind === 'handoff')).toBe(overrides.compactionWrite !== 'false' && overrides.compactionWrite !== 'throw');
     expect(readAgentSessionLog_ACU().some(entry => entry.title.includes('会话历史已压缩'))).toBe(false);
     expect(readAgentSessionLog_ACU().some(entry => entry.title.includes('会话历史压缩未提交'))).toBe(true);
+  });
+
+  it('压缩范围内有实质用户发言时系统派工 requirements-maintainer，不占主 Agent 派工额度', async () => {
+    // 本地子代理运行时有出站预算检查（字符估算约 800 tokens）：预算取 1500，
+    // 既大于出站上下文，又小于压缩前历史（填充词 2000 tokens），复现上游用例的触发条件。
+    const filler = '守门人'.repeat(1000);
+    const conversation = appendAgentConversation_ACU(buildEmptyAgentConversation_ACU(), [
+      { kind: 'turn', text: '开始新的一轮规划：第 1 阶段 · 第 1/6 轮', digest: '第 1 阶段 · 第 1/6 轮', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'user', text: '不要提前揭底牌', digest: '用户要求', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'user', text: '继续', digest: '机械继续', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'agent', text: filler, digest: '交付写作指导', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'turn', text: '开始新的一轮规划：第 2 阶段 · 第 2/6 轮', digest: '第 2 阶段 · 第 2/6 轮', turnKey: 'stage-1#0#turn-2' },
+    ]);
+    const h = harness_ACU({
+      conversation,
+      historyTokenBudget: 1500,
+      countTokens: fillerTokens_ACU,
+      mainReplies: ['{"action":"finalize","instruction":"接着写"}'],
+      subReplies: [JSON.stringify({ summary: '合并了压缩范围内的用户要求', requirements: ['不要提前揭底牌', '推进主角进入禁区'] })],
+      context: nextTurnContext_ACU,
+    });
+    await expect(h.planner.plan(h.request)).resolves.toMatchObject({ instruction: '接着写' });
+    expect(h.conversation().messages[0].kind).toBe('handoff');
+    expect(h.presetRoles).toContain('requirementsMaintainer');
+    expect(h.written.some(item => item.snapshot.userRequirements.includes('不要提前揭底牌'))).toBe(true);
+    expect(readAgentSessionLog_ACU().some(entry => entry.title.includes('用户要求维护完成'))).toBe(true);
+    expect(h.mainCalls).toHaveLength(1);
+  });
+
+  it('压缩后维护子代理失败时保留旧快照且不阻断交接', async () => {
+    const filler = '守门人'.repeat(1000);
+    const conversation = appendAgentConversation_ACU(buildEmptyAgentConversation_ACU(), [
+      { kind: 'turn', text: '开始新的一轮规划：第 1 阶段 · 第 1/6 轮', digest: '第 1 阶段 · 第 1/6 轮', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'user', text: '保持慢热', digest: '用户要求', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'agent', text: filler, digest: '交付写作指导', turnKey: 'stage-1#0#turn-1' },
+      { kind: 'turn', text: '开始新的一轮规划：第 2 阶段 · 第 2/6 轮', digest: '第 2 阶段 · 第 2/6 轮', turnKey: 'stage-1#0#turn-2' },
+    ]);
+    const h = harness_ACU({
+      conversation,
+      historyTokenBudget: 1500,
+      countTokens: fillerTokens_ACU,
+      mainReplies: ['{"action":"finalize","instruction":"接着写"}'],
+      subReplies: ['不是 JSON'],
+      context: nextTurnContext_ACU,
+    });
+    await expect(h.planner.plan(h.request)).resolves.toMatchObject({ instruction: '接着写' });
+    expect(h.conversation().messages[0].kind).toBe('handoff');
+    expect(h.written.every(item => item.snapshot.userRequirements.length === 0)).toBe(true);
+    expect(readAgentSessionLog_ACU().some(entry => entry.title.includes('用户要求维护失败'))).toBe(true);
   });
 });
 
@@ -660,6 +762,23 @@ describe('主 Agent 循环收敛', () => {
     expect(readAgentRunState_ACU('chat-resume', 'task-1', 'stage-1#0#turn-2')).toBeNull();
   });
 
+  it('会话提交失败时不得把未落盘 outcome 留在 run ledger', async () => {
+    const identity = (attempt: number) => ({ chatIdentity: 'chat-outcome-fail', taskId: 'task-1', stageId: 'stage-1', turnId: 'turn-2', attemptId: `a-${attempt}`, source: 'turn_instruction' }) as any;
+    const h = harness_ACU({
+      failToolResultWrite: true,
+      mainReplies: [
+        '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算正文","reads":[]}]}',
+        '{"action":"finalize","instruction":"不应继续"}',
+      ],
+      subReplies: [JSON.stringify({ summary: '已结算', delta: { hooks: [{ action: 'upsert', id: 'H1', summary: '晶屑' }] } })],
+    });
+    h.request.createInternalRequestIdentity = identity;
+
+    await expect(h.planner.plan(h.request)).rejects.toThrow(/simulated tool result persistence failure/);
+    const state = readAgentRunState_ACU('chat-outcome-fail', 'task-1', 'stage-1#0#turn-2#arc:1#settled:3');
+    expect(state?.ledger.outcomes).toEqual([]);
+  });
+
   it('终审关闭时 finalize 沿用原交付路径，不调用 final-reviewer', async () => {
     const h = harness_ACU({ mainReplies: ['{"action":"finalize","instruction":"不审查直接交付"}'] });
     h.request.settings.finalReview.enabled = false;
@@ -844,87 +963,6 @@ describe('主 Agent 循环收敛', () => {
     expect(h.mainCalls[1][findIndex_ACU(h.mainCalls[1], '没有被采纳')].content).toContain('预算最后一轮');
   });
 
-  it('末轮无可执行大纲且常规配额锁死时，outline-architect 可使用一次保留容量后收敛交付', async () => {
-    const h = harness_ACU({
-      context: preOutlineContext_ACU,
-      snapshot: snapshotWithArc_ACU(),
-      budget: { maxIterations: 1, maxDelegations: 0, maxSameAgent: 0 },
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"根据当前卷台阶创建首个阶段大纲"}]}',
-        '{"action":"finalize","instruction":"按新阶段大纲推进"}',
-      ],
-      applyOutline: () => ({ op: 'create', requiresReview: false, stopped: null, summary: '已创建首个阶段大纲' }),
-    });
-    const original = h.request.applyOutline!;
-    h.request.applyOutline = async instruction => { const result = await original(instruction); h.setContext(execution_ACU); return result; };
-
-    const result = await h.planner.plan(h.request);
-
-    expect(result.instruction).toBe('按新阶段大纲推进');
-    expect(h.outlineCalls).toEqual(['根据当前卷台阶创建首个阶段大纲']);
-    expect(h.mainCalls).toHaveLength(2);
-    expect(h.mainCalls[0][findIndex_ACU(h.mainCalls[0], '本轮预算状态')].content).toContain('FINAL_MAINTENANCE_RESERVE');
-    const latestBudget = h.mainCalls[1].filter(message => message.content.includes('本轮预算状态')).at(-1)?.content ?? '';
-    expect(latestBudget).toContain('CONVERGENCE_ONLY');
-  });
-
-  it('同一权威游标的末轮保留容量不能执行第二个 outline-architect 或普通代理', async () => {
-    const h = harness_ACU({
-      context: preOutlineContext_ACU,
-      snapshot: snapshotWithArc_ACU(),
-      budget: { maxIterations: 1, maxDelegations: 0, maxSameAgent: 0 },
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"创建阶段大纲"},{"agentName":"outline-architect","prompt":"再次改写阶段大纲"},{"agentName":"mainline-planner","prompt":"不应执行的策划"}]}',
-        '{"action":"finalize","instruction":"仅按首份大纲推进"}',
-      ],
-      applyOutline: () => ({ op: 'create', requiresReview: false, stopped: null, summary: '已创建首个阶段大纲' }),
-    });
-    const original = h.request.applyOutline!;
-    h.request.applyOutline = async instruction => { const result = await original(instruction); h.setContext(execution_ACU); return result; };
-
-    const result = await h.planner.plan(h.request);
-
-    expect(result.instruction).toBe('仅按首份大纲推进');
-    expect(h.outlineCalls).toEqual(['创建阶段大纲']);
-    expect(h.subCalls).toHaveLength(0);
-    const feedback = h.mainCalls[1].map(message => message.content).join('\n');
-    expect(feedback).toContain('派工总数已达上限 0 次');
-    expect(feedback).toContain('末轮保留容量只允许 outline-architect');
-  });
-
-  it('总纲版本或结算水位变化后切换权威游标，不受旧派工账本锁定', async () => {
-    const arcChanged = harness_ACU({
-      snapshot: snapshotWithArc_ACU(),
-      budget: { maxDelegations: 1 },
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"arc-architect","prompt":"依据新证据修订卷台阶"}]}',
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"按新卷台阶维护阶段大纲"}]}',
-        '{"action":"finalize","instruction":"按更新后的阶段大纲推进"}',
-      ],
-      subReplies: [JSON.stringify({ summary: '已更新卷台阶', delta: { storyArc: [{ action: 'patch', id: 'A2', escalation: '把试探升级为公开对抗' }] } })],
-      applyOutline: () => ({ op: 'revise', requiresReview: false, stopped: null, summary: '已按新卷台阶维护阶段大纲' }),
-    });
-    const arcResult = await arcChanged.planner.plan(arcChanged.request);
-    expect(arcResult.instruction).toBe('按更新后的阶段大纲推进');
-    expect(arcChanged.outlineCalls).toEqual(['按新卷台阶维护阶段大纲']);
-
-    const settledChanged = harness_ACU({
-      budget: { maxDelegations: 1 },
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算未结算历史","reads":["$HISTORY_UNSETTLED"],"writes":["$HOOKS_LEDGER"]}]}',
-        '{"action":"delegate","delegations":[{"agentName":"mainline-planner","prompt":"基于已结算事实策划"}]}',
-        '{"action":"finalize","instruction":"按结算后的证据推进"}',
-      ],
-      subReplies: [
-        JSON.stringify({ summary: '已结算历史', delta: { hooks: [{ action: 'upsert', id: 'H1', summary: '黑色晶屑', status: 'planted', importance: 'high', plantedIndex: 3 }] } }),
-        JSON.stringify({ summary: '主线建议', recommendation: '先验证晶屑来源', mustPreserve: [], risks: [] }),
-      ],
-    });
-    const settledResult = await settledChanged.planner.plan(settledChanged.request);
-    expect(settledResult.instruction).toBe('按结算后的证据推进');
-    expect(settledChanged.subCalls).toHaveLength(2);
-  });
-
   it('总纲已建立且无结构事件时，惯性派工 arc-architect 被门禁拒绝且不消耗额度；写明事由与依据才放行', async () => {
     const context = { moduleSnapshot: snapshotWithArc_ACU(), execution: execution_ACU() } as any;
     const habitual = evaluateArcArchitectDispatch_ACU(context, '更新故事总纲');
@@ -966,196 +1004,97 @@ describe('主 Agent 循环收敛', () => {
   });
 });
 
-describe('故事总纲门禁', () => {
-  it('总纲为空时派工 outline-architect 被拒且不消耗额度，改派 arc-architect 立完总纲后同轮即可排大纲', async () => {
+describe('open_round 固定结构工作流', () => {
+  const arcReply_ACU = JSON.stringify({
+    summary: '已建立总纲与第一卷',
+    delta: {
+      storyArc: [
+        { action: 'upsert', id: 'ARC-STORY', scope: 'story', title: '禁区真相', direction: '主角查明禁区吞人的真相', escalation: '', withheld: '守门人是主角失踪的兄长', status: 'active' },
+        { action: 'upsert', id: 'VOL-01', scope: 'volume', title: '第一卷·试探', direction: '摸清禁区门禁规则', escalation: '从试探门禁推进到第一次被守门人识破', withheld: '晶屑的真实来源', status: 'active', narrativeRole: 'setup', targetStageRange: { min: 2, max: 4 }, targetTimeSpan: '约两周', progressCeiling: '只确认门禁规则，不揭示晶屑来源', sustainingThreads: ['主角与守门人的试探性信任'], payoffTargets: ['兑现主角获得首次入门机会的期待'] },
+      ],
+    },
+  });
+  const maintainerReply_ACU = JSON.stringify({ summary: '没有新增资料', delta: { hooks: [], infoGap: [], chronology: [] } });
+  const plannerReply_ACU = JSON.stringify({ summary: '主线建议', recommendation: '先观察守门人的回避', mustPreserve: [], risks: [] });
+  const beatReply_ACU = JSON.stringify({ summary: '本轮无节拍操作', recommendation: 'no_change', mustPreserve: [], risks: [] });
+  const composerReply_ACU = JSON.stringify({ instruction: '按阶段大纲先观察守门人的回避。', summary: '完成本轮指令', constraints: { add: [], retire: [] } });
+
+  it('总纲和阶段大纲都缺失时，open_round 先自动立总纲、再准备大纲并交付指令', async () => {
     const h = harness_ACU({
       snapshot: buildEmptyAgentModuleSnapshot_ACU(),
       context: preOutlineContext_ACU,
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"先排第一阶段"}]}',
-        '{"action":"delegate","delegations":[{"agentName":"arc-architect","prompt":"立总纲"}]}',
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"围绕第一卷台阶排阶段"}]}',
-        '{"action":"finalize","instruction":"按新大纲写"}',
-      ],
-      subReplies: ['{"summary":"已立全书方向与第一卷台阶","delta":{"storyArc":[{"action":"upsert","id":"A1","scope":"story","title":"禁区真相","direction":"主角查明禁区吞人的真相","escalation":"从个人求生抬到与守门人体系对抗","withheld":"守门人是主角失踪的兄长","status":"active"},{"action":"upsert","id":"VOL-01","scope":"volume","title":"第一卷·试探","direction":"摸清禁区门禁规则","escalation":"收在主角第一次被守门人识破","withheld":"晶屑的真实来源","status":"active","narrativeRole":"setup","targetStageRange":{"min":2,"max":4},"targetTimeSpan":"约两周","progressCeiling":"只确认门禁规则与守门人的警觉，不揭示晶屑来源","sustainingThreads":["主角与守门人的试探性信任"],"payoffTargets":["兑现主角获得首次入门机会的期待"]}]}}'],
-      applyOutline: () => ({ op: 'create', requiresReview: false, stopped: null, summary: '已创建第 1 阶段大纲「禁区试探」（共 6 轮）' }),
+      mainReplies: ['{"action":"open_round","focus":"接住守门人的回避"}'],
+      subReplies: [arcReply_ACU, maintainerReply_ACU, plannerReply_ACU, beatReply_ACU, composerReply_ACU],
+      applyOutline: () => ({ op: 'create', requiresReview: false, stopped: null, summary: '已创建首个阶段大纲' }),
     });
     const original = h.request.applyOutline!;
     h.request.applyOutline = async instruction => { const result = await original(instruction); h.setContext(execution_ACU); return result; };
 
     const result = await h.planner.plan(h.request);
-    expect(result.instruction).toBe('按新大纲写');
-    // 被门禁拦下的那次没有真的调用大纲运行时。
-    expect(h.outlineCalls).toEqual(['围绕第一卷台阶排阶段']);
-    const rejection = h.mainCalls[1].map(message => message.content).join('\n');
-    expect(rejection).toContain('故事总纲还是空的');
-    expect(rejection).toContain('本次未消耗派工额度');
-    // 门禁不吃额度：三次派工里只有两次记账，maxDelegations=4 时仍够用。
-    expect(h.mainCalls[3].map(message => message.content).join('\n')).toContain('已创建第 1 阶段大纲');
+
+    expect(result.instruction).toBe('按阶段大纲先观察守门人的回避。');
+    expect(h.outlineCalls).toEqual(['固定工作流根据当前 active 卷准备阶段大纲。焦点：接住守门人的回避']);
+    expect(h.presetRoles).toEqual(['main', 'arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'instructionComposer']);
+    expect(h.written.some(write => write.snapshot.storyArc.some(item => item.id === 'VOL-01'))).toBe(true);
+    expect(h.subCalls).toHaveLength(5);
   });
 
-  it('既有卷全部完成时拒绝 outline-architect，必须先由 arc-architect 扩充 active 卷', async () => {
-    const snapshot = snapshotWithArc_ACU();
-    snapshot.storyArc[1] = {
-      ...snapshot.storyArc[1],
-      status: 'done',
-      completionStageNumber: 1,
-      completionState: '第一卷冲突已收束，守门人身份留下后续线索',
-    };
+  it('已有可用总纲但没有阶段大纲时，只自动准备大纲，不重复运行 arc-architect', async () => {
     const h = harness_ACU({
-      snapshot,
+      snapshot: snapshotWithArc_ACU(),
       context: preOutlineContext_ACU,
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"直接创建下一阶段"}]}',
-        '{"action":"block","reason":"需要先扩充总纲卷","unresolved":["没有 active 卷"]}',
-      ],
+      mainReplies: ['{"action":"open_round","focus":"围绕晶屑继续试探"}'],
+      subReplies: [maintainerReply_ACU, plannerReply_ACU, beatReply_ACU, composerReply_ACU],
+      applyOutline: () => ({ op: 'continue', requiresReview: false, stopped: null, summary: '已继续下一阶段大纲' }),
     });
-
-    await expect(h.planner.plan(h.request)).rejects.toMatchObject({ error: { code: 'CONTINUATION_AGENT_BLOCKED' } });
-    expect(h.outlineCalls).toEqual([]);
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('既有卷已全部完成');
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('本次未消耗派工额度');
-  });
-
-  it('arc-architect 的写入只换总纲快照，不推进结算水位', async () => {
-    const h = harness_ACU({
-      snapshot: buildEmptyAgentModuleSnapshot_ACU(),
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"arc-architect","prompt":"立总纲"}]}',
-        '{"action":"finalize","instruction":"指导"}',
-      ],
-      subReplies: ['{"summary":"已立全书方向","delta":{"storyArc":[{"action":"upsert","id":"A1","scope":"story","title":"禁区真相","direction":"主角查明禁区吞人的真相","escalation":"抬到与守门人体系对抗","withheld":"守门人是主角失踪的兄长","status":"active","stageNumbers":[1]}]}}'],
-    });
-    const result = await h.planner.plan(h.request);
-
-    expect(result.instruction).toBe('指导');
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('总纲已更新');
-    expect(h.written).toHaveLength(1);
-    expect(h.written[0].snapshot.storyArc.map(item => item.title)).toEqual(['禁区真相']);
-    expect(h.written[0].snapshot.revisions.storyArc).toBe(1);
-    // 结算水位归 hook-cognition-maintainer 管：立总纲不代表未结算正文已经进账本。
-    expect(h.written[0].snapshot.settledThroughIndex).toBe(buildEmptyAgentModuleSnapshot_ACU().settledThroughIndex);
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('总纲已更新');
-  });
-
-  it('总纲状态段报告缺失与阶段进度未登记两种情形', async () => {
-    const missing = harness_ACU({ snapshot: buildEmptyAgentModuleSnapshot_ACU(), mainReplies: ['{"action":"finalize","instruction":"指导"}'] });
-    await missing.planner.plan(missing.request);
-    expect(missing.mainCalls[0].map(message => message.content).join('\n')).toContain('故事总纲：尚未建立');
-
-    // 快照里的卷台阶只登记到第 2 阶段，第 3 阶段虽已完成却没进任何卷台阶。
-    const stale = harness_ACU({
-      mainReplies: ['{"action":"finalize","instruction":"指导"}'],
-      context: () => {
-        const base = execution_ACU();
-        base.task.stages = [{ stageNumber: 2, status: 'completed' }, { stageNumber: 3, status: 'completed' }];
-        return base;
-      },
-    });
-    await stale.planner.plan(stale.request);
-    const evidence = stale.mainCalls[0].map(message => message.content).join('\n');
-    expect(evidence).toContain('第 3 阶段已完成但没有登记');
-    expect(evidence).toContain('派工 arc-architect 回写进度');
-  });
-});
-
-describe('大纲子代理派工', () => {
-  it('无大纲时 finalize 被拒绝；派工 outline-architect 创建成功后同循环内继续并交付', async () => {
-    const h = harness_ACU({
-      context: preOutlineContext_ACU,
-      mainReplies: [
-        '{"action":"finalize","instruction":"直接写"}',
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"围绕禁区试探创建首个阶段"}]}',
-        '{"action":"finalize","instruction":"按新大纲第一轮写"}',
-      ],
-      applyOutline: () => ({ op: 'create', requiresReview: false, stopped: null, summary: '已创建第 1 阶段大纲「禁区试探」（共 6 轮）' }),
-    });
-    // create 成功后运行时读到的上下文切换为有大纲状态。
     const original = h.request.applyOutline!;
     h.request.applyOutline = async instruction => { const result = await original(instruction); h.setContext(execution_ACU); return result; };
 
     const result = await h.planner.plan(h.request);
-    expect(result.instruction).toBe('按新大纲第一轮写');
-    expect(h.outlineCalls).toEqual(['围绕禁区试探创建首个阶段']);
-    // 第一次 finalize 因无大纲被协议层拒绝并回灌。
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('不能 finalize');
-    // 大纲操作结果回灌给下一次迭代。
-    expect(h.mainCalls[2].map(message => message.content).join('\n')).toContain('已创建第 1 阶段大纲');
+
+    expect(result.instruction).toBe('按阶段大纲先观察守门人的回避。');
+    expect(h.outlineCalls).toHaveLength(1);
+    expect(h.presetRoles).toEqual(['main', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'instructionComposer']);
+    expect(h.subCalls).toHaveLength(4);
   });
 
-  it('大纲操作产出待确认的新大纲时以重规划信号中止', async () => {
+  it('主 Agent 直接派工总纲、大纲和指令编排内部角色时全部拒绝，且不消耗子代理调用', async () => {
     const h = harness_ACU({
-      mainReplies: ['{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"节奏放慢"}]}'],
-      applyOutline: () => ({ op: 'revise', requiresReview: true, stopped: null, summary: '新大纲待确认' }),
-    });
-    await expect(h.planner.plan(h.request)).rejects.toMatchObject({
-      error: { code: 'CONTINUATION_AGENT_OUTLINE_REPLANNED', retryable: false, message: expect.stringContaining('确认') },
-    });
-    expect(h.outlineCalls).toEqual(['节奏放慢']);
-  });
-
-  it('继续大纲遇到阶段上限时任务已停止，循环立即中止', async () => {
-    const h = harness_ACU({
-      mainReplies: ['{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"继续下一阶段"}]}'],
-      applyOutline: () => ({ op: 'continue', requiresReview: false, stopped: 'stage_limit_reached', summary: '阶段数已达上限，任务已停止，不再创建下一阶段' }),
-    });
-    await expect(h.planner.plan(h.request)).rejects.toMatchObject({
-      error: { code: 'CONTINUATION_TASK_STATE_INVALID', details: { stopped: 'stage_limit_reached' } },
-    });
-  });
-
-  it('正文重试轮次不允许改写大纲，拒绝原因回灌后仍可正常交付', async () => {
-    const h = harness_ACU({
-      withoutApplyOutline: true,
       mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"改大纲"}]}',
-        '{"action":"finalize","instruction":"基于现有大纲交付"}',
+        '{"action":"delegate","delegations":[{"agentName":"arc-architect","prompt":"立总纲"},{"agentName":"outline-architect","prompt":"改大纲"},{"agentName":"instruction-composer","prompt":"写指令"}]}',
+        '{"action":"finalize","instruction":"保持现有大纲推进"}',
       ],
     });
+
     const result = await h.planner.plan(h.request);
-    expect(result.instruction).toBe('基于现有大纲交付');
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('正文重试轮次不允许改写大纲');
-  });
-
-  it('edit_outline 被拒后回灌原因，并通过 outline-architect 维护大纲', async () => {
-    const h = harness_ACU({
-      mainReplies: [
-        '{"action":"edit_outline","thought":"只需微调","edits":[{"op":"set_turn_goal","turnId":"turn-2","goal":"守门人先露破绽"}]}',
-        '{"action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"将当前轮目标调整为守门人先露破绽"}]}',
-        '{"action":"finalize","instruction":"按维护后的大纲写"}',
-      ],
-      applyOutline: () => ({ op: 'revise', requiresReview: false, stopped: null, summary: '大纲已由架构师维护' }),
-    });
-    const result = await h.planner.plan(h.request);
-    expect(result.instruction).toBe('按维护后的大纲写');
-    expect(h.outlineCalls).toEqual(['将当前轮目标调整为守门人先露破绽']);
-    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('大纲调整请派工 outline-architect');
-  });
-
-  it('大纲操作先于同波次其他派工执行，普通派工照常并发', async () => {
-    const order: string[] = [];
-    const h = harness_ACU({
-      mainReplies: [
-        '{"action":"delegate","delegations":[{"agentName":"mainline-planner","prompt":"主线","reads":["$OUTLINE_WINDOW"]},{"agentName":"outline-architect","prompt":"先修大纲"}]}',
-        '{"action":"finalize","instruction":"指导"}',
-      ],
-      subReplies: ['{"summary":"主线","recommendation":"推进"}'],
-      applyOutline: () => { order.push('outline'); return { op: 'revise', requiresReview: false, stopped: null, summary: '已改写大纲' }; },
-    });
-    const planner = h.request;
-    const originalIsCurrent = planner.isInternalRequestCurrent;
-    planner.isInternalRequestCurrent = identity => { if (identity.source === 'agent_subagent') order.push('subagent'); return originalIsCurrent(identity); };
-
-    await h.planner.plan(h.request);
-    expect(order[0]).toBe('outline');
-    expect(order).toContain('subagent');
     const feedback = h.mainCalls[1].map(message => message.content).join('\n');
-    expect(feedback).toContain('已改写大纲');
-    expect(feedback).toContain('mainline-planner');
+
+    expect(result.instruction).toBe('保持现有大纲推进');
+    expect(h.subCalls).toHaveLength(0);
+    expect(h.outlineCalls).toHaveLength(0);
+    expect(feedback).toContain('arc-architect 已由固定工作流内部调度');
+    expect(feedback).toContain('outline-architect 已由固定工作流内部调度');
+    expect(feedback).toContain('该角色由固定工作流调用，主 Agent 不能 delegate');
+    expect(feedback).toContain('本次未消耗派工额度');
   });
 });
 
 describe('派工与写集落盘', () => {
+  it('主 Agent 派工 requirements-maintainer 立即拒绝，不占派工额度也不发起子代理调用', async () => {
+    const h = harness_ACU({
+      mainReplies: [
+        '{"action":"delegate","delegations":[{"agentName":"requirements-maintainer","prompt":"整理要求","reads":["$USER_REQUIREMENTS"]}]}',
+        '{"action":"finalize","instruction":"指导"}',
+      ],
+    });
+    await expect(h.planner.plan(h.request)).resolves.toMatchObject({ instruction: '指导' });
+    expect(h.subCalls).toHaveLength(0);
+    const feedback = h.mainCalls[1].map(message => message.content).join('\n');
+    expect(feedback).toContain('requirements-maintainer｜失败');
+    expect(feedback).toContain('只能由会话压缩后的系统派工触发');
+    expect(feedback).toContain('未消耗派工额度');
+  });
+
   it('维护类子代理的 delta 串行落盘，结果与约束提议回灌给主 Agent', async () => {
     const h = harness_ACU({
       mainReplies: [
@@ -1197,7 +1136,7 @@ describe('派工与写集落盘', () => {
         summary: '结算了晶屑与三日行程',
         delta: {
           hooks: [{ action: 'upsert', id: 'H1', summary: '守门人手中的黑色晶屑', status: 'planted', importance: 'high', plantedIndex: 3 }],
-          chronology: [{ action: 'upsert', id: 'T1', anchor: '抵达禁区外围的第三日', elapsed: '自开篇约三日', precision: 'approximate', transition: '主角一行赶路三日抵达禁区外围', evidenceIndexes: [2, 3] }],
+          chronology: [{ action: 'upsert', id: 'T1', anchor: '抵达禁区外围的第三日', elapsed: '自开篇约三日', precision: 'approximate', transition: '主角一行赶路三日抵达禁区外围', evidenceIndexes: [3] }],
         },
       })],
     });
@@ -1209,7 +1148,7 @@ describe('派工与写集落盘', () => {
     expect(h.written).toHaveLength(1);
     expect(h.written[0].snapshot.hooks).toHaveLength(1);
     expect(h.written[0].snapshot.chronology).toHaveLength(1);
-    expect(h.written[0].snapshot.chronology[0]).toMatchObject({ id: 'T1', anchor: '抵达禁区外围的第三日', evidenceIndexes: [2, 3], updatedIndex: 3 });
+    expect(h.written[0].snapshot.chronology[0]).toMatchObject({ id: 'T1', anchor: '抵达禁区外围的第三日', evidenceIndexes: [3], updatedIndex: 3 });
     expect(h.written[0].snapshot.revisions).toMatchObject({ hooks: 1, chronology: 1 });
     expect(h.written[0].snapshot.settledThroughIndex).toBe(3);
 
@@ -1221,21 +1160,21 @@ describe('派工与写集落盘', () => {
     const h = harness_ACU({
       mainReplies: [
         '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算","reads":["$HISTORY_UNSETTLED"],"writes":["$HOOKS_LEDGER"]}]}',
-        '{"action":"delegate","delegations":[{"agentName":"continuity-reviewer","prompt":"审查","reads":["$HOOKS_LEDGER"]}]}',
+        '{"action":"delegate","delegations":[{"agentName":"beat-planner","prompt":"策划","reads":["$HOOKS_LEDGER"]}]}',
         '{"action":"finalize","instruction":"指导"}',
       ],
       subReplies: [
         JSON.stringify({ summary: '埋设', delta: { hooks: [{ action: 'upsert', id: 'H1', summary: '黑色晶屑', status: 'planted', importance: 'high', plantedIndex: 3 }] } }),
-        '{"verdict":"pass","reason":"没有冲突"}',
+        '{"summary":"节拍建议","recommendation":"保持观察","mustPreserve":[],"risks":[]}',
       ],
     });
     await h.planner.plan(h.request);
 
-    const reviewerMaterials = h.subCalls[1].map(message => message.content).join('\n');
-    expect(reviewerMaterials).toContain('黑色晶屑');
+    const beatPlannerMaterials = h.subCalls[1].map(message => message.content).join('\n');
+    expect(beatPlannerMaterials).toContain('黑色晶屑');
     // 每一批派工结果是一条独立的工具消息，编号在批内从 1 起算。
-    const secondBatch = h.mainCalls[2][findIndex_ACU(h.mainCalls[2], 'continuity-reviewer｜成功')].content;
-    expect(secondBatch).toContain('判词：pass');
+    const secondBatch = h.mainCalls[2][findIndex_ACU(h.mainCalls[2], 'beat-planner｜成功')].content;
+    expect(secondBatch).toContain('保持观察');
     expect(secondBatch).not.toContain('hook-cognition-maintainer');
   });
 
@@ -1259,7 +1198,7 @@ describe('派工与写集落盘', () => {
     expect(feedback).toContain('hooks 的 revision 已变化');
   });
 
-  it('修订号过期的 delta 整体拒绝，快照不被污染', async () => {
+  it('模型自报的旧 revision 由运行时实际读取版本覆盖，不制造伪冲突', async () => {
     const stale = buildEmptyAgentModuleSnapshot_ACU();
     stale.revisions.hooks = 5;
     const h = harness_ACU({
@@ -1268,11 +1207,42 @@ describe('派工与写集落盘', () => {
         '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算","reads":["$HISTORY_UNSETTLED"],"writes":["$HOOKS_LEDGER"]}]}',
         '{"action":"finalize","instruction":"指导"}',
       ],
-      subReplies: [JSON.stringify({ summary: '基于旧版本', delta: { expectedRevisions: { hooks: 2 }, hooks: [{ action: 'upsert', id: 'H1', summary: '内容' }] } })],
+      subReplies: [JSON.stringify({ summary: '基于运行时读版本', delta: { expectedRevisions: { hooks: 2 }, hooks: [{ action: 'upsert', id: 'H1', summary: '内容' }] } })],
     });
     await h.planner.plan(h.request);
+    expect(h.written).toHaveLength(1);
+    expect(h.written[0].snapshot.revisions.hooks).toBe(6);
+    expect(h.mainCalls[1][findIndex_ACU(h.mainCalls[1], '结果 1')].content).toContain('成功');
+  });
+
+  it('子代理在途新增聊天楼层时不得用未见楼层结算', async () => {
+    const h = harness_ACU({
+      mainReplies: [
+        '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算","reads":[]}]}',
+        '{"action":"finalize","instruction":"不应使用新楼层"}',
+      ],
+      subReplies: [JSON.stringify({ summary: '结算旧楼层', delta: {} })],
+      mutateChatDuringSubagent: chat => { chat.push({ mes: '子代理返回后新增的用户楼', is_user: true }); },
+    });
+
+    await expect(h.planner.plan(h.request)).rejects.toMatchObject({ error: { code: 'CONTINUATION_INTERNAL_REQUEST_STALE' } });
     expect(h.written).toHaveLength(0);
-    expect(h.mainCalls[1][findIndex_ACU(h.mainCalls[1], '结果 1')].content).toContain('未采用');
+  });
+
+  it('maintainer 缺 delta 不得把未结算楼层推进水位', async () => {
+    const h = harness_ACU({
+      mainReplies: [
+        '{"action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算","reads":[]}]}',
+        '{"action":"finalize","instruction":"在没有结算结果时交付"}',
+      ],
+      subReplies: ['{"summary":"没有变化"}'],
+    });
+    h.request.settings.internalAiRetryLimit = 0;
+
+    await h.planner.plan(h.request);
+
+    expect(h.written).toHaveLength(0);
+    expect(h.mainCalls[1].map(message => message.content).join('\n')).toContain('未采用');
   });
 
   it('种子读集超预算的派工被拒绝，但不影响同波次其他子代理', async () => {
@@ -1419,6 +1389,29 @@ describe('子代理运行时', () => {
     expect(result.maintainer?.delta.hooks).toHaveLength(1);
   });
 
+  it('未结算正文只注入 AI 楼，不把 system/tool 楼当作历史证据', async () => {
+    replies = [JSON.stringify({ summary: '只结算正文', delta: {} })];
+    const base = input_ACU();
+    const result = await runtime.run({
+      ...base,
+      resolveContext: {
+        ...base.resolveContext,
+        settledThroughIndex: -1,
+        chat: [
+          { mes: '系统提示：不要结算我', is_system: true },
+          { mes: '用户指令：推进', is_user: true },
+          { mes: '正文楼：守门人挡住门', is_user: false },
+        ],
+      },
+    } as any);
+
+    const prompt = calls[0].map(message => message.content).join('\n');
+    expect(prompt).toContain('正文楼：守门人挡住门');
+    expect(prompt).not.toContain('系统提示：不要结算我');
+    expect(prompt).not.toContain('用户指令：推进');
+    expect(result.iterations).toBe(1);
+  });
+
   it('子代理输出 read 工具批次时执行调阅并把结果回灌，随后继续小循环', async () => {
     replies = [
       '{"action":"read","reads":["$TABLE:角色表"]}',
@@ -1453,24 +1446,37 @@ describe('子代理运行时', () => {
   });
 
   it('读集对所有子代理开放，包括动态表名', async () => {
-    replies = ['{"verdict":"pass","reason":"无冲突"}'];
-    const result = await runtime.run(input_ACU({ delegation: { agentName: 'continuity-reviewer', prompt: '审查', reads: ['$TABLE:角色表'] } } as any));
+    replies = ['{"summary":"策划建议","recommendation":"保持观察","mustPreserve":[],"risks":[]}'];
+    const result = await runtime.run(input_ACU({ delegation: { agentName: 'beat-planner', prompt: '策划', reads: ['$TABLE:角色表'] } } as any));
     expect(calls[0].map(message => message.content).join('\n')).toContain('右臂有伤');
-    expect(result.reviewer?.verdict).toBe('pass');
+    expect(result.planner?.recommendation).toBe('保持观察');
   });
 
-  it('连续返回不符合契约时抛出子代理失败，且把拒绝理由喂回下一次尝试', async () => {
-    replies = ['不是 JSON', '{"delta":{"hooks":[{"action":"delete","id":"H1"}]}}'];
+  it('协议修补耗尽时返回结构化 failed，保留拒绝理由供 workflow 挂账', async () => {
+    replies = [
+      '{"delta":{"hooks":[{"action":"delete","id":"H1"}]}}',
+      '{"delta":{"hooks":[{"action":"delete","id":"H1"}]}}',
+      '{"delta":{"hooks":[{"action":"delete","id":"H1"}]}}',
+      '{"delta":{"hooks":[{"action":"delete","id":"H1"}]}}',
+    ];
     const settings = buildDefaultContinuationSettings_ACU();
     settings.internalAiRetryLimit = 1;
-    // 第 2 次回复结构合法但 H1 非法：进入条目修补轮（2 轮），模型始终不重发 H1 修正版 → 失败。
-    await expect(runtime.run(input_ACU({ settings } as any))).rejects.toMatchObject({ error: { code: 'CONTINUATION_AGENT_SUBAGENT_FAILED', details: { rejected: [{ module: 'hooks', id: 'H1' }] } } });
-    expect(calls).toHaveLength(4);
-    expect(calls[1].map(message => message.content).join('\n')).toContain('没有被采纳');
+    // 结构合法但 H1 非法：进入条目修补轮，模型始终不重发 H1 修正版 → 结构化 failed。
+    const result = await runtime.run(input_ACU({ settings } as any));
+    expect(calls).toHaveLength(3);
+    expect(calls[1].map(message => message.content).join('\n')).toContain('需要修正的条目');
     const repair = calls[2].map(message => message.content).join('\n');
     expect(repair).toContain('需要修正的条目');
     expect(repair).toContain('hooks[0]（id=H1）');
     expect(repair).toContain('upsert / patch / retire');
+    expect(result).toMatchObject({
+      completion: 'failed',
+      moduleCompletion: { hooks: 'failed' },
+      acceptedKeys: [],
+    });
+    expect(result.unresolvedIssues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ module: 'hooks', source: 'contract_rejected', id: 'H1' })]),
+    );
   });
 
   it('完整契约一次交付：不触发续写轮，条目全部进入写集', async () => {
@@ -1538,5 +1544,56 @@ describe('子代理运行时', () => {
     const isCurrent = vi.fn().mockReturnValue(false);
     await expect(runtime.run(input_ACU({ isCurrent } as any))).rejects.toMatchObject({ error: { code: 'CONTINUATION_INTERNAL_REQUEST_STALE' } });
     expect(calls).toHaveLength(0);
+  });
+
+  it('requirements-maintainer 只写 userRequirements，契约是 summary+requirements 全量清单', async () => {
+    replies = [JSON.stringify({ summary: '合并用户要求', requirements: ['不要提前揭底牌', '用第一人称'] })];
+    const result = await runtime.run(input_ACU({
+      delegation: { agentName: 'requirements-maintainer', prompt: '整理压缩范围内的用户发言', reads: ['$USER_REQUIREMENTS'] },
+    } as any));
+    expect(result.writes).toEqual(['userRequirements']);
+    expect(result.requirements).toEqual(['不要提前揭底牌', '用第一人称']);
+    expect(result.maintainer).toBeNull();
+    const text = calls[0].map(message => message.content).join('\n');
+    expect(text).toContain('$USER_REQUIREMENTS 用户要求');
+    expect(text).toContain('整理压缩范围内的用户发言');
+  });
+});
+
+describe('固定工作流开局（open_round）', () => {
+  it('open_round 走固定工作流交付写作指令，结算推进水位并刷新前缀指纹', async () => {
+    const h = harness_ACU({
+      mainReplies: ['{"thought":"开局","action":"open_round","focus":"守门人的回避"}'],
+      subReplies: [
+        JSON.stringify({
+          summary: '结算了黑色晶屑',
+          delta: { hooks: [{ action: 'upsert', id: 'H1', summary: '守门人手中的黑色晶屑', status: 'planted', importance: 'high', plantedIndex: 3 }] },
+        }),
+        JSON.stringify({ summary: '主线建议', recommendation: '安静地问一句', mustPreserve: [], risks: [] }),
+        JSON.stringify({ summary: '本轮无节拍操作', recommendation: 'no_change', mustPreserve: [], risks: [] }),
+        JSON.stringify({ instruction: '从守门人的回避写起', summary: '试探' }),
+      ],
+    });
+    const result = await h.planner.plan(h.request);
+    expect(result.instruction).toBe('从守门人的回避写起');
+    expect(h.written).toHaveLength(1);
+    expect(h.written[0].snapshot.settledThroughIndex).toBe(3);
+    expect(h.written[0].snapshot.hooks).toHaveLength(1);
+    expect(h.written[0].snapshot.pendingFixes).toEqual([]);
+    // P1 前缀指纹：水位推进后必须刷新，否则真实写盘会被指纹门拒绝。
+    expect(typeof h.written[0].snapshot.settledPrefixFingerprint).toBe('string');
+  });
+
+  it('主 Agent 不能直接 delegate instruction-composer 与 final-reviewer', async () => {
+    const h = harness_ACU({
+      mainReplies: [
+        '{"action":"delegate","delegations":[{"agentName":"instruction-composer","prompt":"写指令","reads":[]}]}',
+        '{"action":"finalize","instruction":"最终指导"}',
+      ],
+    });
+    const result = await h.planner.plan(h.request);
+    expect(result.instruction).toBe('最终指导');
+    const feedback = h.mainCalls[1][findIndex_ACU(h.mainCalls[1], '结果 1')].content;
+    expect(feedback).toContain('固定工作流');
   });
 });

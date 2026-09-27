@@ -10,11 +10,13 @@ import type { StageTurn_ACU, StageTurnPacing_ACU } from '../model';
 import { describeStageTempo_ACU } from '../outline-schema';
 import type { ContinuationAgentExecutionContext_ACU } from '../stage-execution-engine';
 import {
+  AGENT_MODULE_FIELD_MATRIX_ACU,
   AGENT_STORY_TAIL_FLOORS_DEFAULT_ACU,
   AGENT_STORY_WINDOW_DEFAULT_ACU,
   type AgentModuleSnapshot_ACU,
 } from './agent-model';
 import {
+  readAgentModuleFoldState_ACU,
   renderAgentChronology_ACU,
   renderAgentChronologyByIds_ACU,
   renderAgentConstraintsByIds_ACU,
@@ -31,6 +33,8 @@ import {
 } from './agent-worldbook-read';
 import { normalizeAmCode_ACU } from '../worldbook-context';
 import { applyContextTagFilters_ACU } from '../../runtime/helpers-context-tags';
+import { isAiFloor_ACU } from '../../../shared/ai-floor';
+import { renderAgentUserRequirements_ACU } from './agent-user-requirements';
 
 export const AGENT_TABLE_TOKEN_PREFIX_ACU = '$TABLE:';
 export const AGENT_STORY_RANGE_TOKEN_PREFIX_ACU = '$STORY_RANGE:';
@@ -47,6 +51,7 @@ const READ_TOKEN_TITLES_ACU: Record<string, string> = {
   $CURRENT_TURN_GOAL: '本轮目标',
   $CURRENT_TURN_PACING: '本轮节奏',
   $USER_INTENT: '用户的初始要求',
+  $USER_REQUIREMENTS: '用户对任务曾经提过的要求',
   $STORY_ARC: '故事总纲',
   $HOOKS_LEDGER: '伏笔账本',
   $INFO_GAP: '认知与信息差时间线',
@@ -112,7 +117,7 @@ function listAgentStoryFloors_ACU(source: AgentStoryFloorSource_ACU): AgentStory
   const chat = Array.isArray(source.chat) ? source.chat : [];
   return chat
     .map((message, index) => ({ index, text: messageText_ACU(message, source.contextRules) }))
-    .filter(item => chat[item.index] && !chat[item.index].is_user && item.text);
+    .filter(item => isAiFloor_ACU(chat[item.index]) && item.text);
 }
 
 function agentStoryWindowSize_ACU(source: AgentStoryFloorSource_ACU): number {
@@ -123,6 +128,11 @@ function agentStoryWindowSize_ACU(source: AgentStoryFloorSource_ACU): number {
 export function listAgentStoryWindowFloors_ACU(source: AgentStoryFloorSource_ACU): AgentStoryFloor_ACU[] {
   const window = agentStoryWindowSize_ACU(source);
   return window > 0 ? listAgentStoryFloors_ACU(source).slice(-window) : [];
+}
+
+/** 与正文目录共用的 AI 正文楼层判断；证据校验不受读取窗口限制。 */
+export function agentStoryEvidenceFloorIndexes_ACU(chat: any[]): ReadonlySet<number> {
+  return new Set(listAgentStoryFloors_ACU({ chat }).map(floor => floor.index));
 }
 
 /**
@@ -325,7 +335,7 @@ export function renderAgentStoryText_ACU(context: AgentResolveContext_ACU): stri
   const settledThrough = Math.min(context.settledThroughIndex, highestIndex);
   const floors = chat
     .map((message, index) => ({ index, text: messageText_ACU(message, context.contextRules) }))
-    .filter(item => chat[item.index] && !chat[item.index].is_user && item.text);
+    .filter(item => isAiFloor_ACU(chat[item.index]) && item.text);
   if (!floors.length) return '当前聊天还没有 AI 产出的正文楼层。';
 
   const window = Math.max(0, context.storyWindowFloors ?? AGENT_STORY_WINDOW_DEFAULT_ACU);
@@ -359,7 +369,7 @@ export function renderAgentUnsettledHistory_ACU(context: AgentResolveContext_ACU
   const lines: string[] = [];
   for (let index = start; index < context.chat.length; index += 1) {
     const message = context.chat[index];
-    if (!message || message.is_user) continue;
+    if (!isAiFloor_ACU(message)) continue;
     const text = messageText_ACU(message, context.contextRules);
     if (text) lines.push(`【楼层 ${index}】\n${text}`);
   }
@@ -480,29 +490,30 @@ function renderTurnSemanticMeta_ACU(turn: StageTurn_ACU): string {
 export function renderAgentOutlineWindow_ACU(context: AgentResolveContext_ACU): string {
   const { execution } = context;
   if (!execution.stage) {
-    return '当前任务还没有阶段大纲。必须先派工 outline-architect 创建首个阶段大纲，才能规划本轮；在大纲创建前 finalize 会被拒绝。';
+    return '当前任务还没有阶段大纲。输出 open_round 后，固定工作流会先准备可执行阶段大纲，再进入资料工作流与写作指令编排；主 Agent 不直接派工 outline-architect。';
   }
   if (execution.stage.status === 'completed') {
-    return `第 ${execution.stage.stageNumber} 阶段已全部完成（共 ${execution.stage.completedTurns} 轮）。下一阶段大纲尚未创建，需要派工 outline-architect 继续大纲；在此之前 finalize 会被拒绝。`;
+    return `第 ${execution.stage.stageNumber} 阶段已全部完成（共 ${execution.stage.completedTurns} 轮）。输出 open_round 后，固定工作流会继续下一阶段大纲，再进入资料工作流与写作指令编排。`;
   }
   if (!execution.revision || !execution.node || !execution.turn) {
     return `第 ${execution.stage.stageNumber} 阶段的大纲当前不可执行（可能等待用户确认或游标无效）。本轮无法交付写作指导。`;
   }
-  // 轮次与节点都带 [ID] 前缀：便于主 Agent 在委派 outline-architect 时精确引用待维护目标。
-  const turns = execution.node.turns
-    .map((turn, index) => `${index + 1}. [${turn.id}]（${renderTurnSemanticMeta_ACU(turn)}）${turn.goal}${turn.id === execution.turn!.id ? '  ← 本轮' : ''}`)
-    .join('\n');
+  const nodes = execution.revision.outline.nodes?.length ? execution.revision.outline.nodes : [execution.node];
+  const nodeBlocks = nodes.map(node => {
+    const turns = node.turns
+      .map((turn, index) => `${index + 1}. [${turn.id}]（${renderTurnSemanticMeta_ACU(turn)}）${turn.goal}${turn.id === execution.turn!.id ? '  ← 本轮' : ''}`)
+      .join('\n');
+    return [`节点：[${node.id}] ${node.title}`, `节点目标：${node.goal}`, turns].join('\n');
+  });
   return [
     `阶段 ${execution.stage.stageNumber}：${execution.revision.outline.title}`,
     `阶段目标：${execution.revision.outline.goal}`,
     `阶段节奏形态：${describeStageTempo_ACU(execution.revision.outline.tempo)}——它决定本阶段低压轮的下限，也决定下一阶段不能选什么形态。`,
     `阶段结构职责：${execution.revision.outline.role ?? '旧快照未标注'}`,
     `阶段时间目标：${execution.revision.outline.timeSpanGoal ?? '未设定'}`,
-    `当前节点：[${execution.node.id}] ${execution.node.title}`,
-    `节点目标：${execution.node.goal}`,
     `阶段内轮次进度：第 ${execution.turnNumber} / ${execution.revision.outline.totalTurns} 轮`,
-    '本节点逐轮目标（括号内依次给出 pacing、function、mainline、time 与可选 anchor）：',
-    turns,
+    '当前启用的阶段大纲（全部节点与轮次；括号内依次给出 pacing、function、mainline、time 与可选 anchor）：',
+    nodeBlocks.join('\n\n'),
     renderAgentTurnPacingGuidance_ACU(execution.turn.pacing),
     '注意：大纲是计划，不是已经发生的事实。',
   ].join('\n');
@@ -576,7 +587,7 @@ function resolveWorldbookToken_ACU(token: string, context: AgentResolveContext_A
  * @param context 解析上下文
  * @returns { title, text } 分节标题与正文；未知 token 的 text 会明确说明不可读
  */
-export function resolveAgentReadToken_ACU(token: string, context: AgentResolveContext_ACU): { title: string; text: string } {
+export function resolveAgentReadToken_ACU(token: string, context: AgentResolveContext_ACU): { title: string; text: string; status?: 'failed' } {
   const normalized = String(token ?? '').trim();
   if (normalized.startsWith(AGENT_TABLE_TOKEN_PREFIX_ACU)) return resolveTableToken_ACU(normalized, context);
   if (normalized.startsWith(AGENT_WORLDBOOK_TOKEN_PREFIX_ACU)) return resolveWorldbookToken_ACU(normalized, context);
@@ -624,6 +635,32 @@ export function resolveAgentReadToken_ACU(token: string, context: AgentResolveCo
     };
   }
 
+  if (normalized.startsWith('$FIELD:')) {
+    const match = /^\$FIELD:(storyArc|hooks|infoGap|chronology|webRefs|constraints):([^:]+)(?::([^:]+))?$/.exec(normalized);
+    if (!match) return { title: '资料栏目', text: '栏目地址非法：$FIELD:模块:ID[:栏目]。' };
+    const [, moduleName, rawId, field] = match;
+    // 模型可控 id 不得命中原型链：空/超长/原型关键名一律按非法地址拒绝，不进入查找。
+    const id = String(rawId ?? '').trim();
+    if (!id || id.length > 128 || ['__proto__', 'prototype', 'constructor'].includes(id)) {
+      return { title: '资料栏目', text: '栏目地址非法：$FIELD:模块:ID[:栏目]。' };
+    }
+    const module = moduleName as keyof typeof AGENT_MODULE_FIELD_MATRIX_ACU;
+    if (field && !AGENT_MODULE_FIELD_MATRIX_ACU[module].fields.includes(field)) return { title: '资料栏目', text: `栏目 ${module}.${field} 不在受控字段矩阵中。` };
+    const folded = readAgentModuleFoldState_ACU(context.chat);
+    if (folded.salvaged || folded.candidates.some(item => !item.valid)) return { title: '资料栏目读取失败', text: '资料帧校验失败；不得将损坏数据解释为空状态。', status: 'failed' };
+    const bucket = folded.fields.records[module];
+    const record = bucket && Object.prototype.hasOwnProperty.call(bucket, id)
+      ? bucket[id] as (typeof bucket)[string]
+      : undefined;
+    return { title: `资料栏目 ${module}#${id}`, text: JSON.stringify(record
+      ? { module, id, status: record.status, missingFields: record.missingFields,
+        fields: field
+          ? { [field]: record.fields && Object.prototype.hasOwnProperty.call(record.fields, field) ? record.fields[field] : null }
+          : record.fields,
+        revisions: folded.snapshot.revisions[module] }
+      : { module, id, status: 'unwritten', missingFields: AGENT_MODULE_FIELD_MATRIX_ACU[module].required, revisions: folded.snapshot.revisions[module] }) };
+  }
+
   const title = READ_TOKEN_TITLES_ACU[normalized] ?? normalized;
   switch (normalized) {
     case '$STORY_TEXT': return { title, text: renderAgentStoryText_ACU(context) };
@@ -635,6 +672,7 @@ export function resolveAgentReadToken_ACU(token: string, context: AgentResolveCo
     case '$CURRENT_TURN_GOAL': return { title, text: context.execution.turn?.goal || '（尚无可执行的大纲轮次，本轮目标待大纲创建或继续后确定）' };
     case '$CURRENT_TURN_PACING': return { title, text: renderAgentTurnGuidance_ACU(context.execution.turn ?? null) };
     case '$USER_INTENT': return { title, text: context.originInstruction || '（用户未提供初始要求）' };
+    case '$USER_REQUIREMENTS': return { title, text: renderAgentUserRequirements_ACU(context.moduleSnapshot, context.originInstruction) };
     case '$TABLE_GLOBAL': return { title, text: renderAgentTableByAliases_ACU('global', context.tableData) };
     case '$TABLE_CHARACTERS': return { title, text: renderAgentTableByAliases_ACU('characters', context.tableData) };
     case '$TABLE_CHRONICLES': return { title, text: renderAgentTableByAliases_ACU('chronicles', context.tableData) };

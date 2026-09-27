@@ -14,6 +14,7 @@ import { hasV2TableHistoryEvidence_ACU, isV2TagData_ACU } from './storage-strate
 import type { TableMigrationProvenanceV1_ACU, TableStorageFrameV2_ACU } from './storage-frame-v2-types';
 import { loadTableStateFromFramesV2Detailed_ACU, type TableReplayCompatibilityRepairV2_ACU } from './storage-frame-v2-replay';
 import { getTableDataFingerprint_ACU } from './table-data-upgrade-audit';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 
 export type MixedStorageLegacyLocation_ACU =
   | 'isolated_independent'
@@ -82,6 +83,7 @@ export interface MixedStorageEvidence_ACU {
       requiresCheckpointConvergence?: boolean;
       compatibilityRepairs?: TableReplayCompatibilityRepairV2_ACU[];
     };
+    staticEvidence: V2StaticSheetEvidence_ACU;
     provenance: {
       present: boolean;
       value?: TableMigrationProvenanceV1_ACU;
@@ -294,7 +296,9 @@ export async function collectMixedStorageEvidence_ACU(
   for (let messageIndex = 0; messageIndex < chat.length; messageIndex += 1) {
     const message = chat[messageIndex];
     if (!message || message.is_user) continue;
-    aiFloor += 1;
+    // 载体纳入保持宽（隐藏楼/工具楼仍可能挂帧，收窄会丢帧——回放侧 getV2FrameRefs_ACU 同构），
+    // 但**编号**必须用宽档 AI 楼口径（与写入侧 provenance.targetAiFloor 同口径，否则 targetMatchesAnchor 恒 false）。
+    if (isAiFloor_ACU(message)) aiFloor += 1;
     const legacy = collectLegacyMessageEvidence_ACU(message, messageIndex, aiFloor, options.isolationKey, options.isolationConfig, allowedSheetKeys, lastFilledAiFloorBySheet, lastChangedAiFloorBySheet);
     if (legacy) {
       legacyMessages.push(legacy);
@@ -373,6 +377,7 @@ export async function collectMixedStorageEvidence_ACU(
         && JSON.stringify(rawProvenance.legacySourceAiFloors) === JSON.stringify(sourceAiFloors),
       legacyFingerprintMatchesCandidate: candidateFingerprint === null ? null : rawProvenance.legacyDataFingerprint === candidateFingerprint,
     };
+  const staticEvidence = collectV2SheetKeyEvidenceStatically_ACU(chat, options.isolationKey);
   const fingerprintsComparable = candidateFingerprint !== null && replay.fingerprint !== null;
   return {
     isolationKey: options.isolationKey,
@@ -387,6 +392,7 @@ export async function collectMixedStorageEvidence_ACU(
       },
       sheetCoverage,
       replay,
+      staticEvidence,
       provenance,
     },
     comparison: { fingerprintsComparable, fingerprintsEqual: fingerprintsComparable ? candidateFingerprint === replay.fingerprint : null },

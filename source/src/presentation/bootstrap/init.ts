@@ -22,7 +22,7 @@ import {
 } from '../../shared/host-api';
 import {
   currentChatFileIdentifier_ACU,
-  consumeGenerationContextForEnded_ACU,
+  resolveGenerationContextForEnded_ACU,
   discardLatestGenerationContext_ACU,
   generationGate_ACU,
   getCurrentIsolationKey_ACU,
@@ -63,6 +63,7 @@ import {
   hydrateStorageProviderFromSnapshot_ACU
 } from '../../service/table/table-storage-strategy';
 import { captureCheckpointVaultForCurrentChat_ACU, installCheckpointDeleteGuard_ACU } from '../../service/chat/checkpoint-delete-guard';
+import { installMaterialCheckpointScheduler_ACU } from '../../service/continuation/agent/agent-checkpoint-scheduler';
 import { auditDormantDataIntegrity_ACU } from '../../service/template/dormant-data-service';
 import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
 import {
@@ -81,10 +82,11 @@ import {
   loadAllChatMessages_ACU
 } from '../../service/worldbook/pipeline';
 import {
-  emitMessageUpdated_ACU,
-  getChatArray_ACU
+  emitMessageUpdated_ACU
 } from '../../data/gateways/chat-gateway';
 import { resolveAiFloorSignature_ACU, resolveAiFloorSignatureEx_ACU } from '../../service/table/auto-fill-echo-guard';
+import { countAiModelOutputFloors_ACU } from '../../shared/ai-floor';
+import { notifyAcuTauriVersionIfOutdated_ACU } from './tauri-version-gate';
 import {
   refreshMergedDataAndNotifyWithUI_ACU
 } from '../components/pipeline-ui-helpers';
@@ -134,6 +136,10 @@ import { bindContinuationInternalAiGenerationStarted_ACU, consumeContinuationInt
 import { getContinuationHostGenerationBridge_ACU } from '../../service/continuation/host-generation-bridge-registry';
 import { getContinuationRuntime_ACU } from '../../service/continuation/continuation-runtime';
 import { attachMvuAnalysisGate_ACU } from '../../service/runtime/mvu-analysis-gate';
+import {
+  capturePlotRuntimeScope_ACU,
+  isSamePlotRuntimeScope_ACU,
+} from '../../service/runtime/plot-runtime/plot-runtime-scope';
 
 // ═══ [H2/M4] 启动期重建链互斥守卫 ═══
 // 背景：启动时可能存在两条并发的重建链——chatId 可用路径的 setTimeout(initWithChatId, 1000)
@@ -585,10 +591,15 @@ export   function mainInitialize_ACU() {
       mainInitializeDone_ACU = true;
       logDebug_ACU('AutoCardUpdater Initialization successful! Core APIs loaded.');
       showToastr_ACU('success', '数据库已加载！', '数据库');
+      // [版本闸门] TT 宿主低于 2.3.0 时弹模态提醒升级。不 await：模态窗由用户自行关闭，
+      // 不得阻塞后续初始化；非 TT 宿主与版本读取失败都按 fail-open 不打扰。
+      void notifyAcuTauriVersionIfOutdated_ACU();
 
       loadSettings_ACU();
       // S0-4：注册插件保存后的 checkpoint 保管库同步（删楼恢复的影子基线）。
       installCheckpointDeleteGuard_ACU();
+      // TT 帧架构：续写基线跟随表格 checkpoint 落层 + 删楼恢复适配（与删楼守卫并列，函数幂等）。
+      installMaterialCheckpointScheduler_ACU();
       // Register the bridge before generation events are subscribed. Runtime
       // migration remains page-owned so no chat persistence is touched at startup.
       getContinuationRuntime_ACU();
@@ -690,8 +701,12 @@ export   function mainInitialize_ACU() {
               // 对非 quiet/非 dryRun/非自动触发的生成开放宽松认领（spv8.9.2 状态法），桥内部只在
               // 存在未绑定序列号的等待轮时才会认领。
               const quietLike = isQuietLikeGeneration_ACU(type, params);
+              // TT 2.3.0：Agent 断点续连以 { agentResume: true, runId } 作为第三参派发 STARTED，
+              // 形态上不含 automatic_trigger/quiet_prompt，会被误判成「普通前台生成」而吃宽松认领。
+              // 它不是本轮用户生成，不许被续写桥认领。
+              const agentResume = params?.agentResume === true;
               getContinuationHostGenerationBridge_ACU()?.onGenerationStarted(context.seq, {
-                allowOrdinaryLooseClaim: !dryRun && !quietLike && !params?.automatic_trigger,
+                allowOrdinaryLooseClaim: !dryRun && !quietLike && !params?.automatic_trigger && !agentResume,
                 automaticTrigger: Boolean(params?.automatic_trigger),
                 quietLike,
                 dryRun: Boolean(dryRun),
@@ -702,6 +717,8 @@ export   function mainInitialize_ACU() {
         if (SillyTavern_API_ACU.eventTypes.GENERATION_STOPPED) {
           SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STOPPED, () => {
             try {
+              // TT 的 GENERATION_STOPPED 是本轮停止事实：立即使已排队的旧自动填表回调失效。
+              _set_wasStoppedByUser_ACU(true);
               const discarded = discardLatestGenerationContext_ACU();
               // 被中止的生成不会再有 GENERATION_ENDED；通知桥把等待中的续写轮转为可重试，避免卡死。
               void getContinuationHostGenerationBridge_ACU()?.onGenerationStopped(discarded?.seq);
@@ -711,20 +728,35 @@ export   function mainInitialize_ACU() {
         if (SillyTavern_API_ACU.eventTypes.GENERATION_ENDED) {
             const onGenerationEnded = (message_id: any) => {
                 logDebug_ACU(`ACU GENERATION_ENDED event for message_id: ${message_id}`);
-                const generationContext = consumeGenerationContextForEnded_ACU();
+                const chatAtCapture = SillyTavern_API_ACU?.chat || [];
+                let endedSignatureEx: AiFloorSignatureEx_ACU | undefined;
+                try {
+                    endedSignatureEx = resolveAiFloorSignatureEx_ACU(chatAtCapture);
+                } catch {
+                    endedSignatureEx = undefined;
+                }
+                const generationEndMatch = resolveGenerationContextForEnded_ACU(endedSignatureEx);
+                if (generationEndMatch.status === 'ambiguous') {
+                    // TT 的 ENDED 无 generation id；并发时不能把 quiet/普通上下文按 LIFO 硬配。
+                    // 歧义事件不交给 continuation 桥或普通自动链，防止 quiet 触发前台链路。
+                    logDebug_ACU(`ACU GENERATION_ENDED 配对歧义，fail closed: message_id=${message_id}`);
+                    return;
+                }
+                const generationContext = generationEndMatch.context;
                 const internalRequest = consumeContinuationInternalAiGenerationEnded_ACU(generationContext?.seq);
                 if (internalRequest) {
                   logDebug_ACU(`ACU 忽略 continuation 内部 ${internalRequest.source} GENERATION_ENDED: ${internalRequest.requestId}`);
                   return;
                 }
                 const continuationBridge = getContinuationHostGenerationBridge_ACU();
-                // 认领事件按"会不会产生正文楼层"分类：quiet/dryRun/自动触发的生成不许走普通宽松认领，
+                // 认领事件按"会不会产生正文楼层"分类：quiet/dryRun/自动触发/Agent 断点续连的生成不许走普通宽松认领，
                 // 否则会误杀等待中的续写轮。分类结果直接交给桥，桥再据此决定普通认领与
                 // 「自己发起的那一次交火重试」认领（见 host-generation-bridge 的 localRetryClaim）。
                 const quietLike = generationContext ? isQuietLikeGeneration_ACU(generationContext.type, generationContext.params) : false;
                 const automaticTrigger = Boolean(generationContext?.params?.automatic_trigger);
+                const agentResume = generationContext?.params?.agentResume === true;
                 const continuationEventContext = {
-                  allowOrdinaryLooseClaim: !generationContext || (!generationContext.dryRun && !quietLike && !automaticTrigger),
+                  allowOrdinaryLooseClaim: !generationContext || (!generationContext.dryRun && !quietLike && !automaticTrigger && !agentResume),
                   automaticTrigger,
                   quietLike,
                   dryRun: Boolean(generationContext?.dryRun),
@@ -739,7 +771,6 @@ export   function mainInitialize_ACU() {
                 // [触发修复] 原子捕获完整意图快照：事件参数只作为锚点，不承诺是 AI 数组下标。
                 // makeFirst 可能早于宿主把本轮 AI 回复追加进 chat，因此必须记录捕获时边界，
                 // 由 resolveGeneratedAiMessageIndex_ACU 在防抖回调中按唯一候选规则解析。
-                const chatAtCapture = SillyTavern_API_ACU?.chat || [];
                 const eventMessageId = typeof message_id === 'number' && Number.isInteger(message_id)
                   ? message_id
                   : undefined;
@@ -750,16 +781,16 @@ export   function mainInitialize_ACU() {
                       isolationKey: getCurrentIsolationKey_ACU(),
                       capturedAt: Date.now(),
                       capturedChatLength: chatAtCapture.length,
-                      capturedAiFloorCount: chatAtCapture.filter((m: any) => m && !m.is_user && m?.extra?.type !== 'narrator').length,
-                      // generationSeq 仅在 generationGate 已产生过生成上下文时可靠；否则不假造。
-                      generationSeq: generationGate_ACU.generationSeq > 0 ? generationGate_ACU.generationSeq : undefined,
+                      capturedAiFloorCount: countAiModelOutputFloors_ACU(chatAtCapture),
+                      // 已配对时必须携带该轮自己的 seq；并发下不能用全局最新 seq 冒充较早 ENDED。
+                      generationSeq: generationContext?.seq ?? (generationGate_ACU.generationSeq > 0 ? generationGate_ACU.generationSeq : undefined),
                       // [配对零产出证据] 仅配对携带 STARTED 时刻的扩展签名；无配对时为 undefined，下游直接放行。
                       preSignature: generationContext?.preSignature ?? undefined,
                   }
                   : undefined;
                 // [152 收紧] 「新 AI 楼证据」签名：本事件时刻的 AI 楼数 + 最新 AI 楼 message_id（含 narrator，
                 // 与 auto-fill-echo-guard 同口径）。聊天数组在这里读一次，交给门控自行决定无配对假 ended 的去留。
-                const endedFloorSignature_ACU = resolveAiFloorSignature_ACU(getChatArray_ACU());
+                const endedFloorSignature_ACU = resolveAiFloorSignature_ACU(chatAtCapture);
                 if (shouldProcessAutoTableUpdateForGenerationEnded_ACU(generationContext, endedFloorSignature_ACU)) {
                   handleNewMessageDebounced_ACU('GENERATION_ENDED', autoFillIntent);
                 } else if (generationContext) {
@@ -773,7 +804,7 @@ export   function mainInitialize_ACU() {
                     chatKey: currentChatFileIdentifier_ACU,
                     isolationKey: getCurrentIsolationKey_ACU(),
                     capturedChatLength: chatAtCapture.length,
-                    capturedAiFloorCount: chatAtCapture.filter((m: any) => m && !m.is_user && m?.extra?.type !== 'narrator').length,
+                    capturedAiFloorCount: countAiModelOutputFloors_ACU(chatAtCapture),
                     lastGenerationType: generationGate_ACU.lastGeneration?.type,
                   });
                 }
@@ -808,6 +839,17 @@ export   function mainInitialize_ACU() {
             if (params?._qrf_processed_by_hook) return;
             const shouldProcessSummaryVectorIndex = shouldProcessSummaryVectorIndexForGeneration_ACU(type, params, dryRun);
             const shouldProcessPlot = shouldProcessPlotForGeneration_ACU(type, params, dryRun);
+            const plotScope_ACU = shouldProcessPlot ? capturePlotRuntimeScope_ACU() : null;
+            const plotScopeStillCurrent_ACU = (): boolean => {
+              if (!plotScope_ACU) return true;
+              const currentScope = capturePlotRuntimeScope_ACU();
+              if (plotScope_ACU.reliable && currentScope.reliable) {
+                return isSamePlotRuntimeScope_ACU(plotScope_ACU, currentScope);
+              }
+              return plotScope_ACU.chatId === currentScope.chatId
+                && plotScope_ACU.characterId === currentScope.characterId
+                && plotScope_ACU.isolationKey === currentScope.isolationKey;
+            };
             const shouldEnsureInitialSeed = !dryRun
               && type !== 'regenerate'
               && !params?.automatic_trigger
@@ -840,7 +882,22 @@ export   function mainInitialize_ACU() {
             const lastMessage = chat[lastMessageIndex];
 
             // [重构] 调用 service 层策略1编排
-            const s1 = await orchestrateAfterCommandsStrategy1_ACU(lastMessage, lastMessageIndex, runOptimizationLogicWithUI_ACU);
+            if (!plotScopeStillCurrent_ACU()) {
+              logWarn_ACU('[剧情推进] GENERATION_AFTER_COMMANDS 作用域已变化，放弃策略1结果写回');
+              return;
+            }
+
+            const s1 = await orchestrateAfterCommandsStrategy1_ACU(
+              lastMessage,
+              lastMessageIndex,
+              runOptimizationLogicWithUI_ACU,
+              plotScope_ACU ? { runtimeScope: plotScope_ACU } : undefined,
+            );
+
+            if (!plotScopeStillCurrent_ACU()) {
+              logWarn_ACU('[剧情推进] GENERATION_AFTER_COMMANDS 作用域已变化，放弃策略1结果写回');
+              return;
+            }
 
             if (s1.action !== 'no_match') {
               // 策略1匹配，根据结果做 UI 操作
@@ -888,7 +945,20 @@ export   function mainInitialize_ACU() {
             const textInBox = getSendTextareaValue_ACU();
 
             // [重构] 调用 service 层策略2编排
-            const s2 = await orchestrateAfterCommandsStrategy2_ACU(String(textInBox || ''), runOptimizationLogicWithUI_ACU);
+            if (!plotScopeStillCurrent_ACU()) {
+              logWarn_ACU('[剧情推进] GENERATION_AFTER_COMMANDS 作用域已变化，放弃策略2结果写回');
+              return;
+            }
+            const s2 = await orchestrateAfterCommandsStrategy2_ACU(
+              String(textInBox || ''),
+              runOptimizationLogicWithUI_ACU,
+              plotScope_ACU ? { runtimeScope: plotScope_ACU } : undefined,
+            );
+
+            if (!plotScopeStillCurrent_ACU()) {
+              logWarn_ACU('[剧情推进] GENERATION_AFTER_COMMANDS 作用域已变化，放弃策略2结果写回');
+              return;
+            }
 
             switch (s2.action) {
               case 'aborted':

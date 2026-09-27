@@ -52,11 +52,13 @@
  * 数据驱动降窗的最坏代价只是「新聊天头 3 轮各多等 5s」，宁保守勿抢跑。
  *
  * ── [W5] 无死循环自证 ──
- * 重跑只是再走一次既有自动链入口（填表 + 正文替换）。本库正文替换写回走
- * setChatMessages(..., { refresh: 'affected' })（service/chat/chat-service.ts:1154），
- * 宿主只在 createChatMessages 路径派发 MESSAGE_RECEIVED（ST 源码 chat_message.ts:385 / :403），
- * refresh:'affected' 不产 MESSAGE_RECEIVED → MVU 不会被本库写回拉起重新解析 → 不会再产生新的 ended
- * → 重跑自身不再触发第二轮重跑。第二重保险：W5 的触发判据是「收到 ended 时本楼已在 W1/W3 登记」，
+ * 重跑只是再走一次既有自动链入口（填表 + 正文替换）。写作回路径有两态，均不产生「新消息」：
+ * ① 宿主未提供 setChatMessages（未观察到，见 shared/host-api.ts 注释）→ 走降级路径：
+ *    原地改 chat[i].mes 后 saveChat + emit MESSAGE_UPDATED（chat-gateway.ts 的 emitMessageUpdated_ACU）；
+ * ② 宿主若提供 setChatMessages，则由 options.refresh 控制刷新范围。
+ * 因此本库侧证据只能保证：写回不是「新增消息」形态。至于宿主侧 MVU 究竟监听哪个事件、
+ * 会不会被这次写回拉起重新解析，属宿主内部行为，本注释不作断言。
+ * 第二重保险（与宿主行为无关，仅凭本库自身记账）：W5 的触发判据是「收到 ended 时本楼已在 W1/W3 登记」，
  * 而自动轮的登记发生在 ended 之后（挂起中放行的那轮还没跑完/没登记），天然区分、不会自激。
  */
 
@@ -69,6 +71,7 @@ import {
   findAutoOptimizationProcessedEntry_ACU,
   findAutoTableFillProcessedEntry_ACU,
   removeAutoChainProcessedForMessage_ACU,
+  removeChainProcessedByMessageId_ACU,
 } from '../../data/storage/optimization-cache-storage';
 import { resolveLatestAiFloor_ACU } from '../table/auto-fill-echo-guard';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
@@ -488,7 +491,15 @@ async function runMvuRerun_ACU(
   try {
     // 先清记录再重跑：W3 只比 messageId，不清就永远不会再填；W1 比内容指纹，MVU 改写正文后本就不拦，
     // 一并清除是为了让「重跑成功」重新获得一份干净的完成凭证，而不是留着上一轮的旧指纹。
-    const removed = removeAutoChainProcessedForMessage_ACU(messageId, chatKey);
+    // 但「忽略MVU更新」开后替换永不参与重跑：替换凭证必须保留，否则清掉后后续正常事件会
+    // 在 MVU 碰过的楼上重跑正文替换，违背「MVU 结束后也不重跑」的设置承诺——只清填表那条。
+    const ignoreMvuUpdate_ACU = isIgnoreMvuUpdateEnabled_ACU();
+    const removed = ignoreMvuUpdate_ACU
+      ? {
+          content_replacement: 0,
+          auto_table_fill: removeChainProcessedByMessageId_ACU('auto_table_fill', messageId, chatKey),
+        }
+      : removeAutoChainProcessedForMessage_ACU(messageId, chatKey);
     logDebug_ACU(
       `[MVU联动] 解析完成联动重跑：清除 messageId=${messageId} 判重记录（正文替换 ${removed.content_replacement} 条 / 自动填表 ${removed.auto_table_fill} 条；命中 替换=${hasReplacement} 填表=${hasTableFill}）`,
     );

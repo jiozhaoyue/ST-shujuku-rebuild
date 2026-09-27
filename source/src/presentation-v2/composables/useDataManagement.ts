@@ -8,6 +8,7 @@ import { computed, reactive, ref } from 'vue';
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU } from '../../shared/defaults-json.js';
 import { normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { ensureSheetOrderNumbers_ACU, logError_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { maskSensitiveText_ACU } from '../../shared/log-buffer';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
 import {
@@ -22,6 +23,18 @@ import { resetAllPromptsToDefault_ACU } from '../../service/settings/settings-wr
 import { getCurrentStorageMode, isSqliteMode } from '../../service/table/storage-mode';
 import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import { getChatArray_ACU, deleteLocalDataWithScope_ACU, isFullRangeDeletionRequest_ACU, overrideLatestLayerWithTemplateCore_ACU } from '../../service/chat/chat-service';
+import { saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
+import {
+  CHAT_SCOPED_CONFIG_FIELD_ACU,
+  CHAT_SHEET_GUIDE_FIELD_ACU,
+  LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU,
+  peekChatScopedConfigContainer_ACU,
+  peekChatSheetGuideContainer_ACU,
+  restoreChatMetadataFields_ACU,
+  setChatScopedConfigContainer_ACU,
+  setChatSheetGuideContainer_ACU,
+  snapshotChatMetadataFields_ACU,
+} from '../../data/storage/chat-history';
 import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
 import { cleanupWorldbookEntriesAfterDataDeletion_ACU } from '../../service/worldbook/worldbook-cleanup';
 import { deleteAllGeneratedEntries_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
@@ -29,11 +42,12 @@ import { applyTemplateSnapshotToScope_ACU, getDefaultTemplateSnapshot_ACU } from
 import { clearCurrentChatTemplateSnapshots_ACU, sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
 import { clearCurrentTableLocks_ACU } from '../../service/runtime/helpers-table-lock';
 import { clearCurrentChatPlotPresetOverride_ACU } from '../../service/plot/plot-logic';
-import { buildCurrentTableCheckpoint_ACU, parseTableCheckpointFile_ACU, restoreTableCheckpointToLatestAi_ACU, type TableCheckpointFileV1_ACU } from '../../service/table/table-checkpoint-transfer';
+import { buildCurrentTableCheckpoint_ACU, parseTableCheckpointFile_ACU, restoreTableCheckpointToLatestAi_ACU, type TableCheckpointFileV1_ACU, type TableCheckpointRestoreOptions_ACU } from '../../service/table/table-checkpoint-transfer';
 import { buildRegisteredMixedStorageSnapshotTransfer_ACU, commitRegisteredMixedStorageDecision_ACU, getActiveMixedStorageDecisionSummary_ACU, type MixedStorageDecisionSummary_ACU } from '../../service/table/mixed-storage-decision-registry';
 import type { MixedStorageCommitAction_ACU } from '../../shared/models/mixed-storage-commit-action';
 import { commitPreparedV2Recovery_ACU, prepareV2Recovery_ACU, scanV2IsolationDiagnostics_ACU, type V2IsolationDiagnostic_ACU, type V2RecoverySummary_ACU } from '../../service/table/table-v2-recovery-service';
 import { useToastStore } from '../stores/toast-store';
+import { countAiFloors_ACU } from '../../shared/ai-floor';
 
 export type DataMgmtMessageKind = 'info' | 'success' | 'warning' | 'error';
 
@@ -92,6 +106,118 @@ function normalizeRetainRecentLayers(value: unknown): number {
   return Math.floor(n);
 }
 
+function cloneSettingsSnapshot(settings: any): any {
+  try {
+    return JSON.parse(JSON.stringify(settings));
+  } catch {
+    return null;
+  }
+}
+
+function restoreSettingsSnapshot(settings: any, snapshot: any): void {
+  if (!snapshot || !settings || typeof settings !== 'object') return;
+  for (const key of Object.keys(settings)) {
+    if (!Object.prototype.hasOwnProperty.call(snapshot, key)) delete settings[key];
+  }
+  Object.assign(settings, snapshot);
+}
+
+function rollbackSettingsSnapshot(settings: any, snapshot: any): string | null {
+  if (!snapshot) return '无法创建 settings 回滚快照。';
+  restoreSettingsSnapshot(settings, snapshot);
+  try {
+    const result = saveSettings_ACU();
+    if (result && result.saved === false) return result.error || 'settings 回滚保存失败。';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return null;
+}
+
+interface ResetTransactionSnapshot_ACU {
+  settings: any;
+  chat: any[];
+  firstMessage: Record<string, any> | null;
+  chatIdentity: string;
+  scopedConfig: Record<string, unknown> | null;
+  sheetGuide: Record<string, unknown> | null;
+  metadataSnapshot: ReturnType<typeof snapshotChatMetadataFields_ACU>;
+  fields: Array<{ key: string; existed: boolean; value: unknown }>;
+}
+
+function captureChatField_ACU(firstMessage: Record<string, any> | null, key: string) {
+  return {
+    key,
+    existed: !!firstMessage && Object.prototype.hasOwnProperty.call(firstMessage, key),
+    value: firstMessage ? cloneSettingsSnapshot(firstMessage[key]) : null,
+  };
+}
+
+function restoreChatField_ACU(firstMessage: Record<string, any> | null, field: { key: string; existed: boolean; value: unknown }): void {
+  if (!firstMessage) return;
+  if (field.existed) firstMessage[field.key] = cloneSettingsSnapshot(field.value);
+  else delete firstMessage[field.key];
+}
+
+function captureResetTransaction_ACU(): ResetTransactionSnapshot_ACU | null {
+  const settings = cloneSettingsSnapshot(settings_ACU);
+  if (!settings) return null;
+  const chat = getChatArray_ACU();
+  const firstMessage = Array.isArray(chat) && chat[0] && typeof chat[0] === 'object'
+    ? chat[0] as Record<string, any>
+    : null;
+  return {
+    settings,
+    chat,
+    firstMessage,
+    chatIdentity: String(currentChatFileIdentifier_ACU || ''),
+    scopedConfig: peekChatScopedConfigContainer_ACU(chat),
+    sheetGuide: peekChatSheetGuideContainer_ACU(chat),
+    metadataSnapshot: snapshotChatMetadataFields_ACU([
+      CHAT_SCOPED_CONFIG_FIELD_ACU,
+      CHAT_SHEET_GUIDE_FIELD_ACU,
+    ]),
+    fields: [
+      captureChatField_ACU(firstMessage, CHAT_SCOPED_CONFIG_FIELD_ACU),
+      captureChatField_ACU(firstMessage, CHAT_SHEET_GUIDE_FIELD_ACU),
+      captureChatField_ACU(firstMessage, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU),
+    ],
+  };
+}
+
+async function rollbackResetTransaction_ACU(snapshot: ResetTransactionSnapshot_ACU): Promise<string | null> {
+  const errors: string[] = [];
+  if (getChatArray_ACU() !== snapshot.chat || String(currentChatFileIdentifier_ACU || '') !== snapshot.chatIdentity) {
+    return '聊天身份已切换，未执行跨聊天回滚。';
+  }
+
+  const settingsError = rollbackSettingsSnapshot(settings_ACU, snapshot.settings);
+  if (settingsError) errors.push(settingsError);
+
+  try {
+    setChatScopedConfigContainer_ACU(snapshot.chat, snapshot.scopedConfig);
+  } catch (error) {
+    errors.push(`聊天 scope 回滚失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    setChatSheetGuideContainer_ACU(snapshot.chat, snapshot.sheetGuide);
+  } catch (error) {
+    errors.push(`guide 回滚失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  snapshot.fields.forEach(field => restoreChatField_ACU(snapshot.firstMessage, field));
+  try {
+    restoreChatMetadataFields_ACU(snapshot.metadataSnapshot);
+  } catch (error) {
+    errors.push(`聊天 metadata 回滚失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    await saveChatToHost_ACU();
+  } catch (error) {
+    errors.push(`聊天回滚落盘失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  return errors.length > 0 ? errors.join('；') : null;
+}
+
 async function readFileText(file: File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -125,7 +251,7 @@ function downloadJson(filename: string, data: unknown): void {
 
 function getAiMessageCount(): number {
   const chat = getChatArray_ACU();
-  return Array.isArray(chat) ? chat.filter((msg: any) => !msg?.is_user).length : 0;
+  return countAiFloors_ACU(chat);
 }
 
 function buildCombinedExportPayload(): Record<string, unknown> {
@@ -317,12 +443,14 @@ export function useDataManagement() {
 
   async function importCombinedSettings(file: File): Promise<void> {
     busyAction.value = 'import-combined';
+    let settingsSnapshot: any = null;
     try {
       const text = await readFileText(file);
       const combinedData = JSON.parse(text);
       if (!Array.isArray(combinedData?.prompt)) throw new Error('"prompt" 的值必须是数组。');
       if (!combinedData?.template || typeof combinedData.template !== 'object') throw new Error('缺少有效的 "template" 对象。');
 
+      settingsSnapshot = cloneSettingsSnapshot(settings_ACU);
       applyCombinedSettingsImport_ACU(combinedData);
       const applied = await applyTemplateSnapshotToScope_ACU(combinedData.template, {
         scope: 'global',
@@ -339,8 +467,12 @@ export function useDataManagement() {
       message.value = null;
       toast.success('合并配置已导入：提示词、合并设置和全局模板已更新。', { muteable: false });
     } catch (e: any) {
+      const rollbackError = settingsSnapshot ? rollbackSettingsSnapshot(settings_ACU, settingsSnapshot) : null;
       logError_ACU('[ACU-V2] importCombinedSettings failed', e);
-      setMessage(message, 'error', `合并导入失败：${e?.message || '未知错误'}`);
+      const rollbackText = settingsSnapshot
+        ? (rollbackError ? `；settings 回滚失败：${rollbackError}` : '；已回滚已保存的 settings')
+        : '';
+      setMessage(message, 'error', `合并导入失败：${maskSensitiveText_ACU(e?.message || '未知错误')}${rollbackText}`);
     } finally {
       busyAction.value = '';
     }
@@ -388,7 +520,7 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] exportTableCheckpoint failed', e);
       message.value = null;
-      toast.error(`导出 Checkpoint 失败：${e?.message || '未知错误'}`);
+      toast.error(`导出 Checkpoint 失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     }
   }
 
@@ -407,7 +539,7 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] exportMixedStorageSnapshots failed', e);
       mixedStorageDecision.value = getActiveMixedStorageDecisionSummary_ACU();
-      toast.error(`导出混合存储快照失败：${e?.message || '未知错误'}`);
+      toast.error(`导出混合存储快照失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     } finally {
       busyAction.value = '';
     }
@@ -426,14 +558,14 @@ export function useDataManagement() {
       if (result.status === 'committed') {
         toast.success(action === 'keep_v2' ? '已保留 V2 数据并清理冗余 legacy 数据。' : '已提交经验证的混合存储合并候选。');
       } else if (result.status === 'committed_postcondition_failed') {
-        toast.warning(`数据已保存，但后置校验失败：${result.error || '未知错误'}。请重新加载当前聊天后核对数据。`, { muteable: false, durationMs: 6000 });
+        toast.warning(`数据已保存，但后置校验失败：${maskSensitiveText_ACU(result.error || '未知错误')}。请重新加载当前聊天后核对数据。`, { muteable: false, durationMs: 6000 });
       } else {
-        toast.error(`混合存储提交失败：${result.error || '未知错误'}`);
+        toast.error(`混合存储提交失败：${maskSensitiveText_ACU(result.error || '未知错误')}`);
       }
     } catch (e: any) {
       logError_ACU('[ACU-V2] commitMixedStorageDecision failed', e);
       mixedStorageDecision.value = getActiveMixedStorageDecisionSummary_ACU();
-      toast.error(`混合存储决议已失效：${e?.message || '未知错误'}`);
+      toast.error(`混合存储决议已失效：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     } finally {
       busyAction.value = '';
     }
@@ -451,7 +583,7 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] scanV2IsolationDiagnostics failed', e);
       v2IsolationDiagnostics.value = [];
-      toast.error(`V2 隔离域诊断失败：${e?.message || '未知错误'}`);
+      toast.error(`V2 隔离域诊断失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     } finally {
       busyAction.value = '';
     }
@@ -478,7 +610,7 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] prepareV2Recovery failed', e);
       v2RecoverySummary.value = null;
-      toast.error(`V2 恢复诊断失败：${e?.message || '未知错误'}`);
+      toast.error(`V2 恢复诊断失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     } finally {
       busyAction.value = '';
     }
@@ -501,7 +633,7 @@ export function useDataManagement() {
       toast.success(`已导出 ${backups.length} 份 V2 恢复原始 frame 备份。`);
     } catch (e: any) {
       logError_ACU('[ACU-V2] exportV2RecoveryBackups failed', e);
-      toast.error(`导出 V2 恢复备份失败：${e?.message || '未知错误'}`);
+      toast.error(`导出 V2 恢复备份失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     }
   }
 
@@ -519,13 +651,13 @@ export function useDataManagement() {
         toast.success('V2 恢复已保存；原始 frame 已写入隔离备份。');
       } else if (result.status === 'committed_postcondition_failed') {
         v2RecoverySummary.value = null;
-        toast.warning(`V2 恢复已保存，但后置校验失败：${result.error || '未知错误'}。请重新加载当前聊天核对数据。`, { muteable: false, durationMs: 6000 });
+        toast.warning(`V2 恢复已保存，但后置校验失败：${maskSensitiveText_ACU(result.error || '未知错误')}。请重新加载当前聊天核对数据。`, { muteable: false, durationMs: 6000 });
       } else {
-        toast.error(`V2 恢复提交失败：${result.error || '未知错误'}`);
+        toast.error(`V2 恢复提交失败：${maskSensitiveText_ACU(result.error || '未知错误')}`);
       }
     } catch (e: any) {
       logError_ACU('[ACU-V2] commitV2Recovery failed', e);
-      toast.error(`V2 恢复提交异常：${e?.message || '未知错误'}`);
+      toast.error(`V2 恢复提交异常：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
     } finally {
       busyAction.value = '';
     }
@@ -540,17 +672,20 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] parseTableCheckpoint failed', e);
       message.value = null;
-      toast.error(`Checkpoint 文件无效：${e?.message || '未知错误'}`);
+      toast.error(`Checkpoint 文件无效：${maskSensitiveText_ACU(e?.message || '未知错误')}`);
       return null;
     } finally {
       busyAction.value = '';
     }
   }
 
-  async function restoreTableCheckpoint(checkpoint: TableCheckpointFileV1_ACU): Promise<void> {
+  async function restoreTableCheckpoint(
+    checkpoint: TableCheckpointFileV1_ACU,
+    options: TableCheckpointRestoreOptions_ACU = {},
+  ): Promise<void> {
     busyAction.value = 'restore-checkpoint';
     try {
-      const result = await restoreTableCheckpointToLatestAi_ACU(checkpoint);
+      const result = await restoreTableCheckpointToLatestAi_ACU(checkpoint, options);
       if (!result.success) throw new Error(result.error || 'Checkpoint 恢复失败。');
       refresh();
       message.value = null;
@@ -578,7 +713,7 @@ export function useDataManagement() {
           providerFallback ? '目标设置为 SQLite，实际存储 fallback 为 native' : '',
           ...warnings,
         ].filter(Boolean).join('；');
-        toast.warning(`Checkpoint 已恢复到${targetMessage}，但属于部分成功：${providerMessage}；${reasons}。`, { muteable: false, durationMs: 6000 });
+        toast.warning(`Checkpoint 已恢复到${targetMessage}，但属于部分成功：${maskSensitiveText_ACU(providerMessage)}；${maskSensitiveText_ACU(reasons)}。`, { muteable: false, durationMs: 6000 });
       } else {
         toast.success(`Checkpoint 已恢复到${targetMessage}；${providerMessage}。`, { muteable: false });
       }
@@ -587,7 +722,7 @@ export function useDataManagement() {
     } catch (e: any) {
       logError_ACU('[ACU-V2] restoreTableCheckpoint failed', e);
       message.value = null;
-      toast.error(`恢复 Checkpoint 失败：${e?.message || '未知错误'}`, { muteable: false });
+      toast.error(`恢复 Checkpoint 失败：${maskSensitiveText_ACU(e?.message || '未知错误')}`, { muteable: false });
     } finally {
       busyAction.value = '';
     }
@@ -601,7 +736,10 @@ export function useDataManagement() {
     }
 
     busyAction.value = 'reset-defaults';
+    let resetSnapshot: ResetTransactionSnapshot_ACU | null = null;
     try {
+      resetSnapshot = captureResetTransaction_ACU();
+      if (!resetSnapshot) throw new Error('无法创建恢复默认操作快照。');
       const snapshot = cleanup.restoreTemplateAndPrompts ? getDefaultTemplateSnapshot_ACU() : null;
       if (cleanup.restoreTemplateAndPrompts && !snapshot?.templateStr) throw new Error('无法解析默认模板。');
 
@@ -659,7 +797,12 @@ export function useDataManagement() {
         || cleanup.clearTableOrder
         || cleanup.clearTableLocks
         || cleanup.clearPlotSnapshots;
-      if (shouldSaveSettings) saveSettings_ACU();
+      if (shouldSaveSettings) {
+        const settingsSaveResult = saveSettings_ACU();
+        if (settingsSaveResult && settingsSaveResult.saved === false) {
+          throw new Error(settingsSaveResult.error || '恢复默认 settings 保存失败。');
+        }
+      }
 
       const shouldRefreshTableData = cleanup.restoreTemplateAndPrompts
         || cleanup.clearTemplateSnapshots
@@ -673,9 +816,10 @@ export function useDataManagement() {
       message.value = null;
       toast.success('已按所选项目恢复默认配置。');
     } catch (e: any) {
+      const rollbackError = resetSnapshot ? await rollbackResetTransaction_ACU(resetSnapshot) : null;
       logError_ACU('[ACU-V2] resetAllDefaults failed', e);
       message.value = null;
-      toast.error('恢复默认失败，详情见运行日志。');
+      toast.error(rollbackError ? `恢复默认失败：${rollbackError}。` : '恢复默认失败，详情见运行日志。');
     } finally {
       busyAction.value = '';
     }
@@ -803,7 +947,7 @@ export function useDataManagement() {
     await refreshMergedDataAndNotify_ACU();
     refresh();
     if (result.cleanupWarnings?.length) {
-      toast.warning(`本地数据已全部硬清空（${result.clearedMessageCount} 条消息）。警告：${result.cleanupWarnings[0]}`, { muteable: false, durationMs: 6000 });
+      toast.warning(`本地数据已全部硬清空（${result.clearedMessageCount} 条消息）。警告：${maskSensitiveText_ACU(result.cleanupWarnings[0])}`, { muteable: false, durationMs: 6000 });
     } else {
       const removed = result.removedMetadata.length ? `，移除元数据：${result.removedMetadata.join('、')}` : '';
       toast.success(`已删除所有本地数据（${result.clearedMessageCount} 条消息）${removed}。`, { muteable: false });

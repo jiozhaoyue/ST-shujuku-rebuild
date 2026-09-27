@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   compactAgentProtocolError_ACU,
   extractFirstJsonObject_ACU,
+  parseAgentComposerOutput_ACU,
   parseAgentJsonPayload_ACU,
   parseAgentMainAction_ACU,
   parseAgentMainOutput_ACU,
   parseAgentMaintainerOutput_ACU,
   parseAgentPlannerOutput_ACU,
+  parseAgentRequirementsMaintainerOutput_ACU,
   parseAgentReviewerOutput_ACU,
   parseAgentSubagentToolCalls_ACU,
 } from '../../../../src/service/continuation/agent/agent-protocol';
@@ -101,11 +103,11 @@ describe('主 Agent 动作解析', () => {
     expect(parseAgentMainAction_ACU({ action: 'finalize', instruction: '指导', constraints: {} }, true)).toMatchObject({ constraints: null });
   });
 
-  it('edit_outline 已从主 Agent 协议退役，要求委派 outline-architect', () => {
+  it('edit_outline 已从主 Agent 协议退役，总纲与大纲统一交给 open_round', () => {
     expect(() => parseAgentMainAction_ACU({
       action: 'edit_outline',
       edits: [{ op: 'set_turn_goal', turnId: 'turn-3', goal: '让守门人先露破绽' }],
-    }, true)).toThrowError(/大纲调整请派工 outline-architect/);
+    }, true)).toThrowError(/总纲与阶段大纲由 open_round 固定工作流维护/);
   });
 
   it('维护类的 patch 只收显式字段，至少要带一个可改字段', () => {
@@ -123,6 +125,11 @@ describe('主 Agent 动作解析', () => {
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { hooks: [{ action: 'patch', id: 'H1' }] } })).toThrowError(/至少要带一个要修改的字段/);
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { hooks: [{ action: 'patch', summary: '缺 id' }] } })).toThrowError(/patch 需要 id/);
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { infoGap: [{ action: 'patch', id: 'E1', revealStatus: '瞎写' }] } })).toThrowError(/revealStatus 非法/);
+  });
+
+  it('维护契约必须有 delta，summary-only 不能伪装成成功写集', () => {
+    expect(() => parseAgentMaintainerOutput_ACU({ summary: '没有变化' })).toThrowError(/delta/);
+    expect(parseAgentMaintainerOutput_ACU({ summary: '没有变化', delta: {} }).delta.hooks).toEqual([]);
   });
 
   it('总纲写集保留卷完成依据与续卷依据，并拒绝非法完成阶段编号', () => {
@@ -156,7 +163,11 @@ describe('主 Agent 动作解析', () => {
 
   it('未知动作和已退役的大纲动作直接拒绝', () => {
     expect(() => parseAgentMainAction_ACU({ action: 'write_story' }, true)).toThrowError(/action 必须是/);
-    expect(() => parseAgentMainAction_ACU({ action: 'revise_outline', replanInstruction: '改' }, true)).toThrowError(/action 必须是 read \/ search \/ delegate \/ finalize \/ block/);
+    expect(() => parseAgentMainAction_ACU({ action: 'revise_outline', replanInstruction: '改' }, true)).toThrowError(/action 必须是 read \/ search \/ delegate \/ open_round \/ finalize \/ block/);
+    expect(parseAgentMainAction_ACU({ action: 'open_round', focus: '接住守门人的回避' }, true)).toMatchObject({
+      kind: 'open_round', focus: '接住守门人的回避', dispatchWebResearcher: false,
+    });
+    expect(() => parseAgentMainAction_ACU({ action: 'open_round', focus: '  ' }, true)).toThrowError(/非空 focus/);
   });
 });
 
@@ -232,9 +243,20 @@ describe('子代理输出解析', () => {
     expect(output.delta.chronology[1]).toMatchObject({ action: 'retire', id: 'T0', reason: '证据楼层已被删除' });
   });
 
+  it('年代学栏级修补正向解析：只带要改的字段进 chronologyPatches', () => {
+    const output = parseAgentMaintainerOutput_ACU({
+      summary: '修正时间锚',
+      delta: { chronology: [{ action: 'patch', id: 'T1', anchor: '隔日' }] },
+    });
+    expect(output.delta.chronology).toEqual([]);
+    expect(output.delta.chronologyPatches).toEqual([{ id: 'T1', anchor: '隔日' }]);
+  });
+
   it('年代学写集的非法 action、precision、空证据与非整数证据全部拒绝', () => {
     const item = { action: 'upsert', id: 'T1', anchor: '入城后的第七天', elapsed: '约十七日', precision: 'approximate', transition: '休整七日', evidenceIndexes: [4] };
-    expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ ...item, action: 'patch' }] } })).toThrowError(/action 必须是 upsert \/ retire/);
+    // S11-TT：patch 已是合法栏级动作（至少带一栏，否则拒绝）；未知 action 仍整条拒绝。
+    expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ ...item, action: 'delete' }] } })).toThrowError(/action 必须是 upsert \/ patch \/ retire/);
+    expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ action: 'patch', id: 'T1' }] } })).toThrowError(/至少要带一个/);
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ ...item, precision: '大概吧' }] } })).toThrowError(/precision 必须是 exact \/ approximate \/ unknown/);
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ ...item, evidenceIndexes: [] }] } })).toThrowError(/evidenceIndexes 必须是非空数组/);
     expect(() => parseAgentMaintainerOutput_ACU({ delta: { chronology: [{ ...item, evidenceIndexes: [1.5] }] } })).toThrowError(/必须是非负整数楼层号/);
@@ -256,6 +278,31 @@ describe('子代理输出解析', () => {
     expect(parseAgentReviewerOutput_ACU({ verdict: 'revise', reason: '与 H1 冲突', fixes: ['改为部分回收'] }))
       .toMatchObject({ verdict: 'revise', fixes: ['改为部分回收'] });
     expect(() => parseAgentReviewerOutput_ACU({ verdict: '说不清' })).toThrowError(/verdict 必须是/);
+  });
+
+  it('instruction-composer 拒绝空 instruction，并收下 constraints 增量', () => {
+    expect(parseAgentComposerOutput_ACU({ instruction: '从守门人的回避写起', summary: '试探', constraints: { add: ['不得揭穿'], retire: [] } }))
+      .toEqual({ instruction: '从守门人的回避写起', summary: '试探', constraints: { add: ['不得揭穿'], retire: [] } });
+    expect(() => parseAgentComposerOutput_ACU({ instruction: '  ', summary: '空' })).toThrowError(/非空 instruction/);
+  });
+});
+
+describe('用户要求维护子代理契约', () => {
+  it('接受空数组与去重后的全量清单，拒绝空串和非字符串', () => {
+    expect(parseAgentRequirementsMaintainerOutput_ACU({
+      summary: '合并了用户补充的节奏要求',
+      requirements: ['  不要提前揭底牌  ', '不要提前揭底牌', '用第一人称'],
+    })).toEqual({
+      summary: '合并了用户补充的节奏要求',
+      requirements: ['不要提前揭底牌', '用第一人称'],
+    });
+    expect(parseAgentRequirementsMaintainerOutput_ACU({ summary: '暂无新要求', requirements: [] })).toEqual({
+      summary: '暂无新要求',
+      requirements: [],
+    });
+    expect(() => parseAgentRequirementsMaintainerOutput_ACU({ summary: '', requirements: [] })).toThrowError(/非空 summary/);
+    expect(() => parseAgentRequirementsMaintainerOutput_ACU({ summary: '坏条目', requirements: ['合法', ''] })).toThrowError(/requirements/);
+    expect(() => parseAgentRequirementsMaintainerOutput_ACU({ summary: '坏类型', requirements: '不是数组' })).toThrowError(/requirements/);
   });
 });
 

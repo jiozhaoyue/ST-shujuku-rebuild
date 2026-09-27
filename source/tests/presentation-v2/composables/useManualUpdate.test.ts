@@ -8,6 +8,7 @@ let displayTableData: any = {
 };
 let templateDisplayData: any = null;
 let templateParseThrows = false;
+let currentChatIdentity = 'chat-a';
 let worldbookInjectionTarget: string | undefined = undefined;
 let primaryLorebookName: string | null = '主世界书';
 let primaryLorebookNeverResolves = false;
@@ -43,6 +44,7 @@ async function importManualUpdate() {
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     currentJsonTableData_ACU: currentJsonTableData,
+    get currentChatFileIdentifier_ACU() { return currentChatIdentity; },
     settings_ACU: settings,
     abortAllActiveRequests_ACU: vi.fn(),
     _set_isAutoUpdatingCard_ACU: vi.fn(),
@@ -110,10 +112,12 @@ async function importManualUpdate() {
     prepareManualCatchUpPlan_ACU,
     refreshMergedDataAndNotify_ACU,
     setWasStoppedByUser,
+    setChatIdentity: (value: string) => { currentChatIdentity = value; },
   };
 }
 
 beforeEach(() => {
+  currentChatIdentity = 'chat-a';
   displayTableData = {
     sheet_0: { name: '物品表', content: [['row_id', '名称']] },
   };
@@ -181,9 +185,12 @@ describe('useManualUpdate destructive refill confirmation', () => {
     expect(dialog.active?.message).toContain('范围外的 checkpoint、范围外聊天记录的表格数据和未选中的表不会被删除');
     // 二次确认链路已移除，首次文案不得再承诺它。
     expect(dialog.active?.message).not.toContain('第二次破坏性确认');
-    // Issue #13：orchestrator 的失败语义是「不回滚、已清理不恢复、已提交批次保留」，文案不得承诺回滚。
-    expect(dialog.active?.message).toContain('执行失败或中途终止时不会回滚');
-    expect(dialog.active?.message).toContain('已成功提交的批次会保留');
+    // Issue #13 + #18 第四条：本次提交过任何批次（含只落进度的伪提交）就不回滚，
+    // 旧数据不会恢复；只有本次一个批次都没提交时 service 才整段回滚清理。
+    // 文案必须与代码门槛（committedBucketCount === 0）逐字对齐，否则就是假承诺。
+    expect(dialog.active?.message).toContain('本次只要提交过任何批次（含只落了进度、未写入数据的批次）就不会回滚');
+    expect(dialog.active?.message).toContain('已清理的旧数据不会恢复');
+    expect(dialog.active?.message).toContain('只有本次一个批次都没提交时，才会自动回滚清理并恢复被删除的旧数据');
     expect(dialog.active?.message).not.toContain('会回滚到本次操作前的状态');
     // 默认注入目标是角色卡绑定的主世界书：大规模回填前必须让用户看到条目将写去哪里。
     expect(dialog.active?.message).toContain('世界书注入目标：角色卡绑定世界书 · 主世界书');
@@ -287,6 +294,34 @@ describe('useManualUpdate destructive refill confirmation', () => {
 
     expect(toast.items.at(-1)?.kind).toBe('error');
     expect(toast.items.at(-1)?.text).toContain('清理后重填失败');
+    __resetToastStoreForTests();
+  });
+
+  // 上游 issue #18 第四条：先清后填 + AI 失败时，零提交的结果已由 service 回滚并落盘，
+  // toast 必须如实告知，否则用户会以为旧数据已被清掉且无法恢复。
+  it('零提交失败时提示已回滚清理，已提交失败时不提示回滚', async () => {
+    const { useManualUpdate, dialog, toast, orchestrateManualUpdate_ACU, __resetToastStoreForTests } = await importManualUpdate();
+    const manual = useManualUpdate();
+
+    orchestrateManualUpdate_ACU.mockResolvedValueOnce({ success: false, error: '模型 404：API 不可用。', rolledBackCleanup: true });
+    const rolledBackRun = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await rolledBackRun;
+
+    expect(toast.items.at(-1)?.kind).toBe('error');
+    expect(toast.items.at(-1)?.text).toContain('模型 404：API 不可用。');
+    expect(toast.items.at(-1)?.text).toContain('已回滚清理');
+
+    // 已提交过批次时 service 不回滚，UI 不得再声称回滚过。
+    orchestrateManualUpdate_ACU.mockResolvedValueOnce({ success: false, error: '模型 404：API 不可用。' });
+    const keptRun = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await keptRun;
+
+    expect(toast.items.at(-1)?.text).toContain('模型 404：API 不可用。');
+    expect(toast.items.at(-1)?.text).not.toContain('已回滚清理');
     __resetToastStoreForTests();
   });
 });
@@ -442,6 +477,27 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
     __resetToastStoreForTests();
   });
 
+  it('确认期间切换聊天但表集合相同：runManualUpdate 必须阻断', async () => {
+    const { useManualUpdate, dialog, toast, orchestrateManualUpdate_ACU, setChatIdentity, __resetToastStoreForTests } = await importManualUpdate();
+    orchestrateManualUpdate_ACU.mockResolvedValue({ success: true });
+    const manual = useManualUpdate();
+    displayTableData = {
+      sheet_0: { name: 'A 表', content: [['row_id', '名称']] },
+      sheet_1: { name: 'B 表', content: [['row_id', '名称']] },
+    };
+    manual.setManualSelectedKeys(['sheet_0']);
+
+    const pending = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    setChatIdentity('chat-b');
+    dialog.submitActive();
+    await pending;
+
+    expect(orchestrateManualUpdate_ACU).not.toHaveBeenCalled();
+    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('聊天已切换'))).toBe(true);
+    __resetToastStoreForTests();
+  });
+
   it('确认期间 runtime 表集合变化（新增表）：runManualUpdate 阻断且不静默缩减目标', async () => {
     const { useManualUpdate, dialog, toast, orchestrateManualUpdate_ACU, __resetToastStoreForTests } = await importManualUpdate();
     orchestrateManualUpdate_ACU.mockResolvedValue({ success: true });
@@ -525,7 +581,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
         }],
       },
     });
-    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1 });
+    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1, committedDataBucketCount: 1 });
     displayTableData = {
       sheet_0: { name: '物品表', content: [['row_id', '名称']] },
       sheet_1: { name: '另一表', content: [['row_id', '名称']] },
@@ -642,7 +698,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
         }],
       },
     });
-    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1 });
+    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1, committedDataBucketCount: 1 });
     const manual = useManualUpdate();
 
     const pending = manual.runManualCatchUp();
@@ -674,7 +730,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
         }],
       },
     });
-    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1 });
+    orchestrateManualCatchUp_ACU.mockResolvedValue({ outcome: 'success', success: true, committedBucketCount: 1, committedDataBucketCount: 1 });
     const manual = useManualUpdate();
 
     const pending = manual.runManualCatchUp();

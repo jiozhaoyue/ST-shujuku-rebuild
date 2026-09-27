@@ -124,7 +124,10 @@ function maskSensitiveInLogValue(value: any, depth = 0, seen = new WeakSet()): a
     return value
       .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
       .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
-      .replace(/("[A-Za-z0-9_-]*(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3');
+      .replace(/("[A-Za-z0-9_-]*(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
+      // 与 normalizeLogArg_ACU 的 [L4] 规则对齐：Error 分支走本函数，此前缺裸 key=value 与独立 sk- 形态
+      .replace(/\b([A-Za-z0-9_]*(?:api[_-]?key|apikey|authorization|token|password|secret|auth|bearer|accessToken|access_token))\b(\s*[:=]\s*)(?!["']|bearer\b)[^\s"',;}\n]+/gi, '$1$2***')
+      .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, 'sk-***');
   }
   if (depth > 6 || value === null || value === undefined) return depth > 6 ? '[Truncated]' : value;
   if (typeof value === 'object') {
@@ -191,7 +194,9 @@ function normalizeLogArg_ACU(arg: any): string {
       ? arg.constructor.name
       : 'Object';
     const ownProperties = Object.getOwnPropertyNames(arg || {})
-      .map((key) => `${key}=${normalizeLogArg_ACU(arg[key])}`)
+      // 与上方对象分支一致：键名本身敏感时直接掩码，不能只依赖值形态判断
+      // （非枚举自有属性的对象走此分支，键名如 embeddingApiKey 此前会连同值一起漏出）。
+      .map((key) => `${key}=${isSensitiveLogKey(key) ? '***' : normalizeLogArg_ACU(arg[key])}`)
       .join(', ');
     if (ownProperties) return `${constructorName}{${ownProperties}}`;
     const stringValue = String(arg);
@@ -206,6 +211,15 @@ function normalizeLogArg_ACU(arg: any): string {
  */
 export function formatArgs(args: any[]): string {
   return args.map(normalizeLogArg_ACU).join(' ');
+}
+
+/**
+ * 对一段面向用户可见面的文本做敏感信息脱敏（toast、错误提示、诊断文案）。
+ * 与日志写入侧同规则：日志缓冲的 Error 分支已掩码，但 toast/上游回显原文是旁路，
+ * 上游把请求头回显进错误体时会绕过日志脱敏直达 UI，故展示前必须过这一层。
+ */
+export function maskSensitiveText_ACU(value: unknown): string {
+  return normalizeLogArg_ACU(value);
 }
 
 /**

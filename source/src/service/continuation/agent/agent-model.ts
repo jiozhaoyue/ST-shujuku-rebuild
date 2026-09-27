@@ -19,7 +19,18 @@ import type {
 /** 楼层锚定快照挂在消息对象上的独立字段名，与首楼 `_qrf_continuation` 并列、互不干扰。 */
 export const AGENT_MODULE_FIELD_ACU = '_qrf_continuation_agent';
 
-export const AGENT_MODULE_SCHEMA_VERSION_ACU = 1 as const;
+export const AGENT_MODULE_SCHEMA_VERSION_V1_ACU = 1 as const;
+
+/** v2 楼层快照有 pendingFixes，但没有资料完成状态与结构化缺口来源。 */
+export const AGENT_MODULE_SCHEMA_VERSION_V2_ACU = 2 as const;
+
+/** v4 增加资料完成状态，并扩展 pendingFixes 为可恢复缺口；3 已由楼层 frame 使用，禁止复用。 */
+export const AGENT_MODULE_SCHEMA_VERSION_ACU = 4 as const;
+
+/** 同一模块自动修复连续失败达到该次数后，不再派修复，升级主会话。 */
+export const AGENT_AUTO_FIX_MAX_ATTEMPTS_ACU = 3 as const;
+
+export const AGENT_PENDING_FIX_CAP_ACU = 128 as const;
 
 /** 主 Agent 自身会话记录挂在消息对象上的字段名。与资料快照同楼不同字段，互不干扰。 */
 export const AGENT_CONVERSATION_FIELD_ACU = '_qrf_continuation_agent_chat';
@@ -300,6 +311,55 @@ export interface AgentModuleRevisions_ACU {
   storyArc: number;
   chronology: number;
   webRefs: number;
+  userRequirements: number;
+}
+
+/**
+ * 单栏写入值。value 的存在性显式表示：unset 为 true 表示撤销该栏（回到未写状态），
+ * 否则 value 必须是该模块栏目矩阵允许的 JSON 值；缺省、`null`、合法空值、未写入、读取失败不得混同。
+ */
+export interface AgentModuleFieldWrite_ACU {
+  value?: unknown;
+  unset?: boolean;
+}
+
+/**
+ * 一次逐栏写集：模块 → ID → 栏目 → 写入值。只点名本次提交的栏目；
+ * 原已提交栏目未被点名即原样保留。
+ */
+export type AgentModuleFieldUpserts_ACU = Partial<Record<AgentWritableModule_ACU, Record<string, Record<string, AgentModuleFieldWrite_ACU>>>>;
+
+/** 分栏条目状态：complete 可投影为完整领域条目；partial 仅在受控分栏视图可见；legacy_unknown 来自旧整条快照、按完整处理但来源不可逐栏拆分。 */
+export const AGENT_MODULE_FIELD_STATUSES_ACU = ['complete', 'partial', 'legacy_unknown'] as const;
+export type AgentModuleFieldStatus_ACU = typeof AGENT_MODULE_FIELD_STATUSES_ACU[number];
+
+/** 单条已接受的分栏栏目值及其修订身份。 */
+export interface AgentModuleFieldValue_ACU {
+  value: unknown;
+  revision: number;
+  updatedAt: number;
+}
+
+/** 一个 (module, ID) 的分栏记录：已提交栏目、缺栏与投影状态。 */
+export interface AgentModuleFieldRecord_ACU {
+  module: AgentWritableModule_ACU;
+  id: string;
+  status: AgentModuleFieldStatus_ACU;
+  fields: Record<string, AgentModuleFieldValue_ACU>;
+  missingFields: string[];
+  updatedAt: number;
+}
+
+/** 折叠派生的分栏视图：只读，绝不写回持久帧。 */
+export interface AgentModuleFieldSnapshot_ACU {
+  records: Partial<Record<AgentWritableModule_ACU, Record<string, AgentModuleFieldRecord_ACU>>>;
+}
+
+/** 一个模块的栏目矩阵：允许逐栏写入的栏目白名单、提升为完整条目的必填栏目、不可拆开的跨字段一致性组。 */
+export interface AgentModuleFieldMatrixEntry_ACU {
+  fields: readonly string[];
+  required: readonly string[];
+  consistencyGroups: ReadonlyArray<readonly string[]>;
 }
 
 /** 百科资料库条目的来源渠道。TT 可行通道：moegirl / wikipedia_zh / wikipedia_en 走浏览器直连
@@ -332,10 +392,102 @@ export interface AgentWebRefEntry_ACU {
   retiredReason: string;
 }
 
-/** 楼层锚定的全量快照。读取=从尾向前找最近的合法快照，删楼即自动回退。 */
+/**
+ * 楼层帧 schema（TT-only）。checkpoint 是全量基线，deltas 是其后的模块写集。
+ * schema 1 的全量快照只在读取时归一成基线，成功写入才升到本版本。
+ * TT 形状：六个 id 键模块（hooks/infoGap/constraints/storyArc/chronology/webRefs）
+ * 加 userRequirements 字符串单例（整表替换，不进分栏矩阵）；
+ * pendingFixes 随快照携带并参与帧折叠，
+ * fingerprint 仍由快照携带，帧折叠不复制 simulation 耦合。
+ */
+export const AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU = 3 as const;
+
+/** 一次结算写进承载楼层的增量。seq 只排序全聊天的写入先后，不参与跨楼折叠顺序（折叠按楼层序）。 */
+export interface AgentModuleFloorDelta_ACU {
+  seq: number;
+  /** 写入时该楼的 swipe 身份。折叠只叠加与楼层当前 swipe 相同的条目。 */
+  swipeId: string;
+  /** 变更条目。六个 id 键模块均为带 id 的 upsert 子集；userRequirements 单例走顶层字段。 */
+  writes: Partial<Pick<AgentModuleSnapshot_ACU, AgentWritableModule_ACU>>;
+  /** 用户要求单例的整表替换（字符串数组全量）。与 writes 可同时出现；折叠时整体替换。 */
+  userRequirements?: string[];
+  removedIds?: Partial<Record<AgentWritableModule_ACU, string[]>>;
+  /** 逐栏增量写入：模块 → ID → 栏目。与整条 writes 可同时出现；折叠先叠整条再叠逐栏。 */
+  fieldUpserts?: AgentModuleFieldUpserts_ACU;
+  revisions: Partial<AgentModuleRevisions_ACU>;
+  pendingFixes?: AgentPendingFix_ACU[];
+  materialCompletion?: AgentMaterialCompletionRecord_ACU;
+  /** 本条显式推进的结算水位。省略表示不改水位。 */
+  settledThroughIndex?: number;
+  updatedAt: number;
+}
+
+/** 挂在单个楼层上的资料帧。 */
+export interface AgentModuleFloorFrame_ACU {
+  schemaVersion: typeof AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU;
+  checkpoint?: {
+    swipeId: string;
+    snapshot: AgentModuleSnapshot_ACU;
+  };
+  deltas: AgentModuleFloorDelta_ACU[];
+}
+
+export interface AgentPendingFixViolation_ACU {
+  path: string;
+  message: string;
+}
+
+export const AGENT_MATERIAL_COMPLETION_STATES_ACU = [
+  'complete_changed',
+  'complete_no_change',
+  'partial',
+  'failed',
+  'legacy_unknown',
+] as const;
+export type AgentMaterialCompletionState_ACU = typeof AGENT_MATERIAL_COMPLETION_STATES_ACU[number];
+
+export const AGENT_PENDING_FIX_SOURCES_ACU = [
+  'truncated',
+  'contract_rejected',
+  'protocol_failed',
+  'invoke_failed',
+  'transaction_rejected',
+] as const;
+export type AgentPendingFixSource_ACU = typeof AGENT_PENDING_FIX_SOURCES_ACU[number];
+
+export interface AgentMaterialCompletionRecord_ACU {
+  state: AgentMaterialCompletionState_ACU;
+  /** 本次维护覆盖的真实正文范围；-1 表示尚无可判定范围。 */
+  rangeStartIndex: number;
+  rangeEndIndex: number;
+  /** 模块级状态用于限制后续补足写集；缺键表示本轮不负责该模块。 */
+  modules: Partial<Record<AgentWritableModule_ACU, AgentMaterialCompletionState_ACU>>;
+  updatedAt: number;
+}
+
+/** 一次模块入库失败。attempts 从 1 起算，同一模块再次失败加一，成功写入后整条删除。 */
+export interface AgentPendingFix_ACU {
+  module: AgentWritableModule_ACU;
+  agentName: string;
+  violations: AgentPendingFixViolation_ACU[];
+  attempts: number;
+  firstFailedAtIndex: number;
+  lastError: string;
+  source: AgentPendingFixSource_ACU;
+  completion: 'partial' | 'failed';
+  rangeStartIndex: number;
+  rangeEndIndex: number;
+  acceptedKeys: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 楼层锚定的全量快照。帧架构下读取=从最近基线起按楼层顺序叠加当前 swipe 的 delta，删楼即自动退出折叠。 */
 export interface AgentModuleSnapshot_ACU {
   schemaVersion: typeof AGENT_MODULE_SCHEMA_VERSION_ACU;
   settledThroughIndex: number;
+  /** 结算水位之前聊天前缀的稳定指纹；用于识别删楼/替换导致的原始下标漂移。 */
+  settledPrefixFingerprint?: string;
   updatedAt: number;
   revisions: AgentModuleRevisions_ACU;
   hooks: AgentHookEntry_ACU[];
@@ -344,17 +496,69 @@ export interface AgentModuleSnapshot_ACU {
   storyArc: AgentStoryArcEntry_ACU[];
   chronology: AgentChronologyEntry_ACU[];
   webRefs: AgentWebRefEntry_ACU[];
+  /** 用户在 Agent 会话里提过的要求，由 requirements-maintainer 全量替换维护（字符串单例，不进分栏矩阵）。 */
+  userRequirements: string[];
+  /** 最近一次正文资料维护的完成状态；旧快照读取为 legacy_unknown。 */
+  materialCompletion: AgentMaterialCompletionRecord_ACU;
+  /** 最近一次容错提交没能入库的模块。旧快照缺该字段时读取为空数组。 */
+  pendingFixes: AgentPendingFix_ACU[];
 }
 
 export const AGENT_WRITABLE_MODULES_ACU = ['hooks', 'infoGap', 'constraints', 'storyArc', 'chronology', 'webRefs'] as const;
 export type AgentWritableModule_ACU = typeof AGENT_WRITABLE_MODULES_ACU[number];
 
-export const AGENT_SUBAGENT_NAMES_ACU = ['arc-architect', 'hook-cognition-maintainer', 'mainline-planner', 'beat-planner', 'continuity-reviewer', 'web-researcher'] as const;
+/**
+ * 各模块的栏目矩阵（TT 六个 id 键模块；userRequirements 为字符串单例，不进分栏矩阵）。
+ * fields 是分栏视图可见的栏目（含机器栏），required 是提升为完整条目前模型必须显式
+ * 写过的栏目（合法空值也算写过；机器栏 updatedIndex/retired/retiredReason 等不进
+ * required，由提升时的领域事务补齐），consistencyGroups 是不可拆开校验的跨字段
+ * 一致性组（组内任一栏被写时，按合并后的有效值整体校验）。
+ * S1 只做声明与缺栏计算，不在折叠/写入路径强制拒绝——partial 记录只进入受控分栏视图，
+ * 不投影领域数组（T2 锁定：complete 同样不投影，完整条目只由整条 writes 路径产生）。
+ */
+export const AGENT_MODULE_FIELD_MATRIX_ACU: Record<AgentWritableModule_ACU, AgentModuleFieldMatrixEntry_ACU> = {
+  hooks: {
+    fields: ['summary', 'status', 'importance', 'plantedIndex', 'updatedIndex', 'plannedPayoff', 'retired', 'retiredReason'],
+    required: ['summary', 'status', 'importance', 'plantedIndex', 'plannedPayoff'],
+    consistencyGroups: [],
+  },
+  infoGap: {
+    fields: ['topic', 'objectiveFact', 'readerKnown', 'characterKnowledge', 'revealStatus', 'revealIndex', 'retired', 'retiredReason'],
+    required: ['topic', 'objectiveFact', 'readerKnown', 'characterKnowledge', 'revealStatus'],
+    consistencyGroups: [['revealStatus', 'revealIndex']],
+  },
+  constraints: {
+    fields: ['text', 'reason', 'createdIndex'],
+    required: ['text'],
+    consistencyGroups: [],
+  },
+  storyArc: {
+    fields: ['scope', 'title', 'direction', 'escalation', 'withheld', 'status', 'stageNumbers', 'completionStageNumber', 'completionState', 'continuationRationale', 'narrativeRole', 'targetStageRange', 'targetTimeSpan', 'progressCeiling', 'sustainingThreads', 'payoffTargets', 'completionRationale', 'retired', 'retiredReason'],
+    required: ['scope', 'title', 'direction', 'escalation', 'withheld', 'status'],
+    consistencyGroups: [],
+  },
+  chronology: {
+    fields: ['anchor', 'elapsed', 'precision', 'transition', 'evidenceIndexes', 'updatedIndex', 'retired', 'retiredReason'],
+    required: ['anchor', 'elapsed', 'precision', 'transition', 'evidenceIndexes'],
+    consistencyGroups: [],
+  },
+  webRefs: {
+    fields: ['title', 'source', 'url', 'query', 'tags', 'brief', 'summary', 'sourceStatus', 'fetchedAt', 'retired', 'retiredReason'],
+    required: ['title', 'brief', 'url'],
+    consistencyGroups: [],
+  },
+};
+
+export const AGENT_SUBAGENT_NAMES_ACU = ['arc-architect', 'hook-cognition-maintainer', 'mainline-planner', 'beat-planner', 'continuity-reviewer', 'web-researcher', 'instruction-composer', 'requirements-maintainer'] as const;
 export type AgentSubagentName_ACU = typeof AGENT_SUBAGENT_NAMES_ACU[number];
 
 export const AGENT_WEB_RESEARCHER_NAME_ACU = 'web-researcher';
 
-export type AgentSubagentKind_ACU = 'arc' | 'maintain' | 'plan' | 'review' | 'research';
+export const AGENT_REQUIREMENTS_MAINTAINER_NAME_ACU = 'requirements-maintainer';
+
+export const AGENT_INSTRUCTION_COMPOSER_NAME_ACU = 'instruction-composer';
+
+export type AgentSubagentKind_ACU = 'arc' | 'maintain' | 'plan' | 'review' | 'research' | 'compose';
 
 /** 最终审查是 finalize 前由运行时受控触发的内部代理，不进入主 Agent 可委派名称集合。 */
 export const AGENT_FINAL_REVIEWER_NAME_ACU = 'final-reviewer';
@@ -468,6 +672,16 @@ export interface AgentBlockAction_ACU {
   unresolved: string[];
 }
 
+/** 每轮一次的开局决策。固定工作流据此自治执行，主 Agent 不再逐个派管线角色；
+ * 总纲与阶段大纲由程序固定工作流内部维护，不再经 open_round 开关直派。 */
+export interface AgentOpenRoundAction_ACU {
+  kind: 'open_round';
+  thought: string;
+  focus: string;
+  summary: string;
+  dispatchWebResearcher: boolean;
+}
+
 /**
  * 大纲句级编辑操作。运行时替模型收尾结构一致性（重算 suggestedTurns/totalTurns），
  * 模型只表达意图；已完成轮次与当前轮的保护由校验层强制。
@@ -497,7 +711,14 @@ export type AgentOutlineEditOp_ACU =
   | { op: 'remove_turn'; turnId: string }
   | { op: 'set_node_goal'; nodeId: string; goal: string };
 
-export type AgentMainAction_ACU = AgentFinalizeAction_ACU | AgentDelegateAction_ACU | AgentBlockAction_ACU | AgentToolsAction_ACU;
+export type AgentMainAction_ACU = AgentFinalizeAction_ACU | AgentDelegateAction_ACU | AgentBlockAction_ACU | AgentToolsAction_ACU | AgentOpenRoundAction_ACU;
+
+/** instruction-composer 的产出。instruction 非空；constraints 走容错登记。 */
+export interface AgentComposerOutput_ACU {
+  summary: string;
+  instruction: string;
+  constraints: { add: string[]; retire: string[] } | null;
+}
 
 /** 运行时硬边界。预留最后一轮让主 Agent 有机会正常交付而不是被突然掐断。 */
 export interface AgentRunBudget_ACU {
@@ -539,6 +760,11 @@ export interface AgentModuleDelta_ACU {
   storyArc: AgentStoryArcDeltaItem_ACU[];
   storyArcPatches: AgentStoryArcPatch_ACU[];
   chronology: AgentChronologyDeltaItem_ACU[];
+  /**
+   * 年代学栏级修补（S11-TT 双模：Mode R 整行事务内的 patch 通道）。
+   * 可选以兼容旧写集构造；缺省视为空数组。
+   */
+  chronologyPatches?: AgentChronologyPatch_ACU[];
   constraintProposals: string[];
 }
 
@@ -577,6 +803,8 @@ export interface AgentResearcherOutput_ACU {
   summary: string;
   expectedRevision: number | undefined;
   items: AgentWebRefResolvedItem_ACU[];
+  /** 栏级修补；与 items 同一事务应用，失败整份拒绝。 */
+  patches?: AgentWebRefResolvedPatch_ACU[];
 }
 
 /** 总纲条目的句级修补：只有显式出现的字段会被修改。阶段进度回写通常只需 patch stageNumbers + status。 */
@@ -677,6 +905,46 @@ export interface AgentChronologyDeltaItem_ACU {
   transition: string;
   evidenceIndexes: number[];
   reason: string;
+}
+
+/**
+ * 年代学条目的栏级修补：只有显式出现的字段会被修改；证据补丁仍按结算水位校验。
+ * （S11-TT 双模：Mode R 整行事务内的 patch 通道；Mode F 逐栏路径另见帧内 plan。）
+ */
+export interface AgentChronologyPatch_ACU {
+  id: string;
+  anchor?: string;
+  elapsed?: string;
+  precision?: AgentChronologyPrecision_ACU;
+  transition?: string;
+  evidenceIndexes?: number[];
+}
+
+/**
+ * 百科资料库条目的栏级修补（契约形态，pageRef 尚未回填）。只有显式出现的字段会被修改。
+ */
+export interface AgentWebRefPatch_ACU {
+  id: string;
+  pageRef?: string;
+  title?: string;
+  tags?: string[];
+  brief?: string;
+  summary?: string;
+}
+
+/**
+ * 运行时回填后的百科条目修补：给了 pageRef 的会带回新来源字段，未给的只改内容栏。
+ */
+export interface AgentWebRefResolvedPatch_ACU {
+  id: string;
+  title?: string;
+  source?: AgentWebRefSource_ACU;
+  url?: string;
+  query?: string;
+  tags?: string[];
+  brief?: string;
+  summary?: string;
+  sourceStatus?: AgentWebRefStatus_ACU;
 }
 
 /** 子代理维护类的完整输出。资料不足时不再用 needMore 申请重跑，而是在小循环里直接输出 read 工具调用。 */

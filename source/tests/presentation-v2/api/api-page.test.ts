@@ -99,9 +99,9 @@ describe('ApiPage', () => {
     const apiPanel = Array.from(page!.querySelectorAll<HTMLElement>('.acu-panel'))
       .find(panel => panel.querySelector('.acu-panel__title')?.textContent?.includes('API 预设'))!;
     expect(Array.from(page!.querySelectorAll<HTMLElement>('.acu-panel'))[0]).toBe(apiPanel);
-    expect(apiPanel.querySelectorAll('.acu-toggle').length).toBe(5); // 流式输出 / 非预填充支持 / 公益站兼容 / 需要时格式化输出 / 增强思考（均预设级）
+    expect(apiPanel.querySelectorAll('.acu-toggle').length).toBe(4); // 流式输出 / 非预填充支持 / 公益站兼容 / 需要时格式化输出（均预设级）
     expect(Array.from(apiPanel.querySelectorAll('.acu-toggle')).some(toggle => toggle.textContent?.includes('需要时格式化输出'))).toBe(true);
-    expect(Array.from(apiPanel.querySelectorAll('.acu-toggle')).some(toggle => toggle.textContent?.includes('增强思考'))).toBe(true);
+    expect(Array.from(apiPanel.querySelectorAll('.acu-toggle')).some(toggle => toggle.textContent?.includes('增强思考'))).toBe(false);
     expect(apiPanel.querySelector('button[title="新建预设"]')).not.toBeNull();
     expect(apiPanel.querySelector('button[title="删除当前预设"]')).not.toBeNull();
     expect(document.body.textContent).not.toContain('管理 API 预设');
@@ -228,7 +228,7 @@ describe('ApiPage', () => {
     await new Promise(r => setTimeout(r, 0));
 
     expect(fetchModels).toHaveBeenCalledTimes(1);
-    expect(fetchModels).toHaveBeenCalledWith('https://beta.test', '', 'claude_messages');
+    expect(fetchModels).toHaveBeenCalledWith('https://beta.test', '', 'claude_messages', { force: true });
 
     mount.__resetAcuV2MountForTests();
   });
@@ -243,7 +243,7 @@ describe('ApiPage', () => {
     await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
 
-    expect(fetchModels).toHaveBeenCalledWith('https://beta.test', '', 'openai_compat');
+    expect(fetchModels).toHaveBeenCalledWith('https://beta.test', '', 'openai_compat', { force: true });
 
     mount.__resetAcuV2MountForTests();
   });
@@ -263,7 +263,7 @@ describe('ApiPage', () => {
 
     const labels = Array.from(effortRow.querySelectorAll(".acu-select__item"))
       .map(item => (item.textContent || "").trim());
-    expect(labels).toEqual(["Minimal", "Low", "Medium", "High", "XHigh", "Max", "Ultra", "False（关闭思考）", "Auto（自动）"]);
+    expect(labels).toEqual(["Minimal", "Low", "Medium", "High", "XHigh", "Max", "Ultra", "Auto（自动）"]);
 
     mount.__resetAcuV2MountForTests();
   });

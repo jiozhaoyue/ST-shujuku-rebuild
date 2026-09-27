@@ -6,6 +6,7 @@ import { startRuntimePerformanceSpan_ACU } from '../../shared/runtime-performanc
 import { SqliteEngine } from '../../data/sqlite/sqlite-engine';
 import { SyncBridge } from '../../data/sqlite/sync-bridge';
 import { normalizeSqlStructure, normalizeStatementValues } from '../../data/sqlite/sql-normalizer';
+import { stripHtmlCommentMarkersOutsideSqlLiterals_ACU } from './sql-protocol-markers';
 import type { TableCheckpointV2_ACU, TableMutationLogEntryV2_ACU, TableMutationOperationV2_ACU, TablePatchV2_ACU, TableSheetCheckpointV2_ACU, TableSheetLifecycleEntryV2_ACU, TableSheetLifecycleProjectionV2_ACU, TableStorageFrameV2_ACU } from './storage-frame-v2-types';
 import { isV2TagData_ACU } from './storage-strategy-resolver';
 import { writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
@@ -25,6 +26,7 @@ import { collectSheetIdentityCanonicals_ACU, mergeLegacySheetIdentities_ACU, typ
 import { runTableWriteTransaction_ACU } from './table-write-transaction';
 import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
 import { buildReplayOptionsFingerprint_ACU, computeReplayHeadRevisionDigest_ACU, validateV2ReplayEvidenceFresh_ACU } from './v2-replay-session';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 
 interface V2FrameRef_ACU {
   messageIndex: number;
@@ -55,6 +57,25 @@ interface V2FrameRef_ACU {
  */
 const inflightV2Replays_ACU = new Map<string, Promise<TableReplayResultV2_ACU | null>>();
 
+/**
+ * chat 数组的身份令牌：`String(chat)` 走 `Array.join`，对象楼层只编码长度
+ * （`{…}` 全变成 `[object Object]`），等长的两个不同聊天会算出同一个 key。
+ * TT 切聊天是同页 emit、无 reload，A 的冷回放尚未 settle 时 B 的加载合并到达
+ * 即会命中——B 拿到 A 的表数据当基线。WeakMap 只认数组对象身份：同数组并发
+ * （唯一被测形态）行为不变，跨数组共享被禁。调用方若传 clone（每次新数组）
+ * 即天然退出去重——只是多做一次全量回放的 fail-open，无串味风险。
+ */
+const chatIdentityTokens_ACU = new WeakMap<object, number>();
+let chatIdentitySeq_ACU = 0;
+
+function chatIdentityToken_ACU(chat: any[]): string {
+    const existing = chatIdentityTokens_ACU.get(chat);
+    if (existing !== undefined) return String(existing);
+    chatIdentitySeq_ACU += 1;
+    chatIdentityTokens_ACU.set(chat, chatIdentitySeq_ACU);
+    return String(chatIdentitySeq_ACU);
+}
+
 function buildInflightReplayKey_ACU(
   chat: any[],
   isolationKey: string,
@@ -70,11 +91,11 @@ function buildInflightReplayKey_ACU(
   if (Number(options.yieldBudgetMs) > 0) return null;
   return [
     'chat-ref',
-    // chat 引用（数组对象身份）。同一数组内容原地变化时引用仍相同，但调用方
-    // 若在两次调用间原地 mutate chat（fill run 每批提交），in-flight 窗口内
-    // 引用相同而内容不同——由调用方保证 fill 提交不在并发 replay 窗口内发生
-    // （commit lock 内串行），否则此处只合并同一时刻的请求，语义安全。
-    String(chat),
+    // chat 数组对象身份（WeakMap 令牌）。同一数组内容原地变化时令牌仍相同，
+    // 若调用方在两次调用间原地 mutate chat（fill run 每批提交），in-flight
+    // 窗口内令牌相同而内容不同——由调用方保证 fill 提交不在并发 replay 窗口
+    // 内发生（commit lock 内串行），否则此处只合并同一时刻的请求，语义安全。
+    chatIdentityToken_ACU(chat),
     'iso', isolationKey,
     'max', options.maxMessageIndex ?? 'latest',
     'struct', structureMappingDigest || '',
@@ -550,7 +571,10 @@ function getV2FrameRefs_ACU(chat: any[], isolationKey: string): V2FrameRef_ACU[]
   for (let i = 0; i < chat.length; i += 1) {
     const message = chat[i];
     if (!message || message.is_user) continue;
-    aiFloor += 1;
+    // 载体纳入保持宽（隐藏楼仍可能挂帧），但**编号**必须用宽档 AI 楼口径：
+    // 该值经 applyEventToScheduleSummary 写入持久化的 lastFilledAiFloor/lastChangedAiFloor，
+    // 而调度侧拿它与宽档总数（countAiFloors_ACU）比较；口径不一致会让未记录楼层数被压到 0 以下而停更。
+    if (isAiFloor_ACU(message)) aiFloor += 1;
 
     const tagData = readIsolatedTagData_ACU(message, isolationKey) as any;
     if (isReplayableV2TagData_ACU(tagData)) {
@@ -1170,7 +1194,7 @@ function splitSqlStatementsForReplay_ACU(sql: string): string[] {
 
 function normalizeSqlStatementsForReplay_ACU(statements: string[]): string[] {
   return statements
-    .flatMap(statement => splitSqlStatementsForReplay_ACU(String(statement || '').replace(/<!--|-->/g, '').trim()))
+    .flatMap(statement => splitSqlStatementsForReplay_ACU(stripHtmlCommentMarkersOutsideSqlLiterals_ACU(String(statement || '')).trim()))
     .map(statement => normalizeStatementValues(normalizeSqlStructure(statement)))
     .filter(Boolean);
 }
@@ -1967,7 +1991,7 @@ function parseDslArgs_ACU(argsString: string): any[] | null {
 }
 
 function extractTableEditDslCommands_ACU(text: string): string[] {
-  const cleaned = String(text || '').replace(/<!--|-->/g, '');
+  const cleaned = stripHtmlCommentMarkersOutsideSqlLiterals_ACU(String(text || ''));
   const commands: string[] = [];
   const commandPattern = /(?:insertRow|updateRow|deleteRow)\s*\(/g;
   let searchStart = 0;
@@ -3241,7 +3265,7 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
 ): Promise<boolean> {
   const targetMessageIndex = (() => {
     for (let index = chat.length - 1; index >= 0; index -= 1) {
-      if (chat[index] && !chat[index].is_user) return index;
+      if (isAiFloor_ACU(chat[index])) return index;
     }
     return -1;
   })();

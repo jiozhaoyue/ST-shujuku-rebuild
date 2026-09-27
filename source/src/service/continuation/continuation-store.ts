@@ -1,8 +1,8 @@
 import { getChatArray_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { getActiveChatStorageIdentity_ACU } from '../../data/storage/chat-history';
-import { buildDefaultContinuationSettings_ACU, buildDefaultContinuationOutlinePrompt_ACU, buildDefaultContinuationAgentApiPresets_ACU, buildDefaultContinuationWebResearchSettings_ACU, CONTINUATION_FINAL_REVIEW_MAX_EXTRA_READS_DEFAULT_ACU, CONTINUATION_FINAL_REVIEW_READ_TOKEN_BUDGET_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU, CONTINUATION_MIN_GENERATION_TOKENS_DEFAULT_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V17_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V18_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V19_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V20_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V21_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V22_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V23_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V24_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V25_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V26_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU, V23_DEFAULT_OUTLINE_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_METHOD_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_PACING_SEGMENT_ACU, V23_DEFAULT_OUTLINE_SYSTEM_SEGMENT_ACU, V24_OUTLINE_LONGFORM_PACING_CONTRACT_ACU, V26_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V27_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU } from './defaults';
+import { buildDefaultContinuationSettings_ACU, buildDefaultContinuationOutlinePrompt_ACU, buildDefaultContinuationAgentApiPresets_ACU, buildDefaultContinuationWebResearchSettings_ACU, buildDefaultContinuationWorkflowSettings_ACU, CONTINUATION_FINAL_REVIEW_MAX_EXTRA_READS_DEFAULT_ACU, CONTINUATION_FINAL_REVIEW_READ_TOKEN_BUDGET_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU, CONTINUATION_MIN_GENERATION_TOKENS_DEFAULT_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V17_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V18_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V19_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V20_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V21_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V22_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V23_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V24_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V25_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V26_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU, V23_DEFAULT_OUTLINE_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_METHOD_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_PACING_SEGMENT_ACU, V23_DEFAULT_OUTLINE_SYSTEM_SEGMENT_ACU, V24_OUTLINE_LONGFORM_PACING_CONTRACT_ACU, V26_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V27_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU } from './defaults';
 import { reconcileContinuationEnvelopeCursor_ACU } from './stage-cursor';
-import { AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU, AGENT_HISTORY_READ_RULE_V17_ACU, AGENT_HISTORY_READ_RULE_V18_ACU, AGENT_PROMPT_DEFAULT_LINEAGE_ACU, buildDefaultAgentArcArchitectPrompt_ACU, buildDefaultContinuationAgentPrompts_ACU, currentDefaultMainAgentHistoryGuide_ACU, currentDefaultMainAgentLayoutAnswer_ACU, findAgentPromptSlot_ACU, hashAgentPromptContent_ACU, isV18DefaultMainAgentNonRootSystemSegment_ACU, isV19DefaultMainAgentHistoryGuide_ACU, isV19DefaultMainAgentLayoutAnswer_ACU, isV19DefaultMainAgentRuntimeSegment_ACU, V20_DEFAULT_ARC_ARCHITECT_CONTRACT_ACU, V20_DEFAULT_ARC_ARCHITECT_EPISTEMOLOGY_ACU, V20_DEFAULT_ARC_ARCHITECT_PURPOSE_ACU, V20_DEFAULT_ARC_ARCHITECT_SYSTEM_ACU, V20_DEFAULT_ARC_ARCHITECT_TASK_ACU, V23_MAIN_AGENT_PACING_RULE_ACU, V24_MAIN_AGENT_PACING_RULE_ACU, V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU, V26_FINAL_REVIEWER_CHRONOLOGY_RULES_ACU, V26_MAIN_AGENT_CHRONOLOGY_RULE_ACU, V26_MAINTAINER_CHRONOLOGY_CONTRACT_ACU, type AgentPromptSlotKey_ACU } from './agent/agent-defaults';
+import { AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU, AGENT_HISTORY_READ_RULE_V17_ACU, AGENT_HISTORY_READ_RULE_V18_ACU, AGENT_PROMPT_DEFAULT_LINEAGE_ACU, CONTINUATION_CURRENT_COMPOSER_RULES_ACU, CONTINUATION_CURRENT_FINAL_REVIEW_RULES_ACU, CONTINUATION_CURRENT_MAIN_WORKFLOW_RULES_ACU, CONTINUATION_V33_DEFAULT_LINEAGE_ACU, buildV33ContinuationAgentPrompts_ACU, buildDefaultAgentArcArchitectPrompt_ACU, buildDefaultContinuationAgentPrompts_ACU, currentDefaultMainAgentHistoryGuide_ACU, currentDefaultMainAgentLayoutAnswer_ACU, findAgentPromptSlot_ACU, hashAgentPromptContent_ACU, isV18DefaultMainAgentNonRootSystemSegment_ACU, isV19DefaultMainAgentHistoryGuide_ACU, isV19DefaultMainAgentLayoutAnswer_ACU, isV19DefaultMainAgentRuntimeSegment_ACU, migrateV29DefaultMainAgentContentToV30_ACU, V20_DEFAULT_ARC_ARCHITECT_CONTRACT_ACU, V20_DEFAULT_ARC_ARCHITECT_EPISTEMOLOGY_ACU, V20_DEFAULT_ARC_ARCHITECT_PURPOSE_ACU, V20_DEFAULT_ARC_ARCHITECT_SYSTEM_ACU, V20_DEFAULT_ARC_ARCHITECT_TASK_ACU, V23_MAIN_AGENT_PACING_RULE_ACU, V24_MAIN_AGENT_PACING_RULE_ACU, V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU, V26_FINAL_REVIEWER_CHRONOLOGY_RULES_ACU, V26_MAIN_AGENT_CHRONOLOGY_RULE_ACU, V26_MAINTAINER_CHRONOLOGY_CONTRACT_ACU, type AgentPromptSlotKey_ACU } from './agent/agent-defaults';
 import {
   AGENT_HISTORY_TOKEN_BUDGET_DEFAULT_ACU,
   AGENT_READ_FALLBACK_TOKENS_DEFAULT_ACU,
@@ -98,7 +98,7 @@ function validateRules_ACU(value: unknown, path: string): { start: string; end: 
 }
 
 /**
- * 校验七组 Agent 提示词。
+ * 校验十组 Agent 提示词。
  * @param raw 持久化里的 agentPrompts 字段
  * @returns 逐组校验后的提示词集合
  */
@@ -114,6 +114,8 @@ function validateAgentPrompts_ACU(raw: unknown): ContinuationSettings_ACU['agent
     reviewer: validateContinuationPromptSegments_ACU(raw.reviewer, 'load', 'CONTINUATION_ENVELOPE_INVALID'),
     finalReviewer: validateContinuationPromptSegments_ACU(raw.finalReviewer, 'load', 'CONTINUATION_ENVELOPE_INVALID'),
     webResearcher: validateContinuationPromptSegments_ACU(raw.webResearcher, 'load', 'CONTINUATION_ENVELOPE_INVALID'),
+    instructionComposer: validateContinuationPromptSegments_ACU(raw.instructionComposer, 'load', 'CONTINUATION_ENVELOPE_INVALID'),
+    requirementsMaintainer: validateContinuationPromptSegments_ACU(raw.requirementsMaintainer, 'load', 'CONTINUATION_ENVELOPE_INVALID'),
   };
 }
 
@@ -307,7 +309,7 @@ function stripV26ChronologySegments_ACU(prompts: ContinuationSettings_ACU['agent
  * 迁移时只有完整段（含角色、启用状态、可删除和 pinned 元数据）与还原结果一致才替换。
  */
 function buildV23AgentPromptsForMigration_ACU(): ContinuationSettings_ACU['agentPrompts'] {
-  const prompts = stripV26ChronologySegments_ACU(buildDefaultContinuationAgentPrompts_ACU());
+  const prompts = stripV26ChronologySegments_ACU(buildV33ContinuationAgentPrompts_ACU());
   // 当前默认已包含 V25 容量段；冻结 V23 形态时必须先移除，否则按索引迁移会把后续段错配。
   prompts.arcArchitect = prompts.arcArchitect.filter(segment => segment.content !== V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU);
   const replacements: readonly (readonly [string, string])[] = [
@@ -338,7 +340,7 @@ function buildV23AgentPromptsForMigration_ACU(): ContinuationSettings_ACU['agent
 
 /** V24 默认 Agent 形态：已经包含 pacing 改造，但尚未加入 V25 卷级容量段与 V26 年代学段。 */
 function buildV24AgentPromptsForMigration_ACU(): ContinuationSettings_ACU['agentPrompts'] {
-  const prompts = stripV26ChronologySegments_ACU(buildDefaultContinuationAgentPrompts_ACU());
+  const prompts = stripV26ChronologySegments_ACU(buildV33ContinuationAgentPrompts_ACU());
   prompts.arcArchitect = prompts.arcArchitect.filter(segment => segment.content !== V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU);
   return prompts;
 }
@@ -398,9 +400,18 @@ function migrateV24AgentPromptsToV25_ACU(raw: unknown): unknown {
  * 只在目标组仍保留紧邻的默认锚段（完整段一致）且尚未包含该段时插入；
  * 锚段被用户改写时跳过该组，不向自定义提示词注入默认内容。
  */
+function historicalPromptSlotMatch_ACU(role: 'main' | 'maintainer' | 'finalReviewer', anchor: { role?: string; content?: string }, segment: unknown): boolean {
+  if (!isRecord_ACU(segment) || typeof segment.content !== 'string' || typeof anchor.content !== 'string') return false;
+  const slots = ['system', 'arcPurpose', 'arcEpistemology', 'capabilityAnswer', 'actionRules', 'textProtocol', 'subagentRules', 'outputContract', 'task'] as const;
+  const slot = slots.find(candidate => findAgentPromptSlot_ACU([anchor as ContinuationPromptSegment_ACU], candidate)?.content === anchor.content);
+  if (!slot) return false;
+  const content = segment.content;
+  return AGENT_PROMPT_DEFAULT_LINEAGE_ACU[role].some(entry => entry.slot === slot && entry.length === content.length && entry.hash === hashAgentPromptContent_ACU(content));
+}
+
 function migrateV25AgentPromptsToV26_ACU(raw: unknown): unknown {
   if (!isRecord_ACU(raw)) return raw;
-  const defaults = buildDefaultContinuationAgentPrompts_ACU();
+  const defaults = buildV33ContinuationAgentPrompts_ACU();
   const next = { ...raw };
   let changed = false;
   for (const key of ['main', 'maintainer', 'finalReviewer'] as const) {
@@ -412,7 +423,7 @@ function migrateV25AgentPromptsToV26_ACU(raw: unknown): unknown {
     const chronologySegment = defaultsGroup[insertIndex];
     if (segments.some(segment => isRecord_ACU(segment) && segment.content === chronologySegment.content)) continue;
     const anchor = defaultsGroup[insertIndex - 1];
-    const anchorIndex = segments.findIndex(segment => promptSegmentEquals_ACU(segment, anchor));
+    const anchorIndex = segments.findIndex(segment => promptSegmentEquals_ACU(segment, anchor) || historicalPromptSlotMatch_ACU(key, anchor, segment));
     if (anchorIndex < 0) continue;
     next[key] = [...segments.slice(0, anchorIndex + 1), chronologySegment, ...segments.slice(anchorIndex + 1)];
     changed = true;
@@ -472,7 +483,7 @@ function migrateV23OutlinePromptToV24_ACU(raw: unknown): unknown {
  * enabled / deletable / pinned 沿用用户持久化的值。任何不在谱系里的段（含用户改写）原样保留。
  */
 function replaceAgentPromptsByLineage_ACU(raw: Record<string, unknown>): { next: Record<string, unknown>; changed: boolean } {
-  const defaults = buildDefaultContinuationAgentPrompts_ACU();
+  const defaults = buildV33ContinuationAgentPrompts_ACU();
   const next = { ...raw };
   let changed = false;
   for (const key of Object.keys(AGENT_PROMPT_DEFAULT_LINEAGE_ACU) as (keyof typeof AGENT_PROMPT_DEFAULT_LINEAGE_ACU)[]) {
@@ -502,7 +513,7 @@ function replaceAgentPromptsByLineage_ACU(raw: Record<string, unknown>): { next:
  * （UI 不允许删除该槽位，容量契约又是可删的普通段）。只修这一签名，整组自定义的提示词一律不动。
  */
 function repairAgentPromptTaskSegments_ACU(raw: Record<string, unknown>): { next: Record<string, unknown>; changed: boolean } {
-  const defaults = buildDefaultContinuationAgentPrompts_ACU();
+  const defaults = buildV33ContinuationAgentPrompts_ACU();
   const next = { ...raw };
   let changed = false;
   const roles: (keyof typeof defaults)[] = ['arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'reviewer', 'finalReviewer'];
@@ -544,6 +555,138 @@ function migrateV27AgentPromptsToV28_ACU(raw: unknown): unknown {
   return lineage.changed || repaired.changed || next !== repaired.next ? next : raw;
 }
 
+/**
+ * V28 → V29：谱系替换（主会话开局决策段），与上游 V29→V30 同构。
+ * TT 跳过上游 V29 的用户要求分支，本版本直接承载固定工作流。
+ */
+function migrateV28AgentPromptsToV29_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const lineage = replaceAgentPromptsByLineage_ACU(raw);
+  return lineage.changed ? lineage.next : raw;
+}
+
+function migrateV29AgentPromptsToV30_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw) || !Array.isArray(raw.main)) return raw;
+  let changed = false;
+  const main = raw.main.map(segment => {
+    if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+    const content = migrateV29DefaultMainAgentContentToV30_ACU(segment.content);
+    if (content === segment.content) return segment;
+    changed = true;
+    return { ...segment, content };
+  });
+  return changed ? { ...raw, main } : raw;
+}
+
+/**
+ * V30 → V31：用户要求资料区。谱系替换把 V30 的 $USER_INTENT 任务段换成
+ * $USER_REQUIREMENTS 累计要求段；大纲上下文段开头两行同步替换；用户定制段保留。
+ * （对标上游 V28→V29 用户要求分支，TT 本树顺延为 V30→V31。）
+ */
+function migrateV30AgentPromptsToV31_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const lineage = replaceAgentPromptsByLineage_ACU(raw);
+  return lineage.changed ? lineage.next : raw;
+}
+
+function migrateV31AgentPromptsToV32_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const lineage = replaceAgentPromptsByLineage_ACU(raw);
+  return lineage.changed ? lineage.next : raw;
+}
+
+/**
+ * V32 → V33：信息边界纪律（TT 移植上游 0de0352，上游 V32；本树顺延为 V33）。
+ * 谱系替换把 V32 的任务段换成带【信息边界纪律】的当前默认；用户定制段保留。
+ */
+function migrateV32AgentPromptsToV33_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const lineage = replaceAgentPromptsByLineage_ACU(raw);
+  return lineage.changed ? lineage.next : raw;
+}
+
+function migrateV33AgentPromptsToV34_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const previous = buildV33ContinuationAgentPrompts_ACU();
+  const current = buildDefaultContinuationAgentPrompts_ACU();
+  let changed = false;
+  const next = { ...raw };
+  for (const role of Object.keys(CONTINUATION_V33_DEFAULT_LINEAGE_ACU) as (keyof typeof previous)[]) {
+    if (!Array.isArray(raw[role])) continue;
+    next[role] = raw[role].map(segment => {
+      if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+      const content = segment.content;
+      const entry = CONTINUATION_V33_DEFAULT_LINEAGE_ACU[role].find(item => item.role === segment.role
+        && item.length === content.length && item.hash === hashAgentPromptContent_ACU(content)
+        && content === previous[role][item.index].content);
+      if (!entry) return segment;
+      changed = true;
+      return { ...segment, content: current[role][entry.index].content };
+    });
+  }
+  // 统一派遣策略（TT 移植上游 3ba6460d 子集）：V33→V34  lineage 只覆盖 v34Content 的 SQL 改写，
+  // 调度语句（条件审查/beat 保底/reviewer 移除）与 composer 自查、终审兜底需按本地 V34 槽位幂等补齐，
+  // 否则历史版本迁移后仍停留在旧派遣文本（谱系回归即覆盖此情形）。用户改写段不命中旧原文则原样保留。
+  const migrateDispatch_ACU = (role: string, segments: unknown): unknown => {
+    if (!Array.isArray(segments)) return segments;
+    return segments.map(segment => {
+      if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+      let content = segment.content as string;
+      let touched = false;
+      if (role === 'main') {
+        if (content.startsWith('我的行动规则：')) {
+          const replaced = content
+            .replace('固定工作流负责结算、策划、条件审查和写作指令。', '固定工作流负责结算、策划和写作指令。')
+            .replace('不要 delegate hook-cognition-maintainer、mainline-planner、beat-planner、continuity-reviewer 或 instruction-composer。', '不要 delegate hook-cognition-maintainer、mainline-planner、beat-planner、continuity-reviewer 或 instruction-composer；这些角色由固定工作流按上述顺序处理，不单独派 continuity-reviewer。');
+          if (replaced !== content) { content = replaced; touched = true; }
+          if (!content.includes(CONTINUATION_CURRENT_MAIN_WORKFLOW_RULES_ACU)) {
+            content = `${content}\n${CONTINUATION_CURRENT_MAIN_WORKFLOW_RULES_ACU}`;
+            touched = true;
+          }
+        } else if (content.startsWith('【子代理使用规则】')) {
+          const replaced = content
+            .replace('结算、策划、条件审查和写作指令都由固定工作流执行。', '结算、策划和写作指令都由固定工作流执行。')
+            .replace('仅在本轮有伏笔操作义务时派 beat-planner，仅在策划冲突或大转折时派 continuity-reviewer，然后由 instruction-composer 写出 instruction', '第二轮起保底派 beat-planner（首轮且无伏笔义务时可跳过，无真实操作时由其以 no_change 结束），不再单独派 continuity-reviewer，然后由 instruction-composer 写出 instruction');
+          if (replaced !== content) { content = replaced; touched = true; }
+        } else if (content.startsWith('【文本协议规范】')) {
+          const replaced = (content as string).replace('执行结算、策划、条件审查、容错提交、自动修复和 instruction-composer', '执行结算、策划、容错提交、自动修复和 instruction-composer');
+          if (replaced !== content) { content = replaced; touched = true; }
+        }
+      } else if (role === 'instructionComposer') {
+        if ((content as string).includes('$AGENT_TASK') && !(content as string).includes(CONTINUATION_CURRENT_COMPOSER_RULES_ACU)) {
+          content = `${content}\n\n${CONTINUATION_CURRENT_COMPOSER_RULES_ACU}`;
+          touched = true;
+        }
+      } else if (role === 'finalReviewer') {
+        if ((content as string).includes('$AGENT_TASK') && !(content as string).includes(CONTINUATION_CURRENT_FINAL_REVIEW_RULES_ACU)) {
+          content = `${content}\n\n${CONTINUATION_CURRENT_FINAL_REVIEW_RULES_ACU}`;
+          touched = true;
+        }
+      }
+      if (!touched) return segment;
+      changed = true;
+      return { ...segment, content };
+    });
+  };
+  for (const role of ['main', 'instructionComposer', 'finalReviewer']) {
+    if (!Array.isArray((next as Record<string, unknown>)[role])) continue;
+    (next as Record<string, unknown>)[role] = migrateDispatch_ACU(role, (next as Record<string, unknown>)[role]);
+  }
+  return changed ? next : raw;
+}
+
+function migrateV30OutlinePromptToV31_ACU(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  let changed = false;
+  const next = raw.map(segment => {
+    if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+    if (segment.content !== V27_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU) return segment;
+    changed = true;
+    return { ...segment, content: V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU };
+  });
+  return changed ? next : raw;
+}
+
 /** V26 → V27：只在上下文注入段未改写时换成带账本注入的新段。 */
 function migrateV26OutlinePromptToV27_ACU(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
@@ -557,7 +700,7 @@ function migrateV26OutlinePromptToV27_ACU(raw: unknown): unknown {
 }
 
 /**
- * 校验七个角色的 AI 渠道配置。
+ * 校验十个角色的 AI 渠道配置。
  * @param raw 持久化里的 agentApiPresets 字段
  * @returns 逐角色校验后的渠道配置
  */
@@ -596,6 +739,21 @@ function validateReadTokenBudget_ACU(raw: unknown): number | string {
     if (Number.isInteger(numeric) && numeric >= 1) return numeric;
   }
   fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'settings.agentReadTokenBudget 必须是正整数或 1%-100% 百分比');
+}
+
+function validateWorkflowSettings_ACU(raw: unknown): ContinuationSettings_ACU['workflow'] {
+  if (!isRecord_ACU(raw)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'settings.workflow 必须是对象');
+  requireKeys_ACU(raw, ['autoFixEnabled', 'autoFixMaxAttempts', 'reviseLimit', 'repairMaxExtraReads'], 'settings.workflow');
+  const autoFixMaxAttempts = requireBoundedInteger_ACU(raw.autoFixMaxAttempts, 'settings.workflow.autoFixMaxAttempts', 10);
+  const reviseLimit = requireBoundedInteger_ACU(raw.reviseLimit, 'settings.workflow.reviseLimit', 10);
+  if (autoFixMaxAttempts < 1) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'settings.workflow.autoFixMaxAttempts 至少为 1');
+  if (reviseLimit < 1) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'settings.workflow.reviseLimit 至少为 1');
+  return {
+    autoFixEnabled: requireBoolean_ACU(raw.autoFixEnabled, 'settings.workflow.autoFixEnabled'),
+    autoFixMaxAttempts,
+    reviseLimit,
+    repairMaxExtraReads: requireBoundedInteger_ACU(raw.repairMaxExtraReads, 'settings.workflow.repairMaxExtraReads', 10),
+  };
 }
 
 function validateFinalReviewSettings_ACU(raw: unknown): ContinuationSettings_ACU['finalReview'] {
@@ -685,6 +843,14 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
   if (isRecord_ACU(raw.agentPrompts) && !Object.prototype.hasOwnProperty.call(raw.agentPrompts, 'webResearcher')) {
     raw.agentPrompts.webResearcher = buildDefaultContinuationAgentPrompts_ACU().webResearcher;
   }
+  // 写作指令编排子代理随固定工作流加入；存量信封缺键即补默认。
+  if (isRecord_ACU(raw.agentPrompts) && !Object.prototype.hasOwnProperty.call(raw.agentPrompts, 'instructionComposer')) {
+    raw.agentPrompts.instructionComposer = buildDefaultContinuationAgentPrompts_ACU().instructionComposer;
+  }
+  // 用户要求维护子代理随 V31 加入；存量信封缺键即补默认，不必整组重刷。
+  if (isRecord_ACU(raw.agentPrompts) && !Object.prototype.hasOwnProperty.call(raw.agentPrompts, 'requirementsMaintainer')) {
+    raw.agentPrompts.requirementsMaintainer = buildDefaultContinuationAgentPrompts_ACU().requirementsMaintainer;
+  }
   if (!Object.prototype.hasOwnProperty.call(raw, 'webResearch')) raw.webResearch = buildDefaultContinuationWebResearchSettings_ACU();
   // 渠道按角色拆分之前的信封没有 agentApiPresets；就地补默认（全 inherit）即无感迁移。
   if (!Object.prototype.hasOwnProperty.call(raw, 'agentApiPresets')) raw.agentApiPresets = buildDefaultContinuationAgentApiPresets_ACU();
@@ -701,6 +867,7 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
   if (!Object.prototype.hasOwnProperty.call(raw, 'finalReview')) {
     raw.finalReview = { enabled: false, readTokenBudget: CONTINUATION_FINAL_REVIEW_READ_TOKEN_BUDGET_DEFAULT_ACU, maxExtraReads: CONTINUATION_FINAL_REVIEW_MAX_EXTRA_READS_DEFAULT_ACU };
   }
+  if (!Object.prototype.hasOwnProperty.call(raw, 'workflow')) raw.workflow = buildDefaultContinuationWorkflowSettings_ACU();
   // 节奏规则从「每阶段固定低压占比」改为「阶段形态 + 跨阶段连续高压上限」，旧键已无对应语义：
   // 直接丢掉并补新键的默认值，保留旧值反而会把用户配过的比例误当成新语义使用。
   if (Object.prototype.hasOwnProperty.call(raw, 'downtimeTurnRatio')) delete raw.downtimeTurnRatio;
@@ -717,7 +884,7 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
   // 总纲卷数与阶段轮次是两条独立的尺度。旧信封没有卷数计划时默认采用中线档。
   if (!Object.prototype.hasOwnProperty.call(raw, 'storyArcVolumePlan')) raw.storyArcVolumePlan = 'medium';
   if (!Object.prototype.hasOwnProperty.call(raw, 'customStoryArcVolumeCount')) raw.customStoryArcVolumeCount = null;
-  const keys = ['stageSize', 'customTurnMin', 'customTurnMax', 'storyArcVolumePlan', 'customStoryArcVolumeCount', 'outlinePreview', 'autoNextStage', 'maxAutomaticStages', 'loopTags', 'loopDelaySeconds', 'totalDurationMinutes', 'retryDelaySeconds', 'generationRetryLimit', 'internalAiRetryLimit', 'minGenerationTokens', 'maxConsecutivePressureTurns', 'storyWindowFloors', 'agentHistoryTokenBudget', 'storyTailFloors', 'agentReadTokenBudget', 'agentReadFallbackTokens', 'finalReview', 'webResearch', 'contextExtractRules', 'contextExcludeRules', 'agentRunBudget', 'apiPresetMode', 'fixedApiPresetName', 'promptCacheEnabled', 'agentApiPresets', 'outlinePrompt', 'agentPrompts'];
+  const keys = ['stageSize', 'customTurnMin', 'customTurnMax', 'storyArcVolumePlan', 'customStoryArcVolumeCount', 'outlinePreview', 'autoNextStage', 'maxAutomaticStages', 'loopTags', 'loopDelaySeconds', 'totalDurationMinutes', 'retryDelaySeconds', 'generationRetryLimit', 'internalAiRetryLimit', 'minGenerationTokens', 'maxConsecutivePressureTurns', 'storyWindowFloors', 'agentHistoryTokenBudget', 'storyTailFloors', 'agentReadTokenBudget', 'agentReadFallbackTokens', 'finalReview', 'workflow', 'webResearch', 'contextExtractRules', 'contextExcludeRules', 'agentRunBudget', 'apiPresetMode', 'fixedApiPresetName', 'promptCacheEnabled', 'agentApiPresets', 'outlinePrompt', 'agentPrompts'];
   requireKeys_ACU(raw, keys, 'settings', ['promptForceDefaultVersion']);
   if (!['short', 'standard', 'long', 'custom'].includes(raw.stageSize as string)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'stageSize 非法');
   const customTurnMin = raw.customTurnMin === null ? null : requireInteger_ACU(raw.customTurnMin, 'settings.customTurnMin', 1);
@@ -776,7 +943,13 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V25_ACU
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V26_ACU
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU
-    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU) {
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU) {
     outlinePrompt = buildDefaultContinuationOutlinePrompt_ACU();
     agentPrompts = buildDefaultContinuationAgentPrompts_ACU();
     promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU;
@@ -806,6 +979,31 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
     agentPrompts = migrateV27AgentPromptsToV28_ACU(agentPrompts);
     promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU;
   }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU) {
+    agentPrompts = migrateV28AgentPromptsToV29_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU) {
+    agentPrompts = migrateV29AgentPromptsToV30_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU) {
+    agentPrompts = migrateV30AgentPromptsToV31_ACU(agentPrompts);
+    outlinePrompt = migrateV30OutlinePromptToV31_ACU(outlinePrompt);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU) {
+    agentPrompts = migrateV31AgentPromptsToV32_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU) {
+    agentPrompts = migrateV32AgentPromptsToV33_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU) {
+    agentPrompts = migrateV33AgentPromptsToV34_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU;
+  }
   
   return {
     stageSize: raw.stageSize as ContinuationSettings_ACU['stageSize'], customTurnMin, customTurnMax,
@@ -817,6 +1015,7 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
     storyWindowFloors: requireInteger_ACU(raw.storyWindowFloors, 'settings.storyWindowFloors', 0), agentHistoryTokenBudget: requireInteger_ACU(raw.agentHistoryTokenBudget, 'settings.agentHistoryTokenBudget', 0),
     storyTailFloors: requireInteger_ACU(raw.storyTailFloors, 'settings.storyTailFloors', 0), agentReadTokenBudget: validateReadTokenBudget_ACU(raw.agentReadTokenBudget), agentReadFallbackTokens: requireInteger_ACU(raw.agentReadFallbackTokens, 'settings.agentReadFallbackTokens', 1),
     finalReview: validateFinalReviewSettings_ACU(raw.finalReview),
+    workflow: validateWorkflowSettings_ACU(raw.workflow),
     webResearch: validateWebResearchSettings_ACU(raw.webResearch),
     contextExtractRules: validateRules_ACU(raw.contextExtractRules, 'settings.contextExtractRules'), contextExcludeRules: validateRules_ACU(raw.contextExcludeRules, 'settings.contextExcludeRules'),
     agentRunBudget: validateAgentRunBudget_ACU(raw.agentRunBudget),
@@ -843,10 +1042,15 @@ function validateTimeline_ACU(raw: unknown): any[] {
   return raw.map((entry, index) => {
     const path = `activeTask.timeline[${index}]`;
     if (!isRecord_ACU(entry)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', `时间线条目必须是对象：${path}`);
-    for (const key of Object.keys(entry)) if (!['id', 'at', 'kind', 'stageId', 'revision', 'nodeId', 'turnId', 'attemptId', 'messageIndex', 'errorCode'].includes(key)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', `时间线存在未知字段：${path}.${key}`);
+    for (const key of Object.keys(entry)) if (!['id', 'at', 'kind', 'stageId', 'revision', 'nodeId', 'turnId', 'attemptId', 'messageIndex', 'messageId', 'messageFingerprint', 'errorCode'].includes(key)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', `时间线存在未知字段：${path}.${key}`);
     const result: Record<string, unknown> = { id: requireString_ACU(entry.id, `${path}.id`), at: requireInteger_ACU(entry.at, `${path}.at`, 0), kind: requireEnum_ACU(entry.kind, TIMELINE_KINDS_ACU, `${path}.kind`) };
     for (const key of ['stageId', 'nodeId', 'turnId', 'attemptId'] as const) if (key in entry) result[key] = requireString_ACU(entry[key], `${path}.${key}`);
     for (const key of ['revision', 'messageIndex'] as const) if (key in entry) result[key] = requireInteger_ACU(entry[key], `${path}.${key}`, 0);
+    if ('messageId' in entry) {
+      if (typeof entry.messageId !== 'string' && typeof entry.messageId !== 'number') fail_ACU('CONTINUATION_ENVELOPE_INVALID', `messageId 必须是字符串或数字：${path}.messageId`);
+      result.messageId = entry.messageId;
+    }
+    if ('messageFingerprint' in entry) result.messageFingerprint = requireString_ACU(entry.messageFingerprint, `${path}.messageFingerprint`);
     if ('errorCode' in entry) result.errorCode = requireString_ACU(entry.errorCode, `${path}.errorCode`);
     return result;
   });
@@ -855,11 +1059,11 @@ function validateTimeline_ACU(raw: unknown): any[] {
 function validatePendingHostTurn_ACU(raw: unknown): ContinuationEnvelope_ACU['activeTask'] extends infer T ? T extends { pendingHostTurn?: infer P } ? P : never : never {
   if (raw === null || raw === undefined) return null as any;
   if (!isRecord_ACU(raw)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'pendingHostTurn 必须是对象或 null');
-  requireKeys_ACU(raw, ['identity', 'capture', 'retryCount', 'status'], 'activeTask.pendingHostTurn');
+  requireKeys_ACU(raw, ['identity', 'capture', 'retryCount', 'status'], 'activeTask.pendingHostTurn', ['evaluationSettings']);
   if (!isRecord_ACU(raw.identity)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'pendingHostTurn.identity 必须是对象');
   requireKeys_ACU(raw.identity, ['chatIdentity', 'taskId', 'stageId', 'revision', 'nodeId', 'turnId', 'attemptId'], 'activeTask.pendingHostTurn.identity');
   if (!isRecord_ACU(raw.capture)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'pendingHostTurn.capture 必须是对象');
-  requireKeys_ACU(raw.capture, ['capturedAt', 'capturedChatLength', 'capturedAiFloorCount', 'generationSeq'], 'activeTask.pendingHostTurn.capture');
+  requireKeys_ACU(raw.capture, ['capturedAt', 'capturedChatLength', 'capturedAiFloorCount', 'generationSeq'], 'activeTask.pendingHostTurn.capture', ['instructionIndex', 'instructionFingerprint', 'boundaryFingerprint']);
   return {
     identity: {
       chatIdentity: requireString_ACU(raw.identity.chatIdentity, 'pendingHostTurn.identity.chatIdentity'),
@@ -875,9 +1079,24 @@ function validatePendingHostTurn_ACU(raw: unknown): ContinuationEnvelope_ACU['ac
       capturedChatLength: requireInteger_ACU(raw.capture.capturedChatLength, 'pendingHostTurn.capture.capturedChatLength', 0),
       capturedAiFloorCount: requireInteger_ACU(raw.capture.capturedAiFloorCount, 'pendingHostTurn.capture.capturedAiFloorCount', 0),
       generationSeq: raw.capture.generationSeq === null ? null : requireInteger_ACU(raw.capture.generationSeq, 'pendingHostTurn.capture.generationSeq', 1),
+      ...(raw.capture.instructionIndex === undefined ? {} : { instructionIndex: requireInteger_ACU(raw.capture.instructionIndex, 'pendingHostTurn.capture.instructionIndex', 0) }),
+      ...(raw.capture.instructionFingerprint === undefined ? {} : { instructionFingerprint: requireString_ACU(raw.capture.instructionFingerprint, 'pendingHostTurn.capture.instructionFingerprint') }),
+      ...(raw.capture.boundaryFingerprint === undefined ? {} : { boundaryFingerprint: requireString_ACU(raw.capture.boundaryFingerprint, 'pendingHostTurn.capture.boundaryFingerprint') }),
     },
     retryCount: requireInteger_ACU(raw.retryCount, 'pendingHostTurn.retryCount', 0),
     status: requireEnum_ACU(raw.status, ['awaiting_generation', 'retry_ready', 'exhausted'] as const, 'pendingHostTurn.status'),
+    ...(raw.evaluationSettings === undefined ? {} : (() => {
+      if (!isRecord_ACU(raw.evaluationSettings)) fail_ACU('CONTINUATION_ENVELOPE_INVALID', 'pendingHostTurn.evaluationSettings 必须是对象');
+      requireKeys_ACU(raw.evaluationSettings, ['loopTags', 'retryDelaySeconds', 'minGenerationTokens', 'generationRetryLimit'], 'pendingHostTurn.evaluationSettings');
+      return {
+        evaluationSettings: {
+          loopTags: requireString_ACU(raw.evaluationSettings.loopTags, 'pendingHostTurn.evaluationSettings.loopTags'),
+          retryDelaySeconds: requireInteger_ACU(raw.evaluationSettings.retryDelaySeconds, 'pendingHostTurn.evaluationSettings.retryDelaySeconds', 0),
+          minGenerationTokens: requireInteger_ACU(raw.evaluationSettings.minGenerationTokens, 'pendingHostTurn.evaluationSettings.minGenerationTokens', 0),
+          generationRetryLimit: requireInteger_ACU(raw.evaluationSettings.generationRetryLimit, 'pendingHostTurn.evaluationSettings.generationRetryLimit', 0),
+        },
+      };
+    })()),
   } as any;
 }
 
@@ -1011,6 +1230,7 @@ export class FirstFloorContinuationStore_ACU {
     return envelope === null ? null : reconcileContinuationEnvelopeCursor_ACU(
       derivePausedContinuationEnvelopeAfterReload_ACU(envelope),
       Array.isArray(context.chat) ? context.chat.length : 0,
+      Array.isArray(context.chat) ? context.chat : undefined,
     );
   }
 

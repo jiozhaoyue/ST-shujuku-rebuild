@@ -5,12 +5,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { createApp, nextTick, ref } from 'vue';
+import { createApp, nextTick, reactive, ref, watch } from 'vue';
 import { useDialogStore } from '../../../src/presentation-v2/stores/dialog-store';
 
 const mountedApps = new Set<{ unmount: () => void }>();
 const chatTick = ref(0);
 const chatMutationTick = ref(0);
+const materialsReload = vi.fn();
+const settingsIdentity = ref('chat-a');
+let currentChatIdentity = 'chat-a';
 const task = ref<any>(null);
 const activeStage = ref<any>(null);
 const activeRevision = ref<any>(null);
@@ -34,13 +37,24 @@ const clearData = vi.fn(async () => true);
 const acceptOutline = vi.fn(async () => true);
 const saveSettings = vi.fn(async () => 'saved' as const);
 const restorePromptDefault = vi.fn((draft: any) => draft);
+const requirementModule = reactive({ draft: '[]', dirty: false, error: '', saving: false });
+const materialsUpdateDraft = vi.fn((module: string, value: string) => {
+  if (module !== 'userRequirements') return;
+  requirementModule.draft = value;
+  requirementModule.dirty = true;
+});
+const materialsSave = vi.fn(async (module: string) => {
+  if (module === 'userRequirements') requirementModule.error = '资料快照写盘失败，已还原楼层字段';
+  return false;
+});
+const materialsDiscard = vi.fn();
 
 vi.mock('../../../src/presentation-v2/composables/useContinuationRuntime', () => ({
   useContinuationRuntime: () => ({
     activeStage, activeRevision, activeNode, activeTurn, busy, canContinue, continueTask, initialize,
     isAwaitingHostResult: awaitingHostResult, originInstruction, refresh,
     retryCurrentTurn, acceptOutline, sendAgentMessage, saveActiveOutline, clearData, restorePromptDefault,
-    saveSettings, settings, statusText, stopTask, task,
+    saveSettings, settings, settingsIdentity, statusText, stopTask, task,
   }),
   // 连续高压轮上限输入框的上界常量：组件从 composable 取，mock 缺了它会整页渲染失败。
   CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_UI_ACU: 20,
@@ -49,15 +63,20 @@ vi.mock('../../../src/presentation-v2/composables/useContinuationMaterials', () 
   useContinuationMaterials: () => ({
     snapshot: materialsSnapshot,
     loadError: ref(''),
-    modules: {},
-    reload: vi.fn(),
-    save: vi.fn(),
-    discard: vi.fn(),
-    updateDraft: vi.fn(),
+    modules: { userRequirements: requirementModule },
+    reload: materialsReload,
+    save: materialsSave,
+    discard: materialsDiscard,
+    updateDraft: materialsUpdateDraft,
   }),
+}));
+vi.mock('../../../src/service/runtime/state-manager', () => ({
+  settings_ACU: { apiPresets: [] },
+  get currentChatFileIdentifier_ACU() { return currentChatIdentity; },
 }));
 vi.mock('../../../src/presentation-v2/composables/useChatChangedListener', () => ({
   useChatChangedTick: () => chatTick,
+  watchChatChanged_ACU: (cb) => { watch(chatTick, () => (cb as () => void)()); },
   useChatMutationTick: () => chatMutationTick,
 }));
 
@@ -169,6 +188,9 @@ beforeEach(() => {
   statusText.value = '尚未创建任务';
   chatTick.value = 0;
   chatMutationTick.value = 0;
+  Object.assign(requirementModule, { draft: '[]', dirty: false, error: '', saving: false });
+  currentChatIdentity = 'chat-a';
+  settingsIdentity.value = 'chat-a';
   vi.clearAllMocks();
   sendAgentMessage.mockResolvedValue(true);
 });
@@ -197,6 +219,7 @@ function setSettings(): void {
       reviewer: { mode: 'inherit', presetName: '' },
       finalReviewer: { mode: 'inherit', presetName: '' },
       webResearcher: { mode: 'inherit', presetName: '' },
+      requirementsMaintainer: { mode: 'inherit', presetName: '' },
     },
     outlinePrompt: [{ role: 'system', content: '规划', enabled: true, deletable: true }],
     agentPrompts: {
@@ -208,6 +231,7 @@ function setSettings(): void {
       reviewer: [{ role: 'system', content: '审查', enabled: true, deletable: true }],
       finalReviewer: [{ role: 'system', content: '终审', enabled: true, deletable: true }],
       webResearcher: [{ role: 'system', content: '检索', enabled: true, deletable: true }],
+      requirementsMaintainer: [{ role: 'system', content: '用户要求', enabled: true, deletable: true }],
     },
   };
 }
@@ -444,6 +468,45 @@ describe('ContinuationPage', () => {
     app.unmount();
   });
 
+  it('聊天切换会清空未发送消息并重载资料草稿', async () => {
+    setTask();
+    const { app, el } = await mountPage();
+    const input = chatInput(el);
+    typeInto(input, '只属于 A 的未发送消息');
+    await nextTick();
+    materialsReload.mockClear();
+
+    currentChatIdentity = 'chat-b';
+    chatTick.value += 1;
+    await nextTick();
+
+    expect(input.value).toBe('');
+    expect(materialsReload).toHaveBeenCalledOnce();
+    app.unmount();
+  });
+
+  it('切到 B 后迟到的 A 设置结果不能回写，B 自己的设置仍可加载', async () => {
+    setTask();
+    setSettings();
+    const { app, el } = await mountPage();
+    expect(el.textContent).toContain('正文重试次数');
+
+    currentChatIdentity = 'chat-b';
+    chatTick.value += 1;
+    await nextTick();
+    settingsIdentity.value = 'chat-a';
+    settings.value = { ...settings.value!, loopTags: 'A-late' };
+    await nextTick();
+
+    expect(el.textContent).not.toContain('正文重试次数');
+
+    settingsIdentity.value = 'chat-b';
+    settings.value = { ...settings.value!, loopTags: 'B-current' };
+    await nextTick();
+    expect(el.textContent).toContain('正文重试次数');
+    app.unmount();
+  });
+
   it('楼层被删除后会话流按现存楼层重灌、任务状态刷新，且不丢运行标记', async () => {
     const sessionLog = await import('../../../src/service/continuation/agent/agent-session-log');
     const hostApi = await import('../../../src/shared/host-api');
@@ -512,6 +575,12 @@ describe('ContinuationPage', () => {
     expect(el.querySelectorAll('.acu-v2-continuation-materials__turn--current')).toHaveLength(1);
     expect(el.querySelectorAll('.acu-v2-continuation-materials__turn--planned')).toHaveLength(1);
     expect(el.textContent).toContain('第 0 阶段');
+    expect(el.textContent).not.toContain('最终试探');
+    const historyStage = el.querySelector<HTMLDetailsElement>('.acu-v2-continuation-materials__block')!;
+    expect(historyStage.open).toBe(false);
+    historyStage.open = true;
+    historyStage.dispatchEvent(new Event('toggle'));
+    await nextTick();
     expect(el.textContent).toContain('最终试探');
     expect(el.textContent).toContain('旧 revision（1）');
 
@@ -575,8 +644,8 @@ describe('ContinuationPage', () => {
       expect(el.textContent).toContain('关闭时不装配终审证据');
       expect(el.textContent).toContain('不会发起终审调用');
       expect(el.textContent).toContain('发送前终审子代理提示词');
-      expect(el.textContent).toContain('固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查与终审固定获得 $OUTLINE_WINDOW');
-      expect(el.textContent).toContain('伏笔与认知维护代理不接收用户目标或阶段大纲');
+      expect(el.textContent).toContain('固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查、终审与用户要求维护固定获得 $OUTLINE_WINDOW 或任务段中的 $USER_REQUIREMENTS');
+      expect(el.textContent).toContain('伏笔与认知维护代理不再注入初始要求原文，只接收累计用户要求清单');
       expect(el.textContent).toContain('故事总纲子代理（arc-architect）提示词');
       // 保存按钮已移除：修改任意设置项后由防抖自动保存。
       expect(buttonByText(el, '保存续写设置')).toBeUndefined();
@@ -791,5 +860,28 @@ describe('ContinuationPage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('续写用户要求逐条输入后转换为既有 JSON 字符串数组草稿，保存失败时仍保留标签', async () => {
+    setTask();
+    materialsSnapshot.value = { ...materialsSnapshot.value, userRequirements: ['旧要求'], revisions: { ...materialsSnapshot.value.revisions, userRequirements: 0 } };
+    requirementModule.draft = JSON.stringify(['旧要求']);
+    const { el } = await mountPage();
+    const tab = Array.from(el.querySelectorAll<HTMLButtonElement>('.acu-v2-continuation-materials__tab'))
+      .find(item => item.textContent?.trim() === '用户要求')!;
+    tab.click();
+    await nextTick();
+    expect(el.querySelector<HTMLTextAreaElement>('.acu-requirements-editor textarea')?.value).toBe('旧要求');
+    buttonByText(el, '新增标签')!.click();
+    await nextTick();
+    const second = el.querySelectorAll<HTMLTextAreaElement>('.acu-requirements-editor textarea')[1]!;
+    typeInto(second, '第二条要求');
+    await nextTick();
+    expect(materialsUpdateDraft).toHaveBeenLastCalledWith('userRequirements', JSON.stringify(['旧要求', '第二条要求'], null, 2));
+    buttonByText(el, '保存用户要求')!.click();
+    await nextTick();
+    expect(materialsSave).toHaveBeenCalledWith('userRequirements');
+    expect(el.querySelectorAll<HTMLTextAreaElement>('.acu-requirements-editor textarea')[1]?.value).toBe('第二条要求');
+    expect(requirementModule.dirty).toBe(true);
   });
 });

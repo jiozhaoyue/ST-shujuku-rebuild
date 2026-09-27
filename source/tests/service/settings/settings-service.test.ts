@@ -295,13 +295,15 @@ import {
   buildDefaultSettings_ACU,
   applyTemplateScopeForCurrentChat_ACU,
   persistCurrentTemplatePresetName_ACU,
-  setZeroTkOccupyMode_ACU,
   applyCombinedSettingsImport_ACU,
   _set_settingsStorageReadyForSave_ACU,
+  summarizeSettingsForLog_ACU,
 } from '../../../src/service/settings/settings-service';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPersistSettingsToStorage.mockReset().mockReturnValue(true);
+  mockSaveGlobalMeta.mockReset().mockReturnValue(true);
   mockGetConfigStorage.mockReset().mockReturnValue(undefined);
   mockIsIndexedDbAvailable.mockReset().mockReturnValue(false);
   mockReadProfileSettings.mockReset().mockReturnValue(null);
@@ -470,6 +472,14 @@ describe('saveSettings_ACU', () => {
     expect(mockSaveGlobalMeta).toHaveBeenCalledTimes(1);
   });
 
+  it('宿主仅能内存保存时明确返回 memory warning', () => {
+    mockGetConfigStorage.mockReturnValue({ _isTavern: true, _lastPersistenceStatus: 'memory' });
+    const result = saveSettings_ACU();
+    expect(result.saved).toBe(true);
+    expect(result.storageType).toBe('memory');
+    expect(result.warning).toContain('刷新后会丢失');
+  });
+
   it('非 tavern + IndexedDB 可用时返回 indexeddb 并带 warning', () => {
     mockGetConfigStorage.mockReturnValue({ _isTavern: false });
     mockIsIndexedDbAvailable.mockReturnValue(true);
@@ -494,6 +504,24 @@ describe('saveSettings_ACU', () => {
     expect(result.saved).toBe(false);
     expect(result.storageType).toBe('memory');
     expect(result.error).toBeDefined();
+  });
+
+  it('profile 持久化失败时返回 storage_error，不再谎报保存成功', () => {
+    mockPersistSettingsToStorage.mockReturnValue(false);
+
+    const result = saveSettings_ACU();
+
+    expect(result).toMatchObject({ saved: false, storageType: 'memory', code: 'storage_error' });
+    expect(result.error).toContain('保存设置到存储失败');
+  });
+
+  it('global meta 持久化失败时同样返回 storage_error', () => {
+    mockSaveGlobalMeta.mockReturnValue(false);
+
+    const result = saveSettings_ACU();
+
+    expect(result).toMatchObject({ saved: false, storageType: 'memory', code: 'storage_error' });
+    expect(result.error).toContain('保存全局元信息失败');
   });
 });
 
@@ -961,6 +989,20 @@ describe('loadSettings_ACU', () => {
     expect(mockSettings.templateAssistantPromptSegments).toEqual(customized);
     expect(mockSettings.templateAssistantPromptForceDefaultVersion)
       .toBe('test-template-assistant-prompt-force-default');
+  });
+
+  it('日志摘要里的密钥一律全掩码，不留首尾字符（网安：部分掩码会降低爆破空间）', () => {
+    const secret = 'sk-abcdefghij12345678';
+    const summary = summarizeSettingsForLog_ACU({
+      apiMode: 'custom',
+      apiConfig: { url: 'https://api.test/v1', model: 'm', apiKey: secret },
+      apiPresets: [{ name: 'p1', apiConfig: { url: 'https://api.test/v1', model: 'm', apiKey: secret } }],
+    });
+    expect(summary.apiConfig.apiKey).toBe('***');
+    expect(summary.apiPresets[0].apiKey).toBe('***');
+    // 原密钥材料不得以任何子串形式残留（改回 slice(0,3) 时本用例变红）。
+    expect(JSON.stringify(summary)).not.toContain('sk-abcdefghij12345678');
+    expect(JSON.stringify(summary)).not.toContain('sk-');
   });
 
 });

@@ -1,16 +1,19 @@
 import { reactive, ref } from 'vue';
+import { currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
+import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import {
+  readAgentModuleFieldSnapshot_ACU,
   readAgentModuleSnapshot_ACU,
   readAgentModuleSnapshotDiagnostics_ACU,
   replaceAgentModuleSnapshotByUser_ACU,
   type AgentModuleSnapshotReadDiagnostics_ACU,
 } from '../../service/continuation/agent/agent-module-store';
 import { ContinuationValidationError_ACU } from '../../service/continuation/model';
-import type { AgentModuleSnapshot_ACU } from '../../service/continuation/agent/agent-model';
+import type { AgentModuleFieldSnapshot_ACU, AgentModuleSnapshot_ACU } from '../../service/continuation/agent/agent-model';
 import { useToastStore } from '../stores/toast-store';
 
-/** 用户可分模块编辑的六项资料。schemaVersion / settledThroughIndex 等运行时字段不进草稿。 */
-export const CONTINUATION_MATERIAL_MODULES_ACU = ['hooks', 'infoGap', 'constraints', 'storyArc', 'chronology', 'webRefs'] as const;
+/** 用户可分模块编辑的资料。schemaVersion / settledThroughIndex 等运行时字段不进草稿。 */
+export const CONTINUATION_MATERIAL_MODULES_ACU = ['hooks', 'infoGap', 'constraints', 'storyArc', 'chronology', 'webRefs', 'userRequirements'] as const;
 export type ContinuationMaterialModule_ACU = typeof CONTINUATION_MATERIAL_MODULES_ACU[number];
 
 export const CONTINUATION_MATERIAL_MODULE_LABELS_ACU: Record<ContinuationMaterialModule_ACU, string> = {
@@ -20,6 +23,7 @@ export const CONTINUATION_MATERIAL_MODULE_LABELS_ACU: Record<ContinuationMateria
   storyArc: '故事总纲',
   chronology: '故事年代学账本',
   webRefs: '百科资料库',
+  userRequirements: '用户要求',
 };
 
 interface ModuleDraftState_ACU {
@@ -56,8 +60,13 @@ export function useContinuationMaterials() {
   const toast = useToastStore();
   const snapshot = ref<AgentModuleSnapshot_ACU | null>(null);
   const loadError = ref('');
+  /** 分栏视图：partial 记录只出现在这里，面板据此按模块/ID 展示已写字段与缺栏。 */
+  const fieldSnapshot = ref<AgentModuleFieldSnapshot_ACU>({ records: {} });
   /** 最近一次读取的来源诊断：采用了哪一楼、是否宽容抢救、有哪些损坏楼层。 */
-  const diagnostics = ref<AgentModuleSnapshotReadDiagnostics_ACU>({ candidates: [], adoptedIndex: null, salvaged: false });
+  const diagnostics = ref<AgentModuleSnapshotReadDiagnostics_ACU>({ candidates: [], adoptedIndex: null, salvaged: false, checkpointIndex: null, foldedDeltaCount: 0 });
+  let loadedChat: any[] | null = null;
+  let loadedChatIdentity = '';
+
   const modules = reactive<Record<ContinuationMaterialModule_ACU, ModuleDraftState_ACU>>({
     hooks: emptyModuleState_ACU(),
     infoGap: emptyModuleState_ACU(),
@@ -65,6 +74,7 @@ export function useContinuationMaterials() {
     storyArc: emptyModuleState_ACU(),
     chronology: emptyModuleState_ACU(),
     webRefs: emptyModuleState_ACU(),
+    userRequirements: emptyModuleState_ACU(),
   });
 
   function resetModule(module: ContinuationMaterialModule_ACU, current: AgentModuleSnapshot_ACU): void {
@@ -72,14 +82,23 @@ export function useContinuationMaterials() {
   }
 
   function reload(): void {
+    const chat = getChatArray_ACU();
+    const identity = String(currentChatFileIdentifier_ACU || '');
     try {
-      const current = readAgentModuleSnapshot_ACU();
+      const current = readAgentModuleSnapshot_ACU(chat);
+      loadedChat = chat;
+      loadedChatIdentity = identity;
       snapshot.value = current;
+      // 与领域快照同一次折叠派生：partial 来自逐栏 delta，complete/legacy_unknown 来自领域数组。
+      fieldSnapshot.value = readAgentModuleFieldSnapshot_ACU(chat);
       diagnostics.value = readAgentModuleSnapshotDiagnostics_ACU();
       for (const module of CONTINUATION_MATERIAL_MODULES_ACU) resetModule(module, current);
       loadError.value = '';
     } catch (caught) {
+      loadedChat = null;
+      loadedChatIdentity = '';
       snapshot.value = null;
+      fieldSnapshot.value = { records: {} };
       for (const module of CONTINUATION_MATERIAL_MODULES_ACU) modules[module] = emptyModuleState_ACU();
       loadError.value = errorMessage_ACU(caught);
     }
@@ -98,6 +117,12 @@ export function useContinuationMaterials() {
   async function save(module: ContinuationMaterialModule_ACU): Promise<boolean> {
     const state = modules[module];
     if (state.saving) return false;
+    const currentIdentity = String(currentChatFileIdentifier_ACU || '');
+    const currentChat = getChatArray_ACU();
+    if (!loadedChat || loadedChatIdentity !== currentIdentity || loadedChat !== currentChat) {
+      state.error = '聊天已切换，资料草稿已失效；请重新载入当前聊天。';
+      return false;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(state.draft);
@@ -112,7 +137,11 @@ export function useContinuationMaterials() {
     state.saving = true;
     try {
       // 只提交本模块：写入侧按 merge 语义保留其余模块的磁盘值，不会覆盖别的模块。
-      const saved = await replaceAgentModuleSnapshotByUser_ACU({ [module]: parsed });
+      const saved = await replaceAgentModuleSnapshotByUser_ACU({ [module]: parsed }, loadedChat);
+      if (String(currentChatFileIdentifier_ACU || '') !== loadedChatIdentity || getChatArray_ACU() !== loadedChat) {
+        state.error = '聊天已在保存期间切换，旧资料结果未更新当前页面。';
+        return false;
+      }
       snapshot.value = saved;
       resetModule(module, saved);
       toast.success(`${CONTINUATION_MATERIAL_MODULE_LABELS_ACU[module]}已保存，修订号已推进。`);
@@ -125,5 +154,5 @@ export function useContinuationMaterials() {
     }
   }
 
-  return { snapshot, loadError, diagnostics, modules, reload, save, discard, updateDraft };
+  return { snapshot, loadError, diagnostics, fieldSnapshot, modules, reload, save, discard, updateDraft };
 }

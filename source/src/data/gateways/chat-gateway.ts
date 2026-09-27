@@ -78,7 +78,37 @@ export async function saveChatToHostStrict_ACU(): Promise<void> {
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         throw new Error('宿主 saveChat 不可用，无法提交破坏性聊天数据变更。');
     }
-    await SillyTavern_API_ACU.saveChat();
+    // TT 的 integrity 冲突未确认路径不抛错：confirm 弹窗选否 → window.location.reload() 后 promise 照常 resolve，
+    // resolve 本身不能当落盘证据。若返回时本页已开始卸载，后续 publish/GC 会把注册表写成与盘上旧数据错配的状态——直接失败。
+    // 注：读回比对不可行——getContext 暴露的是 chatMetadata（非 chat_metadata），且 integrity 是只 mint 一次、
+    // 永不轮转的 uuid，前后比对恒相等；saveChat 全路径 resolve undefined，返回值亦无信号。
+    let unloading = false;
+    const markUnloading = () => { unloading = true; };
+    const listenTargets: Array<{ addEventListener: Function; removeEventListener: Function }> = [];
+    try {
+        const g: any = globalThis as any;
+        const wins: any[] = [];
+        if (g?.window) wins.push(g.window);
+        if (g?.window?.parent && g.window.parent !== g.window) wins.push(g.window.parent);
+        for (const win of wins) {
+            if (typeof win?.addEventListener === 'function' && typeof win?.removeEventListener === 'function') {
+                listenTargets.push(win);
+            }
+        }
+    } catch { /* 取 parent 失败即只听本窗（下面 windows 为空则跳过） */ }
+    for (const win of listenTargets) {
+        try { win.addEventListener('pagehide', markUnloading); } catch { /* 忽略 */ }
+    }
+    try {
+        await SillyTavern_API_ACU.saveChat();
+    } finally {
+        for (const win of listenTargets) {
+            try { win.removeEventListener('pagehide', markUnloading); } catch { /* 忽略 */ }
+        }
+    }
+    if (unloading) {
+        throw new Error('宿主页面在保存返回时已开始卸载（疑似 integrity 冲突未确认覆盖），中止本事务的破坏性变更。');
+    }
     notifyPostChatSaveListeners_ACU();
 }
 
@@ -165,14 +195,23 @@ export async function listAllHostChatNames_ACU(): Promise<Set<string> | null> {
                 return null;
             }
             const payload = await response.json();
-            // 无聊天时部分版本返回 {error: true}，视为空集而非失败。
-            if (payload && typeof payload === 'object' && !Array.isArray(payload) && (payload as any).error) {
-                continue;
+            // TT character-routes.js 的完整响应契约是数组（无角色/无聊天均为 []）。
+            // 2xx error 对象、旧版对象形态或畸形 entry 都不能证明枚举完整，否则 GC
+            // 会把「无法枚举」误判成「没有存活聊天」并删除向量。
+            if (!Array.isArray(payload)) {
+                logWarn_ACU(`[ChatGateway] 角色聊天响应不是数组，无法证明枚举完整：${avatar}`);
+                return null;
             }
-            const entries = Array.isArray(payload) ? payload : Object.values(payload || {});
-            for (const entry of entries) {
-                const fileName = String((entry as any)?.file_name || '').trim();
-                if (!fileName) continue;
+            for (const entry of payload) {
+                if (!entry || typeof entry !== 'object' || Array.isArray(entry) || typeof (entry as any).file_name !== 'string') {
+                    logWarn_ACU(`[ChatGateway] 角色聊天响应包含畸形 entry，无法证明枚举完整：${avatar}`);
+                    return null;
+                }
+                const fileName = (entry as any).file_name.trim();
+                if (!fileName) {
+                    logWarn_ACU(`[ChatGateway] 角色聊天响应包含空 file_name，无法证明枚举完整：${avatar}`);
+                    return null;
+                }
                 const normalized = cleanChatName_ACU(fileName);
                 if (normalized) names.add(normalized);
             }

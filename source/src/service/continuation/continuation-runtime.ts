@@ -14,6 +14,7 @@ import {
   type AgentContextRules_ACU,
 } from './agent/agent-placeholder-resolver';
 import { readAgentModuleSnapshot_ACU, renderAgentChronology_ACU, renderAgentConstraints_ACU, renderAgentHooksByIds_ACU, renderAgentInfoGapByIds_ACU, renderAgentStoryArc_ACU } from './agent/agent-module-store';
+import { renderAgentUserRequirements_ACU } from './agent/agent-user-requirements';
 import { ContinuationWorldbookContext_ACU } from './worldbook-context';
 import { createSillyTavernContinuationHostBridge_ACU } from './sillytavern-host-bridge';
 import { registerContinuationHostGenerationBridge_ACU } from './host-generation-bridge-registry';
@@ -83,6 +84,30 @@ export function serializeStageHistory_ACU(task: ContinuationTask_ACU): string {
   return sections.join('\n\n');
 }
 
+/** 当前正在启用的阶段大纲全文。新建阶段时还没有活动大纲。 */
+export function renderEnabledStageOutline_ACU(stage: ContinuationStage_ACU | null, revision: StageRevision_ACU | null): string {
+  if (!stage || !revision) return '当前没有正在启用的阶段大纲。';
+  const lines = [
+    `第 ${stage.stageNumber} 阶段（${stage.status}，活动 revision ${revision.revision}）`,
+    `标题：${revision.outline.title}`,
+    `目标：${revision.outline.goal}`,
+    `节奏形态：${revision.outline.tempo}`,
+    `结构职责：${revision.outline.role ?? '未标注'}`,
+    `时间目标：${revision.outline.timeSpanGoal ?? '未设定'}`,
+    `已完成轮数：${stage.completedTurns} / ${revision.outline.totalTurns}`,
+  ];
+  let turnNumber = 0;
+  for (const node of revision.outline.nodes) {
+    lines.push(`节点「${node.title}」：${node.goal}`);
+    for (const turn of node.turns) {
+      turnNumber += 1;
+      const done = turnNumber <= stage.completedTurns ? '已完成' : '未完成';
+      lines.push(`  ${turnNumber}. [${done}] [${serializeStageTurnMeta_ACU(turn)}] ${turn.goal}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 /** 已完成前缀渲染为可读文本（不用 JSON，避免诱导模型输出 JSON 而非大纲标签）。 */
 function completedPrefix_ACU(stage: ContinuationStage_ACU | null, revision: StageRevision_ACU | null): string {
   if (!stage || !revision || stage.completedTurns <= 0) return '';
@@ -112,6 +137,7 @@ function buildResolvers_ACU(task: ContinuationTask_ACU, stage: ContinuationStage
   const background = () => worldbook.readRelevantBackground(`${task.originInstruction}\n${storyTail()}`);
   return {
     $ORIGIN_INSTRUCTION: () => task.originInstruction,
+    $USER_REQUIREMENTS: () => renderAgentUserRequirements_ACU(readAgentModuleSnapshot_ACU(getChatArray_ACU()), task.originInstruction),
     $1: background,
     $STORY_OVERVIEW: () => renderAgentStoryOverview_ACU({ recallCodes: extractAgentRecallCodesFromChat_ACU(getChatArray_ACU()) }),
     $STORY_TAIL: storyTail,
@@ -127,6 +153,7 @@ function buildResolvers_ACU(task: ContinuationTask_ACU, stage: ContinuationStage
       readAgentModuleSnapshot_ACU(getChatArray_ACU()),
       task.stages.filter(item => item.status === 'completed').map(item => item.stageNumber),
     ),
+    $OUTLINE_WINDOW: () => renderEnabledStageOutline_ACU(stage, revision),
     // 大纲模型没有 read/search 工具：伏笔操作、揭示层级、时间锚与红线只能靠固定注入拿到事实依据。
     $HOOKS_LEDGER: () => renderAgentHooksByIds_ACU(readAgentModuleSnapshot_ACU(getChatArray_ACU())),
     $INFO_GAP: () => renderAgentInfoGapByIds_ACU(readAgentModuleSnapshot_ACU(getChatArray_ACU())),
@@ -245,6 +272,7 @@ function createRuntime_ACU(): ContinuationRuntime_ACU {
     },
     hasLiveHostClaim: chatIdentity => bridgeRef?.hasLiveClaim(chatIdentity) ?? false,
     invalidateHostClaim: chatIdentity => { bridgeRef?.invalidateStartedByChat(chatIdentity); },
+    stopHostGeneration: () => { bridgeRef?.stopHostGeneration(); },
     buildFallbackSettings: buildInitialContinuationSettings_ACU,
     onSettingsReplaced: writeGlobalContinuationSettings_ACU,
   });

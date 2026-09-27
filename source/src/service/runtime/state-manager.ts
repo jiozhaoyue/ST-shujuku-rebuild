@@ -76,7 +76,8 @@ export interface GenerationContext_ACU {
 /**
  * [152 收紧] 「新 AI 楼证据」签名：GENERATION_ENDED 到达时聊天里 AI 楼层的规模与末楼身份。
  * 口径与 service/table/auto-fill-echo-guard.ts resolveLatestAiFloor_ACU 完全一致
- * （AI 楼 = !is_user，含 narrator 系统楼）；由调用方（init 的 GENERATION_ENDED 监听器）读一次
+ * （宽档 AI 楼 = 非 user、非 is_system、非 role:'tool'，含 narrator 系统楼；见 shared/ai-floor）；
+ * 由调用方（init 的 GENERATION_ENDED 监听器）读一次
  * 聊天数组算好后传进门控，门控自身不碰 chat-gateway，避免依赖反向。
  */
 export interface AiFloorSignature_ACU {
@@ -102,6 +103,9 @@ export const generationGate_ACU = {
   lastGeneration: null as GenerationContext_ACU | null,
   generationSeq: 0,
   activeGenerations: [] as GenerationContext_ACU[],
+  // 并发 STARTED/ENDED 在 TT 事件面上没有可关联 id；一旦无法唯一配对，
+  // 在同一批上下文 TTL 内 fail closed，防止后续无配对事件误开普通自动链。
+  generationEndMatchQuarantineUntil_ACU: 0,
   // [152 收紧] 上一次门控「放行」时的 AI 楼签名；null = 启动后尚未放行过（此时无配对 ENDED 保守放行）。
   lastEndedFloorSignature_ACU: null as AiFloorSignature_ACU | null,
 };
@@ -150,12 +154,41 @@ export function recordGenerationContext_ACU(type: any, params: any, dryRun: any,
 }
 
 /**
+ * 丢掉栈顶未闭合的 dry-run 上下文，返回下一条真实上下文（或 null）。
+ *
+ * ⚠️ 为什么必须丢（2026-09-15）：宿主对 dry-run 生成（token 计数）只派发 GENERATION_STARTED、
+ * 不派发配对的 GENERATION_ENDED——GENERATION_ENDED 的唯一 emit 点是 hideStopButton，而它带
+ * NOOP 守卫（停止按钮从未显示就什么都不做），dry-run 秒回、按钮从不显示。这类上下文永远等不到
+ * 自己的 ended，一旦压在栈顶就会把下一条**真实** ENDED/STOPPED 配错（ENDED 侧表现为自动填表与
+ * 自动正文替换被静默跳过、只留 debug 级 quiet_or_background_generation；STOPPED 侧表现为把 dry 的
+ * seq 交给续写桥、等待轮不转 retry_ready）。dry-run 不产楼，其上下文对配对本无价值，故直接丢弃。
+ * 前提来源：本仓既有注释（GENERATION_ENDED 唯一 emit 点是 hideStopButton）＋ TT `src/scripts/macros.js`
+ * 的 `(type, _params, isDryRun) => { if (isDryRun) return; ... }`（证明 dry-run STARTED 确实会发）
+ * ＋ 上游姊妹插件 biotracker PR #12 在两宿主上的实测结论（dry-run 只 STARTED 不闭合、靠自愈兜底）。
+ * quiet 刻意不在此列：quiet 是真实耗时的生成、会显示停止按钮因而有配对的 ended，既有判定依赖它。
+ *
+ * 口径用真值而非 `=== true`，与同文件 shouldProcessPlot／shouldProcessSummaryVectorIndex／
+ * shouldProcessAutoTableUpdate 的 `if (dryRun)` 保持一致：宿主若把 dryRun 传成非布尔真值，
+ * 两处判定必须同进同退，否则仍会「配错但不丢」。
+ */
+function popUnclosedDryRunContexts_ACU(): GenerationContext_ACU | null {
+  let context = generationGate_ACU.activeGenerations.pop() || null;
+  while (context && context.dryRun) {
+    logDebug_ACU('[状态管理] 丢弃未闭合的 dry-run 生成上下文（dry-run 只发 STARTED、不发 ENDED）');
+    context = generationGate_ACU.activeGenerations.pop() || null;
+  }
+  return context;
+}
+
+/**
  * 宿主的 GENERATION_STOPPED 不携带 generation id，只能关闭最近一个未结束生成。
  * 这比让陈旧上下文持续污染下一次 GENERATION_ENDED 更安全。
+ * 未闭合的 dry-run 上下文一并丢弃：dry-run 不可能被「停止」（它没有停止按钮），
+ * 被它占住栈顶只会让真实被停的那一轮拿不到自己的 seq。
  */
 export function discardLatestGenerationContext_ACU(): GenerationContext_ACU | null {
   removeExpiredGenerationContexts_ACU();
-  return generationGate_ACU.activeGenerations.pop() || null;
+  return popUnclosedDryRunContexts_ACU();
 }
 
 export function isQuietLikeGeneration_ACU(type: any, params: any) {
@@ -205,17 +238,81 @@ export function shouldProcessSummaryVectorIndexForGeneration_ACU(type: any, para
   return fresh.result;
 }
 
+export type GenerationEndedMatchStatus_ACU = 'matched' | 'none' | 'ambiguous';
+
+export interface GenerationEndedMatchResult_ACU {
+  status: GenerationEndedMatchStatus_ACU;
+  context: GenerationContext_ACU | null;
+}
+
+function isGenerationEndMatchQuarantined_ACU(now = Date.now()): boolean {
+  const until = generationGate_ACU.generationEndMatchQuarantineUntil_ACU;
+  if (!until) return false;
+  if (now < until) return true;
+  generationGate_ACU.generationEndMatchQuarantineUntil_ACU = 0;
+  return false;
+}
+
+function isSameAiFloorSignatureEx_ACU(
+  previous: AiFloorSignatureEx_ACU | null | undefined,
+  current: AiFloorSignatureEx_ACU | null | undefined,
+): boolean {
+  return isSameAiFloorSignature_ACU(previous, current)
+    && previous?.latestContentHash === current?.latestContentHash;
+}
+
 /**
- * 消费与本次 GENERATION_ENDED 对应的最近生成上下文。
- * 事件 API 没有 generation id，因此按完成顺序（栈）配对；配合 makeFirst，避免其他插件在
- * 同一 ended 回调里新开 quiet 生成后覆盖当前正文生成的判定。
+ * 消费与本次 GENERATION_ENDED 对应的生成上下文。
+ *
+ * TT 的 GENERATION_STARTED/ENDED 不携带可关联的 generation id；同时存在多个在飞生成时，
+ * LIFO 不能证明 ENDED 属于 normal 还是 quiet。这里只在活动上下文唯一时配对；多上下文时
+ * 用各自 preSignature 与 ENDED 签名做诊断，但无法形成唯一证明便 fail closed，并清空
+ * 已失去归属的上下文。短 TTL 隔离后续无配对 ENDED，避免它们被误当普通前台生成。
  */
-export function consumeGenerationContextForEnded_ACU(): GenerationContext_ACU | null {
-  removeExpiredGenerationContexts_ACU();
-  const activeContext = generationGate_ACU.activeGenerations.pop();
-  // lastGeneration 仅保留给旧调用方。已有受追踪生成全部消费后，不能重复使用最后一个
-  // quiet 上下文，否则下一次无关 GENERATION_ENDED 会被持续误拦截。
-  return activeContext || (generationGate_ACU.generationSeq === 0 ? generationGate_ACU.lastGeneration : null);
+export function resolveGenerationContextForEnded_ACU(
+  endedSignature?: AiFloorSignatureEx_ACU | null,
+): GenerationEndedMatchResult_ACU {
+  const now = Date.now();
+  removeExpiredGenerationContexts_ACU(now);
+  if (isGenerationEndMatchQuarantined_ACU(now)) {
+    generationGate_ACU.activeGenerations = [];
+    return { status: 'ambiguous', context: null };
+  }
+
+  // dry-run 只有 STARTED、没有 ENDED；它们不参与任何配对，位置在栈底也不能留下幽灵。
+  const candidates = generationGate_ACU.activeGenerations.filter(context => !context.dryRun);
+  generationGate_ACU.activeGenerations = candidates;
+  if (candidates.length === 0) {
+    const legacyContext = generationGate_ACU.generationSeq === 0 ? generationGate_ACU.lastGeneration : null;
+    return legacyContext
+      ? { status: 'matched', context: legacyContext }
+      : { status: 'none', context: null };
+  }
+  if (candidates.length === 1) {
+    const context = candidates[0];
+    generationGate_ACU.activeGenerations = [];
+    return { status: 'matched', context };
+  }
+
+  const changedSinceStart = candidates.filter(context => (
+    context.preSignature
+    && endedSignature
+    && !isSameAiFloorSignatureEx_ACU(context.preSignature, endedSignature)
+  )).length;
+  generationGate_ACU.activeGenerations = [];
+  generationGate_ACU.generationEndMatchQuarantineUntil_ACU = now + GENERATION_CONTEXT_TTL_MS_ACU;
+  logDebug_ACU(
+    `[状态管理] GENERATION_ENDED 配对歧义 fail closed: active=${candidates.length}`
+    + `, preSignatureChanged=${changedSinceStart}, endedSignature=${endedSignature ? 'present' : 'missing'}`,
+  );
+  return { status: 'ambiguous', context: null };
+}
+
+/** 兼容只需要 context 的旧调用方；需要区分 none/ambiguous 的生产入口必须使用 resolver。 */
+export function consumeGenerationContextForEnded_ACU(
+  endedSignature?: AiFloorSignatureEx_ACU | null,
+): GenerationContext_ACU | null {
+  return resolveGenerationContextForEnded_ACU(endedSignature).context;
 }
 
 /**
@@ -270,6 +367,7 @@ export function shouldProcessAutoTableUpdateForGenerationEnded_ACU(
   // f425367：认领分支不再短路 return——续写桥只管归属确认/标签校验/自动续轮，
   // 填表与正文优化按各自时机独立触发；调用方可显式传入已消费的 context 复用判定。
   const g = context === undefined ? consumeGenerationContextForEnded_ACU() : context;
+  if (isGenerationEndMatchQuarantined_ACU()) return false;
   if (!g) {
     // [152 收紧] 宿主 GENERATION_ENDED 唯一 emit 点是 hideStopButton，外部插件（酒馆助手 generate/generateRaw、
     // sr 提示词查看器直接 Generate + stopGeneration、MVU 额外模型收尾）都会凭空派发 ended。这类事件没有配对的
@@ -283,6 +381,9 @@ export function shouldProcessAutoTableUpdateForGenerationEnded_ACU(
     rememberEndedFloorSignature_ACU(currentSignature);
     return true;
   }
+  // 纵深防御：dry-run 上下文现在已在弹栈时被丢弃（见 popUnclosedDryRunContexts_ACU），
+  // 故这是**仅显式传入 dry 上下文时可达**（生产路径只剩测试，调用方 init.ts 传的是弹栈结果）。
+  // 保留是因为它表达的是判定语义本身：dry-run 轮次不该拉自动链。
   if (g.dryRun) return false;
   if (isQuietLikeGeneration_ACU(g.type, g.params)) return false;
   if (g.params?.automatic_trigger) return false;
@@ -407,6 +508,8 @@ export function _set_independentTableStates_ACU(v: any) { independentTableStates
 // ═══ 从 plot-editors.ts 迁移的业务状态 ═══
 export let isAutoUpdatingCard_ACU = false;
 export let wasStoppedByUser_ACU = false;
+// 用户停止会使当前自动填表代次失效；排队中的旧回调必须携带并校验停止代次。
+let autoFillStopEpoch_ACU = 0;
 export let autoFillDebounceTimer_ACU: any = null;
 export let chatMutationDebounceTimer_ACU: any = null;
 export let currentAbortController_ACU: any = null;
@@ -450,7 +553,11 @@ export function abortOnChatMutation_ACU() {
 export function _set_currentAbortController_ACU(v: any) { currentAbortController_ACU = v; }
 export function _set_isAutoUpdatingCard_ACU(v: any) { isAutoUpdatingCard_ACU = v; }
 export function _set_manualExtraHint_ACU(v: any) { manualExtraHint_ACU = v; }
-export function _set_wasStoppedByUser_ACU(v: any) { wasStoppedByUser_ACU = v; }
+export function getAutoFillStopEpoch_ACU(): number { return autoFillStopEpoch_ACU; }
+export function _set_wasStoppedByUser_ACU(v: any) {
+  wasStoppedByUser_ACU = v;
+  if (v === true) autoFillStopEpoch_ACU += 1;
+}
 export function _set_autoFillDebounceTimer_ACU(v: any) { autoFillDebounceTimer_ACU = v; }
 /**
  * 作废在途的自动填表防抖定时器。

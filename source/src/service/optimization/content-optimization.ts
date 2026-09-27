@@ -17,7 +17,7 @@ import {
   callAIWithPreset_ACU
 } from '../ai/api-call';
 import {
-  applyOptimizations_ACU,
+  applyOptimizationsWithStats_ACU,
   filterOptimizationsByExcludeRules_ACU
 } from '../../shared/text-optimization';
 import {
@@ -58,6 +58,7 @@ import {
 import {
   replaceDbSqlVariables
 } from '../runtime/template-vars/sql-query-var';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 /**
  * service/optimization/content-optimization.ts — 正文优化服务逻辑
  * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
@@ -129,7 +130,7 @@ import {
       // $7: 前文上下文（仅AI输出）
       const chat = getChatArray_ACU();
       const contextMessages = chat
-        .filter(msg => !msg.is_user)
+        .filter(isAiFloor_ACU)
         .slice(-10) // 最近10条AI消息
         .map(msg => `assistant："${msg.mes || ''}"`)
         .join('\n');
@@ -302,7 +303,16 @@ import {
          if (exclusion.dropped.length > 0) {
            logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 有 ${exclusion.dropped.length} 个优化项命中标签排除规则，已按写回保护丢弃（不写回、不计入替换数）`);
          }
-         const optimizedContent = applyOptimizations_ACU(content, exclusion.kept);
+         const applied = applyOptimizationsWithStats_ACU(content, exclusion.kept);
+         if (exclusion.kept.length > 0 && applied.appliedCount === 0) {
+           logWarn_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 没有可应用的优化项，放弃本轮写回`);
+           return {
+             success: false,
+             noOp: true,
+             error: 'AI 返回的优化建议均未匹配到正文',
+             failedCount: applied.failedCount,
+           };
+         }
          
          logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 完成，共 ${exclusion.kept.length} 个优化项` +
            (exclusion.dropped.length > 0 ? `（另有 ${exclusion.dropped.length} 个被排除规则丢弃）` : ''));
@@ -311,7 +321,9 @@ import {
            success: true,
            optimizations: exclusion.kept,
            summary: parsed.summary,
-           optimizedContent: optimizedContent
+           optimizedContent: applied.content,
+           appliedCount: applied.appliedCount,
+           failedCount: applied.failedCount
          };
          
        } catch (error) {
@@ -659,6 +671,8 @@ import {
       messageIndex: Number.isInteger(payload.messageIndex) ? payload.messageIndex : -1,
       messageId: payload.messageId ?? null,
       baseContent: typeof payload.baseContent === 'string' ? payload.baseContent : '',
+      // 盖章：这个槽是全插件共用的一条记录，跨聊天同楼号会撞车 ⇒ 读取侧按聊天划界。
+      chatKey: String(currentChatFileIdentifier_ACU || ''),
       updatedAt: Date.now()
     };
 
@@ -668,13 +682,27 @@ import {
     return cache;
   }
 
+  /**
+   * 缓存条目是否属于当前聊天。
+   * 旧版本条目没有聊天章（无法判别），保持可用以免打断既有「重新优化」；
+   * 有章就必须与当前聊天一致——否则那是别的聊天留下的原文，拿过来会把外来正文钉进本楼。
+   */
+  function isOptimizationBaseInCurrentChat_ACU(cache: any): boolean {
+    if (!cache?.chatKey) return true;
+    return String(cache.chatKey) === String(currentChatFileIdentifier_ACU || '');
+  }
+
   export function getLastOptimizationBase_ACU() {
     if (lastOptimizedMessageMeta_ACU?.baseContent) {
-      return lastOptimizedMessageMeta_ACU;
+      if (!isOptimizationBaseInCurrentChat_ACU(lastOptimizedMessageMeta_ACU)) {
+        lastOptimizedMessageMeta_ACU = null;
+      } else {
+        return lastOptimizedMessageMeta_ACU;
+      }
     }
 
     const cachedBase = loadOptimizationBaseFromCache_ACU();
-    if (cachedBase?.baseContent) {
+    if (cachedBase?.baseContent && isOptimizationBaseInCurrentChat_ACU(cachedBase)) {
       lastOptimizedMessageMeta_ACU = cachedBase;
       return cachedBase;
     }

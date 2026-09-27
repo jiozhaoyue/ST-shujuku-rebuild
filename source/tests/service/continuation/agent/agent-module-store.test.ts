@@ -14,7 +14,7 @@ import {
   validateAgentModuleSnapshot_ACU,
   writeAgentModuleSnapshot_ACU,
 } from '../../../../src/service/continuation/agent/agent-module-store';
-import { AGENT_BLOCK_CHAR_LIMIT_ACU, AGENT_HOT_HOOK_LIMIT_ACU, AGENT_MODULE_FIELD_ACU, type AgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-model';
+import { AGENT_BLOCK_CHAR_LIMIT_ACU, AGENT_HOT_HOOK_LIMIT_ACU, AGENT_MODULE_FIELD_ACU, AGENT_MODULE_SCHEMA_VERSION_ACU, AGENT_MODULE_SCHEMA_VERSION_V2_ACU, type AgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-model';
 import { ContinuationValidationError_ACU } from '../../../../src/service/continuation/model';
 import { _set_SillyTavern_API_ACU } from '../../../../src/shared/host-api';
 
@@ -47,9 +47,76 @@ describe('Agent 资料快照存储', () => {
     expect(readAgentModuleSnapshot_ACU([{ mes: 'a' }]).settledThroughIndex).toBe(-1);
   });
 
-  it('删楼后残留的越界水位被钳制回当前最后一楼', () => {
+  it('读取不再把基线里的水位钳到当前数组长度', () => {
     const chat: any[] = [{ mes: 'a', [AGENT_MODULE_FIELD_ACU]: snapshotAt_ACU(9) }];
-    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(0);
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(9);
+    expect(chat[0][AGENT_MODULE_FIELD_ACU].schemaVersion).toBe(AGENT_MODULE_SCHEMA_VERSION_ACU);
+  });
+
+  it('schema v1 缺 pendingFixes 时内存归一为空数组并升到当前版本，非法队列则拒绝', () => {
+    const legacy = {
+      schemaVersion: 1, settledThroughIndex: 2, updatedAt: 1,
+      revisions: { hooks: 1, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 },
+      hooks: [hook_ACU('H1')], infoGap: [], constraints: [],
+    };
+    const loaded = validateAgentModuleSnapshot_ACU(legacy);
+    expect(loaded!.schemaVersion).toBe(AGENT_MODULE_SCHEMA_VERSION_ACU);
+    expect(loaded!.pendingFixes).toEqual([]);
+    expect(loaded!.materialCompletion.state).toBe('legacy_unknown');
+    expect(loaded!.hooks).toHaveLength(1);
+    const current = validateAgentModuleSnapshot_ACU({ ...legacy, schemaVersion: AGENT_MODULE_SCHEMA_VERSION_V2_ACU, pendingFixes: [] });
+    expect(current!.pendingFixes).toEqual([]);
+    expect(current!.materialCompletion.state).toBe('legacy_unknown');
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU, pendingFixes: '坏掉了' })).toBeNull();
+    // v4 要求结构化缺口字段：旧 5 字段形态在 v4 下非法（fail-closed），v2 下兼容为 transaction_rejected/failed。
+    expect(validateAgentModuleSnapshot_ACU({
+      ...legacy,
+      schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
+      materialCompletion: { state: 'failed', rangeStartIndex: 2, rangeEndIndex: 2, modules: { hooks: 'failed' }, updatedAt: 1 },
+      pendingFixes: [{ module: 'hooks', agentName: 'hook-cognition-maintainer', violations: [{ path: 'hooks', message: 'title 不能为空' }], attempts: 1, firstFailedAtIndex: 2, lastError: 'title 不能为空' }],
+    })).toBeNull();
+    expect(validateAgentModuleSnapshot_ACU({
+      ...legacy,
+      schemaVersion: AGENT_MODULE_SCHEMA_VERSION_V2_ACU,
+      pendingFixes: [{ module: 'hooks', agentName: 'hook-cognition-maintainer', violations: [{ path: 'hooks', message: 'title 不能为空' }], attempts: 1, firstFailedAtIndex: 2, lastError: 'title 不能为空' }],
+    })!.pendingFixes).toHaveLength(1);
+    const chat: any[] = [{ mes: 'a', [AGENT_MODULE_FIELD_ACU]: legacy }];
+    expect(readAgentModuleSnapshot_ACU(chat).pendingFixes).toEqual([]);
+    expect(readAgentModuleSnapshot_ACU(chat).schemaVersion).toBe(AGENT_MODULE_SCHEMA_VERSION_ACU);
+    expect(chat[0][AGENT_MODULE_FIELD_ACU].schemaVersion).toBe(1);
+  });
+
+  it('空快照自带空用户要求清单及其修订号', () => {
+    const empty = buildEmptyAgentModuleSnapshot_ACU();
+    expect(empty.userRequirements).toEqual([]);
+    expect(empty.revisions.userRequirements).toBe(0);
+  });
+
+  it('旧快照缺 userRequirements 时兼容为空清单；字段一旦出现就必须整体合法', () => {
+    const legacy = {
+      schemaVersion: 1, settledThroughIndex: 2, updatedAt: 1,
+      revisions: { hooks: 1, infoGap: 0, constraints: 0, storyArc: 0 },
+      hooks: [hook_ACU('H1')], infoGap: [], constraints: [],
+    };
+    const loaded = validateAgentModuleSnapshot_ACU(legacy);
+    expect(loaded!.userRequirements).toEqual([]);
+    expect(loaded!.revisions.userRequirements).toBe(0);
+    expect(loaded!.hooks).toHaveLength(1);
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, userRequirements: [''] })).toBeNull();
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, userRequirements: [1] })).toBeNull();
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, userRequirements: '不是数组' })).toBeNull();
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, userRequirements: ['不要提前揭底牌', '用第一人称'] })!.userRequirements).toEqual(['不要提前揭底牌', '用第一人称']);
+  });
+
+  it('水位之前删除中间楼层时不复用旧快照，按前缀失配安全回退', async () => {
+    const chat: any[] = [{ mes: 'a' }, { mes: 'b' }, { mes: 'c' }, { mes: 'd' }];
+    const saveChat = vi.fn().mockResolvedValue(undefined);
+    _set_SillyTavern_API_ACU({ chat, saveChat } as any);
+    await writeAgentModuleSnapshot_ACU(chat, 3, snapshotAt_ACU(3, { hooks: [hook_ACU('H1') as any] }));
+
+    chat.splice(1, 1);
+
+    expect(readAgentModuleSnapshot_ACU(chat).hooks).toEqual([]);
   });
 
   it('未揭示条目携带揭示楼层时读取阶段就把楼层清空', () => {
@@ -82,6 +149,19 @@ describe('Agent 资料快照存储', () => {
       ...base,
       storyArc: [{ ...base.storyArc[0], targetStageRange: { min: 6, max: 4 } }],
     })).toBeNull();
+  });
+
+  it('storyArc 已出现但不是数组时整份快照非法，并回退到上一份合法快照', () => {
+    const story = { id: 'VOL-01', scope: 'volume', title: '卷一', direction: 'd', escalation: 'e', withheld: '', status: 'active', stageNumbers: [], completionStageNumber: null, completionState: '', continuationRationale: '', retired: false, retiredReason: '' };
+    const good = snapshotAt_ACU(0, { revisions: { hooks: 0, infoGap: 0, constraints: 0, storyArc: 1, chronology: 0, webRefs: 0 }, storyArc: [story] as any });
+    const malformed = { ...good, settledThroughIndex: 1, storyArc: '不是数组' };
+
+    expect(validateAgentModuleSnapshot_ACU(malformed)).toBeNull();
+    const chat: any[] = [
+      { mes: 'a', [AGENT_MODULE_FIELD_ACU]: good },
+      { mes: 'b', [AGENT_MODULE_FIELD_ACU]: malformed },
+    ];
+    expect(readAgentModuleSnapshot_ACU(chat).storyArc).toEqual([expect.objectContaining({ id: 'VOL-01' })]);
   });
 
   it('空快照初始化 chronology 为空账本且 revision 为 0', () => {
@@ -157,7 +237,13 @@ describe('Agent 资料快照存储', () => {
     // 有合法快照时诊断记录采用楼层且不标记抢救。
     const chatOk: any[] = [{ mes: 'a', [AGENT_MODULE_FIELD_ACU]: snapshotAt_ACU(0) }];
     readAgentModuleSnapshot_ACU(chatOk);
-    expect(readAgentModuleSnapshotDiagnostics_ACU()).toEqual({ candidates: [{ index: 0, valid: true, problems: [] }], adoptedIndex: 0, salvaged: false });
+    expect(readAgentModuleSnapshotDiagnostics_ACU()).toEqual({
+      candidates: [{ index: 0, valid: true, problems: [] }],
+      adoptedIndex: 0,
+      salvaged: false,
+      checkpointIndex: 0,
+      foldedDeltaCount: 0,
+    });
     readAgentModuleSnapshot_ACU([{ mes: 'a' }]);
     expect(readAgentModuleSnapshotDiagnostics_ACU().adoptedIndex).toBeNull();
   });
@@ -170,16 +256,17 @@ describe('Agent 资料快照存储', () => {
     // 水位只由结算子代理成功交付时显式推进：写盘时快照声明多少就是多少。
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(0, { hooks: [hook_ACU('H1') as any] }));
     expect(saveChat).toHaveBeenCalledOnce();
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].settledThroughIndex).toBe(0);
+    expect(chat[1][AGENT_MODULE_FIELD_ACU].schemaVersion).toBe(3);
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(0);
     expect(readAgentModuleSnapshot_ACU(chat).hooks).toHaveLength(1);
 
-    // 显式声明的水位如实落盘；越界声明（超过目标楼层 / 负值）被钳制回合法区间。
+    // 显式声明的水位如实进入折叠；越界声明（超过目标楼层 / 负值）在写入时钳回合法区间。
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(1));
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].settledThroughIndex).toBe(1);
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(1);
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(9));
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].settledThroughIndex).toBe(1);
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(1);
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(-1));
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].settledThroughIndex).toBe(0);
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(0);
   });
 
   it('写盘失败时还原楼层字段而不留下半成品', async () => {
@@ -329,14 +416,18 @@ describe('Agent 资料快照落盘修订号复核（用户手动保存防冲）'
     const stale = snapshotAt_ACU(0, { revisions: { hooks: 1, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 }, hooks: [hook_ACU('子代理伏笔') as any] });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     let warnTexts: string[] = [];
+    let writeError: unknown;
     try {
       await writeAgentModuleSnapshot_ACU(chat, 1, stale);
+    } catch (error) {
+      writeError = error;
     } finally {
       // mockRestore 会清空调用记录：必须在 restore 前快照。
       warnTexts = warn.mock.calls.map(args => args.map(String).join(' '));
       warn.mockRestore();
     }
 
+    expect(writeError).toMatchObject({ error: { code: 'CONTINUATION_AGENT_WRITE_REJECTED' } });
     expect(warnTexts.some(text => text.includes('放弃本次写入防止整份覆盖'))).toBe(true);
     expect(warnTexts.some(text => text.includes('hooks 楼层=2 写入=1'))).toBe(true);
     expect(saveChat).not.toHaveBeenCalled();
@@ -353,12 +444,16 @@ describe('Agent 资料快照落盘修订号复核（用户手动保存防冲）'
     _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     let warnTexts: string[] = [];
+    let writeError: unknown;
     try {
       await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(0, { revisions: { hooks: 2, infoGap: 1, constraints: 0, storyArc: 2, chronology: 0, webRefs: 0 } }));
+    } catch (error) {
+      writeError = error;
     } finally {
       warnTexts = warn.mock.calls.map(args => args.map(String).join(' '));
       warn.mockRestore();
     }
+    expect(writeError).toMatchObject({ error: { code: 'CONTINUATION_AGENT_WRITE_REJECTED' } });
     expect(warnTexts.some(text => text.includes('storyArc 楼层=3 写入=2'))).toBe(true);
   });
 
@@ -369,12 +464,12 @@ describe('Agent 资料快照落盘修订号复核（用户手动保存防冲）'
 
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(0, { revisions: { hooks: 1, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 }, hooks: [hook_ACU('H1') as any] }));
     expect(saveChat).toHaveBeenCalledOnce();
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].hooks[0].id).toBe('H1');
+    expect(readAgentModuleSnapshot_ACU(chat).hooks[0].id).toBe('H1');
 
     // 楼层低于写入快照（子代理正常推进修订）同样落盘。
     await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(0, { revisions: { hooks: 2, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 } }));
     expect(saveChat).toHaveBeenCalledTimes(2);
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].revisions.hooks).toBe(2);
+    expect(readAgentModuleSnapshot_ACU(chat).revisions.hooks).toBe(2);
   });
 
   it('用户手动保存（修订号整体 +1）不受防冲影响，照常落盘', async () => {
@@ -385,7 +480,7 @@ describe('Agent 资料快照落盘修订号复核（用户手动保存防冲）'
     const saved = await replaceAgentModuleSnapshotByUser_ACU({ hooks: [hook_ACU('用户编辑') as any] }, chat);
 
     expect(saved.revisions).toMatchObject({ hooks: 2, infoGap: 2, constraints: 2, storyArc: 2, chronology: 2, webRefs: 2 });
-    expect(chat[1][AGENT_MODULE_FIELD_ACU].hooks[0].id).toBe('用户编辑');
+    expect(readAgentModuleSnapshot_ACU(chat).hooks[0].id).toBe('用户编辑');
     expect(saveChat).toHaveBeenCalledOnce();
   });
 });

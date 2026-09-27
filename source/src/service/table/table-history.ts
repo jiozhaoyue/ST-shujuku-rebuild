@@ -1,6 +1,7 @@
 import type { ACUMessage } from '../../shared/host-api';
 import { hasAnyTableData_ACU, readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { isV2TagData_ACU } from './storage-strategy-resolver';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 
 export interface TableHistoryState_ACU {
     latestAiMessageIndex: number;
@@ -61,6 +62,20 @@ function v2ScheduleFilledFloor_ACU(tagData: any, sheetKey: string): number {
     const fullFloor = Number.isFinite(fullValue) && fullValue > 0 ? Number(fullValue) : 0;
     const sheetFloor = Number.isFinite(sheetValue) && sheetValue > 0 ? Number(sheetValue) : 0;
     return Math.max(fullFloor, sheetFloor);
+}
+
+/**
+ * [Checkpoint 导入恢复] 读取 full checkpoint 上的覆盖楼层声明，并夹取到该帧真实楼层。
+ *
+ * 导入恢复把快照写在该帧所在的最新 AI 楼层，帧的 filledSheetKeys 又是全部表，
+ * 单看帧位置会把追平前沿算成最新楼层——剩余楼层永远不会被规划（误报「已追平」）。
+ * 声明存在时改用声明值，使追平从「声明楼层 + 1」开始；声明缺失/非法时返回 0，
+ * 调用方回落到帧楼层，保持既有行为逐字不变。
+ */
+function v2RestoreUpToAiFloor_ACU(tagData: any, messageAiFloor: number): number {
+    const value = Number(tagData?.storageFrame?.checkpoint?.restoreUpToAiFloor);
+    if (!Number.isInteger(value) || value <= 0) return 0;
+    return messageAiFloor > 0 ? Math.min(value, messageAiFloor) : value;
 }
 
 function v2EntryAiFloor_ACU(entry: any, fallbackAiFloor: number): number {
@@ -133,7 +148,9 @@ function v2FrameTrackedUpdateFloor_ACU(tagData: any, sheetKey: string, messageAi
     let latestFloor = v2ScheduleFilledFloor_ACU(tagData, sheetKey);
     const checkpointEvent = tagData.storageFrame.checkpoint?.event;
     if (v2EventTracksFill_ACU(checkpointEvent, sheetKey)) {
-        latestFloor = Math.max(latestFloor, messageAiFloor);
+        // 导入恢复帧：声明覆盖楼层存在时用声明值，否则沿用该帧楼层。
+        const restoreUpToAiFloor = v2RestoreUpToAiFloor_ACU(tagData, messageAiFloor);
+        latestFloor = Math.max(latestFloor, restoreUpToAiFloor > 0 ? restoreUpToAiFloor : messageAiFloor);
     }
     const sheetCheckpointEvent = tagData.storageFrame.perSheetCheckpoints?.[sheetKey]?.event;
     if (v2EventTracksFill_ACU(sheetCheckpointEvent, sheetKey)) {
@@ -141,7 +158,14 @@ function v2FrameTrackedUpdateFloor_ACU(tagData: any, sheetKey: string, messageAi
     }
     for (const entry of tagData.storageFrame.logEntries || []) {
         if (v2EventTracksFill_ACU(entry, sheetKey)) {
-            latestFloor = Math.max(latestFloor, v2EntryAiFloor_ACU(entry, messageAiFloor));
+            const entryFloor = v2EntryAiFloor_ACU(entry, messageAiFloor);
+            // 降级 entry 可能带着原 full checkpoint 的覆盖楼层声明（边界轮转时保留下来的）：
+            // 与 checkpoint 分支同口径——声明存在时用它（再夹取到该 entry 楼层），否则用 entry 楼层。
+            const entryDeclaredFloor = Number(entry?.restoreUpToAiFloor);
+            const effectiveEntryFloor = Number.isInteger(entryDeclaredFloor) && entryDeclaredFloor > 0
+                ? Math.min(entryDeclaredFloor, entryFloor)
+                : entryFloor;
+            latestFloor = Math.max(latestFloor, effectiveEntryFloor);
         }
     }
     return latestFloor;
@@ -199,7 +223,7 @@ function getTrackedUpdateFloorInMessage_ACU(msg: any, options: ResolveTableHisto
 export function getLatestAiMessageIndexFromChat_ACU(chat: ACUMessage[] | any[]): number {
     if (!Array.isArray(chat)) return -1;
     for (let i = chat.length - 1; i >= 0; i -= 1) {
-        if (chat[i] && !chat[i].is_user) return i;
+        if (isAiFloor_ACU(chat[i])) return i;
     }
     return -1;
 }
@@ -232,7 +256,7 @@ export function countAiMessagesUpToIndex_ACU(chat: ACUMessage[] | any[], message
     if (!Array.isArray(chat) || messageIndex < 0) return 0;
     let count = 0;
     for (let i = 0; i <= messageIndex && i < chat.length; i += 1) {
-        if (chat[i] && !chat[i].is_user) count += 1;
+        if (isAiFloor_ACU(chat[i])) count += 1;
     }
     return count;
 }
@@ -246,7 +270,7 @@ export function collectV2CheckpointFloorsFromChat_ACU(
     let aiFloor = 0;
     for (let i = 0; i < chat.length; i += 1) {
         const msg = chat[i];
-        if (!msg || msg.is_user) continue;
+        if (!isAiFloor_ACU(msg)) continue;
         aiFloor += 1;
         const tagData = readIsolatedTagData_ACU(msg, isolationKey) as any;
         if (!isV2TagData_ACU(tagData)) continue;
@@ -299,7 +323,7 @@ export function resolveTableHistoryStatesFromChat_ACU(
     let aiFloor = 0;
     let latestAiMessageIndex = -1;
     for (let index = 0; index < safeChat.length; index += 1) {
-        if (safeChat[index] && !safeChat[index].is_user) {
+        if (isAiFloor_ACU(safeChat[index])) {
             aiFloor += 1;
             latestAiMessageIndex = index;
         }

@@ -21,28 +21,63 @@ import { CHARACTER_SCOPE_DEFAULT_KEY_ACU, getCurrentCharacterScopeKey_ACU, getLe
  * 旧版 characterSettings 以聊天文件名为键；升级后首次访问某张角色卡时，
  * 把当前聊天对应的旧条目搬到角色卡键下，避免用户已有的填表世界书选择丢失。
  */
+function isSettingsRecord_ACU(value: unknown): value is Record<string, any> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function migrateLegacyChatScopedCharSettings_ACU(charId: string): boolean {
     const legacyKey = getLegacyChatScopeKey_ACU();
     if (legacyKey === charId || legacyKey === CHARACTER_SCOPE_DEFAULT_KEY_ACU) return false;
-    const legacy = settings_ACU.characterSettings[legacyKey];
-    if (!legacy || typeof legacy !== 'object' || !legacy.worldbookConfig || typeof legacy.worldbookConfig !== 'object') return false;
+    const legacy = settings_ACU.characterSettings?.[legacyKey];
+    if (!isSettingsRecord_ACU(legacy) || !isSettingsRecord_ACU(legacy.worldbookConfig)) return false;
     settings_ACU.characterSettings[charId] = JSON.parse(JSON.stringify(legacy));
     delete settings_ACU.characterSettings[legacyKey];
     logDebug_ACU(`Migrated chat-scoped character settings "${legacyKey}" -> "${charId}"`);
     return true;
 }
 
+/** 角色设置指纹 memo：命中即跳过默认克隆 + deepMerge + 写回。只存指纹、永远返回 live 对象，调用方原地改配置照常生效。 */
+const charSettingsFingerprintCache_ACU = new Map<string, { settingsRef: unknown; fingerprint: string }>();
+const CHAR_SETTINGS_CACHE_CAP_ACU = 32;
+
+function fingerprintCharSettingsInputs_ACU(charId: string): string | null {
+    try {
+        const all = settings_ACU?.characterSettings;
+        const legacyKey = getLegacyChatScopeKey_ACU();
+        return JSON.stringify([
+            charId,
+            legacyKey,
+            !!(all && typeof all === 'object' && (all as any)[legacyKey]),
+            globalMeta_ACU?.summaryVectorIndexModeGlobal === true,
+            all && typeof all === 'object' ? (all as any)[charId]?.worldbookConfig ?? null : null,
+        ]);
+    } catch {
+        return null;
+    }
+}
+
 export function getCurrentCharSettings_ACU() {
     const charId = getCurrentCharacterScopeKey_ACU();
-    if (!settings_ACU.characterSettings) {
+    const charSettingsFingerprint = fingerprintCharSettingsInputs_ACU(charId);
+    const charSettingsCached = charSettingsFingerprint !== null ? charSettingsFingerprintCache_ACU.get(charId) : undefined;
+    if (
+        charSettingsCached
+        && charSettingsFingerprint !== null
+        && charSettingsCached.settingsRef === settings_ACU
+        && charSettingsCached.fingerprint === charSettingsFingerprint
+        && settings_ACU.characterSettings?.[charId]
+    ) {
+        return settings_ACU.characterSettings[charId];
+    }
+    if (!isSettingsRecord_ACU(settings_ACU.characterSettings)) {
         settings_ACU.characterSettings = {};
     }
-    if (!settings_ACU.characterSettings[charId]) {
+    if (!isSettingsRecord_ACU(settings_ACU.characterSettings[charId])) {
         migrateLegacyChatScopedCharSettings_ACU(charId);
     }
     // 0TK 占用模式恒开启（开关已剥离）：大纲/纪要索引条目不占用上下文
     const zeroTkOccupyMode = true;
-    if (!settings_ACU.characterSettings[charId]) {
+    if (!isSettingsRecord_ACU(settings_ACU.characterSettings[charId])) {
         const worldbookConfigForNewChat = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
         worldbookConfigForNewChat.zeroTkOccupyMode = zeroTkOccupyMode;
         worldbookConfigForNewChat.outlineEntryEnabled = !zeroTkOccupyMode;
@@ -65,6 +100,14 @@ export function getCurrentCharSettings_ACU() {
         settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
     } catch (e) {
         // ignore
+    }
+    const doneFingerprint = fingerprintCharSettingsInputs_ACU(charId);
+    if (doneFingerprint !== null) {
+        charSettingsFingerprintCache_ACU.set(charId, { settingsRef: settings_ACU, fingerprint: doneFingerprint });
+        if (charSettingsFingerprintCache_ACU.size > CHAR_SETTINGS_CACHE_CAP_ACU) {
+            const oldest = charSettingsFingerprintCache_ACU.keys().next();
+            if (!oldest.done) charSettingsFingerprintCache_ACU.delete(oldest.value);
+        }
     }
     return settings_ACU.characterSettings[charId];
 }

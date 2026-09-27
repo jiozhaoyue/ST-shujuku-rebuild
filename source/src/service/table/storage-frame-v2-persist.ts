@@ -25,6 +25,8 @@ import { findLatestTransitionCheckpoint_ACU } from './compat-transition-checkpoi
 import { reconcileRevealedSheetWithTemplate_ACU } from '../template/chat-template-reconciler';
 import { assertSummaryVectorMirrorFrameInvariantsV2_ACU } from '../vector/summary-vector-mirror-resolver';
 import { scheduleSummaryVectorMirrorFlushAfterPersist_ACU } from '../vector/summary-vector-index-flush-queue';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
+import { isDataBearingMessage_ACU } from '../../shared/ai-floor';
 
 export interface TableCheckpointGenerationConfig_ACU {
   maxEntriesAfterCheckpoint: number;
@@ -71,6 +73,11 @@ export interface PersistTableMutationV2Options_ACU {
   forceCheckpoint?: boolean;
   checkpointReason?: TableCheckpointV2_ACU['reason'];
   manualRefillProgress?: ManualRefillProgressV2_ACU;
+  /**
+   * 导入恢复声明的数据覆盖楼层；只在本次写入产出 full checkpoint 时落到
+   * checkpoint.restoreUpToAiFloor（见该字段注释）。其他写入路径不传。
+   */
+  restoreUpToAiFloor?: number;
   isolationKey?: string;
   baseRevision?: string | null;
   parentRevision?: string | null;
@@ -352,14 +359,14 @@ function appendMutationLogEntry_ACU(
 function findTargetAiMessage_ACU(chat: any[], targetMessageIndex: number | undefined): { message: any; index: number } | null {
   if (targetMessageIndex !== undefined && targetMessageIndex !== -1) {
     const message = chat[targetMessageIndex];
-    if (message && !message.is_user) {
+    if (isAiFloor_ACU(message)) {
       return { message, index: targetMessageIndex };
     }
     return null;
   }
 
   for (let i = chat.length - 1; i >= 0; i -= 1) {
-    if (chat[i] && !chat[i].is_user) {
+    if (isAiFloor_ACU(chat[i])) {
       return { message: chat[i], index: i };
     }
   }
@@ -439,9 +446,23 @@ export function buildReplacementPurgedCandidateChat_ACU(
 function countAiFloor_ACU(chat: any[], messageIndex: number): number {
   let count = 0;
   for (let i = 0; i <= messageIndex && i < chat.length; i += 1) {
-    if (chat[i] && !chat[i].is_user) count += 1;
+    if (isAiFloor_ACU(chat[i])) count += 1;
   }
   return count;
+}
+
+/**
+ * Checkpoint 导入恢复声明的数据覆盖楼层归一化。
+ *
+ * 只接受正整数且不得超过本次 checkpoint 所在楼层的真实 AI 楼层——声明「覆盖到未来楼层」
+ * 会把追平前沿推到不存在的位置，必须按该帧楼层夹取。返回值 undefined 表示不写入该字段
+ * （即保持现行行为：前沿 = 该帧楼层）。
+ */
+function normalizeRestoreUpToAiFloor_ACU(value: unknown, messageAiFloor: number): number | undefined {
+  const floor = Number(value);
+  if (!Number.isInteger(floor) || floor <= 0) return undefined;
+  const boundedMessageFloor = Number.isInteger(messageAiFloor) && messageAiFloor > 0 ? messageAiFloor : 1;
+  return Math.min(floor, boundedMessageFloor);
 }
 
 /**
@@ -1340,7 +1361,7 @@ function classifyTemplateCommitStorageStateAfterDeletedSheets_ACU(
   if (deletedSheetKeys.length === 0) return classifyTemplateCommitStorageState_ACU(chat, isolationKey);
   const simulatedChat = deepClone_ACU(chat);
   for (const message of simulatedChat) {
-    if (message && !message.is_user) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
+    if (isDataBearingMessage_ACU(message)) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
   }
   return classifyTemplateCommitStorageState_ACU(simulatedChat, isolationKey);
 }
@@ -2377,6 +2398,13 @@ async function persistTableMutationLogV2Core_ACU(
   const shouldAppendLogEntry = operations.length > 0 || hasMetadataOnlyFillEvent;
   const now = Date.now();
   const aiFloor = countAiFloor_ACU(chat, target.index);
+  const normalizedRestoreUpToAiFloor = normalizeRestoreUpToAiFloor_ACU(options.restoreUpToAiFloor, aiFloor);
+  if (options.restoreUpToAiFloor !== undefined && normalizedRestoreUpToAiFloor === undefined) {
+    logWarn_ACU(`[V2 Persist] 忽略无效的导入覆盖楼层声明: value=${String(options.restoreUpToAiFloor)}`);
+  } else if (normalizedRestoreUpToAiFloor !== undefined && !shouldCheckpoint) {
+    // 声明只随 full checkpoint 固化；本次不属于基线写入（既有 checkpoint 已存在）时无法落地。
+    logWarn_ACU(`[V2 Persist] 导入覆盖楼层声明未能落地（本次未写 full checkpoint）: restoreUpToAiFloor=${normalizedRestoreUpToAiFloor}`);
+  }
   let entry: TableMutationLogEntryV2_ACU | undefined;
 
   // 临时补锚收敛：把 replay 期间的 compatibility 锚点固化为根帧 per-sheet checkpoint。
@@ -2463,6 +2491,9 @@ async function persistTableMutationLogV2Core_ACU(
       data: afterData,
       scheduleSummary: collectScheduleSummaryFromFramesV2_ACU(chat, isolationKey, { maxMessageIndex: target.index }),
       event: checkpointEvent,
+      // 导入恢复声明的覆盖楼层随 baseline 一起固化：帧的 filledSheetKeys 仍是全部表
+      // （不改写既有 filled 语义），前进沿由该进度载体下修，见 table-history 的读取处。
+      restoreUpToAiFloor: normalizedRestoreUpToAiFloor,
       context: { messageIndex: target.index, aiFloor, isolationKey },
     });
     if (!checkpointResult.checkpoint) {
@@ -2485,7 +2516,7 @@ async function persistTableMutationLogV2Core_ACU(
         tagData.recoveryBackup = recoveryBackup;
       }
     }
-    logDebug_ACU(`[V2 Persist] 写入 full checkpoint: messageIndex=${target.index}, revision=${checkpointRevision}, sheets=${Object.keys(afterData).filter(k => k.startsWith('sheet_')).length}`);
+    logDebug_ACU(`[V2 Persist] 写入 full checkpoint: messageIndex=${target.index}, revision=${checkpointRevision}, sheets=${Object.keys(afterData).filter(k => k.startsWith('sheet_')).length}${normalizedRestoreUpToAiFloor === undefined ? '' : `, restoreUpToAiFloor=${normalizedRestoreUpToAiFloor}`}`);
   } else if (shouldAppendLogEntry) {
     // 目标表必须在追加 operation 前的 active replay state 中真实存在。仅仅曾在历史
     // checkpoint 出现过不够：sheet_hide / data_replace 都可能已将它移出 active state；
@@ -4253,7 +4284,7 @@ export async function commitCurrentFloorTemplateChanges_ACU(
 
         const candidateChat = deepClone_ACU(chat);
         for (const message of candidateChat) {
-          if (message && !message.is_user) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
+          if (isDataBearingMessage_ACU(message)) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
         }
         candidateChat[target.index].TavernDB_ACU_IsolatedData = isolatedData;
         const candidateValidationError = await validateHardDeleteCandidate_ACU(

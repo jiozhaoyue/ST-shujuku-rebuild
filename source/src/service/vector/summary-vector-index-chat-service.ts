@@ -25,6 +25,7 @@ import {
     validateSingleFileSnapshotIdentity_ACU,
     type VectorIndexSingleSnapshotBlob_ACU,
 } from './summary-vector-index-storage-service';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 
 function getCurrentSummaryVectorIndexSourceTableKey_ACU(): string {
     const tables = currentJsonTableData_ACU && typeof currentJsonTableData_ACU === 'object'
@@ -80,7 +81,7 @@ export async function tryRecoverSummaryVectorIndexFromExternalSnapshot_ACU(): Pr
     ): Promise<boolean> => {
         const chat = getChatArray_ACU();
         if (!Array.isArray(chat) || chat.length === 0) return false;
-        const targetIndex = chat.map((message: any, index: number) => message && !message.is_user ? index : -1)
+        const targetIndex = chat.map((message: any, index: number) => isAiFloor_ACU(message) ? index : -1)
             .filter((index: number) => index >= 0)
             .pop() ?? -1;
         if (targetIndex < 0) return false;
@@ -243,8 +244,14 @@ export async function deleteCurrentSummaryVectorIndexFromChat_ACU(): Promise<boo
 
     const scopeHintList = Array.from(scopeHints.values());
     for (const hint of scopeHintList) {
-        await deleteSummaryVectorHotCacheByScope_ACU(hint);
-        await clearSummaryVectorFlushTasksByScope_ACU(hint);
+        // 两个 helper 以返回值报失败（不抛错）；此处为尽力清理，失败仅记录，不改变本函数返回值语义。
+        const hintLabel = `${hint.isolationKey}/${hint.sourceTableKey}`;
+        if ((await deleteSummaryVectorHotCacheByScope_ACU(hint)) !== true) {
+            logWarn_ACU(`[交火向量索引] 热缓存清理失败（${hintLabel}），残留将在后续读取时自愈。`);
+        }
+        if ((await clearSummaryVectorFlushTasksByScope_ACU(hint)) !== true) {
+            logWarn_ACU(`[交火向量索引] flush 任务清理失败（${hintLabel}），残留将在后续读取时自愈。`);
+        }
     }
     const gcResult = await cleanupUnreachableSummaryVectorIndexFiles_ACU({ scopeHints: scopeHintList });
     return changed || gcResult.deletedPaths.length > 0 || gcResult.failedDeletes.length > 0;

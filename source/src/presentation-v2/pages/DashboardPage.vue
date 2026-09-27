@@ -7,7 +7,7 @@
       >
         <div class="acu-v2-dashboard-page__health-list">
           <article
-            v-for="item in dashboard.healthItems.value"
+            v-for="item in [...dashboard.healthItems.value, dashboard.logHealthItem.value]"
             :key="item.key"
             class="acu-v2-dashboard-page__health-item"
             :class="`acu-v2-dashboard-page__health-item--${item.kind}`"
@@ -86,9 +86,11 @@ import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
 import AcuSegmentedControl from "../components/_lib/AcuSegmentedControl.vue";
 import ToggleRow from "../components/DashboardToggleRow.vue";
-import { useChatChangedTick } from "../composables/useChatChangedListener";
+import { watchChatChanged_ACU } from "../composables/useChatChangedListener";
 import { useTemplateRuntimeChangeTick } from "../composables/useTemplateRuntimeChangeListener";
 import { useDashboardPage } from "../composables/useDashboardPage";
+import { settings_ACU } from "../../service/runtime/state-manager";
+import { logError_ACU } from "../../shared/utils";
 import {
   FEATURE_GATE_CONTENT_REPLACE,
   FEATURE_GATE_CONTINUATION,
@@ -114,9 +116,13 @@ const groupOptions = [
 ];
 
 async function refreshAll(): Promise<void> {
-  plotStore.refreshFromSettings();
-  await dashboard.refresh();
-  syncFeaturePageGates();
+  try {
+    plotStore.refreshFromSettings();
+    await dashboard.refresh();
+    syncFeaturePageGates();
+  } catch (error) {
+    logError_ACU("[ACU-V2] dashboard refreshAll 异常:", error);
+  }
 }
 
 function syncFeaturePageGates(): void {
@@ -125,17 +131,15 @@ function syncFeaturePageGates(): void {
     dashboard.contentReplaceGateEnabled.value,
   );
   routerStore.syncFeatureGate(FEATURE_GATE_PLOT, plotStore.enabled === true);
+  // gate 必须读 settings 权威源：advancedToggles 带渲染降级（抛错返回空表），
+  // 从它派生会把「读不到」误判成「开关关了」而隐藏功能页入口。
   routerStore.syncFeatureGate(
     FEATURE_GATE_CONTINUATION,
-    dashboard.advancedToggles.value.some(
-      (item) => item.key === "continuationPageEnabled" && item.value,
-    ),
+    settings_ACU.continuationPageEnabled !== false,
   );
   routerStore.syncFeatureGate(
     FEATURE_GATE_VECTOR_INDEX,
-    dashboard.advancedToggles.value.some(
-      (item) => item.key === "summaryVectorIndexModeEnabled" && item.value,
-    ),
+    settings_ACU.summaryVectorIndexModeDefault === true,
   );
 }
 
@@ -199,7 +203,7 @@ async function handleToggleChange(key: string, value: boolean): Promise<void> {
 onMounted(() => {
   void refreshAll();
 });
-watch(useChatChangedTick(), () => {
+watchChatChanged_ACU(() => {
   void refreshAll();
 });
 watch(useTemplateRuntimeChangeTick(), () => {
@@ -342,3 +346,4 @@ watch(useTemplateRuntimeChangeTick(), () => {
   }
 }
 </style>
+

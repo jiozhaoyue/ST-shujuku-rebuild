@@ -1,6 +1,6 @@
 <template>
   <section class="acu-v2-continuation-page">
-    <AcuPanel title="Agent 会话" description="像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。">
+    <AcuPanel title="Agent 会话" description="像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字；更早的持久记录仍保存在聊天中。">
       <ContinuationChat
         :task="runtime.task.value"
         :entries="session.entries.value"
@@ -39,6 +39,7 @@
           :busy="runtime.busy.value"
           @save-outline="saveOutline"
           @clear="clearData"
+          @repair="repairMaterials"
         />
       </AcuPanel>
 
@@ -84,11 +85,33 @@
         <div class="acu-v2-continuation-page__toggles">
           <AcuCheckbox v-model="settingsDraft.outlinePreview" label="大纲产出后先预览再执行" />
           <AcuCheckbox v-model="settingsDraft.finalReview.enabled" label="启用发送前世界书终审" />
+          <AcuCheckbox v-model="settingsDraft.workflow.autoFixEnabled" label="自动修复违规模块（达上限后交主会话）" />
           <AcuCheckbox v-model="settingsDraft.webResearch.enabled" label="启用开场百科检索（同人推荐）" />
           <AcuCheckbox v-model="settingsDraft.promptCacheEnabled" label="缓存优化：为内部 AI 请求注入 prompt_cache_key 并统计缓存命中（个别网关不支持时可关闭）" />
         </div>
 
         <div class="acu-v2-continuation-page__groups">
+          <AcuDisclosureGroup
+            class="acu-v2-continuation-page__group"
+            label="固定工作流"
+            :meta="workflowGroupMeta"
+            :expanded="isGroupExpanded('workflow')"
+            body-id="acu-continuation-group-workflow"
+            @toggle="toggleGroup('workflow')"
+          >
+            <p class="acu-v2-continuation-page__meta">主会话每轮只做开局决策。结算、策划、条件审查、容错提交、自动修复和写作指令由程序按固定顺序执行。这里只改配置，提示词仍在下方各角色分组里改。</p>
+            <div class="acu-v2-continuation-page__settings-grid">
+              <AcuFormRow label="自动修复次数上限" hint="同一模块连续失败达该次数后停修，交主会话。范围 1–10。">
+                <AcuInput v-model="settingsDraft.workflow.autoFixMaxAttempts" type="number" :min="1" :max="10" />
+              </AcuFormRow>
+              <AcuFormRow label="终审打回上限" hint="写作指令按反馈清单增量修订次数。范围 1–10。">
+                <AcuInput v-model="settingsDraft.workflow.reviseLimit" type="number" :min="1" :max="10" />
+              </AcuFormRow>
+              <AcuFormRow label="修复额外读取轮数" hint="自动修复派工自有读写轮数，不占主会话额度。范围 0–10。">
+                <AcuInput v-model="settingsDraft.workflow.repairMaxExtraReads" type="number" :min="0" :max="10" />
+              </AcuFormRow>
+            </div>
+          </AcuDisclosureGroup>
           <AcuDisclosureGroup
             class="acu-v2-continuation-page__group"
             label="运行与重试"
@@ -321,11 +344,11 @@
           @toggle="toggleGroup('prompt:reference')"
         >
           <h4 class="acu-v2-continuation-page__subheading">大纲子代理</h4>
-          <p class="acu-v2-continuation-page__meta">大纲可用占位符：$ORIGIN_INSTRUCTION、$1、$STORY_OVERVIEW（事件概览：纪要表概览全量 + 召回 AM 码展开纪要）、$STORY_TAIL（尾部楼层全文）、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC（故事总纲）、$STAGE_WORD_BUDGET（本阶段字数容量）、$PACING_CONTEXT（跨阶段节奏状态：上一阶段形态与已连续高压轮数）、$VALIDATION_ERRORS。</p>
+          <p class="acu-v2-continuation-page__meta">大纲可用占位符：$USER_REQUIREMENTS（用户累计要求）、$ORIGIN_INSTRUCTION（创建任务时的初始要求原文，自定义提示词仍可用）、$1、$STORY_OVERVIEW（事件概览：纪要表概览全量 + 召回 AM 码展开纪要）、$STORY_TAIL（尾部楼层全文）、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC（故事总纲）、$STAGE_WORD_BUDGET（本阶段字数容量）、$PACING_CONTEXT（跨阶段节奏状态：上一阶段形态与已连续高压轮数）、$VALIDATION_ERRORS。</p>
           <h4 class="acu-v2-continuation-page__subheading">主 Agent</h4>
-          <p class="acu-v2-continuation-page__meta">$HISTORY_ANCHOR 标记主 Agent 自己的会话记录（用户输入、它历次迭代的输出、回灌的工具结果与调阅到的资料）插入位置，该段本身不发送；删掉它会让会话记录退回到序列最前面。正文三层注入：$STORY_OVERVIEW（事件概览：纪要表概览全量，召回 AM 码展开对应纪要）、$STORY_TAIL（尾部楼层全文）、$STORY_CATALOG（楼层纯索引：楼号、字数、开头摘录、读取地址）。目录与状态占位符：$OUTLINE_STATE（大纲单行状态）、$WORLDBOOK_CATALOG（已启用世界书目录，含 token 估算）、$WORLDBOOK_HITS（本轮语境命中的世界书条目提示）、$AGENT_READ_CATALOG（read/search 地址词汇表）。其余可用占位符：$USER_INTENT、$CURRENT_TURN_GOAL、$CURRENT_TURN_PACING（本轮节奏与写作约束）、$STORY_ARC_STATE（总纲状态）、$HISTORY_UNSETTLED（未结算正文全量，仅 AI 楼层）、$AGENT_CATALOG、$MODULE_CATALOG、$TABLE_CATALOG、$BUDGET；旧版的 $OUTLINE_WINDOW、$ACTIVE_CONSTRAINTS、$TOOL_RESULTS 仍可在自定义提示词中使用。</p>
+          <p class="acu-v2-continuation-page__meta">$HISTORY_ANCHOR 标记主 Agent 自己的会话记录（用户输入、它历次迭代的输出、回灌的工具结果与调阅到的资料）插入位置，该段本身不发送；删掉它会让会话记录退回到序列最前面。正文三层注入：$STORY_OVERVIEW（事件概览：纪要表概览全量，召回 AM 码展开对应纪要）、$STORY_TAIL（尾部楼层全文）、$STORY_CATALOG（楼层纯索引：楼号、字数、开头摘录、读取地址）。目录与状态占位符：$OUTLINE_STATE（大纲单行状态）、$WORLDBOOK_CATALOG（已启用世界书目录，含 token 估算）、$WORLDBOOK_HITS（本轮语境命中的世界书条目提示）、$AGENT_READ_CATALOG（read/search 地址词汇表）。其余可用占位符：$USER_REQUIREMENTS（用户对任务累计提过的要求）、$USER_INTENT（创建任务时的初始要求原文，自定义提示词仍可用）、$CURRENT_TURN_GOAL、$CURRENT_TURN_PACING（本轮节奏与写作约束）、$STORY_ARC_STATE（总纲状态）、$HISTORY_UNSETTLED（未结算正文全量，仅 AI 楼层）、$AGENT_CATALOG、$MODULE_CATALOG、$TABLE_CATALOG、$BUDGET；旧版的 $OUTLINE_WINDOW、$ACTIVE_CONSTRAINTS、$TOOL_RESULTS 仍可在自定义提示词中使用。</p>
           <h4 class="acu-v2-continuation-page__subheading">各子代理</h4>
-          <p class="acu-v2-continuation-page__meta">子代理可用占位符：$AGENT_READ_MATERIALS（派工种子读集解析出的资料）、$AGENT_TASK（本次派工任务）、$AGENT_WRITE_SCOPE（职责固定的写入范围）、$AGENT_READ_CATALOG（read/search 地址词汇表）、$STORY_OVERVIEW / $STORY_TAIL / $HISTORY_UNSETTLED（按角色固定注入的正文语境）、$HOOKS_LEDGER / $INFO_GAP / $ACTIVE_CONSTRAINTS / $STORY_ARC / $CHRONOLOGY / $WEB_REFS（本地资料；$WEB_REFS 只给名称 + 一句话简介的预览）、$STORY_CATALOG、$TABLE_CATALOG、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS（各资料目录与命中提示）；网页检索子代理另有 $WEB_TOOL_CATALOG（出网工具说明与本次配额）。固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查与终审固定获得 $OUTLINE_WINDOW；主 Agent、总纲代理、连续性审查与终审固定获得 $USER_INTENT；大纲代理对应使用 $ORIGIN_INSTRUCTION；伏笔与认知维护代理不接收用户目标或阶段大纲，避免计划污染事实结算。</p>
+          <p class="acu-v2-continuation-page__meta">子代理可用占位符：$USER_REQUIREMENTS（用户累计要求）、$AGENT_READ_MATERIALS（派工种子读集解析出的资料）、$AGENT_TASK（本次派工任务）、$AGENT_WRITE_SCOPE（职责固定的写入范围）、$AGENT_READ_CATALOG（read/search 地址词汇表）、$STORY_OVERVIEW / $STORY_TAIL / $HISTORY_UNSETTLED（按角色固定注入的正文语境）、$HOOKS_LEDGER / $INFO_GAP / $ACTIVE_CONSTRAINTS / $STORY_ARC / $CHRONOLOGY / $WEB_REFS（本地资料；$WEB_REFS 只给名称 + 一句话简介的预览）、$STORY_CATALOG、$TABLE_CATALOG、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS（各资料目录与命中提示）；网页检索子代理另有 $WEB_TOOL_CATALOG（出网工具说明与本次配额）。固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查、终审与用户要求维护固定获得 $OUTLINE_WINDOW 或任务段中的 $USER_REQUIREMENTS；大纲代理默认使用 $USER_REQUIREMENTS，自定义段仍可使用 $ORIGIN_INSTRUCTION；伏笔与认知维护代理不再注入初始要求原文，只接收累计用户要求清单，避免计划污染事实结算。</p>
         </AcuDisclosureGroup>
       </div>
       <p v-if="settingsError" class="acu-v2-continuation-page__error">{{ settingsError }}</p>
@@ -351,16 +374,19 @@ import AcuTextarea from '../components/_lib/AcuTextarea.vue';
 import ContinuationChat from '../components/ContinuationChat.vue';
 import ContinuationMaterialsPanel from '../components/ContinuationMaterialsPanel.vue';
 import { useApiPresetSelectOptions } from '../composables/useApiPresetSelectOptions';
-import { useChatChangedTick, useChatMutationTick } from '../composables/useChatChangedListener';
+import { watchChatChanged_ACU, useChatMutationTick } from '../composables/useChatChangedListener';
 import { CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_UI_ACU, useContinuationRuntime } from '../composables/useContinuationRuntime';
 import { useContinuationSession } from '../composables/useContinuationSession';
 import { useDialogStore } from '../stores/dialog-store';
+import { currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
 
 const runtime = useContinuationRuntime();
+const runtimeSettingsIdentity = runtime.settingsIdentity ?? computed(() => currentDraftChatIdentity());
 const dialog = useDialogStore();
 const session = useContinuationSession();
 const { apiStore, followActiveApiLabel, apiPresetSelectOptions: continuationApiPresetOptions } = useApiPresetSelectOptions();
 const settingsDraft = ref<ContinuationSettings_ACU | null>(null);
+const draftChatIdentity = ref(String(currentChatFileIdentifier_ACU || ''));
 const outlineDraft = ref('');
 const messageDraft = ref('');
 const messageSending = ref(false);
@@ -370,6 +396,12 @@ const settingsNotice = ref('');
 const materialsPanel = ref<InstanceType<typeof ContinuationMaterialsPanel> | null>(null);
 const clock = ref(Date.now());
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
+
+async function repairMaterials(
+  modules: readonly import('../../service/continuation/agent/agent-model').AgentWritableModule_ACU[],
+): Promise<void> {
+  if (await runtime.repairPendingMaterials(modules)) materialsPanel.value?.reload({ preserveDirty: true });
+}
 
 const stageText = computed(() => {
   const stage = runtime.activeStage.value;
@@ -429,6 +461,8 @@ const agentChannelRoles = [
   { role: 'reviewer', label: '连续性审查' },
   { role: 'finalReviewer', label: '发送前终审' },
   { role: 'webResearcher', label: '网页检索' },
+  { role: 'instructionComposer', label: '写作指令编排' },
+  { role: 'requirementsMaintainer', label: '用户要求维护' },
 ] as const;
 
 const webSearchProviderOptions = [
@@ -471,6 +505,12 @@ const budgetGroupMeta = computed(() => {
 });
 
 const finalReviewGroupMeta = computed(() => (settingsDraft.value?.finalReview.enabled ? '已开启' : '已关闭'));
+
+const workflowGroupMeta = computed(() => {
+  const workflow = settingsDraft.value?.workflow;
+  if (!workflow) return '';
+  return `${workflow.autoFixEnabled ? '自动修复开' : '自动修复关'} · 修复 ${workflow.autoFixMaxAttempts} 次 · 打回 ${workflow.reviseLimit} 次`;
+});
 
 const webResearchGroupMeta = computed(() => {
   const web = settingsDraft.value?.webResearch;
@@ -533,6 +573,7 @@ function cloneSettings(settings: ContinuationSettings_ACU): ContinuationSettings
     contextExcludeRules: settings.contextExcludeRules.map(rule => ({ ...rule })),
     agentRunBudget: { ...settings.agentRunBudget },
     finalReview: { ...settings.finalReview },
+    workflow: { autoFixEnabled: true, autoFixMaxAttempts: 3, reviseLimit: 3, repairMaxExtraReads: 2, ...settings.workflow },
     webResearch: { ...settings.webResearch, sources: { ...settings.webResearch.sources } },
     agentApiPresets: {
       main: { ...settings.agentApiPresets.main },
@@ -544,6 +585,8 @@ function cloneSettings(settings: ContinuationSettings_ACU): ContinuationSettings
       reviewer: { ...settings.agentApiPresets.reviewer },
       finalReviewer: { ...settings.agentApiPresets.finalReviewer },
       webResearcher: { ...settings.agentApiPresets.webResearcher },
+      instructionComposer: { ...(settings.agentApiPresets.instructionComposer ?? { mode: 'inherit', presetName: '' }) },
+      requirementsMaintainer: { ...(settings.agentApiPresets.requirementsMaintainer ?? { mode: 'inherit', presetName: '' }) },
     },
     outlinePrompt: settings.outlinePrompt.map(segment => ({ ...segment })),
     agentPrompts: {
@@ -555,6 +598,8 @@ function cloneSettings(settings: ContinuationSettings_ACU): ContinuationSettings
       reviewer: settings.agentPrompts.reviewer.map(segment => ({ ...segment })),
       finalReviewer: settings.agentPrompts.finalReviewer.map(segment => ({ ...segment })),
       webResearcher: settings.agentPrompts.webResearcher.map(segment => ({ ...segment })),
+      instructionComposer: (settings.agentPrompts.instructionComposer ?? []).map(segment => ({ ...segment })),
+      requirementsMaintainer: (settings.agentPrompts.requirementsMaintainer ?? []).map(segment => ({ ...segment })),
     },
   };
 }
@@ -596,8 +641,23 @@ async function confirmFirstSendRpmWarning(): Promise<boolean> {
   });
 }
 
+function currentDraftChatIdentity(): string {
+  return String(currentChatFileIdentifier_ACU || '');
+}
+
+function ensureCurrentDraftChat(): boolean {
+  if (draftChatIdentity.value === currentDraftChatIdentity()) return true;
+  messageDraft.value = '';
+  outlineDraft.value = '';
+  settingsDraft.value = null;
+  settingsError.value = '';
+  settingsNotice.value = '聊天已切换，旧草稿已清空；请重新载入当前聊天。';
+  return false;
+}
+
 /** 会话发送：没有任务时创建任务，运行中会打断当前迭代并带着这句话重新开始。 */
 async function sendMessage(text: string): Promise<void> {
+  if (!ensureCurrentDraftChat()) return;
   if (messageSending.value) return;
   // 仅在本次发送将创建新任务（首次发送）时弹确认框；取消则保留草稿不发送。
   if (!runtime.task.value && !(await confirmFirstSendRpmWarning())) return;
@@ -689,6 +749,12 @@ function normalizeSettingsDraft(): ContinuationSettings_ACU {
       readTokenBudget: normalizedReadBudget(source.finalReview.readTokenBudget),
       maxExtraReads: requiredRangeInteger(source.finalReview.maxExtraReads, '终审额外读取轮数', 0, 10),
     },
+    workflow: {
+      autoFixEnabled: source.workflow.autoFixEnabled,
+      autoFixMaxAttempts: requiredRangeInteger(source.workflow.autoFixMaxAttempts, '自动修复次数上限', 1, 10),
+      reviseLimit: requiredRangeInteger(source.workflow.reviseLimit, '终审打回上限', 1, 10),
+      repairMaxExtraReads: requiredRangeInteger(source.workflow.repairMaxExtraReads, '修复额外读取轮数', 0, 10),
+    },
     webResearch: {
       enabled: source.webResearch.enabled,
       sources: { ...source.webResearch.sources },
@@ -756,6 +822,8 @@ function scheduleSettingsSave(): void {
 
 async function saveSettingsNow(): Promise<void> {
   if (!settingsDraft.value) return;
+  if (!ensureCurrentDraftChat()) return;
+  const saveChatIdentity = currentDraftChatIdentity();
   if (JSON.stringify(settingsDraft.value) === lastPersistedSettingsJson) return;
   if (runtime.busy.value) {
     // 有续写操作正在执行时不抢租约，稍后重试本次保存。
@@ -771,6 +839,12 @@ async function saveSettingsNow(): Promise<void> {
     return;
   }
   const outcome = await runtime.saveSettings(candidate);
+  if (saveChatIdentity !== currentDraftChatIdentity()) {
+    settingsDraft.value = null;
+    settingsError.value = '聊天已切换，设置草稿未写入当前聊天。';
+    return;
+  }
+  if (outcome === 'stale') return;
   if (outcome === 'saved') {
     settingsError.value = '';
     settingsNotice.value = '';
@@ -781,7 +855,7 @@ async function saveSettingsNow(): Promise<void> {
   }
 }
 
-type PromptKey = 'outlinePrompt' | 'main' | 'arcArchitect' | 'maintainer' | 'mainlinePlanner' | 'beatPlanner' | 'reviewer' | 'finalReviewer' | 'webResearcher';
+type PromptKey = 'outlinePrompt' | 'main' | 'arcArchitect' | 'maintainer' | 'mainlinePlanner' | 'beatPlanner' | 'reviewer' | 'finalReviewer' | 'webResearcher' | 'instructionComposer' | 'requirementsMaintainer';
 
 interface PromptGroupDef {
   key: PromptKey;
@@ -796,12 +870,14 @@ const promptGroups: PromptGroupDef[] = [
   { key: 'outlinePrompt', kind: 'outline', title: '大纲子代理（outline-architect）提示词', restoreLabel: '恢复大纲提示词默认值' },
   { key: 'main', kind: 'agent_main', title: '主 Agent 提示词', restoreLabel: '恢复主 Agent 默认值', note: '$HISTORY_ANCHOR 段标记会话记录的插入位置，本身不发送；删掉它会让会话记录退回到序列最前面。' },
   { key: 'arcArchitect', kind: 'agent_arc', title: '故事总纲子代理（arc-architect）提示词', restoreLabel: '恢复总纲子代理默认值' },
-  { key: 'maintainer', kind: 'agent_maintainer', title: '伏笔与认知维护子代理提示词', restoreLabel: '恢复维护子代理默认值', note: '该代理不接收用户目标或阶段大纲，避免计划污染事实结算。' },
+  { key: 'maintainer', kind: 'agent_maintainer', title: '伏笔与认知维护子代理提示词', restoreLabel: '恢复维护子代理默认值', note: '该代理只接收累计用户要求清单，不接收阶段大纲，避免计划污染事实结算。' },
   { key: 'mainlinePlanner', kind: 'agent_mainline', title: '主线推进策划子代理提示词', restoreLabel: '恢复主线策划默认值' },
   { key: 'beatPlanner', kind: 'agent_beat', title: '伏笔与节拍策划子代理提示词', restoreLabel: '恢复节拍策划默认值' },
   { key: 'reviewer', kind: 'agent_reviewer', title: '连续性审查子代理提示词', restoreLabel: '恢复审查子代理默认值' },
-  { key: 'finalReviewer', kind: 'agent_final_reviewer', title: '发送前终审子代理提示词', restoreLabel: '恢复终审子代理默认值', note: '仅在「启用发送前世界书终审」开启时才会被调用。' },
+  { key: 'finalReviewer', kind: 'agent_final_reviewer', title: '发送前终审子代理提示词', restoreLabel: '恢复终审子代理默认值', note: '仅在「启用发送前世界书终审」开启时，固定工作流会在 instruction-composer 之后调用它。' },
+  { key: 'instructionComposer', kind: 'agent_instruction_composer', title: '写作指令编排子代理（instruction-composer）提示词', restoreLabel: '恢复写作指令编排默认值', note: '固定工作流在策划与审查之后调用，是唯一产出本轮写作指令的角色。不进入主 Agent 可派工目录。契约 JSON 为 {instruction, summary, constraints}。' },
   { key: 'webResearcher', kind: 'agent_web_researcher', title: '网页检索子代理（web-researcher）提示词', restoreLabel: '恢复网页检索默认值', note: '仅在「启用开场百科检索」开启时才会被调用。专属占位符：$WEB_TOOL_CATALOG（出网工具说明与本次配额）、$WEB_REFS（百科资料库预览）。' },
+  { key: 'requirementsMaintainer', kind: 'agent_requirements_maintainer', title: '用户要求维护子代理（requirements-maintainer）提示词', restoreLabel: '恢复用户要求维护默认值', note: '由会话压缩后的系统派工触发，不进入主 Agent 可派工目录。契约 JSON 为 {requirements, summary} 全量替换。' },
 ];
 
 /** 折叠态摘要：启用段数 / 总段数。 */
@@ -929,9 +1005,24 @@ onBeforeUnmount(() => {
     void saveSettingsNow();
   }
 });
-watch(useChatChangedTick(), refreshAll);
+watchChatChanged_ACU(() => {
+  const nextIdentity = currentDraftChatIdentity();
+  if (nextIdentity !== draftChatIdentity.value) {
+    messageDraft.value = '';
+    outlineDraft.value = '';
+    settingsDraft.value = null;
+    settingsError.value = '';
+    settingsNotice.value = '聊天已切换，旧草稿已清空；请重新载入当前聊天。';
+    lastPersistedSettingsJson = '';
+    draftChatIdentity.value = nextIdentity;
+  }
+  refreshAll();
+});
 watch(useChatMutationTick(), refreshAfterChatMutation);
-watch(runtime.settings, settings => {
+watch([runtimeSettingsIdentity, runtime.settings], ([sourceIdentity, settings]) => {
+  // settings 视图与聊天身份一起提交。迟到的 A 结果即使触发了响应式更新，也不得重建 B 的草稿。
+  const identity = String(sourceIdentity ?? currentDraftChatIdentity());
+  if (identity !== currentDraftChatIdentity() || identity !== draftChatIdentity.value) return;
   // 每次刷新信封都会产生新的 settings 引用；只有持久化内容真的变了（保存成功、切换聊天）
   // 才重建草稿。否则运行期间的每次状态刷新都会把用户尚未保存的改动悄悄冲掉。
   const persistedJson = settings ? JSON.stringify(cloneSettings(settings)) : '';

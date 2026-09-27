@@ -1,5 +1,5 @@
 import { renderAgentOutlineWindow_ACU, renderAgentStoryTail_ACU, resolveAgentReadToken_ACU, type AgentResolveContext_ACU } from './agent-placeholder-resolver';
-import { renderAgentWorldbookCatalog_ACU, type AgentWorldbookEntryView_ACU } from './agent-worldbook-read';
+import { type AgentWorldbookEntryView_ACU } from './agent-worldbook-read';
 import type { AgentGateItem_ACU } from './agent-read-gate';
 
 export interface AgentFinalReviewEvidenceInput_ACU {
@@ -70,18 +70,18 @@ export function buildAgentFinalReviewEvidence_ACU(input: AgentFinalReviewEvidenc
     `### 故事年代学账本（已发生正文结算出的时间事实；大纲时间字段只是计划）\n${chronology}`,
     `### 本轮策划结果摘要\n${input.planningSummary || '（未提供策划结果摘要）'}`,
     `### 世界书检索种子\n${worldbookSeeds.length ? worldbookSeeds.join('、') : '（未提取到有效检索种子）'}`,
-    `### 已启用世界书目录\n${renderAgentWorldbookCatalog_ACU(context.worldbook ?? { available: false, entries: [] })}`,
   ].join('\n\n');
   return {
     supplementalMaterials,
     worldbookEvidence,
     worldbookSeeds,
     fixedReadKeys: unique_ACU([
-      '$USER_INTENT', '$OUTLINE_WINDOW', '$STORY_ARC', '$STORY_TAIL', '$ACTIVE_CONSTRAINTS', '$CHRONOLOGY',
+      '$USER_INTENT', '$USER_REQUIREMENTS', '$OUTLINE_WINDOW', '$STORY_ARC', '$STORY_TAIL', '$ACTIVE_CONSTRAINTS', '$CHRONOLOGY',
       ...worldbookEntries.map(entry => `$WORLDBOOK:${entry.bookName}:${entry.uid}`),
     ]),
     gateItems: [
       { label: '用户初始要求', text: context.originInstruction || '（用户未提供初始要求）' },
+      { label: '用户累计要求', text: resolveAgentReadToken_ACU('$USER_REQUIREMENTS', context).text },
       { label: '本轮用户输入', text: input.currentUserInput || '（本轮没有额外用户输入）' },
       { label: '候选写作指导', text: input.candidateInstruction },
       { label: '完整当前阶段大纲', text: outline },

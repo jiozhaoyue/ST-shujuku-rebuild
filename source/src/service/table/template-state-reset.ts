@@ -1,10 +1,11 @@
 import { getChatArray_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { getActiveChatStorageIdentity_ACU, peekChatScopedConfigContainer_ACU, peekChatSheetGuideContainer_ACU, setChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
-import { getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
+import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { allocateStableSheetKeys_ACU, assertNoPhysicalTableNameCollision_ACU } from '../../shared/sheet-identity';
 import { normalizeCanonicalTableRows_ACU } from '../../shared/canonical-row-normalizer';
 import { buildSheetTableAliasMap_ACU } from '../../shared/sql-read-resolver';
 import { buildCanonicalFullCheckpoint_ACU } from './canonical-checkpoint-builder';
+import { notifyMaterialCheckpointFloor_ACU, restoreMaterialCheckpointFields_ACU, snapshotMaterialCheckpointFields_ACU } from '../chat/material-checkpoint-sync';
 import { writeInitFullCheckpointFrameV2_ACU } from './storage-frame-v2-persist';
 import { hydrateTableDataStrict_ACU } from './sqlite-template-validation';
 import { getCurrentStorageMode } from './storage-mode';
@@ -12,6 +13,7 @@ import { runTableWriteTransaction_ACU } from './table-write-transaction';
 import { buildChatSheetGuideDataFromTemplateObj_ACU, clearCurrentChatTemplateSnapshots_ACU, ensureStableRowIdsForSheetContent_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../template/chat-scope';
 import { normalizeTemplateRowIds_ACU, type TemplateRowIdNormalizationAudit_ACU } from '../template/template-row-id-normalizer';
 import { logWarn_ACU } from '../../shared/utils';
+import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
 
 type ResetResult = {
   saved: boolean; messageIndex?: number; runtimeReady?: boolean; postCommitWarning?: string; error?: string;
@@ -82,6 +84,20 @@ export async function resetCurrentChatTableStateFromTemplate_ACU(
   templateData: Record<string, any>,
   options: { presetName?: string; source?: string; reason?: string; resetExistingTableData?: boolean } = {},
 ): Promise<ResetResult> {
+  const initialChat = getChatArray_ACU();
+  const initialChatKey = String(currentChatFileIdentifier_ACU || '');
+  const initialIsolationKey = String(getCurrentIsolationKey_ACU() || '');
+  const scopeStillCurrent = () => {
+    const currentChat = getChatArray_ACU();
+    return currentChat === initialChat
+      && String(currentChatFileIdentifier_ACU || '') === initialChatKey
+      && String(getCurrentIsolationKey_ACU() || '') === initialIsolationKey;
+  };
+  const scopeChangedResult = (): ResetResult => ({
+    saved: false,
+    error: '目标聊天或隔离作用域已切换，已取消初始化提交。',
+  });
+
   let prepared: Record<string, any>;
   let guideData: Record<string, any>;
   let normalizationAudit: TemplateRowIdNormalizationAudit_ACU[];
@@ -91,25 +107,27 @@ export async function resetCurrentChatTableStateFromTemplate_ACU(
     normalizationAudit = preparedResult.normalizationAudit;
     guideData = buildChatSheetGuideDataFromTemplateObj_ACU(prepared, { stripSeedRows: false });
     if (!guideData) throw new Error('无法从初始化模板生成聊天指导表。');
+    if (!scopeStillCurrent()) return scopeChangedResult();
     if (getCurrentStorageMode() === 'sqlite') {
       // 运行时模板注入路径（initGameSession/模板面板）与 table-import-service.ts:132 语义一致：
       // 非法显式 DDL 允许降级为 fallback schema，避免「导入面板能过、API 注入被硬拦」的不一致。
       // 持久化契约校验（storage-frame-v2-persist.ts:3190）保持严格，不在此处放宽。
       await hydrateTableDataStrict_ACU(prepared, { allowRuntimeDdlFallback: true });
+      if (!scopeStillCurrent()) return scopeChangedResult();
     }
   } catch (error: any) {
     return { saved: false, error: error?.message || String(error) };
   }
 
-  const isolationKey = getCurrentIsolationKey_ACU();
+  const isolationKey = initialIsolationKey;
   try {
     return await runTableWriteTransaction_ACU({
-      source: 'template_assistant', reason: options.reason || 'resetCurrentChatTableStateFromTemplate', isolationKey,
+      source: 'template_assistant', reason: options.reason || 'resetCurrentChatTableStateFromTemplate', chatKey: initialChatKey, isolationKey,
       writeSet: [{ kind: 'all' }], maintenanceMode: 'exclusive',
     }, async (transactionContext) => transactionContext.runCommit(async () => {
       const chat = getChatArray_ACU();
       if (!Array.isArray(chat)) throw new Error('当前聊天记录不可用，已取消初始化提交。');
-      const targetIndex = chat.findIndex(message => message && !message.is_user);
+      const targetIndex = chat.findIndex(isAiFloor_ACU);
       if (targetIndex < 0) throw new Error('当前聊天不存在可写入初始化 checkpoint 的 AI 楼层。');
       const firstMessage = chat[0];
       const chatIdentity = getActiveChatStorageIdentity_ACU(chat);
@@ -117,6 +135,10 @@ export async function resetCurrentChatTableStateFromTemplate_ACU(
       const previousScope = clone(peekChatScopedConfigContainer_ACU(chat));
       const previousGuide = clone(peekChatSheetGuideContainer_ACU(chat));
       let primarySaveAttempted = false;
+      // TT 帧架构语义：重置只搬表格 full 根、正文不动，因此续写资料保留、
+      // 基线跟随到新 init 根（与 bridge/boundary 的 notify 口径一致）。
+      // 不清空资料字段：清空会误删与正文仍对应的用户故事资产。
+      let materialSnapshots: ReturnType<typeof snapshotMaterialCheckpointFields_ACU> | null = null;
       try {
         for (const message of chat) {
           if (!message || message.is_user) continue;
@@ -139,7 +161,7 @@ export async function resetCurrentChatTableStateFromTemplate_ACU(
         const checkpoint = buildCanonicalFullCheckpoint_ACU({
           createdAt: Date.now(), reason: 'init', data: prepared as any,
           event: { filledSheetKeys: [], changedSheetKeys: Object.keys(prepared).filter(key => key.startsWith('sheet_')).sort(), groupKeys: [] },
-          context: { messageIndex: targetIndex, aiFloor: chat.slice(0, targetIndex + 1).filter(message => message && !message.is_user).length, isolationKey },
+          context: { messageIndex: targetIndex, aiFloor: countAiFloors_ACU(chat.slice(0, targetIndex + 1)), isolationKey },
         });
         if (!checkpoint.checkpoint) throw new Error(checkpoint.error);
         // S2-4：frame 拼装 + 单根断言收敛到 persist 层统一入口，违例抛错走下方快照回滚
@@ -151,13 +173,16 @@ export async function resetCurrentChatTableStateFromTemplate_ACU(
           presetName: options.presetName || '', source: options.source || 'game_init',
         });
         if (!guideUpdated) throw new Error('初始化模板无法原子写入 guide 与 template scope。');
-        if (getChatArray_ACU() !== chat || chat[0] !== firstMessage || getActiveChatStorageIdentity_ACU(chat) !== chatIdentity) throw new Error('目标聊天已切换，已取消初始化提交。');
+        materialSnapshots = snapshotMaterialCheckpointFields_ACU(chat);
+        notifyMaterialCheckpointFloor_ACU(chat, targetIndex);
+        if (!scopeStillCurrent() || getChatArray_ACU() !== chat || chat[0] !== firstMessage || getActiveChatStorageIdentity_ACU(chat) !== chatIdentity) throw new Error('目标聊天已切换，已取消初始化提交。');
         primarySaveAttempted = true;
         await saveChatToHostStrict_ACU();
         _set_currentJsonTableData_ACU(clone(prepared));
         return { saved: true, messageIndex: targetIndex, runtimeReady: true, normalizedTemplateData: clone(prepared), normalizationAudit };
       } catch (error: any) {
         restoreMessages(messageSnapshots);
+        if (materialSnapshots) restoreMaterialCheckpointFields_ACU(chat, materialSnapshots);
         setChatScopedConfigContainer_ACU(chat, previousScope);
         setChatSheetGuideContainer_ACU(chat, previousGuide);
         if (primarySaveAttempted) {

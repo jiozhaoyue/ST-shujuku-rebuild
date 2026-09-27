@@ -9,6 +9,7 @@ import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU } from '../../sh
 import { startRuntimePerformanceSpan_ACU } from '../../shared/runtime-performance';
 import { getSortedSheetKeys_ACU } from '../template/chat-scope';
 import { getLatestV2FullCheckpointMessageIndex_ACU, resolveTableHistoryStatesFromChat_ACU } from './table-history';
+import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
 
 export interface TableUpdateItem {
     sheetKey: string;
@@ -80,7 +81,7 @@ export function buildAutoUpdatePlan_ACU(
 
     // 预计算所有 AI 消息索引
     const allAiMessageIndices = liveChat
-        .map((msg: any, index: number) => !msg.is_user ? index : -1)
+        .map((msg: any, index: number) => isAiFloor_ACU(msg) ? index : -1)
         .filter((index: number) => index !== -1);
 
     const totalAiMessages = allAiMessageIndices.length;
@@ -448,8 +449,12 @@ export async function executeAutoUpdatePlan_ACU(
                 const batchResult = await executeAutoMergeBatch_ACU(prepared, prepared.batches[i], acc);
                 acc = batchResult.accumulatedSummary;
             }
-            await finalizeAutoMerge_ACU(prepared, acc);
-            autoMergeSuccess = true;
+            const mergeResult = await finalizeAutoMerge_ACU(prepared, acc);
+            if (mergeResult?.success !== true) {
+                logWarn_ACU('[自动合并] 提交失败或返回无效结果，自动合并未成功。', mergeResult?.error);
+            } else {
+                autoMergeSuccess = true;
+            }
         }
     } catch (e) {
         logWarn_ACU('自动合并总结检测失败:', e);
@@ -511,7 +516,7 @@ export async function handleFloorIncreaseDelay_ACU(
 
         const liveChat = getChatArray();
         if (!liveChat || liveChat.length === 0) return null;
-        const newTotal = liveChat.filter((m: any) => !m.is_user).length;
+        const newTotal = countAiFloors_ACU(liveChat);
         setLastTotalAiMessages(newTotal);
         return { liveChat, totalAiMessages: newTotal };
     } else if (totalAiMessages < lastTotalAiMessages) {

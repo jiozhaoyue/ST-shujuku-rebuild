@@ -127,7 +127,42 @@ function copyRecordWithoutPrototype_ACU(value: Record<string, unknown>): Record<
  * 组合 SillyTavern 的 custom_include_body。JSON 是合法 YAML；输出 JSON 可避免把对象字段
  * 再拼成不合法的混合 YAML，同时与宿主 yaml.parse 后的浅合并语义保持一致。
  */
+/** custom_include_body 组装 memo：YAML 解析是组装主开销，同输入复用。键即内容，无 stale；上限 32 FIFO。 */
+const COMPOSE_INCLUDE_BODY_CACHE_CAP_ACU = 32;
+const composeIncludeBodyCache_ACU = new Map<string, { value: string; diagnostic: CustomIncludeBodyDiagnostic_ACU }>();
+
+function fingerprintIncludeBodyInputs_ACU(userBodyParams: string, pluginFields: Record<string, unknown>): string | null {
+  try {
+    return `${String(userBodyParams || '')}\n${JSON.stringify(pluginFields ?? {})}`;
+  } catch {
+    return null;
+  }
+}
+
 export function composeCustomIncludeBody_ACU(
+  userBodyParams: string,
+  pluginFields: Record<string, unknown>,
+): { value: string; diagnostic: CustomIncludeBodyDiagnostic_ACU } {
+  const key = fingerprintIncludeBodyInputs_ACU(userBodyParams, pluginFields);
+  const hit = key === null ? undefined : composeIncludeBodyCache_ACU.get(key);
+  if (hit) return { value: hit.value, diagnostic: { ...hit.diagnostic } };
+  const result = composeCustomIncludeBodyUncached_ACU(userBodyParams, pluginFields);
+  if (key !== null) {
+    composeIncludeBodyCache_ACU.set(key, result);
+    if (composeIncludeBodyCache_ACU.size > COMPOSE_INCLUDE_BODY_CACHE_CAP_ACU) {
+      const oldest = composeIncludeBodyCache_ACU.keys().next();
+      if (!oldest.done) composeIncludeBodyCache_ACU.delete(oldest.value);
+    }
+  }
+  return { value: result.value, diagnostic: { ...result.diagnostic } };
+}
+
+/** 仅供测试：清空 include_body 组装 memo。 */
+export function __clearComposeIncludeBodyCacheForTests_ACU(): void {
+  composeIncludeBodyCache_ACU.clear();
+}
+
+function composeCustomIncludeBodyUncached_ACU(
   userBodyParams: string,
   pluginFields: Record<string, unknown>,
 ): { value: string; diagnostic: CustomIncludeBodyDiagnostic_ACU } {
@@ -214,6 +249,24 @@ function sanitizeExcludeBodyForPresetFields_ACU(rawExclude: string, effectiveApi
   return normalizeExcludeBodyParamsForSillyTavern_ACU(rawKeys.join(', '));
 }
 
+const MAX_UPSTREAM_ERROR_BODY_LENGTH_ACU = 2048;
+
+/**
+ * 上游错误体可能回显请求头、Cookie 或 API key；它在错误消息里会继续进入日志/UI，
+ * 因而必须先脱敏再限长。无敏感信息的短错误体保持逐字不变。
+ */
+function sanitizeUpstreamErrorBodyForDisplay_ACU(raw: unknown): string {
+  let text = String(raw ?? '')
+    .replace(/((?:proxy-)?authorization\s*:\s*)(?:bearer|basic)\s+[^\s"',}\r\n]+/gi, '$1***')
+    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/=-]+/gi, '$1 ***')
+    .replace(/((?:"|')?(?:proxy-authorization|authorization|(?:x[-_])?api[-_]?key|set-cookie|cookie)(?:"|')?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/gi, '$1***')
+    .replace(/^(\s*(?:set-cookie|cookie)\s*:\s*).+$/gim, '$1***');
+  if (text.length > MAX_UPSTREAM_ERROR_BODY_LENGTH_ACU) {
+    text = `${text.slice(0, MAX_UPSTREAM_ERROR_BODY_LENGTH_ACU - 1)}…`;
+  }
+  return text;
+}
+
 /**
  * fix1 调试快照头脱敏（__ACU_DEBUG_LAST_API_BODY__）：头名保留、值打码为 ***。
  * 覆盖 Authorization: Bearer / Basic 形态、x-api-key / api-key、自动补的 x-opencode-session。
@@ -264,23 +317,12 @@ function redactSensitiveIncludeBodyForDebug_ACU(includeBody: unknown): string {
 export const JSON_OBJECT_RESPONSE_FORMAT_ACU = Object.freeze({ type: 'json_object' });
 
 /**
- * 增强思考 system 提示词（用户指定文案，逐字固定，勿改写/翻译/增删）：
- * 预设开关 enhancedThinking 开启后，本库所有经 buildCustomApiRequestBody_ACU 发出的
- * API 调用在消息最开头插入一条 `{ role: 'system', content: 本常量 }`。
- * 换行符恒为 \n（数组 join('\n') 保证跨平台一致）。
- */
-export const ENHANCED_THINKING_SYSTEM_PROMPT_ACU: string = [
-  'Reasoning Effort: Absolute maximum with no shortcuts permitted.',
-  'You MUST be very thorough in your thinking and comprehensively decompose the problem to resolve the root cause, rigorously stress-testing your logic against all potential paths, edge cases, and adversarial scenarios.',
-].join('\n');
-
-/**
  * 构建 Chat Completions 自定义 API 请求体（支持 bodyParams / excludeBodyParams / requestHeaders）
  */
 export function buildCustomApiRequestBody_ACU(
   messages: any[],
   effectiveApiConfig: any,
-  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; enhancedThinking?: boolean; sessionNamespace?: string }
+  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; sessionNamespace?: string }
 ): Record<string, any> {
   const opts = overrides || {};
   if (effectiveApiConfig?.url) {
@@ -345,24 +387,7 @@ export function buildCustomApiRequestBody_ACU(
   // 时请求体省略该键，后端原样透传消息，保留提示词组中部 system 段的角色。
   const promptPostProcessing_ACU = normalizePromptPostProcessing_ACU(effectiveApiConfig.promptPostProcessing);
 
-  // 增强思考（预设级开关 enhancedThinking）：开启后在消息最开头插入一条固定英文 system 提示，
-  // 要求模型最大限度深入思考并写出完整推演过程。插入点在本函数一切归一/分流/调试快照之前，
-  // 保证快照与真实请求一致；开关关闭时行为与现状逐字一致。
-  // 去重守卫：若 messages[0] 已是同 role（小写相等 system）同 content（逐字相等），不再插入，
-  // 防同一数组被 build 两次时的双插。
-  const effectiveMessagesForEnhancedThinking_ACU = Array.isArray(messages) ? [...messages] : messages;
-  if (opts.enhancedThinking === true && Array.isArray(effectiveMessagesForEnhancedThinking_ACU)) {
-    const firstMessageForEnhancedThinking_ACU = effectiveMessagesForEnhancedThinking_ACU[0] as any;
-    const alreadyInsertedEnhancedThinking_ACU = !!firstMessageForEnhancedThinking_ACU
-      && typeof firstMessageForEnhancedThinking_ACU === 'object'
-      && !Array.isArray(firstMessageForEnhancedThinking_ACU)
-      && typeof firstMessageForEnhancedThinking_ACU.role === 'string'
-      && firstMessageForEnhancedThinking_ACU.role.toLowerCase() === 'system'
-      && firstMessageForEnhancedThinking_ACU.content === ENHANCED_THINKING_SYSTEM_PROMPT_ACU;
-    if (!alreadyInsertedEnhancedThinking_ACU) {
-      effectiveMessagesForEnhancedThinking_ACU.unshift({ role: 'system', content: ENHANCED_THINKING_SYSTEM_PROMPT_ACU });
-    }
-  }
+  const effectiveMessages_ACU = Array.isArray(messages) ? [...messages] : messages;
 
   const body: Record<string, any> = {
     // 统一将 messages 的 role 归一为小写（system / user / assistant）。
@@ -380,8 +405,8 @@ export function buildCustomApiRequestBody_ACU(
     // 边界契约：仅当 role 是字符串时才归一为小写；缺失 role、非字符串 role、
     // 数组/原始值等异常消息一律原样保留，交由后端校验，绝不把缺失 role 静默
     // 改造成 "undefined" / "null"。
-    messages: Array.isArray(effectiveMessagesForEnhancedThinking_ACU)
-        ? effectiveMessagesForEnhancedThinking_ACU.map((m) => {
+    messages: Array.isArray(effectiveMessages_ACU)
+        ? effectiveMessages_ACU.map((m) => {
               if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.role !== 'string') return m;
               let role = m.role.toLowerCase();
               let content = m.content;
@@ -391,7 +416,7 @@ export function buildCustomApiRequestBody_ACU(
               }
               return { ...m, role, ...(content !== undefined ? { content } : {}) };
           })
-        : effectiveMessagesForEnhancedThinking_ACU,
+        : effectiveMessages_ACU,
     model,
     max_tokens: maxTokens,
     temperature,
@@ -470,6 +495,7 @@ export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal
     try {
         res = await fetch('/api/backends/chat-completions/generate', {
             method: 'POST',
+            redirect: 'error', // 307/308 会把 POST 原样重放到重定向目标：SSRF 守卫只校发起前 URL，禁止重定向
             headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal: signal || undefined,
@@ -481,7 +507,7 @@ export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal
         throw e;
     }
     if (!res.ok) {
-        const errTxt = await res.text();
+        const errTxt = sanitizeUpstreamErrorBodyForDisplay_ACU(await res.text());
         throw new AgentApiHttpError_ACU(res.status, `API请求失败: ${res.status} ${errTxt}`);
     }
     const requestWantsStream = (body as any)?.stream === true;
@@ -531,7 +557,6 @@ export function getApiConfigByPreset_ACU(presetName: string) {
       nonPrefillSupport: resolved.nonPrefillSupport,
       publicServiceMode: resolved.publicServiceMode,
       jsonFormatOutput: resolved.jsonFormatOutput,
-      enhancedThinking: resolved.enhancedThinking,
     };
 }
 
@@ -568,7 +593,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
         throw new Error('自定义API的URL或模型未配置。');
     }
 
-    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(apiPresetConfig.enhancedThinking === true ? { enhancedThinking: true } : {}), ...(options?.sessionNamespace ? { sessionNamespace: options.sessionNamespace } : {}) });
+    const body = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false, nonPrefillSupport: apiPresetConfig.nonPrefillSupport, ...(options?.needsJsonFormat === true && apiPresetConfig.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}), ...(options?.sessionNamespace ? { sessionNamespace: options.sessionNamespace } : {}) });
 
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (apiPresetConfig.publicServiceMode) {
@@ -656,7 +681,7 @@ function attachTimeoutAndExternalAbort_ACU(controller: AbortController, external
  */
 export async function callAIWithResolvedPreset_ACU(
     messages: any[],
-    resolved: { apiMode: string; apiConfig: any; tavernProfile: string; presetName?: string; nonPrefillSupport?: boolean; publicServiceMode?: boolean; jsonFormatOutput?: boolean; enhancedThinking?: boolean },
+    resolved: { apiMode: string; apiConfig: any; tavernProfile: string; presetName?: string; nonPrefillSupport?: boolean; publicServiceMode?: boolean; jsonFormatOutput?: boolean },
     signal?: AbortSignal | null,
     lifecycle?: ResolvedPresetCallLifecycle_ACU,
     extras?: ResolvedPresetCallExtras_ACU,
@@ -689,7 +714,6 @@ export async function callAIWithResolvedPreset_ACU(
         includeStreamUsage: !!lifecycle?.onUsage,
         // JSON 格式化输出：仅调用点明确需要 JSON 且预设开关开启时附加（与 MVU 格式化输出同参）。
         ...(extras?.needsJsonFormat === true && resolved.jsonFormatOutput === true ? { responseFormat: JSON_OBJECT_RESPONSE_FORMAT_ACU } : {}),
-        ...(resolved.enhancedThinking === true ? { enhancedThinking: true } : {}),
     });
     // 公益站兼容（预设级）：该预设限速每分钟最多 3 次请求（各预设独立计数）
     if (resolved.publicServiceMode) {
@@ -705,6 +729,7 @@ export async function callAIWithResolvedPreset_ACU(
       try {
         response = await fetch('/api/backends/chat-completions/generate', {
             method: 'POST',
+            redirect: 'error', // 307/308 会把 POST 原样重放到重定向目标：SSRF 守卫只校发起前 URL，禁止重定向
             headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal: timeoutController.signal,
@@ -726,7 +751,7 @@ export async function callAIWithResolvedPreset_ACU(
       }
       try {
         if (!response.ok) {
-            const errTxt = await response.text();
+            const errTxt = sanitizeUpstreamErrorBodyForDisplay_ACU(await response.text());
             throw new Error(`API 请求失败: ${response.status} ${errTxt}`);
         }
         assertNotAborted_ACU(signal);
@@ -734,9 +759,15 @@ export async function callAIWithResolvedPreset_ACU(
         const content = await handleApiResponse_ACU(response, requestWantsStream, lifecycle?.onUsage);
         return typeof content === 'string' && content.trim() ? content.trim() : null;
       } catch (error: any) {
-        // 响应体读取阶段被超时计时器掐断：报超时而不是底层网络错文；外部取消仍按取消上报。
-        // 同上：挂 TimeoutError 名，走 isRetryable 的按名放行分支。
-        if (error?.name === 'AbortError' && !signal?.aborted && timeoutController.signal.aborted) {
+        // 响应体读取阶段被外部 signal 取消时，与 fetch 阶段使用同一用户取消语义。
+        if (error?.name === 'AbortError' && signal?.aborted) {
+          const cancelled = new Error('请求已取消');
+          cancelled.name = 'AbortError';
+          throw cancelled;
+        }
+        // 响应体读取阶段被超时计时器掐断：报超时而不是底层网络错文。
+        // 挂 TimeoutError 名，走 isRetryable 的按名放行分支。
+        if (error?.name === 'AbortError' && timeoutController.signal.aborted) {
             const timeout = new Error(`内部 AI 请求超时（${INTERNAL_AI_FETCH_TIMEOUT_MS_ACU / 1000}s），已中断。`);
             timeout.name = 'TimeoutError';
             throw timeout;

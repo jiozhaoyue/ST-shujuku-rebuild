@@ -480,10 +480,11 @@ export async function getSummaryVectorHotCacheChunks_ACU(options: VectorIndexHot
     }
 }
 
-export async function deleteSummaryVectorHotCacheByIndex_ACU(indexId: string): Promise<void> {
+/** 返回值即失败通道：false 表示该 indexId 的热缓存未清干净，调用方须据此告警。 */
+export async function deleteSummaryVectorHotCacheByIndex_ACU(indexId: string): Promise<boolean> {
     try {
         const targetIndexId = normalizeKeyPart_ACU(indexId);
-        if (!targetIndexId) return;
+        if (!targetIndexId) return true;
         const db = await openDb_ACU();
         await new Promise<void>((resolve, reject) => {
             const tx = db.transaction(STORE_NAME_ACU, 'readwrite');
@@ -507,15 +508,19 @@ export async function deleteSummaryVectorHotCacheByIndex_ACU(indexId: string): P
                 reject(tx.error || new Error('清理交火向量热缓存事务失败'));
             };
         });
-    } catch {}
+        return true;
+    } catch {
+        return false;
+    }
 }
 
-export async function deleteSummaryVectorHotCacheByScope_ACU(scope: VectorIndexHotCacheScope_ACU): Promise<void> {
+/** 返回值即失败通道：false 表示该作用域热缓存未清干净，调用方须据此告警（勿静默吞错）。 */
+export async function deleteSummaryVectorHotCacheByScope_ACU(scope: VectorIndexHotCacheScope_ACU): Promise<boolean> {
     try {
         const chatKey = normalizeKeyPart_ACU(scope.chatKey);
         const isolationKey = normalizeKeyPart_ACU(scope.isolationKey);
         const sourceTableKey = normalizeKeyPart_ACU(scope.sourceTableKey);
-        if (!chatKey && !isolationKey && !sourceTableKey) return;
+        if (!chatKey && !isolationKey && !sourceTableKey) return true;
         const db = await openDb_ACU();
         await new Promise<void>((resolve, reject) => {
             const tx = db.transaction(STORE_NAME_ACU, 'readwrite');
@@ -542,25 +547,35 @@ export async function deleteSummaryVectorHotCacheByScope_ACU(scope: VectorIndexH
                 reject(tx.error || new Error('按作用域清理交火向量热缓存事务失败'));
             };
         });
-    } catch {}
+        return true;
+    } catch {
+        return false;
+    }
 }
 
-export async function clearSummaryVectorHotCache_ACU(): Promise<void> {
+/** 返回值即失败通道：false 表示整表清空失败，调用方须据此告警。 */
+export async function clearSummaryVectorHotCache_ACU(): Promise<boolean> {
     try {
         const db = await openDb_ACU();
         await new Promise<void>((resolve, reject) => {
             const tx = db.transaction(STORE_NAME_ACU, 'readwrite');
             const store = tx.objectStore(STORE_NAME_ACU);
             const request = store.clear();
-            request.onsuccess = () => resolve();
             request.onerror = () => reject(request.error || new Error('清空交火向量热缓存失败'));
-            tx.oncomplete = () => db.close();
+            // 与同文件 delete* 对齐：事务提交后才算成功，否则事务层 abort 会被已结算的 promise 吞掉
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
             tx.onerror = () => {
                 db.close();
                 reject(tx.error || new Error('清空交火向量热缓存事务失败'));
             };
         });
-    } catch {}
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export async function estimateSummaryVectorHotCache_ACU(indexId?: string): Promise<{ bytes: number; count: number }> {
@@ -1059,17 +1074,30 @@ export async function markSummaryVectorFlushTaskReadyIfGenerationMatchesStrict_A
     return completed;
 }
 
-export async function deleteSummaryVectorFlushTask_ACU(scopeKey: string): Promise<void> {
+/** 返回值即失败通道：strict 版删除后会复读校验，false 表示任务可能残留（会在后继 replay 复活已删数据）。 */
+export async function deleteSummaryVectorFlushTask_ACU(scopeKey: string): Promise<boolean> {
     try {
         await deleteSummaryVectorFlushTaskStrict_ACU(scopeKey);
-    } catch {}
+        return true;
+    } catch {
+        return false;
+    }
 }
 
-export async function clearSummaryVectorFlushTasksByScope_ACU(scope: VectorIndexHotCacheScope_ACU): Promise<void> {
-    const tasks = await listSummaryVectorFlushTasks_ACU(scope);
-    for (const task of tasks) {
-        await deleteSummaryVectorFlushTask_ACU(task.scopeKey);
+export async function clearSummaryVectorFlushTasksByScope_ACU(scope: VectorIndexHotCacheScope_ACU): Promise<boolean> {
+    let tasks: Awaited<ReturnType<typeof listSummaryVectorFlushTasks_ACU>>;
+    try {
+        tasks = await listSummaryVectorFlushTasks_ACU(scope);
+    } catch {
+        // list 目前自身把异常兜成 []，故本分支当下不可达；保留是为防它日后改为抛错——
+        // 那种情况下不能返回 true，否则调用方会把未清干净的残留当成已清空。
+        return false;
     }
+    let allCleared = true;
+    for (const task of tasks) {
+        if ((await deleteSummaryVectorFlushTask_ACU(task.scopeKey)) !== true) allCleared = false;
+    }
+    return allCleared;
 }
 
 export async function estimateSummaryVectorFlushTasks_ACU(scope?: VectorIndexHotCacheScope_ACU): Promise<SummaryVectorIndexFlushTaskEstimate_ACU> {

@@ -13,7 +13,8 @@ export {
 
 import { getHostRequestHeaders_ACU as _getHeaders } from '../../data/gateways/ai-gateway';
 import { withOpencodeSessionHeader_ACU } from './api-call';
-import { logDebug_ACU } from '../../shared/utils';
+import { hashUserInput_ACU, logDebug_ACU } from '../../shared/utils';
+import { maskSensitiveText_ACU } from '../../shared/log-buffer';
 
 // ============================================================
 // 模型列表获取
@@ -46,11 +47,79 @@ export function normalizeStatusCustomApiFormat_ACU(value: unknown): string {
  * 从自定义 API 端点获取可用模型列表
  * 纯业务逻辑：发送 HTTP 请求、解析响应、返回模型列表
  * 不涉及 UI（toast、状态显示由 presentation 层负责）
- * @param customApiFormat 接口协议（预设级，四值白名单）；缺省/非法降级 ''，
+ * @param customApiFormat 接口协议（预设级，五值白名单）；缺省/非法降级 ''，
  *                        TT 后端据此把模型列表来源切到对应协议（claude_messages→Claude、
  *                        gemini_interactions→Makersuite），不传则恒按 openai_compat 探活。
  */
-export async function fetchAvailableModels_ACU(apiUrl: string, apiKey: string, customApiFormat?: string): Promise<FetchModelsResult> {
+/** 模型列表探活缓存：成功 5 分钟，失败 30 秒负缓存；防面板连点雪崩。键含密钥指纹，换 key 即穿透。 */
+const MODEL_LIST_TTL_MS_ACU = 5 * 60 * 1000;
+const MODEL_LIST_FAIL_TTL_MS_ACU = 30 * 1000;
+const MODEL_LIST_CACHE_CAP_ACU = 50;
+interface ModelListCacheEntry_ACU { at: number; result: FetchModelsResult; }
+const modelListCache_ACU = new Map<string, ModelListCacheEntry_ACU>();
+const modelListInflight_ACU = new Map<string, Promise<FetchModelsResult>>();
+
+function modelListCacheKey_ACU(apiUrl: string, apiKey: string, customApiFormat?: string): string {
+    const url = String(apiUrl || '').trim().replace(/\/+$/, '').toLowerCase();
+    return `${url}\n${normalizeStatusCustomApiFormat_ACU(customApiFormat)}\n${hashUserInput_ACU(String(apiKey || ''))}`;
+}
+
+function cloneModelsResult_ACU(result: FetchModelsResult): FetchModelsResult {
+    return { ...result, models: result.models ? [...result.models] : undefined };
+}
+
+export async function fetchAvailableModels_ACU(apiUrl: string, apiKey: string, customApiFormat?: string, options?: { force?: boolean }): Promise<FetchModelsResult> {
+    if (!apiUrl) {
+        return { success: false, error: '请输入API基础URL。' };
+    }
+    const key = modelListCacheKey_ACU(apiUrl, apiKey, customApiFormat);
+    const now = Date.now();
+    const hit = options?.force ? undefined : modelListCache_ACU.get(key);
+    if (hit && now - hit.at < (hit.result.success ? MODEL_LIST_TTL_MS_ACU : MODEL_LIST_FAIL_TTL_MS_ACU)) {
+        return cloneModelsResult_ACU(hit.result);
+    }
+    // force 的语义是「重新探一次」：在飞请求可能正卡在慢响应上，复用它会让刷新永久挂着。
+    const inflight = options?.force ? undefined : modelListInflight_ACU.get(key);
+    if (inflight) return inflight.then(cloneModelsResult_ACU);
+    const pending = fetchAvailableModelsUncached_ACU(apiUrl, apiKey, customApiFormat).then(
+        (result) => {
+            modelListCache_ACU.set(key, { at: Date.now(), result });
+            if (modelListCache_ACU.size > MODEL_LIST_CACHE_CAP_ACU) {
+                const oldest = modelListCache_ACU.keys().next();
+                if (!oldest.done) modelListCache_ACU.delete(oldest.value);
+            }
+            modelListInflight_ACU.delete(key);
+            return cloneModelsResult_ACU(result);
+        },
+        (error) => {
+            modelListInflight_ACU.delete(key);
+            throw error;
+        },
+    );
+    modelListInflight_ACU.set(key, pending);
+    return pending;
+}
+
+/** 清掉模型列表探活缓存（仅测试与端点配置大改后用；正常调用靠 TTL/密钥指纹）。 */
+export function __clearModelListCacheForTests_ACU(): void {
+    modelListCache_ACU.clear();
+    modelListInflight_ACU.clear();
+}
+
+/** 探活窗口内的中止判定：fetch 阶段与响应体消费阶段共用同一口径。 */
+function isProbeAbort_ACU(e: any): boolean {
+    return e?.name === 'AbortError' || /abort/i.test(String(e?.message || ''));
+}
+
+/** 探活超时的统一出口：必须返回结构化失败，裸抛会让「测试连接」停在加载中。 */
+function probeTimeoutResult_ACU(): FetchModelsResult {
+    return {
+        success: false,
+        error: `API 端点状态检查超时：${MODEL_PROBE_TIMEOUT_MS_ACU / 1000} 秒内无响应，请检查端点地址与网络后重试。（若 TauriTavern 弹出了「允许连接到自定义端点？」授权窗，等待授权同样计入这段时间——请先在弹窗中点击「信任并连接」再重试）`,
+    };
+}
+
+async function fetchAvailableModelsUncached_ACU(apiUrl: string, apiKey: string, customApiFormat?: string): Promise<FetchModelsResult> {
     if (!apiUrl) {
         return { success: false, error: '请输入API基础URL。' };
     }
@@ -79,67 +148,91 @@ export async function fetchAvailableModels_ACU(apiUrl: string, apiKey: string, c
     };
 
     // 探活专用 15s AbortController：不设超时的探活会挂在无响应端点上，UI 状态停在"正在检查"。
-    // 仅对本次 fetch 生效；响应头到达后读 body 不再受此定时约束（轻量响应，无实际影响）。
+    // 窗口必须覆盖到响应体消费完成：上游只回响应头、正文停滞时，只包 fetch 等于没有超时，
+    // 探活 promise 还会常驻 inflight（后续请求连同 force 一起挂死）。
     const controller = new AbortController();
     const probeTimer = setTimeout(() => controller.abort(), MODEL_PROBE_TIMEOUT_MS_ACU);
     let response: Response;
     try {
         response = await fetch(statusUrl, {
             method: 'POST',
+            redirect: 'error', // 307/308 会把 POST 原样重放到重定向目标：SSRF 守卫只校发起前 URL，禁止重定向
             headers: { ..._getHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal: controller.signal,
         });
     } catch (e: any) {
+        clearTimeout(probeTimer);
         // 仅折叠探活中断为结构化失败（返回 FetchModelsResult，调用方 UI 才能正确落到错误态）；
         // 其余网络层异常保持原有抛出行为不变。
         if (e?.name === 'AbortError' || /abort/i.test(String(e?.message || ''))) {
-            return { success: false, error: `API 端点状态检查超时：${MODEL_PROBE_TIMEOUT_MS_ACU / 1000} 秒内无响应，请检查端点地址与网络后重试。` };
+            return { success: false, error: `API 端点状态检查超时：${MODEL_PROBE_TIMEOUT_MS_ACU / 1000} 秒内无响应，请检查端点地址与网络后重试。（若 TauriTavern 弹出了「允许连接到自定义端点？」授权窗，等待授权同样计入这段时间——请先在弹窗中点击「信任并连接」再重试）` };
         }
         throw e;
+    }
+
+    // 看门狗在此处解除：下面的 await response.text()/json() 都落在窗口内，
+    // 窗口内被中止一律折叠成结构化超时（裸抛会让 UI 停在加载中）。
+    try {
+        if (!response.ok) {
+            // 上游/代理可能把请求头（含 Authorization / x-api-key）回显进错误体：
+            // 该字符串会一路进 toast（不过日志脱敏），展示前必须先脱敏。
+            const errorText = maskSensitiveText_ACU(await response.text());
+            const status = response.status;
+            let errorMessage = `API端点状态检查失败: ${status} ${response.statusText}.`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                // 上游标准体是 {error:{message:...}}：直接插值只会得到 [object Object]，用户看不到原因。
+                const detailText = typeof errorJson?.error === 'string'
+                    ? errorJson.error
+                    : (typeof errorJson?.error?.message === 'string' ? errorJson.error.message
+                        : (typeof errorJson?.message === 'string' ? errorJson.message : errorText));
+                errorMessage += ` 详情: ${String(detailText).slice(0, 300)}`;
+            } catch (e) {
+                errorMessage += ` 详情: ${errorText}`;
+            }
+            // status 可操作映射：文案保留 {status} 数字与关键词形状，供 log-error-hints
+            //（http-401 / http-404 等规则按状态码与关键短语匹配）直接复用。
+            if (status === 401) {
+                errorMessage += ' 请检查 API Key 是否正确、完整且未过期（401 unauthorized：API Key 无效）。';
+            } else if (status === 404) {
+                errorMessage += ' 请检查接口地址是否完整、模型名是否存在（404 not found：模型不存在或地址错误，可点「拉取模型列表」重选）。';
+            }
+            return { success: false, error: errorMessage };
+        }
+
+        const data = await response.json();
+        logDebug_ACU('获取到的模型数据:', data);
+
+        // TT 2.3.0 起连接用户自定义端点需在宿主原生弹窗里「信任并连接」（SSRF 加固）；用户点「取消」时
+        // status 路由以 HTTP 200 + { cancelled: true, data: [] } 返回。此处必须指向那个弹窗——否则
+        // 用户只会看到「列表为空」，不知道第一步该做什么。
+        if (data && data.cancelled === true) {
+            return { success: false, error: '已取消连接自定义端点。请在 TauriTavern 弹出的「允许连接到自定义端点？」授权窗中点击「信任并连接」后重试。' };
+        }
+
+        let modelsList: any[] = [];
+        if (data && data.models && Array.isArray(data.models)) {
+            modelsList = data.models;
+        } else if (data && data.data && Array.isArray(data.data)) {
+            modelsList = data.data;
+        } else if (Array.isArray(data)) {
+            modelsList = data;
+        }
+
+        const modelNames = modelsList
+            .map((model: any) => typeof model === 'string' ? model : model.id)
+            .filter(Boolean);
+
+        if (modelNames.length === 0) {
+            return { success: false, error: '未能解析模型数据或列表为空。' };
+        }
+
+        return { success: true, models: modelNames };
+    } catch (bodyError: any) {
+        if (isProbeAbort_ACU(bodyError)) return probeTimeoutResult_ACU();
+        throw bodyError;
     } finally {
         clearTimeout(probeTimer);
     }
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        const status = response.status;
-        let errorMessage = `API端点状态检查失败: ${status} ${response.statusText}.`;
-        try {
-            const errorJson = JSON.parse(errorText);
-            errorMessage += ` 详情: ${errorJson.error || errorJson.message || errorText}`;
-        } catch (e) {
-            errorMessage += ` 详情: ${errorText}`;
-        }
-        // status 可操作映射：文案保留 {status} 数字与关键词形状，供 log-error-hints
-        //（http-401 / http-404 等规则按状态码与关键短语匹配）直接复用。
-        if (status === 401) {
-            errorMessage += ' 请检查 API Key 是否正确、完整且未过期（401 unauthorized：API Key 无效）。';
-        } else if (status === 404) {
-            errorMessage += ' 请检查接口地址是否完整、模型名是否存在（404 not found：模型不存在或地址错误，可点「拉取模型列表」重选）。';
-        }
-        return { success: false, error: errorMessage };
-    }
-
-    const data = await response.json();
-    logDebug_ACU('获取到的模型数据:', data);
-
-    let modelsList: any[] = [];
-    if (data && data.models && Array.isArray(data.models)) {
-        modelsList = data.models;
-    } else if (data && data.data && Array.isArray(data.data)) {
-        modelsList = data.data;
-    } else if (Array.isArray(data)) {
-        modelsList = data;
-    }
-
-    const modelNames = modelsList
-        .map((model: any) => typeof model === 'string' ? model : model.id)
-        .filter(Boolean);
-
-    if (modelNames.length === 0) {
-        return { success: false, error: '未能解析模型数据或列表为空。' };
-    }
-
-    return { success: true, models: modelNames };
 }

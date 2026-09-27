@@ -84,6 +84,7 @@ import {
 import {
   migrateLegacySummaryVectorIndexToContentAddressed_ACU
 } from '../../service/vector/summary-vector-index-archive-service';
+import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
 /**
  * presentation/triggers/data-admin-ui.ts — 导入/导出/重置 UI
  * 从 features/data/01_data_admin.js 迁移而来
@@ -186,7 +187,7 @@ import {
           return;
       }
 
-      const aiMessageCount = chat.filter((msg: any) => !msg.is_user).length;
+      const aiMessageCount = countAiFloors_ACU(chat);
       const outcome = await deleteLocalDataWithScope_ACU(mode, startFloor, endFloor);
 
       // aiCount === 0 时不再提前 return：范围覆盖全部（含 0 层）的 all 请求会走 purge，
@@ -284,7 +285,7 @@ import {
   export function exportCurrentJsonData_ACU() {
     if (!currentJsonTableData_ACU) {
         showToastr_ACU('warning', '没有可导出的数据库。请先开始一个对话。');
-        return;
+        return false;
     }
     try {
         const chatName = currentChatFileIdentifier_ACU || 'current_chat';
@@ -302,9 +303,11 @@ import {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         showToastr_ACU('success', '数据库JSON文件已成功导出！');
+        return true;
     } catch (error) {
         logError_ACU('导出JSON数据失败:', error);
         showToastr_ACU('error', '导出JSON失败，请检查控制台获取详情。');
+        return false;
     }
   }
 
@@ -398,27 +401,27 @@ import {
                   '• 此操作仅影响最新的一条AI消息\n' +
                   '• 删除最新层的聊天数据后即可恢复正常\n\n' +
                   '确定要继续吗？')) {
-          return;
+          return false;
       }
 
       const chat = getChatArray_ACU();
       if (!chat || chat.length === 0) {
           showToastr_ACU('error', '聊天记录为空，无法执行覆盖操作。');
-          return;
+          return false;
       }
 
       // 解析通用模板
       const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true });
       if (!templateData) {
           showToastr_ACU('error', '无法解析通用模板，请检查模板格式。');
-          return;
+          return false;
       }
 
       // 检查是否有AI消息
-      const hasAiMessage = chat.some((msg: any) => !msg.is_user);
+      const hasAiMessage = chat.some(isAiFloor_ACU);
       if (!hasAiMessage) {
           showToastr_ACU('error', '聊天记录中没有AI消息，无法执行覆盖操作。');
-          return;
+          return false;
       }
 
       // 调用 service 层核心逻辑执行覆盖
@@ -430,8 +433,10 @@ import {
           await refreshMergedDataAndNotifyWithUI_ACU();
 
           showToastr_ACU('success', `已使用通用模板覆盖最新层的${Object.keys(templateData).filter(k => k.startsWith('sheet_')).length}个表格数据。`);
+          return true;
       } else {
           showToastr_ACU('warning', '没有找到需要覆盖的表格数据。');
+          return false;
       }
   }
 

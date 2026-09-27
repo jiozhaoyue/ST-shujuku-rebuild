@@ -1,0 +1,871 @@
+/**
+ * service/continuation/agent/agent-module-frame.ts — 续写资料的楼层增量帧（TT-only）
+ *
+ * 楼层字段从全量快照升级为 { checkpoint, deltas }。读取从最近基线起按楼层顺序叠加
+ * 当前 swipe 的 delta；删除楼层会让该楼 delta 物理消失，折叠结果自动回到剩余链。
+ * schema 1 全量快照只在内存里充当 swipe 0 的基线，成功写入才替换成 schema 3。
+ *
+ * TT 适配说明（相对上游 d404b0f）：
+ * - 六个 id 键模块（hooks/infoGap/constraints/storyArc/chronology/webRefs）加
+ *   userRequirements 字符串单例整表替换（顶层 delta 字段，不进分栏矩阵）；
+ *   pendingFixes 随快照携带并参与折叠/差分，
+ *   与上游 pendingFixes 语义对齐（TT 六模块子集 + 单例）；
+ * - 不耦合 simulation（scheduler/ledger 引用全部剥离）；
+ * - P1 前缀指纹语义由 deps.isSnapshotPrefixCompatible 注入：legacy 与 checkpoint
+ *   基线在采纳前必须通过指纹兼容检查，否则跳过（删楼/替换后拒绝复用旧基线）。
+ */
+
+import {
+  AGENT_MODULE_FIELD_ACU,
+  AGENT_MODULE_FIELD_MATRIX_ACU,
+  AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU,
+  AGENT_WRITABLE_MODULES_ACU,
+  type AgentModuleFloorDelta_ACU,
+  type AgentModuleFloorFrame_ACU,
+  type AgentModuleFieldRecord_ACU,
+  type AgentModuleFieldSnapshot_ACU,
+  type AgentModuleFieldUpserts_ACU,
+  type AgentModuleFieldValue_ACU,
+  type AgentModuleFieldWrite_ACU,
+  type AgentModuleRevisions_ACU,
+  type AgentModuleSnapshot_ACU,
+  type AgentWritableModule_ACU,
+} from './agent-model';
+
+export interface AgentModuleFrameDeps_ACU {
+  validateSnapshot: (raw: unknown) => AgentModuleSnapshot_ACU | null;
+  salvageSnapshot: (raw: unknown) => { snapshot: AgentModuleSnapshot_ACU; problems: string[] } | null;
+  emptySnapshot: () => AgentModuleSnapshot_ACU;
+  /** P1 前缀指纹兼容检查。缺省时不做门控（纯帧语义）。 */
+  isSnapshotPrefixCompatible?: (snapshot: AgentModuleSnapshot_ACU, chat: readonly unknown[]) => boolean;
+}
+
+export interface AgentModuleFoldCandidate_ACU {
+  index: number;
+  valid: boolean;
+  problems: string[];
+}
+
+export interface AgentModuleFoldResult_ACU {
+  snapshot: AgentModuleSnapshot_ACU;
+  candidates: AgentModuleFoldCandidate_ACU[];
+  adoptedIndex: number | null;
+  salvaged: boolean;
+  checkpointIndex: number | null;
+  foldedDeltaCount: number;
+  /** 折叠范围内是否纳入过基线或 delta。空聊天为 false。 */
+  contributed: boolean;
+  /** 折叠派生的分栏视图（只读，绝不写回持久帧）。完整领域数组只来自整条 writes；partial 记录只出现在这里。 */
+  fields: AgentModuleFieldSnapshot_ACU;
+}
+
+interface ParsedLegacy_ACU {
+  kind: 'legacy';
+  snapshot: AgentModuleSnapshot_ACU;
+}
+
+interface ParsedFrame_ACU {
+  kind: 'frame';
+  frame: AgentModuleFloorFrame_ACU;
+  problems: string[];
+}
+
+interface ParsedBroken_ACU {
+  kind: 'broken';
+  problems: string[];
+  salvaged: AgentModuleSnapshot_ACU | null;
+}
+
+type ParsedField_ACU = { kind: 'empty' } | ParsedLegacy_ACU | ParsedFrame_ACU | ParsedBroken_ACU;
+
+function isRecord_ACU(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneJson_ACU<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isWritableModuleKey_ACU(value: string): value is AgentWritableModule_ACU {
+  return (AGENT_WRITABLE_MODULES_ACU as readonly string[]).includes(value);
+}
+
+function isFieldWrite_ACU(value: unknown): value is AgentModuleFieldWrite_ACU {
+  return isRecord_ACU(value) && (value.unset === true || Object.prototype.hasOwnProperty.call(value, 'value'));
+}
+
+/**
+ * 解析逐栏写集（S11-TT 融合提交的帧侧严格门）。
+ * 结构损坏——模块/ID/栏目层不是对象、写入值既无 value 也非 unset、ID 为空——返回
+ * null，由调用方把整条记录判为不可折叠并留下诊断；未知模块或栏目名只忽略，
+ * 给后续版本新增栏目留余地。TT 六模块子集：userRequirements 单例不进分栏矩阵。
+ */
+export function parseAgentModuleFieldUpserts_ACU(raw: unknown): AgentModuleFieldUpserts_ACU | null {
+  if (!isRecord_ACU(raw)) return null;
+  const parsed: AgentModuleFieldUpserts_ACU = {};
+  for (const [moduleKey, moduleUpserts] of Object.entries(raw)) {
+    if (!isRecord_ACU(moduleUpserts)) return null;
+    if (!isWritableModuleKey_ACU(moduleKey)) continue;
+    const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[moduleKey];
+    const kept: Record<string, Record<string, AgentModuleFieldWrite_ACU>> = {};
+    for (const [rawId, writes] of Object.entries(moduleUpserts)) {
+      if (!isRecord_ACU(writes)) return null;
+      const id = String(rawId ?? '').trim();
+      if (!id) return null;
+      const keptFields: Record<string, AgentModuleFieldWrite_ACU> = {};
+      for (const [field, write] of Object.entries(writes)) {
+        if (!isFieldWrite_ACU(write)) return null;
+        if (!matrix.fields.includes(field)) continue;
+        keptFields[field] = write.unset === true ? { unset: true } : { value: cloneJson_ACU(write.value) };
+      }
+      if (Object.keys(keptFields).length) kept[id] = { ...(kept[id] ?? {}), ...keptFields };
+    }
+    if (Object.keys(kept).length) parsed[moduleKey] = kept;
+  }
+  return parsed;
+}
+
+export function readMessageSwipeId_ACU(message: unknown): string {
+  if (!isRecord_ACU(message)) return '0';
+  const swipeId = message.swipe_id;
+  return typeof swipeId === 'number' && Number.isInteger(swipeId) && swipeId >= 0 ? String(swipeId) : '0';
+}
+
+function isAiMessage_ACU(message: unknown): boolean {
+  return isRecord_ACU(message) && message.is_user !== true;
+}
+
+function latestAiIndex_ACU(chat: readonly unknown[]): number {
+  for (let index = chat.length - 1; index >= 0; index -= 1) {
+    if (isAiMessage_ACU(chat[index])) return index;
+  }
+  return Math.max(0, chat.length - 1);
+}
+
+function clampWaterline_ACU(value: number, targetIndex: number): number {
+  if (!Number.isInteger(value) || value < 0) return 0;
+  return Math.min(value, Math.max(0, targetIndex));
+}
+
+function semanticPayload_ACU(snapshot: AgentModuleSnapshot_ACU): string {
+  return JSON.stringify({
+    settledThroughIndex: snapshot.settledThroughIndex,
+    revisions: snapshot.revisions,
+    hooks: snapshot.hooks,
+    infoGap: snapshot.infoGap,
+    constraints: snapshot.constraints,
+    storyArc: snapshot.storyArc,
+    chronology: snapshot.chronology,
+    webRefs: snapshot.webRefs,
+    userRequirements: snapshot.userRequirements ?? [],
+    materialCompletion: snapshot.materialCompletion,
+    pendingFixes: snapshot.pendingFixes ?? [],
+  });
+}
+
+function sameSemantic_ACU(left: AgentModuleSnapshot_ACU, right: AgentModuleSnapshot_ACU): boolean {
+  return semanticPayload_ACU(left) === semanticPayload_ACU(right);
+}
+
+function emptyFrame_ACU(): AgentModuleFloorFrame_ACU {
+  return { schemaVersion: AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU, deltas: [] };
+}
+
+function isCompatibleBaseline_ACU(
+  snapshot: AgentModuleSnapshot_ACU,
+  chat: readonly unknown[],
+  deps: AgentModuleFrameDeps_ACU,
+): boolean {
+  if (!deps.isSnapshotPrefixCompatible) return true;
+  try {
+    return deps.isSnapshotPrefixCompatible(snapshot, chat);
+  } catch {
+    return false;
+  }
+}
+
+function parseDelta_ACU(raw: unknown, deps: AgentModuleFrameDeps_ACU): AgentModuleFloorDelta_ACU | null {
+  if (!isRecord_ACU(raw)) return null;
+  if (typeof raw.seq !== 'number' || !Number.isInteger(raw.seq) || raw.seq < 1) return null;
+  if (typeof raw.swipeId !== 'string' || !raw.swipeId.trim()) return null;
+  if (!isRecord_ACU(raw.writes) || !isRecord_ACU(raw.revisions)) return null;
+  const seed = deps.emptySnapshot();
+  seed.settledThroughIndex = 0;
+  const applied = applyDelta_ACU(seed, {
+    seq: raw.seq,
+    swipeId: raw.swipeId,
+    writes: raw.writes as AgentModuleFloorDelta_ACU['writes'],
+    revisions: raw.revisions as AgentModuleFloorDelta_ACU['revisions'],
+    ...(Array.isArray(raw.userRequirements) ? { userRequirements: raw.userRequirements as string[] } : {}),
+    ...(isRecord_ACU(raw.removedIds) ? { removedIds: raw.removedIds as AgentModuleFloorDelta_ACU['removedIds'] } : {}),
+    ...(isRecord_ACU(raw.materialCompletion) ? { materialCompletion: raw.materialCompletion as unknown as AgentModuleFloorDelta_ACU['materialCompletion'] } : {}),
+    ...(raw.settledThroughIndex === undefined ? {} : { settledThroughIndex: raw.settledThroughIndex as number }),
+    updatedAt: typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0,
+  });
+  if (!deps.validateSnapshot(applied)) return null;
+  const delta: AgentModuleFloorDelta_ACU = {
+    seq: raw.seq,
+    swipeId: raw.swipeId,
+    writes: cloneJson_ACU(raw.writes) as AgentModuleFloorDelta_ACU['writes'],
+    revisions: cloneJson_ACU(raw.revisions) as Partial<AgentModuleRevisions_ACU>,
+    updatedAt: typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0,
+  };
+  if (Array.isArray(raw.userRequirements)) delta.userRequirements = cloneJson_ACU(raw.userRequirements) as string[];
+  // 逐栏增量不参与领域快照的严格校验（applyDelta/validateSnapshot 只看整条 writes），
+  // 内容清洗下沉到视图折叠与写入规划（矩阵白名单 + unset/value 显式区分），此处只透传。
+  if (isRecord_ACU(raw.fieldUpserts)) delta.fieldUpserts = cloneJson_ACU(raw.fieldUpserts) as AgentModuleFieldUpserts_ACU;
+  if (isRecord_ACU(raw.removedIds)) delta.removedIds = cloneJson_ACU(raw.removedIds) as AgentModuleFloorDelta_ACU['removedIds'];
+  if (isRecord_ACU(raw.materialCompletion)) delta.materialCompletion = cloneJson_ACU(applied.materialCompletion);
+  if (typeof raw.settledThroughIndex === 'number' && Number.isInteger(raw.settledThroughIndex) && raw.settledThroughIndex >= 0) {
+    delta.settledThroughIndex = raw.settledThroughIndex;
+  }
+  return delta;
+}
+
+function parseField_ACU(raw: unknown, deps: AgentModuleFrameDeps_ACU): ParsedField_ACU {
+  if (raw === undefined) return { kind: 'empty' };
+  if (!isRecord_ACU(raw)) return { kind: 'broken', problems: ['资料字段不是对象'], salvaged: null };
+  if (raw.schemaVersion === AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU) {
+    if (!Array.isArray(raw.deltas)) return { kind: 'broken', problems: ['schema 3 缺少 deltas 数组'], salvaged: null };
+    const problems: string[] = [];
+    const deltas: AgentModuleFloorDelta_ACU[] = [];
+    raw.deltas.forEach((item, index) => {
+      const delta = parseDelta_ACU(item, deps);
+      if (delta) deltas.push(delta);
+      else problems.push(`deltas[${index}] 无法折叠，已跳过`);
+    });
+    deltas.sort((left, right) => left.seq - right.seq);
+    const frame: AgentModuleFloorFrame_ACU = { schemaVersion: AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU, deltas };
+    if (isRecord_ACU(raw.checkpoint)) {
+      const snapshot = deps.validateSnapshot(raw.checkpoint.snapshot);
+      const swipeId = typeof raw.checkpoint.swipeId === 'string' && raw.checkpoint.swipeId.trim() ? raw.checkpoint.swipeId : '';
+      if (snapshot && swipeId) frame.checkpoint = { swipeId, snapshot };
+      else problems.push('checkpoint 未通过严格校验，已忽略');
+    }
+    return { kind: 'frame', frame, problems };
+  }
+  const legacy = deps.validateSnapshot(raw);
+  if (legacy) return { kind: 'legacy', snapshot: legacy };
+  const salvaged = deps.salvageSnapshot(raw);
+  return {
+    kind: 'broken',
+    problems: salvaged?.problems ?? ['快照不是可折叠的资料帧'],
+    salvaged: salvaged?.snapshot ?? null,
+  };
+}
+
+function entryId_ACU(item: unknown): string {
+  if (!isRecord_ACU(item) || typeof item.id !== 'string') return '';
+  return item.id;
+}
+
+function applyModuleWrite_ACU(current: readonly unknown[], upserts: readonly unknown[] | undefined, removed: readonly string[] | undefined): unknown[] {
+  const removedIds = new Set(removed ?? []);
+  const replacements = new Map<string, unknown>();
+  for (const item of upserts ?? []) {
+    const id = entryId_ACU(item);
+    if (id) replacements.set(id, item);
+  }
+  const next: unknown[] = [];
+  const seen = new Set<string>();
+  for (const item of current) {
+    const id = entryId_ACU(item);
+    if (!id || removedIds.has(id)) continue;
+    if (replacements.has(id)) {
+      next.push(cloneJson_ACU(replacements.get(id)));
+      seen.add(id);
+    } else next.push(cloneJson_ACU(item));
+  }
+  for (const [id, item] of replacements) {
+    if (!seen.has(id) && !removedIds.has(id)) next.push(cloneJson_ACU(item));
+  }
+  return next;
+}
+
+function applyDelta_ACU(snapshot: AgentModuleSnapshot_ACU, delta: AgentModuleFloorDelta_ACU): AgentModuleSnapshot_ACU {
+  const next = cloneJson_ACU(snapshot);
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    if (!Object.prototype.hasOwnProperty.call(delta.writes, key) && !delta.removedIds?.[key]) continue;
+    (next as unknown as Record<string, unknown>)[key] = applyModuleWrite_ACU(
+      next[key] as unknown[],
+      delta.writes[key] as unknown[] | undefined,
+      delta.removedIds?.[key],
+    );
+  }
+  // 用户要求单例：整表替换，不进分栏矩阵。
+  if (Object.prototype.hasOwnProperty.call(delta, 'userRequirements') && delta.userRequirements !== undefined) {
+    next.userRequirements = cloneJson_ACU(delta.userRequirements);
+  }
+  next.revisions = { ...next.revisions, ...delta.revisions };
+  if (typeof delta.settledThroughIndex === 'number') next.settledThroughIndex = delta.settledThroughIndex;
+  // pendingFixes 不是分栏模块：整份随快照携带。delta.writes 透传该键时整体替换，
+  // 否则保持基线值——折叠不丢待修复队列。
+  if (Object.prototype.hasOwnProperty.call(delta.writes, 'pendingFixes')) {
+    next.pendingFixes = cloneJson_ACU((delta.writes as Record<string, unknown>).pendingFixes) as AgentModuleSnapshot_ACU['pendingFixes'];
+  }
+  if (!Array.isArray(next.pendingFixes)) next.pendingFixes = [];
+  if (delta.materialCompletion !== undefined) next.materialCompletion = cloneJson_ACU(delta.materialCompletion);
+  next.updatedAt = delta.updatedAt;
+  return next;
+}
+
+function diffSnapshot_ACU(before: AgentModuleSnapshot_ACU, after: AgentModuleSnapshot_ACU, swipeId: string, seq: number): AgentModuleFloorDelta_ACU | null {
+  const writes: AgentModuleFloorDelta_ACU['writes'] = {};
+  const removedIds: NonNullable<AgentModuleFloorDelta_ACU['removedIds']> = {};
+  const revisions: Partial<AgentModuleRevisions_ACU> = {};
+  let changed = false;
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    const previous = before[key] as unknown as Array<Record<string, unknown>>;
+    const nextItems = after[key] as unknown as Array<Record<string, unknown>>;
+    const previousById = new Map(previous.map(item => [entryId_ACU(item), item]));
+    const nextIds = new Set(nextItems.map(item => entryId_ACU(item)));
+    const upserts = nextItems.filter(item => {
+      const id = entryId_ACU(item);
+      const prior = previousById.get(id);
+      return !prior || JSON.stringify(prior) !== JSON.stringify(item);
+    });
+    const removed = previous.map(item => entryId_ACU(item)).filter(id => id && !nextIds.has(id));
+    if (upserts.length) {
+      (writes as Record<string, unknown>)[key] = cloneJson_ACU(upserts);
+      changed = true;
+    }
+    if (removed.length) {
+      removedIds[key] = removed;
+      changed = true;
+    }
+    if (before.revisions[key] !== after.revisions[key]) {
+      revisions[key] = after.revisions[key];
+      changed = true;
+    }
+  }
+  const beforeFixes = JSON.stringify(before.pendingFixes ?? []);
+  const afterFixes = JSON.stringify(after.pendingFixes ?? []);
+  if (beforeFixes !== afterFixes) {
+    (writes as Record<string, unknown>).pendingFixes = cloneJson_ACU(after.pendingFixes ?? []);
+    changed = true;
+  }
+  const beforeRequirements = JSON.stringify(before.userRequirements ?? []);
+  const afterRequirements = JSON.stringify(after.userRequirements ?? []);
+  let userRequirements: string[] | undefined;
+  if (beforeRequirements !== afterRequirements) {
+    userRequirements = cloneJson_ACU(after.userRequirements ?? []);
+    changed = true;
+  }
+  if (before.revisions.userRequirements !== after.revisions.userRequirements) {
+    revisions.userRequirements = after.revisions.userRequirements;
+    changed = true;
+  }
+  const delta: AgentModuleFloorDelta_ACU = { seq, swipeId, writes, revisions, updatedAt: after.updatedAt };
+  if (userRequirements !== undefined) delta.userRequirements = userRequirements;
+  if (Object.keys(removedIds).length) delta.removedIds = removedIds;
+  if (JSON.stringify(before.materialCompletion) !== JSON.stringify(after.materialCompletion)) {
+    delta.materialCompletion = cloneJson_ACU(after.materialCompletion);
+    changed = true;
+  }
+  if (before.settledThroughIndex !== after.settledThroughIndex) {
+    delta.settledThroughIndex = after.settledThroughIndex;
+    changed = true;
+  }
+  return changed ? delta : null;
+}
+
+function emptyFieldView_ACU(): AgentModuleFieldSnapshot_ACU {
+  return { records: {} };
+}
+
+function seedFieldViewFromSnapshot_ACU(snapshot: AgentModuleSnapshot_ACU, updatedAt: number): AgentModuleFieldSnapshot_ACU {
+  const view = emptyFieldView_ACU();
+  syncAllModuleRecordsToView_ACU(view, snapshot, updatedAt);
+  return view;
+}
+
+function syncModuleRecordToView_ACU(
+  view: AgentModuleFieldSnapshot_ACU,
+  module: AgentWritableModule_ACU,
+  items: readonly unknown[],
+  updatedAt: number,
+): void {
+  const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[module];
+  const bucket: Record<string, AgentModuleFieldRecord_ACU> = {};
+  for (const item of items) {
+    if (!isRecord_ACU(item)) continue;
+    const id = entryId_ACU(item);
+    if (!id) continue;
+    const fields: Record<string, AgentModuleFieldValue_ACU> = {};
+    for (const key of matrix.fields) {
+      if (Object.prototype.hasOwnProperty.call(item, key)) {
+        fields[key] = { value: cloneJson_ACU((item as Record<string, unknown>)[key]), revision: 0, updatedAt };
+      }
+    }
+    bucket[id] = { module, id, status: 'legacy_unknown', fields, missingFields: [], updatedAt };
+  }
+  view.records[module] = bucket;
+}
+
+function syncAllModuleRecordsToView_ACU(view: AgentModuleFieldSnapshot_ACU, snapshot: AgentModuleSnapshot_ACU, updatedAt: number): void {
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    syncModuleRecordToView_ACU(view, key, snapshot[key] as unknown as unknown[], updatedAt);
+  }
+}
+
+/**
+ * 每条 delta 后的按 ID 对账：领域数组中的条目覆盖同名分栏记录（整条写入/提升为权威），
+ * 从领域数组消失的 legacy_unknown 记录同步删除；fieldUpserts 留下的 partial 记录
+ * 不在领域数组中，必须保留在受控视图里。不能用整桶重建——那会抹掉 partial。
+ */
+function reconcileFieldViewWithSnapshot_ACU(view: AgentModuleFieldSnapshot_ACU, snapshot: AgentModuleSnapshot_ACU, updatedAt: number): void {
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    const items = snapshot[key] as unknown as unknown[];
+    const bucket = (view.records[key] ??= {});
+    const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[key];
+    const domainIds = new Set<string>();
+    for (const item of items) {
+      if (!isRecord_ACU(item)) continue;
+      const id = entryId_ACU(item);
+      if (!id) continue;
+      domainIds.add(id);
+      const fields: Record<string, AgentModuleFieldValue_ACU> = {};
+      for (const field of matrix.fields) {
+        if (Object.prototype.hasOwnProperty.call(item, field)) {
+          fields[field] = { value: cloneJson_ACU((item as Record<string, unknown>)[field]), revision: 0, updatedAt };
+        }
+      }
+      bucket[id] = { module: key, id, status: 'legacy_unknown', fields, missingFields: [], updatedAt };
+    }
+    for (const id of Object.keys(bucket)) {
+      if (!domainIds.has(id) && bucket[id].status === 'legacy_unknown') delete bucket[id];
+    }
+  }
+}
+
+function recomputeFieldRecordStatus_ACU(record: AgentModuleFieldRecord_ACU): void {
+  const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[record.module];
+  record.missingFields = matrix.required.filter(key => !(key in record.fields));
+  record.status = record.missingFields.length ? 'partial' : 'complete';
+}
+
+function applyFieldUpsertsToView_ACU(
+  view: AgentModuleFieldSnapshot_ACU,
+  upserts: AgentModuleFieldUpserts_ACU,
+  updatedAt: number,
+): AgentModuleFieldSnapshot_ACU {
+  const next: AgentModuleFieldSnapshot_ACU = { records: {} };
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    const bucket = view.records[key];
+    if (bucket) next.records[key] = cloneJson_ACU(bucket) as Record<string, AgentModuleFieldRecord_ACU>;
+  }
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    const moduleUpserts = upserts[key];
+    if (!moduleUpserts) continue;
+    const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[key];
+    const bucket = (next.records[key] ??= {});
+    for (const [id, fieldWrites] of Object.entries(moduleUpserts)) {
+      const stableId = String(id ?? '').trim();
+      if (!stableId || !isRecord_ACU(fieldWrites)) continue;
+      const record = (bucket[stableId] ??= { module: key, id: stableId, status: 'partial', fields: {}, missingFields: [], updatedAt: 0 });
+      for (const [field, write] of Object.entries(fieldWrites as Record<string, AgentModuleFieldWrite_ACU>)) {
+        if (!matrix.fields.includes(field)) continue;
+        if (write && typeof write === 'object' && (write as AgentModuleFieldWrite_ACU).unset === true) {
+          delete record.fields[field];
+          continue;
+        }
+        if (!write || typeof write !== 'object' || !Object.prototype.hasOwnProperty.call(write, 'value')) continue;
+        const previous = record.fields[field];
+        record.fields[field] = {
+          value: cloneJson_ACU((write as AgentModuleFieldWrite_ACU).value),
+          revision: (previous?.revision ?? 0) + 1,
+          updatedAt,
+        };
+      }
+      record.updatedAt = updatedAt;
+      recomputeFieldRecordStatus_ACU(record);
+    }
+  }
+  return next;
+}
+
+function fieldOf_ACU(message: unknown): unknown {
+  if (!isRecord_ACU(message) || !Object.prototype.hasOwnProperty.call(message, AGENT_MODULE_FIELD_ACU)) return undefined;
+  return message[AGENT_MODULE_FIELD_ACU];
+}
+
+function maxSeq_ACU(chat: readonly unknown[], deps: AgentModuleFrameDeps_ACU): number {
+  let max = 0;
+  for (const message of chat) {
+    const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+    if (parsed.kind !== 'frame') continue;
+    for (const delta of parsed.frame.deltas) max = Math.max(max, delta.seq);
+  }
+  return max;
+}
+
+function hasSchema3Checkpoint_ACU(chat: readonly unknown[], deps: AgentModuleFrameDeps_ACU): boolean {
+  return chat.some(message => {
+    const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+    return parsed.kind === 'frame' && !!parsed.frame.checkpoint;
+  });
+}
+
+/**
+ * 可用的 schema 3 基线：存在、与楼层当前 swipe 一致、且通过 P1 前缀指纹兼容。
+ * 只判存在会在基线失配时继续追 delta（空基线上的增量链退化）；
+ * 注意不能用 fold 的 checkpointIndex 代替——它同样计入 legacy 基线，
+ * 而 legacy 楼层上追 delta 会整体替换掉 legacy 全量（数据丢失）。
+ */
+function hasUsableSchema3Checkpoint_ACU(chat: readonly unknown[], deps: AgentModuleFrameDeps_ACU): boolean {
+  return chat.some(message => {
+    const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+    if (parsed.kind !== 'frame' || !parsed.frame.checkpoint) return false;
+    if (parsed.frame.checkpoint.swipeId !== readMessageSwipeId_ACU(message)) return false;
+    return isCompatibleBaseline_ACU(parsed.frame.checkpoint.snapshot, chat, deps);
+  });
+}
+
+/**
+ * 从聊天头部折叠到 throughIndex（含）。不按数组长度钳制水位。
+ * legacy 与 checkpoint 基线需通过 P1 指纹兼容检查（deps 注入），否则跳过该基线。
+ */
+export function foldAgentModuleSnapshot_ACU(
+  chat: readonly unknown[],
+  deps: AgentModuleFrameDeps_ACU,
+  throughIndex = chat.length - 1,
+): AgentModuleFoldResult_ACU {
+  let snapshot = deps.emptySnapshot();
+  let contributed = false;
+  let sawSchema3Checkpoint = false;
+  let checkpointIndex: number | null = null;
+  let foldedDeltaCount = 0;
+  let adoptedIndex: number | null = null;
+  const candidates: AgentModuleFoldCandidate_ACU[] = [];
+  let salvage: { index: number; snapshot: AgentModuleSnapshot_ACU; problems: string[] } | null = null;
+  // P1：任一基线（legacy / schema3 checkpoint / 抢救快照）前缀指纹失配，
+  // 即证明水位前发生过删楼/替换/重排——宽容抢救整体禁用，失配落空快照。
+  let incompatibleSeen = false;
+  let view = emptyFieldView_ACU();
+  const end = Math.min(throughIndex, chat.length - 1);
+
+  for (let index = 0; index <= end; index += 1) {
+    const message = chat[index];
+    const raw = fieldOf_ACU(message);
+    if (raw === undefined) continue;
+    const parsed = parseField_ACU(raw, deps);
+    const swipeId = readMessageSwipeId_ACU(message);
+    if (parsed.kind === 'legacy') {
+      if (!isCompatibleBaseline_ACU(parsed.snapshot, chat, deps)) {
+        incompatibleSeen = true;
+        candidates.push({ index, valid: false, problems: ['结算水位之前的聊天前缀已变化（删楼、替换或重排），拒绝复用此快照'] });
+        continue;
+      }
+      candidates.push({ index, valid: true, problems: [] });
+      if (!sawSchema3Checkpoint && swipeId === '0') {
+        snapshot = cloneJson_ACU(parsed.snapshot);
+        view = seedFieldViewFromSnapshot_ACU(snapshot, parsed.snapshot.updatedAt);
+        contributed = true;
+        checkpointIndex = index;
+        adoptedIndex = index;
+        foldedDeltaCount = 0;
+      }
+      continue;
+    }
+    if (parsed.kind === 'broken') {
+      if (parsed.salvaged && !isCompatibleBaseline_ACU(parsed.salvaged, chat, deps)) {
+        incompatibleSeen = true;
+        candidates.push({ index, valid: false, problems: [...parsed.problems, '结算水位之前的聊天前缀已变化（删楼、替换或重排），拒绝复用抢救快照'] });
+        continue;
+      }
+      candidates.push({ index, valid: false, problems: parsed.problems });
+      if (parsed.salvaged && !incompatibleSeen) salvage = { index, snapshot: parsed.salvaged, problems: parsed.problems };
+      continue;
+    }
+    if (parsed.kind !== 'frame') continue;
+    candidates.push({ index, valid: parsed.problems.length === 0, problems: parsed.problems });
+    if (parsed.frame.checkpoint && parsed.frame.checkpoint.swipeId === swipeId) {
+      if (!isCompatibleBaseline_ACU(parsed.frame.checkpoint.snapshot, chat, deps)) {
+        // 指纹失配的基线不可复用：只跳过该基线，同楼的当前 swipe 增量仍正常折叠。
+        incompatibleSeen = true;
+        candidates[candidates.length - 1].problems.push('结算水位之前的聊天前缀已变化（删楼、替换或重排），拒绝复用此基线');
+      } else {
+        snapshot = cloneJson_ACU(parsed.frame.checkpoint.snapshot);
+        view = seedFieldViewFromSnapshot_ACU(snapshot, parsed.frame.checkpoint.snapshot.updatedAt);
+        contributed = true;
+        sawSchema3Checkpoint = true;
+        checkpointIndex = index;
+        adoptedIndex = index;
+        foldedDeltaCount = 0;
+      }
+    }
+    for (const delta of parsed.frame.deltas) {
+      if (delta.swipeId !== swipeId) continue;
+      snapshot = applyDelta_ACU(snapshot, delta);
+      if (delta.fieldUpserts) view = applyFieldUpsertsToView_ACU(view, delta.fieldUpserts, delta.updatedAt);
+      reconcileFieldViewWithSnapshot_ACU(view, snapshot, delta.updatedAt);
+      contributed = true;
+      foldedDeltaCount += 1;
+      if (adoptedIndex === null) adoptedIndex = index;
+    }
+  }
+
+  if (!contributed && salvage && !incompatibleSeen) {
+    return {
+      snapshot: cloneJson_ACU(salvage.snapshot),
+      fields: seedFieldViewFromSnapshot_ACU(salvage.snapshot, salvage.snapshot.updatedAt),
+      candidates,
+      adoptedIndex: salvage.index,
+      salvaged: true,
+      checkpointIndex: salvage.index,
+      foldedDeltaCount: 0,
+      contributed: true,
+    };
+  }
+  return {
+    snapshot,
+    fields: view,
+    candidates,
+    adoptedIndex: contributed ? adoptedIndex : null,
+    salvaged: false,
+    checkpointIndex: contributed ? checkpointIndex : null,
+    foldedDeltaCount,
+    contributed,
+  };
+}
+
+function readFrame_ACU(message: unknown, deps: AgentModuleFrameDeps_ACU): AgentModuleFloorFrame_ACU {
+  const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+  if (parsed.kind === 'frame') return cloneJson_ACU(parsed.frame);
+  return emptyFrame_ACU();
+}
+
+function writeFrame_ACU(message: Record<string, unknown>, frame: AgentModuleFloorFrame_ACU): void {
+  const next: AgentModuleFloorFrame_ACU = {
+    schemaVersion: AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU,
+    deltas: frame.deltas,
+  };
+  if (frame.checkpoint) next.checkpoint = frame.checkpoint;
+  message[AGENT_MODULE_FIELD_ACU] = next;
+}
+
+function stripCurrentSwipeThrough_ACU(chat: unknown[], anchorIndex: number, deps: AgentModuleFrameDeps_ACU): void {
+  for (let index = 0; index < chat.length; index += 1) {
+    const message = chat[index];
+    if (!isRecord_ACU(message)) continue;
+    const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+    if (parsed.kind !== 'frame') continue;
+    const swipeId = readMessageSwipeId_ACU(message);
+    const frame = cloneJson_ACU(parsed.frame);
+    // 只清本次真正折进去的基线（fold 采纳口径：index <= anchor 且与楼层当前 swipe 一致）。
+    // 锚点之后、他 swipe 的基线不在折叠范围内；删基线留 delta 会拼出弗兰肯斯坦快照，
+    // 跨 swipe 切回、模板重置（锚点恒为首楼）等场景的旧基线也会永久丢失。
+    if (index <= anchorIndex && frame.checkpoint?.swipeId === swipeId) delete frame.checkpoint;
+    if (index <= anchorIndex) frame.deltas = frame.deltas.filter(delta => delta.swipeId !== swipeId);
+    if (!frame.checkpoint && frame.deltas.length === 0) delete message[AGENT_MODULE_FIELD_ACU];
+    else writeFrame_ACU(message, frame);
+  }
+}
+
+/**
+ * 把 throughIndex 及之前的当前 swipe 链折成锚点楼上的唯一 schema 3 基线。
+ * 锚点之后的 delta 保留。没有可折叠内容时不写空基线。
+ */
+export function relocateContinuationCheckpoint_ACU(
+  chat: unknown[],
+  anchorIndex: number,
+  deps: AgentModuleFrameDeps_ACU,
+): boolean {
+  if (!Number.isInteger(anchorIndex) || anchorIndex < 0 || anchorIndex >= chat.length) return false;
+  const anchor = chat[anchorIndex];
+  if (!isAiMessage_ACU(anchor)) return false;
+  const folded = foldAgentModuleSnapshot_ACU(chat, deps, anchorIndex);
+  if (!folded.contributed || folded.salvaged) return false;
+  const before = JSON.stringify(chat.map(message => fieldOf_ACU(message)));
+  stripCurrentSwipeThrough_ACU(chat, anchorIndex, deps);
+  const frame = readFrame_ACU(anchor, deps);
+  frame.checkpoint = { swipeId: readMessageSwipeId_ACU(anchor), snapshot: cloneJson_ACU(folded.snapshot) };
+  writeFrame_ACU(anchor as Record<string, unknown>, frame);
+  const after = JSON.stringify(chat.map(message => fieldOf_ACU(message)));
+  return before !== after;
+}
+
+function appendDelta_ACU(chat: unknown[], targetIndex: number, delta: AgentModuleFloorDelta_ACU, deps: AgentModuleFrameDeps_ACU): void {
+  const message = chat[targetIndex];
+  if (!isRecord_ACU(message)) return;
+  const frame = readFrame_ACU(message, deps);
+  frame.deltas = [...frame.deltas, delta].sort((left, right) => left.seq - right.seq);
+  writeFrame_ACU(message, frame);
+}
+
+export interface AgentModuleWritePlan_ACU {
+  changed: boolean;
+  assignments: Array<{ index: number; existed: boolean; previous: unknown; value: unknown }>;
+}
+
+/**
+ * 规划一次快照写入：已有 schema 3 基线时只追加 delta；否则把首基线放到表格 checkpoint 楼或最新 AI 楼。
+ * 不修改传入的 chat。
+ */
+export function planAgentModuleSnapshotWrite_ACU(
+  chat: unknown[],
+  targetIndex: number,
+  next: AgentModuleSnapshot_ACU,
+  deps: AgentModuleFrameDeps_ACU,
+  tableAnchorIndex: number | null,
+): AgentModuleWritePlan_ACU {
+  const scratch = chat.map(message => (isRecord_ACU(message) ? { ...message } : message));
+  const before = foldAgentModuleSnapshot_ACU(scratch, deps);
+  const clamped: AgentModuleSnapshot_ACU = {
+    ...cloneJson_ACU(next),
+    settledThroughIndex: clampWaterline_ACU(next.settledThroughIndex, targetIndex),
+    updatedAt: Date.now(),
+  };
+  if (before.contributed && !before.salvaged && sameSemantic_ACU(before.snapshot, clamped)) {
+    return { changed: false, assignments: [] };
+  }
+  const base = before.contributed ? before.snapshot : deps.emptySnapshot();
+  const delta = diffSnapshot_ACU(base, clamped, readMessageSwipeId_ACU(scratch[targetIndex]), maxSeq_ACU(scratch, deps) + 1);
+  // 失配的旧基线（swipe 切换/指纹失配）视为不可用：走建新 checkpoint 分支自愈，
+  // 而不是在被折叠跳过的基线上继续追 delta。
+  const hadUsableCheckpoint = hasUsableSchema3Checkpoint_ACU(scratch, deps);
+  if (hadUsableCheckpoint) {
+    if (delta) appendDelta_ACU(scratch, targetIndex, delta, deps);
+  } else {
+    const tableAnchor = tableAnchorIndex !== null && isAiMessage_ACU(scratch[tableAnchorIndex]) ? tableAnchorIndex : null;
+    const anchor = tableAnchor ?? latestAiIndex_ACU(scratch);
+    const anchorMessage = scratch[anchor];
+    if (isRecord_ACU(anchorMessage)) {
+      const checkpointSnapshot = targetIndex <= anchor || !delta ? clamped : base;
+      if (deps.validateSnapshot(checkpointSnapshot)) {
+        const frame = readFrame_ACU(anchorMessage, deps);
+        frame.checkpoint = { swipeId: readMessageSwipeId_ACU(anchorMessage), snapshot: cloneJson_ACU(checkpointSnapshot) };
+        if (anchor === targetIndex) frame.deltas = frame.deltas.filter(item => item.swipeId !== frame.checkpoint?.swipeId);
+        writeFrame_ACU(anchorMessage, frame);
+      }
+    }
+    if (delta && targetIndex > anchor) appendDelta_ACU(scratch, targetIndex, delta, deps);
+  }
+  const assignments: AgentModuleWritePlan_ACU['assignments'] = [];
+  scratch.forEach((message, index) => {
+    const previous = fieldOf_ACU(chat[index]);
+    const value = fieldOf_ACU(message);
+    if (JSON.stringify(previous) === JSON.stringify(value)) return;
+    assignments.push({
+      index,
+      existed: previous !== undefined,
+      previous,
+      value,
+    });
+  });
+  return { changed: assignments.length > 0, assignments };
+}
+
+/**
+ * 规划一次逐栏写入：只把 fieldUpserts 作为一条 delta 追加到目标楼层，
+ * 不产生 checkpoint、不触碰领域数组；缺栏记录经折叠只进入受控分栏视图。
+ * 不修改传入的 chat。无有效栏目时返回 changed=false。
+ */
+export function planAgentModuleFieldWrite_ACU(
+  chat: unknown[],
+  targetIndex: number,
+  fieldUpserts: AgentModuleFieldUpserts_ACU,
+  deps: AgentModuleFrameDeps_ACU,
+): AgentModuleWritePlan_ACU {
+  if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= chat.length) {
+    return { changed: false, assignments: [] };
+  }
+  // 目标种类门（fail-closed）：目标楼已有字段但不是 schema-3 帧（legacy 全量 / broken）
+  // 时拒绝逐栏写入。appendDelta 的读—改—写会把整楼替换为仅一条 field delta 的帧：
+  // legacy 全量永久消失（field delta 不投影领域数组），broken 楼丧失抢救机会。
+  // legacy 先经整条写入迁移，broken 保留抢救路径；与 T1 迁移纪律一致。
+  const existing = fieldOf_ACU(chat[targetIndex]);
+  if (existing !== undefined && parseField_ACU(existing, deps).kind !== 'frame') {
+    return { changed: false, assignments: [] };
+  }
+  const cleaned: AgentModuleFieldUpserts_ACU = {};
+  let hasWrite = false;
+  for (const key of AGENT_WRITABLE_MODULES_ACU) {
+    const moduleUpserts = fieldUpserts[key];
+    if (!moduleUpserts || !isRecord_ACU(moduleUpserts)) continue;
+    const matrix = AGENT_MODULE_FIELD_MATRIX_ACU[key];
+    const kept: Record<string, Record<string, AgentModuleFieldWrite_ACU>> = {};
+    for (const [rawId, writes] of Object.entries(moduleUpserts)) {
+      const id = String(rawId ?? '').trim();
+      if (!id || !isRecord_ACU(writes)) continue;
+      const keptFields: Record<string, AgentModuleFieldWrite_ACU> = {};
+      for (const [field, write] of Object.entries(writes as Record<string, AgentModuleFieldWrite_ACU>)) {
+        if (!matrix.fields.includes(field)) continue;
+        if (write && typeof write === 'object' && (write as AgentModuleFieldWrite_ACU).unset === true) {
+          keptFields[field] = { unset: true };
+          continue;
+        }
+        if (!write || typeof write !== 'object' || !Object.prototype.hasOwnProperty.call(write, 'value')) continue;
+        keptFields[field] = { value: cloneJson_ACU((write as AgentModuleFieldWrite_ACU).value) };
+      }
+      if (Object.keys(keptFields).length) {
+        kept[id] = keptFields;
+        hasWrite = true;
+      }
+    }
+    if (Object.keys(kept).length) cleaned[key] = kept;
+  }
+  if (!hasWrite) return { changed: false, assignments: [] };
+  const scratch = chat.map(message => (isRecord_ACU(message) ? { ...message } : message));
+  const delta: AgentModuleFloorDelta_ACU = {
+    seq: maxSeq_ACU(scratch, deps) + 1,
+    swipeId: readMessageSwipeId_ACU(scratch[targetIndex]),
+    writes: {},
+    fieldUpserts: cleaned,
+    revisions: {},
+    updatedAt: Date.now(),
+  };
+  appendDelta_ACU(scratch, targetIndex, delta, deps);
+  const assignments: AgentModuleWritePlan_ACU['assignments'] = [];
+  scratch.forEach((message, index) => {
+    const previous = fieldOf_ACU(chat[index]);
+    const value = fieldOf_ACU(message);
+    if (JSON.stringify(previous) === JSON.stringify(value)) return;
+    assignments.push({ index, existed: previous !== undefined, previous, value });
+  });
+  return { changed: assignments.length > 0, assignments };
+}
+
+export function continuationCheckpointArtifact_ACU(
+  message: unknown,
+  deps: AgentModuleFrameDeps_ACU,
+): { swipeId: string; snapshot: AgentModuleSnapshot_ACU } | null {
+  const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+  if (parsed.kind !== 'frame' || !parsed.frame.checkpoint) return null;
+  return cloneJson_ACU(parsed.frame.checkpoint);
+}
+
+/** 把丢失的基线嫁到目标楼。目标楼同一 swipe 已有基线时不覆盖。 */
+export function graftContinuationCheckpoint_ACU(
+  message: unknown,
+  artifact: { swipeId: string; snapshot: AgentModuleSnapshot_ACU },
+  deps: AgentModuleFrameDeps_ACU,
+): boolean {
+  if (!isRecord_ACU(message)) return false;
+  const frame = readFrame_ACU(message, deps);
+  if (frame.checkpoint && frame.checkpoint.swipeId === artifact.swipeId) return false;
+  if (frame.checkpoint) return false;
+  frame.checkpoint = cloneJson_ACU(artifact);
+  writeFrame_ACU(message, frame);
+  return true;
+}
+
+/** 每个当前 swipe 至多一个 schema 3 基线。legacy 全量不计入。 */
+export function assertSingleActiveContinuationCheckpoint_ACU(chat: readonly unknown[], deps: AgentModuleFrameDeps_ACU): string | null {
+  const seen = new Map<string, number>();
+  for (let index = 0; index < chat.length; index += 1) {
+    const message = chat[index];
+    const parsed = parseField_ACU(fieldOf_ACU(message), deps);
+    if (parsed.kind !== 'frame' || !parsed.frame.checkpoint) continue;
+    if (parsed.frame.checkpoint.swipeId !== readMessageSwipeId_ACU(message)) continue;
+    const swipeId = parsed.frame.checkpoint.swipeId;
+    const previous = seen.get(swipeId);
+    if (previous !== undefined) return `续写资料 swipe ${swipeId} 存在多个活跃基线：楼层 ${previous} 与 ${index}`;
+    seen.set(swipeId, index);
+  }
+  return null;
+}
+
+export function chatHasContinuationMaterial_ACU(chat: readonly unknown[]): boolean {
+  return chat.some(message => fieldOf_ACU(message) !== undefined);
+}

@@ -25,7 +25,6 @@ let _engine: SqliteEngine;
 // mock storage-mode
 vi.mock('../../../../src/service/table/storage-mode', () => ({
   isSqliteMode: vi.fn(() => true),
-  isNativeMode: vi.fn(() => false),
   getCurrentStorageMode: vi.fn(() => 'sqlite'),
 }));
 
@@ -292,6 +291,37 @@ describe('sql-query-var', () => {
       it('求和', () => {
         const builder = new TableQueryBuilder('背包物品表');
         expect(builder.sum('数量')).toBe(9); // 3 + 5 + 1
+      });
+    });
+
+    describe('列名参数注入防护', () => {
+      it('列名夹带多语句时被多语句门拒绝，不会执行 DROP', () => {
+        const rowCountBefore = _engine.query('SELECT COUNT(*) FROM inventory;').values[0][0] as number;
+        expect(rowCountBefore).toBe(3);
+
+        // 引号内文本在结构白名单判定前被替换为 ""，黑名单与链式正则都看不见其中的 `;`
+        // （H2 加固的已知盲区），因此必须由执行前的多语句门兜住。
+        const result = evaluateOrmExpression('db.背包物品表.sum("row_id) FROM inventory; DROP TABLE inventory; --")');
+
+        expect(result).toBe('0');
+        expect(vi.mocked(logWarn_ACU)).toHaveBeenCalledWith(expect.stringContaining('拒绝执行多语句查询'));
+        expect(_engine.query('SELECT COUNT(*) FROM inventory;').values[0][0]).toBe(rowCountBefore);
+      });
+
+      it('合法表达式含 CASE…END 不被多语句门误拒（门只认多语句，不套关键词词表）', () => {
+        const result = evaluateOrmExpression(
+          'db.背包物品表.where("物品名称", "铁剑").value("CASE WHEN 数量 > 0 THEN 1 ELSE 0 END")',
+        );
+
+        expect(result).toBe('1');
+        expect(vi.mocked(logWarn_ACU)).not.toHaveBeenCalledWith(expect.stringContaining('拒绝执行多语句查询'));
+      });
+
+      it('db.expr 的 CASE…END 同样不被误拒（同族路径共用只认多语句的判据）', () => {
+        const result = evaluateOrmExpression('db.expr("CASE WHEN 1 = 1 THEN 1 ELSE 0 END")');
+
+        expect(result).toBe('1');
+        expect(vi.mocked(logWarn_ACU)).not.toHaveBeenCalledWith(expect.stringContaining('拒绝执行多语句表达式'));
       });
     });
 
@@ -623,6 +653,24 @@ describe('sql-query-var', () => {
         // 存活有2人，死亡有1人，HAVING COUNT(*) > 1 应只返回存活
         const result = builder.groupBy('状态').having('COUNT(*) > 1').all();
         expect(result).toHaveLength(1);
+      });
+
+      it('含分号直接拒绝（分号是唯一能切开语句的分隔符）', () => {
+        const builder = new TableQueryBuilder('重要人物表');
+        expect(() => builder.having('1; DROP TABLE inventory; --')).toThrow();
+      });
+
+      it('整词 END 不再被误拒：CASE…END 经完整 ORM 路径可执行', () => {
+        const builder = new TableQueryBuilder('背包物品表');
+        // having 片段不过列名翻译，故此处用物理列名 quantity
+        const rows = builder.groupBy('类别').having('SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) >= 1').all();
+        expect(rows).toHaveLength(3);
+      });
+
+      it('整词 REPLACE 不再被误拒：REPLACE() 经完整 ORM 路径可执行', () => {
+        const builder = new TableQueryBuilder('背包物品表');
+        const rows = builder.groupBy('类别').having("REPLACE(category, '道具', '装备') = '装备'").all();
+        expect(rows).toHaveLength(1);
       });
     });
 

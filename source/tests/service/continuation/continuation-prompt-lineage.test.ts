@@ -11,9 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { validateContinuationSettings_ACU } from '../../../src/service/continuation/continuation-store';
-import { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU } from '../../../src/service/continuation/defaults';
+import { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU } from '../../../src/service/continuation/defaults';
 import {
   AGENT_PROMPT_DEFAULT_LINEAGE_ACU,
+  buildV33ContinuationAgentPrompts_ACU,
   buildDefaultContinuationAgentPrompts_ACU,
   findAgentPromptSlot_ACU,
   hashAgentPromptContent_ACU,
@@ -54,19 +55,22 @@ function historicalSettings_ACU(label: string): any {
   for (const [role, refs] of Object.entries(entry.agentPrompts)) agentPrompts[role] = materialize_ACU(refs);
   // finalReviewer 在 V23 才出现；更早的信封由校验层补默认，这里预先补齐以便逐段比对。
   if (!agentPrompts.finalReviewer) agentPrompts.finalReviewer = buildDefaultContinuationAgentPrompts_ACU().finalReviewer;
+  if (!agentPrompts.requirementsMaintainer) agentPrompts.requirementsMaintainer = buildDefaultContinuationAgentPrompts_ACU().requirementsMaintainer;
   settings.agentPrompts = agentPrompts;
   return settings;
 }
 
 const REQUIRED_PLACEHOLDERS_ACU: Record<string, string[]> = {
   main: ['$HISTORY_ANCHOR', '$STORY_OVERVIEW', '$STORY_TAIL', '$STORY_CATALOG', '$CHRONOLOGY'],
-  arcArchitect: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$STORY_OVERVIEW', '$STORY_TAIL', '$STORY_ARC', '$USER_INTENT', '$OUTLINE_WINDOW', '$AGENT_WRITE_SCOPE'],
-  maintainer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$HISTORY_UNSETTLED', '$HOOKS_LEDGER', '$INFO_GAP', '$CHRONOLOGY'],
-  mainlinePlanner: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_OVERVIEW', '$STORY_TAIL', '$STORY_ARC'],
-  beatPlanner: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$HOOKS_LEDGER', '$INFO_GAP'],
-  reviewer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$HOOKS_LEDGER', '$ACTIVE_CONSTRAINTS', '$USER_INTENT'],
-  finalReviewer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$STORY_ARC', '$USER_INTENT', '$WORLDBOOK_HITS'],
-  webResearcher: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$USER_INTENT', '$WORLDBOOK_CATALOG', '$TABLE_CATALOG', '$STORY_TAIL', '$WEB_REFS', '$WEB_TOOL_CATALOG', '$AGENT_READ_CATALOG', '$AGENT_WRITE_SCOPE'],
+  arcArchitect: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$STORY_OVERVIEW', '$STORY_TAIL', '$STORY_ARC', '$USER_REQUIREMENTS', '$OUTLINE_WINDOW', '$AGENT_WRITE_SCOPE'],
+  maintainer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$HISTORY_UNSETTLED', '$HOOKS_LEDGER', '$INFO_GAP', '$CHRONOLOGY', '$USER_REQUIREMENTS'],
+  mainlinePlanner: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_OVERVIEW', '$STORY_TAIL', '$STORY_ARC', '$USER_REQUIREMENTS'],
+  beatPlanner: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$HOOKS_LEDGER', '$INFO_GAP', '$USER_REQUIREMENTS'],
+  reviewer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$HOOKS_LEDGER', '$ACTIVE_CONSTRAINTS', '$USER_REQUIREMENTS'],
+  finalReviewer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$STORY_ARC', '$USER_REQUIREMENTS', '$WORLDBOOK_HITS'],
+  webResearcher: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$USER_REQUIREMENTS', '$WORLDBOOK_CATALOG', '$TABLE_CATALOG', '$STORY_TAIL', '$WEB_REFS', '$WEB_TOOL_CATALOG', '$AGENT_READ_CATALOG', '$AGENT_WRITE_SCOPE'],
+  instructionComposer: ['$AGENT_TASK', '$AGENT_READ_MATERIALS', '$OUTLINE_WINDOW', '$STORY_TAIL', '$STORY_ARC', '$HOOKS_LEDGER', '$ACTIVE_CONSTRAINTS', '$USER_REQUIREMENTS'],
+  requirementsMaintainer: ['$USER_REQUIREMENTS', '$AGENT_TASK', '$AGENT_WRITE_SCOPE'],
 };
 
 describe('默认提示词谱系迁移', () => {
@@ -79,7 +83,7 @@ describe('默认提示词谱系迁移', () => {
   it.each(labels)('%s 的默认组迁移后与当前默认组逐段一致', label => {
     const loaded = validateContinuationSettings_ACU(historicalSettings_ACU(label));
     const defaults = buildDefaultContinuationSettings_ACU();
-    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU);
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU);
     expect(loaded.outlinePrompt).toEqual(defaults.outlinePrompt);
     for (const role of Object.keys(defaults.agentPrompts) as (keyof typeof defaults.agentPrompts)[]) {
       expect(loaded.agentPrompts[role], `agentPrompts.${role}`).toEqual(defaults.agentPrompts[role]);
@@ -110,6 +114,7 @@ describe('默认提示词谱系迁移', () => {
   it('真实 V20 形态（任务段在容量段位置、无容量段）迁移后总纲任务段完整保留', () => {
     const settings = buildDefaultContinuationSettings_ACU() as any;
     settings.promptForceDefaultVersion = 'spv2.8-continuation-runtime-snapshot-v20';
+    settings.agentPrompts = buildV33ContinuationAgentPrompts_ACU();
     const arc = settings.agentPrompts.arcArchitect.filter((segment: ContinuationPromptSegment_ACU) => segment.content !== V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU);
     arc[0].content = V20_DEFAULT_ARC_ARCHITECT_SYSTEM_ACU;
     arc[2].content = V20_DEFAULT_ARC_ARCHITECT_PURPOSE_ACU;
@@ -126,17 +131,19 @@ describe('默认提示词谱系迁移', () => {
   it('已被误迁的 V27 信封（总纲任务段被覆盖成容量契约）会被修复回默认任务段', () => {
     const settings = buildDefaultContinuationSettings_ACU() as any;
     settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU;
+    settings.agentPrompts = buildV33ContinuationAgentPrompts_ACU();
+    const previous = settings.agentPrompts as ReturnType<typeof buildV33ContinuationAgentPrompts_ACU>;
     const defaults = buildDefaultContinuationAgentPrompts_ACU();
-    const taskIndex = defaults.arcArchitect.findIndex(segment => segment.content.includes('$AGENT_TASK'));
+    const taskIndex = previous.arcArchitect.findIndex(segment => segment.content.includes('$AGENT_TASK'));
     // 复现旧迁移的产物：容量段消失、pinned 任务槽位被写成容量契约正文。
-    settings.agentPrompts.arcArchitect = defaults.arcArchitect
+    settings.agentPrompts.arcArchitect = previous.arcArchitect
       .filter(segment => segment.content !== V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU)
-      .map(segment => (segment.content === defaults.arcArchitect[taskIndex].content ? { ...segment, content: V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU } : segment));
+      .map(segment => (segment.content === previous.arcArchitect[taskIndex].content ? { ...segment, content: V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU } : segment));
     expect(settings.agentPrompts.arcArchitect.some((segment: ContinuationPromptSegment_ACU) => segment.content.includes('$AGENT_TASK'))).toBe(false);
 
     const loaded = validateContinuationSettings_ACU(settings);
 
-    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU);
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU);
     expect(loaded.agentPrompts.arcArchitect).toEqual(defaults.arcArchitect);
   });
 
@@ -149,6 +156,26 @@ describe('默认提示词谱系迁移', () => {
     const loaded = validateContinuationSettings_ACU(settings);
 
     expect(loaded.agentPrompts.reviewer).toEqual(custom);
+  });
+
+  it('真 V30 信封的编排系统段在 V31 迁移中被替换（谱系条目必须命中真实旧文）', () => {
+    const settings = buildDefaultContinuationSettings_ACU() as any;
+    settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU;
+    const defaults = buildDefaultContinuationAgentPrompts_ACU();
+    const currentSys = defaults.instructionComposer.find(segment => segment.role === 'system')!.content;
+    // V30 文案与当前默认仅一词之差；回代即真实 V30 文本（已用 hashAgentPromptContent_ACU
+    // 对 HEAD blob 逐字核实：len=737 hash=64dc636c，模板拼接部分未动）。
+    const v30System = currentSys.split('用户累计要求与活跃约束').join('用户初始要求与活跃约束');
+    expect(v30System.length).toBe(737);
+    expect(hashAgentPromptContent_ACU(v30System)).toBe('64dc636c');
+    settings.agentPrompts.instructionComposer = defaults.instructionComposer.map(segment =>
+      segment.role === 'system' ? { ...segment, content: v30System } : segment,
+    );
+
+    const loaded = validateContinuationSettings_ACU(settings);
+
+    expect(loaded.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU);
+    expect(loaded.agentPrompts.instructionComposer).toEqual(defaults.instructionComposer);
   });
 
   it('谱系表条目都指向当前默认组里存在的槽位，且不与当前默认正文重合', () => {

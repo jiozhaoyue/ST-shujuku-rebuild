@@ -13,12 +13,6 @@ const {
 }));
 
 vi.mock('../../../src/data/gateways/ai-gateway', () => ({
-  isGenerateRawAvailable_ACU: vi.fn(() => true),
-  isConnectionManagerAvailable_ACU: vi.fn(() => false),
-  isTriggerSlashAvailable_ACU: vi.fn(() => false),
-  generateRaw_ACU: vi.fn(),
-  sendConnectionManagerRequest_ACU: vi.fn(),
-  triggerSlash_ACU: vi.fn(),
   getConnectionManagerProfiles_ACU: vi.fn(),
   getHostRequestHeaders_ACU: mockGetHostRequestHeaders,
 }));
@@ -33,17 +27,59 @@ vi.mock('../../../src/shared/utils', async (importOriginal) => {
   };
 });
 
-import { fetchAvailableModels_ACU } from '../../../src/service/ai/ai-service';
+import { fetchAvailableModels_ACU, __clearModelListCacheForTests_ACU } from '../../../src/service/ai/ai-service';
 
 // 模拟 fetch
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
 beforeEach(() => {
+  __clearModelListCacheForTests_ACU();
   vi.clearAllMocks();
 });
 
 describe('fetchAvailableModels_ACU', () => {
+  it('响应头之后正文停滞 ⇒ 探活窗口到点返回结构化超时，不会无限挂起', async () => {
+    vi.useFakeTimers();
+    try {
+      // 真实语义：signal 被 abort 后，尚未读完的响应体会以 AbortError 拒绝（undici 行为）。
+      const abortRejection = (signal: any) => new Promise<any>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })));
+      });
+      mockFetch.mockImplementationOnce((_url: string, init: any) => Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: () => abortRejection(init.signal),
+        json: () => abortRejection(init.signal),
+      }));
+      const pending = fetchAvailableModels_ACU('https://stalled.example/v1', 'sk-stalled');
+      // 探活前还有一道 SSRF 守卫的动态 import，需要多刷几个微任务才真正发出请求。
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(15_000);
+      const result = await pending;
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('端点状态检查超时');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('卡死的在飞探活不会被后续请求（含 force）复用', async () => {
+    let releaseFirst: (v: any) => void = () => {};
+    mockFetch.mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }));
+    const first = fetchAvailableModels_ACU('https://hang.example/v1', 'sk-hang');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: async () => ({ models: [{ id: 'ok-after-hang' }] }) });
+    const retried = await fetchAvailableModels_ACU('https://hang.example/v1', 'sk-hang', undefined, { force: true });
+    expect(retried.success).toBe(true);
+    expect(retried.models).toContain('ok-after-hang');
+    releaseFirst({ ok: true, status: 200, statusText: 'OK', json: async () => ({ models: [{ id: 'late' }] }) });
+    await first;
+  });
+
   it('apiUrl 为空时返回错误', async () => {
     const result = await fetchAvailableModels_ACU('', 'key');
     expect(result.success).toBe(false);
@@ -142,6 +178,20 @@ describe('fetchAvailableModels_ACU', () => {
     expect(result.error).toContain('未能解析');
   });
 
+  it('TT 2.3.0：宿主授权弹窗被取消（HTTP 200 + cancelled）时文案指向该弹窗，而不是含糊的「列表为空」', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ cancelled: true, data: [] }),
+    });
+
+    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('允许连接到自定义端点？');
+    expect(result.error).toContain('信任并连接');
+    // 退回通用文案会让用户不知道第一步要去点弹窗
+    expect(result.error).not.toContain('列表为空');
+  });
+
   it('HTTP 错误时返回错误信息（JSON 错误体）', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
@@ -166,6 +216,21 @@ describe('fetchAvailableModels_ACU', () => {
     const badAddr = await fetchAvailableModels_ACU('https://api.test', 'key');
     expect(badAddr.error).toContain('404');
     expect(badAddr.error).toMatch(/地址|模型/i);
+  });
+
+  it('上游错误体回显请求头时，返回的错误文案先脱敏（不把密钥带进 toast）', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => 'proxy error: Authorization: Bearer sk-abcdefghij12345678 echoed',
+    });
+
+    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('500');
+    expect(result.error).not.toContain('sk-abcdefghij12345678');
+    expect(result.error).toContain('***');
   });
 
   it('HTTP 错误时返回错误信息（纯文本错误体）', async () => {
@@ -250,7 +315,7 @@ describe('fetchAvailableModels_ACU', () => {
     expect(lastStatusBody().custom_api_format).toBe('');
   });
 
-  it('缺省 / 空白 / 非字符串 customApiFormat 一律降级为 ""', async () => {
+  it('缺省 / 空白 / 非字符串 customApiFormat 一律降级为 ""（同归一键共享探活缓存）', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm' }] }) });
 
     await fetchAvailableModels_ACU('https://api.test', 'key');
@@ -261,7 +326,8 @@ describe('fetchAvailableModels_ACU', () => {
 
     await fetchAvailableModels_ACU('https://api.test', 'key', undefined as any);
     expect(lastStatusBody().custom_api_format).toBe('');
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    // 同一归一键（缺省/空白/undefined 均归一为 ''）只探活一次
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('白名单值两侧空白被裁剪后仍按合法值透传', async () => {
@@ -326,6 +392,8 @@ describe('fetchAvailableModels_ACU', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('超时');
       expect(result.error).toContain('15');
+      // 授权窗等待也计入这 15s：超时文案须给出「先去点弹窗」的出路，否则用户只会反复重试
+      expect(result.error).toContain('信任并连接');
       // 收敛后清掉探活定时器，不留悬挂句柄
       expect(vi.getTimerCount()).toBe(0);
     } finally {
@@ -348,5 +416,35 @@ describe('fetchAvailableModels_ACU', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('同端点同密钥短窗内复用缓存，不再发起 fetch', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm1' }] }) });
+    const first = await fetchAvailableModels_ACU('https://api.test', 'cache-key');
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm2' }] }) });
+    const second = await fetchAvailableModels_ACU('https://api.test', 'cache-key');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(second.models).toEqual(first.models);
+  });
+
+  it('换密钥即穿透缓存重新探活', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm' }] }) });
+    await fetchAvailableModels_ACU('https://api.test', 'key-a');
+    await fetchAvailableModels_ACU('https://api.test', 'key-b');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('并发同键探活合并为一次 fetch', async () => {
+    let resolveJson!: (v: any) => void;
+    mockFetch.mockReturnValue(new Promise((resolve) => {
+      resolveJson = () => resolve({ ok: true, json: async () => ({ models: [{ id: 'm' }] }) });
+    }));
+    const p1 = fetchAvailableModels_ACU('https://api.test', 'race-key');
+    const p2 = fetchAvailableModels_ACU('https://api.test', 'race-key');
+    resolveJson(null);
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(r1.models).toEqual(['m']);
+    expect(r2.models).toEqual(['m']);
   });
 });

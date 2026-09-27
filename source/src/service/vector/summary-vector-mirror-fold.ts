@@ -17,6 +17,7 @@ import { normalizeSummaryVectorIndexScope_ACU } from '../../shared/summary-vecto
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU } from '../../shared/utils';
 import { collectSummaryVectorMirrorFrameRefs_ACU, computeSummaryVectorMirrorCheckpointRevision_ACU, resolveSummaryVectorMirrorHead_ACU } from './summary-vector-mirror-resolver';
 import {
+    discardSummaryVectorMirrorPreparedFiles_ACU,
     finalizeSummaryVectorMirrorFiles_ACU,
     loadSummaryVectorMirrorManifest_ACU,
     loadSummaryVectorMirrorPack_ACU,
@@ -107,6 +108,7 @@ export async function foldSummaryVectorMirrorAtBoundary_ACU(params: {
     });
     const files: SummaryVectorIndexExternalFileRef_ACU[] = [];
     let packHash = '';
+    let packFile: SummaryVectorIndexExternalFileRef_ACU | null = null;
     if (mergedChunks.length > 0) {
         const packPersist = await persistSummaryVectorMirrorPackPrepared_ACU({
             chatKey: scope.chatKey,
@@ -117,23 +119,31 @@ export async function foldSummaryVectorMirrorAtBoundary_ACU(params: {
             chunks: mergedChunks,
         });
         packHash = packPersist.ref.packHash;
-        files.push(packPersist.file);
+        packFile = packPersist.file;
+        if (packPersist.createdNew !== false) files.push(packFile);
         rows.forEach((row) => {
             row.chunks = row.chunks.map((ref) => ({ packHash, chunkIndex: ref.chunkIndex }));
         });
     }
 
-    const manifestPersist = await persistSummaryVectorMirrorManifestPrepared_ACU({
-        chatKey: scope.chatKey,
-        isolationKey: scope.isolationKey,
-        sourceTableKey: scope.sourceTableKey,
-        rows: {
-            schema: 'summary_vector_mirror_manifest',
-            version: 1,
-            sourceTableKey,
-            rows: rows.map((row) => ({ rowId: row.rowId, chunks: row.chunks })),
-        },
-    });
+    let manifestPersist: Awaited<ReturnType<typeof persistSummaryVectorMirrorManifestPrepared_ACU>>;
+    try {
+        manifestPersist = await persistSummaryVectorMirrorManifestPrepared_ACU({
+            chatKey: scope.chatKey,
+            isolationKey: scope.isolationKey,
+            sourceTableKey: scope.sourceTableKey,
+            rows: {
+                schema: 'summary_vector_mirror_manifest',
+                version: 1,
+                sourceTableKey,
+                rows: rows.map((row) => ({ rowId: row.rowId, chunks: row.chunks })),
+            },
+        });
+    } catch (error) {
+        // pack 已 prepared、manifest 失败：抛出不回填引用即成孤儿（GC 对 prepared 一律 retain）。
+        await discardSummaryVectorMirrorPreparedFiles_ACU(files, '镜像折叠 manifest 上传失败');
+        throw error;
+    }
     files.push(manifestPersist.file);
 
     const checkpoint: SummaryVectorIndexMirrorCheckpointV2_ACU = {
@@ -146,11 +156,16 @@ export async function foldSummaryVectorMirrorAtBoundary_ACU(params: {
         rowCount: rows.length,
         vectorRevision: computeSummaryVectorMirrorCheckpointRevision_ACU(rows),
         manifestRef: manifestPersist.ref,
-        packRefs: packHash ? [{ packHash, path: files[0].path, chunkCount: mergedChunks.length, byteLength: files[0].byteSize }] : [],
+        packRefs: packHash && packFile
+            ? [{ packHash, path: packFile.path, chunkCount: mergedChunks.length, byteLength: packFile.byteSize }]
+            : [],
     };
 
     const anchorFrame = getFrame_ACU(params.chat, params.isolationKey, params.boundaryAnchorIndex);
-    if (!anchorFrame) throw new Error('向量镜像折叠失败：锚点 frame 不存在。');
+    if (!anchorFrame) {
+        await discardSummaryVectorMirrorPreparedFiles_ACU(files, '镜像折叠锚点缺失');
+        throw new Error('向量镜像折叠失败：锚点 frame 不存在。');
+    }
     const existing: SummaryVectorIndexMirrorFrameV2_ACU = anchorFrame.summaryVectorIndexFrame && typeof anchorFrame.summaryVectorIndexFrame === 'object'
         ? anchorFrame.summaryVectorIndexFrame
         : { version: 3, sourceTableKey, logEntries: [] };

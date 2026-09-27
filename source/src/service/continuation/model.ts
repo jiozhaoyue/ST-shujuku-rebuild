@@ -119,14 +119,16 @@ export interface ContinuationAgentPrompts_ACU {
   reviewer: ContinuationPromptSegment_ACU[];
   finalReviewer: ContinuationPromptSegment_ACU[];
   webResearcher: ContinuationPromptSegment_ACU[];
+  instructionComposer: ContinuationPromptSegment_ACU[];
+  requirementsMaintainer: ContinuationPromptSegment_ACU[];
 }
 
-export const CONTINUATION_AGENT_PROMPT_KEYS_ACU = ['main', 'arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'reviewer', 'finalReviewer', 'webResearcher'] as const;
+export const CONTINUATION_AGENT_PROMPT_KEYS_ACU = ['main', 'arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'reviewer', 'finalReviewer', 'webResearcher', 'instructionComposer', 'requirementsMaintainer'] as const;
 
 export type ContinuationAgentPromptKey_ACU = typeof CONTINUATION_AGENT_PROMPT_KEYS_ACU[number];
 
-/** 可独立配置 AI 渠道的九个角色：主 Agent、大纲子代理、六个派工子代理与最终审查。 */
-export const CONTINUATION_AGENT_API_PRESET_ROLES_ACU = ['main', 'outline', 'arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'reviewer', 'finalReviewer', 'webResearcher'] as const;
+/** 可独立配置 AI 渠道的十一个角色：主 Agent、大纲子代理、六个派工子代理、最终审查、写作指令编排与用户要求维护。 */
+export const CONTINUATION_AGENT_API_PRESET_ROLES_ACU = ['main', 'outline', 'arcArchitect', 'maintainer', 'mainlinePlanner', 'beatPlanner', 'reviewer', 'finalReviewer', 'webResearcher', 'instructionComposer', 'requirementsMaintainer'] as const;
 
 export type ContinuationAgentApiPresetRole_ACU = typeof CONTINUATION_AGENT_API_PRESET_ROLES_ACU[number];
 
@@ -137,6 +139,14 @@ export interface ContinuationAgentApiPresetChoice_ACU {
 }
 
 export type ContinuationAgentApiPresets_ACU = Record<ContinuationAgentApiPresetRole_ACU, ContinuationAgentApiPresetChoice_ACU>;
+
+/** 固定工作流的配置级参数。提示词正文不在这里改。 */
+export interface ContinuationWorkflowSettings_ACU {
+  autoFixEnabled: boolean;
+  autoFixMaxAttempts: number;
+  reviseLimit: number;
+  repairMaxExtraReads: number;
+}
 
 /** 发送前最终审查的独立资源与开关，不占用主 Agent 或普通子代理的读取额度。 */
 export interface ContinuationFinalReviewSettings_ACU {
@@ -327,6 +337,8 @@ export interface ContinuationSettings_ACU {
   agentReadFallbackTokens: number;
   /** 发送前人物情绪与合理性终审的独立设置。 */
   finalReview: ContinuationFinalReviewSettings_ACU;
+  /** 固定工作流：自动修复、打回上限与修复读取预算。 */
+  workflow: ContinuationWorkflowSettings_ACU;
   /** 开场百科/网页检索子代理的设置。 */
   webResearch: ContinuationWebResearchSettings_ACU;
   contextExtractRules: ContinuationRulePair_ACU[];
@@ -347,6 +359,8 @@ export interface ContinuationSettings_ACU {
   agentPrompts: ContinuationAgentPrompts_ACU;
   promptForceDefaultVersion?: string;
 }
+
+export type ContinuationPendingEvaluationSettings_ACU = Pick<ContinuationSettings_ACU, 'loopTags' | 'retryDelaySeconds' | 'minGenerationTokens' | 'generationRetryLimit'>;
 
 export interface ContinuationEnvelope_ACU {
   schemaVersion: typeof CONTINUATION_SCHEMA_VERSION_ACU;
@@ -408,6 +422,11 @@ export interface ContinuationHostGenerationCapture_ACU {
   capturedChatLength: number;
   capturedAiFloorCount: number;
   generationSeq: number | null;
+  /** 宿主发送后承载本轮指令的用户楼位置与稳定指纹；旧快照缺失时重试必须 fail-closed。 */
+  instructionIndex?: number;
+  instructionFingerprint?: string;
+  /** Hash of the pre-send chat boundary, used across the record await. */
+  boundaryFingerprint?: string;
 }
 
 export interface ContinuationPendingHostTurn_ACU {
@@ -415,6 +434,8 @@ export interface ContinuationPendingHostTurn_ACU {
   capture: ContinuationHostGenerationCapture_ACU;
   retryCount: number;
   status: 'awaiting_generation' | 'retry_ready' | 'exhausted';
+  /** Settings captured when this attempt was armed; legacy pending records fall back to current settings. */
+  evaluationSettings?: ContinuationPendingEvaluationSettings_ACU;
 }
 
 export type ContinuationInternalAiSource_ACU = 'outline' | 'turn_instruction' | 'agent_main' | 'agent_subagent' | 'handoff_summary';
@@ -452,6 +473,9 @@ export interface ContinuationTimelineEntry_ACU {
   turnId?: string;
   attemptId?: string;
   messageIndex?: number;
+  /** Stable host message identity used for cursor recovery after insertions/deletions. */
+  messageId?: string | number;
+  messageFingerprint?: string;
   errorCode?: ContinuationErrorCode_ACU;
 }
 

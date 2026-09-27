@@ -3,7 +3,7 @@ import { hashUserInput_ACU, logDebug_ACU, parseTableTemplateJson_ACU } from '../
 import { peekChatScopedConfigContainer_ACU, peekChatSheetGuideContainer_ACU, setChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
 import { saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { getChatArray_ACU, clearAllAiTableDataForCheckpointRestore_ACU, cleanupCheckpointVectorIndexManifestsAfterCommit_ACU } from '../chat/chat-service';
-import { getCurrentIsolationKey_ACU } from '../runtime/state-manager';
+import { getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
 import { buildChatTemplateScopeStateFromCurrent_ACU, getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, normalizeGuideData_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU, setCurrentChatTemplateScopeState_ACU } from '../template/chat-scope';
 import { deleteAllGeneratedEntries_ACU, refreshMergedDataAndNotify_ACU } from '../worldbook/pipeline';
@@ -14,6 +14,7 @@ import { persistTablesToChatMessage_ACU } from './table-service';
 import { runTableWriteTransaction_ACU } from './table-write-transaction';
 import { repairLegacyAutoMergedRowTails_ACU } from '../../shared/canonical-row-normalizer';
 import { validateCanonicalCheckpointData_ACU } from '../../shared/canonical-checkpoint-validator';
+import { isDataBearingMessage_ACU } from '../../shared/ai-floor';
 
 const CHECKPOINT_FORMAT_ACU = 'acu-table-checkpoint' as const;
 const CHECKPOINT_VERSION_ACU = 1 as const;
@@ -51,6 +52,21 @@ export interface TableCheckpointRestoreResult_ACU {
   derivedRefreshWarnings?: string[];
   postCondition?: TableCheckpointRestorePostCondition_ACU;
   error?: string;
+}
+
+export interface TableCheckpointRestoreOptions_ACU {
+  /**
+   * 这份数据实际覆盖到第几楼（AI 楼层，1 基）。缺省 = 现行行为：
+   * 追平前沿即恢复帧所在的最新 AI 楼层，剩余楼层视为已填（「一键追平」显示已追平）。
+   * 填写后前沿下修到该楼层，追平从「该楼层 + 1」开始规划；对所有被恢复的表生效。
+   */
+  restoredUpToAiFloor?: number;
+}
+
+/** 归一化覆盖楼层声明：仅接受正整数，其他一律视为未填写。 */
+function normalizeRestoredUpToAiFloor_ACU(value: unknown): number | undefined {
+  const floor = Number(value);
+  return Number.isInteger(floor) && floor > 0 ? floor : undefined;
 }
 
 function cloneJson_ACU<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
@@ -233,7 +249,7 @@ export function buildCurrentTableCheckpoint_ACU(): TableCheckpointFileV1_ACU {
 type MessageFieldSnapshot_ACU = { msg: any; fields: Record<string, { exists: boolean; value: any }> };
 const RESTORE_MESSAGE_FIELDS_ACU = ['TavernDB_ACU_Data', 'TavernDB_ACU_SummaryData', 'TavernDB_ACU_IndependentData', 'TavernDB_ACU_Identity', 'TavernDB_ACU_IsolatedData', 'TavernDB_ACU_ModifiedKeys', 'TavernDB_ACU_UpdateGroupKeys'];
 function captureMessageSnapshots_ACU(chat: any[]): MessageFieldSnapshot_ACU[] {
-  return chat.filter(msg => msg && !msg.is_user).map(msg => ({ msg, fields: RESTORE_MESSAGE_FIELDS_ACU.reduce((out: Record<string, { exists: boolean; value: any }>, key) => {
+  return chat.filter(isDataBearingMessage_ACU).map(msg => ({ msg, fields: RESTORE_MESSAGE_FIELDS_ACU.reduce((out: Record<string, { exists: boolean; value: any }>, key) => {
     const exists = Object.prototype.hasOwnProperty.call(msg, key);
     out[key] = { exists, value: exists ? cloneJson_ACU(msg[key]) : undefined };
     return out;
@@ -318,10 +334,16 @@ async function runCheckpointDerivedRefresh_ACU(
   };
 }
 
-export async function restoreTableCheckpointToLatestAi_ACU(parsed: TableCheckpointFileV1_ACU): Promise<TableCheckpointRestoreResult_ACU> {
+export async function restoreTableCheckpointToLatestAi_ACU(
+  parsed: TableCheckpointFileV1_ACU,
+  options: TableCheckpointRestoreOptions_ACU = {},
+): Promise<TableCheckpointRestoreResult_ACU> {
   let checked: TableCheckpointFileV1_ACU;
   let chat: any[];
   let targetMessageIndex: number;
+  // 恢复帧 reason 必须仍是 init：shouldCheckpoint 只认 init/migration，改成别的会让
+  // 恢复不写 checkpoint。覆盖楼层声明因此走 checkpoint 的进度载体字段，而不是动 reason。
+  const restoredUpToAiFloor = normalizeRestoredUpToAiFloor_ACU(options.restoredUpToAiFloor);
   let isolationKey: string;
   let provider: ReturnType<typeof getStorageProvider>;
   let rollbackStrategy: RuntimeRollbackStrategy_ACU;
@@ -359,7 +381,10 @@ export async function restoreTableCheckpointToLatestAi_ACU(parsed: TableCheckpoi
   try {
     const result = await runTableWriteTransaction_ACU({ source: 'import', reason: 'restoreTableCheckpoint', isolationKey, writeSet: [{ kind: 'all' }], maintenanceMode: 'exclusive' }, async (transactionContext) => {
       return transactionContext.runCommit(async () => {
-        const cleared = await clearAllAiTableDataForCheckpointRestore_ACU();
+        const cleared = await clearAllAiTableDataForCheckpointRestore_ACU(isolationKey, {
+          enabled: settings_ACU.dataIsolationEnabled,
+          code: settings_ACU.dataIsolationCode,
+        });
         vectorManifests = cleared.vectorManifestsToDeleteAfterCommit;
         const replaced = await provider.replaceAllData(cloneJson_ACU(checked.tableSnapshot));
         if (!replaced?.success) throw new Error(replaced?.error || 'Checkpoint 表格运行时恢复失败。');
@@ -367,7 +392,7 @@ export async function restoreTableCheckpointToLatestAi_ACU(parsed: TableCheckpoi
         if (!templateState || !setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey, reason: 'checkpoint_import' })) throw new Error('Checkpoint 模板作用域恢复失败。');
         if (!setChatSheetGuideDataForIsolationKey_ACU(isolationKey, checked.guideSnapshot.data, { reason: 'checkpoint_import', syncTemplateScope: false })) throw new Error('Checkpoint 指导表恢复失败。');
         const sheetKeys = Object.keys(checked.tableSnapshot).filter(key => key.startsWith('sheet_'));
-        const persisted = await persistTablesToChatMessage_ACU({ targetMessageIndex, tableData: checked.tableSnapshot, targetSheetKeys: sheetKeys, trackingSheetKeys: sheetKeys, filledSheetKeys: sheetKeys, trackAsUpdate: false, source: 'import', operations: [{ kind: 'data_replace', data: checked.tableSnapshot, reason: 'import' }], strictSave: true, assumeCommitLock: true, transactionContext });
+        const persisted = await persistTablesToChatMessage_ACU({ targetMessageIndex, tableData: checked.tableSnapshot, targetSheetKeys: sheetKeys, trackingSheetKeys: sheetKeys, filledSheetKeys: sheetKeys, trackAsUpdate: false, source: 'import', operations: [{ kind: 'data_replace', data: checked.tableSnapshot, reason: 'import' }], strictSave: true, assumeCommitLock: true, ...(restoredUpToAiFloor === undefined ? {} : { restoreUpToAiFloor: restoredUpToAiFloor }), transactionContext });
         if (!persisted.saved) throw new Error(persisted.error || 'Checkpoint 持久化失败。');
         return { clearedCount: cleared.clearedCount, restoredMessageIndex: persisted.messageIndex ?? targetMessageIndex };
       }, [{ kind: 'all' }]);

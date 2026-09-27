@@ -16,7 +16,7 @@
     </div>
 
     <p v-if="clearPending" class="acu-v2-continuation-materials__confirm">
-      清空会删除当前续写任务、主 Agent 的会话记录与本地资料快照（伏笔、信息差、长期约束、故事总纲、年代学、百科资料库）。
+      清空会删除当前续写任务、主 Agent 的会话记录与本地资料快照（伏笔、信息差、长期约束、故事总纲、年代学、百科资料库、用户要求）。
       小说正文楼层不受影响，清空后可以从当前剧情重新开始规划。
       <span class="acu-v2-continuation-materials__confirm-actions">
         <AcuButton variant="danger" :loading="busy" @click="confirmClear">确认清空</AcuButton>
@@ -89,9 +89,11 @@
           v-for="stage in historyStages"
           :key="stage.stageId"
           class="acu-v2-continuation-materials__block"
-          open
+          :open="expandedHistoryStages.has(stage.stageId)"
+          @toggle="toggleHistoryStage(stage, $event)"
         >
           <summary>第 {{ stage.stageNumber }} 阶段 · {{ stage.status }} · {{ stage.completedTurns }} / {{ stageTotalTurns(stage) }} 轮</summary>
+          <template v-if="expandedHistoryStages.has(stage.stageId)">
           <template v-for="revision in [displayRevision(stage)]" :key="revision?.revision ?? 'no-revision'">
             <section v-if="revision" class="acu-v2-continuation-materials__outline-summary">
               <p class="acu-v2-continuation-materials__outline-heading"><strong>{{ revision.outline.title }}</strong><span class="acu-v2-continuation-materials__badge">revision {{ revision.revision }}</span><span class="acu-v2-continuation-materials__badge">{{ revision.frozen ? '已冻结' : '待确认' }}</span><span class="acu-v2-continuation-materials__badge">职责：{{ ROLE_LABELS[revision.outline.role ?? ''] ?? revision.outline.role ?? '未标注' }}</span></p>
@@ -109,6 +111,7 @@
               <ol class="acu-v2-continuation-materials__list"><li v-for="node in revision.outline.nodes" :key="node.id"><strong>{{ node.title }}</strong>：{{ node.goal }}</li></ol>
             </details>
           </details>
+          </template>
         </details>
       </template>
     </template>
@@ -119,6 +122,42 @@
         本地资料由子代理结算写入，也可以在这里分模块手动修正。保存走与子代理相同的结构校验并推进修订号；
         每个模块独立保存，只提交本模块数据，不影响其他模块（含未保存的草稿）。
       </p>
+      <section class="acu-v2-continuation-materials__outline-summary">
+        <p class="acu-v2-continuation-materials__outline-heading"><strong>资料完成状态</strong></p>
+        <article v-for="card in materialStatusCards" :key="card.module" class="acu-v2-continuation-materials__card" :class="{ 'acu-v2-continuation-materials__card--failed': card.state === 'pending' || card.state === 'load_failed' }">
+          <p class="acu-v2-continuation-materials__card-head">
+            <strong>{{ materialStatusTitle(card.module) }}</strong>
+            <span class="acu-v2-continuation-materials__badge">{{ card.label }}</span>
+          </p>
+          <p class="acu-v2-continuation-materials__card-body">{{ card.detail }}</p>
+        </article>
+      </section>
+      <section v-if="repairableModules.length" class="acu-v2-continuation-materials__outline-summary">
+        <p class="acu-v2-continuation-materials__outline-heading"><strong>定向补足</strong></p>
+        <p class="acu-v2-continuation-materials__card-body">只开放所选待补模块的程序级写集；已完成模块不会被重写。历史状态未知的模块必须在此显式选择。</p>
+        <div class="acu-v2-continuation-materials__repair-options">
+          <label v-for="module in repairableModules" :key="module">
+            <input
+              type="checkbox"
+              :checked="selectedRepairModules.includes(module)"
+              :disabled="busy"
+              @change="toggleRepairModule(module)"
+            >
+            {{ MATERIAL_STATUS_LABELS_ACU[module] ?? module }}
+          </label>
+        </div>
+        <div class="acu-v2-continuation-materials__actions">
+          <AcuButton variant="primary" :loading="busy" :disabled="!selectedRepairModules.length" @click="requestRepair">补足所选模块</AcuButton>
+        </div>
+      </section>
+      <section v-if="pendingFixCards.length" class="acu-v2-continuation-materials__outline-summary">
+        <p class="acu-v2-continuation-materials__outline-heading"><strong>待修复</strong></p>
+        <article v-for="card in pendingFixCards" :key="card.module">
+          <p class="acu-v2-continuation-materials__card-head"><strong>{{ card.title }}</strong><span class="acu-v2-continuation-materials__badge">第 {{ card.attempts }} 次</span></p>
+          <p class="acu-v2-continuation-materials__card-body">{{ card.detail }}</p>
+          <p class="acu-v2-continuation-materials__card-meta">{{ card.meta }}</p>
+        </article>
+      </section>
       <p v-if="materials.snapshot.value" class="acu-v2-continuation-materials__meta">
         结算水位：楼层 {{ materials.snapshot.value.settledThroughIndex }} ·
         伏笔 {{ materials.snapshot.value.hooks.length }} 条 ·
@@ -140,6 +179,35 @@
         </template>
       </p>
       <p v-if="materials.loadError.value" class="acu-v2-continuation-materials__error">{{ materials.loadError.value }}</p>
+
+      <!-- 逐栏记录：按模块/ID 展示分栏视图；partial 只在这里可见，字段值不在这里展示 -->
+      <details class="acu-v2-continuation-materials__block">
+        <summary>逐栏记录 · {{ fieldRecordTotal }} 条</summary>
+        <p class="acu-v2-continuation-materials__meta">
+          逐栏记录来自子代理的逐栏即时写入：「部分」条目还没写齐必填栏，不进入上面的完整资料；「旧快照条目」来自旧整条快照，来源不可逐栏拆分。
+          这里只列栏目名与修订身份，字段值在各模块完整条目或原始 JSON 里查看。
+        </p>
+        <p v-if="!fieldRecordGroups.length" class="acu-v2-continuation-materials__empty">还没有逐栏写入记录。</p>
+        <details v-for="group in fieldRecordGroups" :key="group.module" class="acu-v2-continuation-materials__block">
+          <summary>{{ group.label }} · {{ group.records.length }} 条</summary>
+          <div class="acu-v2-continuation-materials__cards">
+            <div v-for="record in group.records" :key="record.id" class="acu-v2-continuation-materials__card">
+              <p class="acu-v2-continuation-materials__card-head">
+                <strong>{{ record.id }}</strong>
+                <span
+                  class="acu-v2-continuation-materials__badge"
+                  :class="{ 'acu-v2-continuation-materials__badge--primary': record.status === 'complete' }"
+                >{{ FIELD_STATUS_LABELS[record.status] ?? record.status }}</span>
+              </p>
+              <p class="acu-v2-continuation-materials__card-meta">已写字段：{{ record.fieldNames.join('、') || '（无）' }}</p>
+              <p v-if="record.missingFields.length" class="acu-v2-continuation-materials__card-meta">缺栏：{{ record.missingFields.join('、') }}</p>
+              <p class="acu-v2-continuation-materials__card-meta">
+                最近更新 {{ formatTimestamp(record.updatedAt) }}<template v-if="record.maxRevision > 0"> · 栏目修订号最高 {{ record.maxRevision }}</template>
+              </p>
+            </div>
+          </div>
+        </details>
+      </details>
 
       <!-- 伏笔账本 -->
       <details class="acu-v2-continuation-materials__block" open>
@@ -315,8 +383,33 @@
       </details>
     </template>
 
+    <!-- 用户要求：Agent 会话里用户累计提出的任务要求 -->
+    <template v-else-if="activeTab === 'userRequirements'">
+      <p class="acu-v2-continuation-materials__meta">
+        用户要求由 requirements-maintainer 在会话历史压缩后整理，创建任务时会把初始要求写成首条；每个标签是一条要求，保存时自动转换为字符串数组。
+      </p>
+      <p v-if="materials.snapshot.value" class="acu-v2-continuation-materials__meta">
+        条目 {{ materials.snapshot.value.userRequirements.length }} 条 · 修订号 {{ materials.snapshot.value.revisions.userRequirements }}
+      </p>
+      <p v-if="materials.loadError.value" class="acu-v2-continuation-materials__error">{{ materials.loadError.value }}</p>
+      <p v-if="materials.snapshot.value && !materials.snapshot.value.userRequirements.length" class="acu-v2-continuation-materials__empty">
+        还没有用户要求条目。创建任务后会写入初始要求；之后在 Agent 会话里补充的实质要求会在历史压缩后合并进来。可点击新增标签手动添加。
+      </p>
+      <UserRequirementsEditor
+        editor-id="continuation"
+        :items="requirementItems"
+        :dirty="materials.modules.userRequirements.dirty"
+        :error="materials.modules.userRequirements.error"
+        :saving="materials.modules.userRequirements.saving"
+        :disabled="!materials.snapshot.value || busy"
+        @update:items="updateRequirementItems"
+        @discard="materials.discard('userRequirements')"
+        @save="materials.save('userRequirements')"
+      />
+    </template>
+
     <!-- 故事总纲：结构化展示 + JSON 编辑 -->
-    <template v-else>
+    <template v-else-if="activeTab === 'storyArc'">
       <p class="acu-v2-continuation-materials__meta">
         故事总纲由 arc-architect 子代理维护：全书方向一条 + 若干卷台阶。也可以在这里手动修正，保存走同一套结构校验并推进修订号。
       </p>
@@ -366,8 +459,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import AcuButton from './_lib/AcuButton.vue';
 import AcuTextarea from './_lib/AcuTextarea.vue';
-import { useContinuationMaterials } from '../composables/useContinuationMaterials';
+import UserRequirementsEditor from './UserRequirementsEditor.vue';
+import { useContinuationMaterials, CONTINUATION_MATERIAL_MODULE_LABELS_ACU } from '../composables/useContinuationMaterials';
+import { watchChatChanged_ACU } from '../composables/useChatChangedListener';
+import { buildContinuationPendingFixCards_ACU } from '../continuation/pending-fix-cards';
 import type { ContinuationStage_ACU, ContinuationTask_ACU, StageOutline_ACU, StageRevision_ACU } from '../../service/continuation/model'; // arch-ok: 仅类型导入，用于 props 标注，编译后无运行时依赖
+import type { AgentWritableModule_ACU } from '../../service/continuation/agent/agent-model'; // arch-ok: 仅类型导入
+import { buildMaterialCompletionCards_ACU } from '../material-completion-status';
 
 const props = defineProps<{
   task: ContinuationTask_ACU | null;
@@ -379,6 +477,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'save-outline', outline: StageOutline_ACU): void;
   (event: 'clear'): void;
+  (event: 'repair', modules: AgentWritableModule_ACU[]): void;
 }>();
 
 const TABS = [
@@ -386,6 +485,7 @@ const TABS = [
   { id: 'modules', label: '本地资料' },
   { id: 'storyArc', label: '故事总纲' },
   { id: 'webRefs', label: '百科资料' },
+  { id: 'userRequirements', label: '用户要求' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -407,14 +507,131 @@ const MAINLINE_LABELS: Record<string, string> = { hold: '停驻', micro: '微增
 const TIME_LABELS: Record<string, string> = { continuous: '连续', same_day: '同日稍后', overnight: '隔夜', days: '数日', weeks: '数周', months: '数月', years: '数年' };
 const INFERRED_FIELD_LABELS: Record<string, string> = { function: '功能', mainlineDelta: '主线', timeAdvance: '时间' };
 
+/** 分栏记录状态：complete 完整、partial 未写齐（只在分栏视图）、legacy_unknown 旧整条快照条目。 */
+const FIELD_STATUS_LABELS: Record<string, string> = {
+  complete: '完整',
+  partial: '部分（未提升）',
+  legacy_unknown: '旧快照条目',
+};
+
+/** 逐栏记录按模块分组：只取栏目名与修订身份，不取字段值。 */
+const fieldRecordGroups = computed(() => {
+  const records = materials.fieldSnapshot.value.records;
+  return (Object.keys(CONTINUATION_MATERIAL_MODULE_LABELS_ACU) as Array<keyof typeof CONTINUATION_MATERIAL_MODULE_LABELS_ACU>)
+    .map(module => {
+      if (module === 'userRequirements') return null;
+      const bucket = (records as Record<string, Record<string, { id: string; status: string; fields: Record<string, { revision: number }>; missingFields: string[]; updatedAt: number }>>)[module];
+      const entries = bucket ? Object.values(bucket) : [];
+      if (!entries.length) return null;
+      return {
+        module,
+        label: CONTINUATION_MATERIAL_MODULE_LABELS_ACU[module],
+        records: entries
+          .map(record => ({
+            id: record.id,
+            status: record.status,
+            fieldNames: Object.keys(record.fields),
+            missingFields: record.missingFields,
+            maxRevision: Object.values(record.fields).reduce((max, field) => Math.max(max, field.revision), 0),
+            updatedAt: record.updatedAt,
+          }))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+      };
+    })
+    .filter((group): group is NonNullable<typeof group> => group !== null);
+});
+const fieldRecordTotal = computed(() => fieldRecordGroups.value.reduce((total, group) => total + group.records.length, 0));
+
+function formatTimestamp(value: number): string {
+  return value > 0 ? new Date(value).toLocaleString() : '（未记录）';
+}
+
 const activeTab = ref<TabId>('outline');
 const materials = useContinuationMaterials();
+
+const requirementItems = computed<string[]>(() => {
+  try {
+    const parsed: unknown = JSON.parse(materials.modules.userRequirements.draft);
+    return Array.isArray(parsed) && parsed.every(item => typeof item === 'string') ? parsed : [];
+  } catch {
+    return [];
+  }
+});
+
+function updateRequirementItems(items: string[]): void {
+  materials.updateDraft('userRequirements', JSON.stringify(items, null, 2));
+  materials.modules.userRequirements.error = '';
+}
+const selectedRepairModules = ref<AgentWritableModule_ACU[]>([]);
+const pendingFixCards = computed(() => buildContinuationPendingFixCards_ACU(materials.snapshot.value?.pendingFixes));
+const materialStatusCards = computed(() => buildMaterialCompletionCards_ACU({
+  overallState: materials.snapshot.value?.materialCompletion.state,
+  expectedModules: Object.keys(materials.snapshot.value?.materialCompletion.modules ?? {}),
+  modules: materials.snapshot.value?.materialCompletion.modules,
+  pendingModules: materials.snapshot.value?.pendingFixes.map(item => item.module),
+  loadError: materials.loadError.value || null,
+}));
+const MATERIAL_STATUS_LABELS_ACU: Record<string, string> = {
+  hooks: '伏笔账本', infoGap: '认知与信息差', constraints: '长期约束', storyArc: '故事总纲',
+  chronology: '故事年代学账本', webRefs: '百科资料库', userRequirements: '用户要求',
+};
+
+const REPAIRABLE_MODULES_ACU: readonly AgentWritableModule_ACU[] = ['hooks', 'infoGap', 'chronology', 'storyArc', 'webRefs'];
+const repairableModules = computed<AgentWritableModule_ACU[]>(() => {
+  const snapshot = materials.snapshot.value;
+  if (!snapshot) return [];
+  const pending = new Set((snapshot.pendingFixes ?? []).map(item => item.module));
+  const completion = snapshot.materialCompletion;
+  const legacyOverall = !completion || completion.state === 'legacy_unknown';
+  return REPAIRABLE_MODULES_ACU.filter(module => pending.has(module)
+    || (completion?.modules as any)?.[module] === 'legacy_unknown'
+    || legacyOverall);
+});
+
+watch(repairableModules, modules => {
+  const allowed = new Set(modules);
+  selectedRepairModules.value = selectedRepairModules.value.filter(module => allowed.has(module));
+});
+
+function toggleRepairModule(module: AgentWritableModule_ACU): void {
+  selectedRepairModules.value = selectedRepairModules.value.includes(module)
+    ? selectedRepairModules.value.filter(item => item !== module)
+    : [...selectedRepairModules.value, module];
+}
+
+function requestRepair(): void {
+  if (!selectedRepairModules.value.length) return;
+  emit('repair', [...selectedRepairModules.value]);
+}
+
+function materialStatusTitle(module: string): string {
+  return module === '*' ? '资料维护状态' : MATERIAL_STATUS_LABELS_ACU[module] ?? module;
+}
 const outlineDraft = ref('');
 const outlineError = ref('');
 const outlineDirty = ref(false);
 const clearPending = ref(false);
 const activeVolume = computed(() => materials.snapshot.value?.storyArc.find(entry => entry.scope === 'volume' && !entry.retired && entry.status === 'active') ?? null);
 const historyStages = computed(() => (props.task?.stages ?? []).filter(stage => stage.stageId !== props.activeStage?.stageId));
+const expandedHistoryStages = ref(new Set<string>());
+
+function toggleHistoryStage(stage: ContinuationStage_ACU, event: Event): void {
+  if ((event.currentTarget as HTMLDetailsElement).open) expandedHistoryStages.value.add(stage.stageId);
+  else expandedHistoryStages.value.delete(stage.stageId);
+}
+
+watch(() => props.task?.taskId, () => expandedHistoryStages.value.clear());
+watchChatChanged_ACU(() => {
+  expandedHistoryStages.value.clear();
+  materials.reload();
+  syncOutlineDraft();
+});
+watch(historyStages, stages => {
+  const current = new Set(stages.map(stage => stage.stageId));
+  for (const stage of expandedHistoryStages.value) {
+    if (!current.has(stage)) expandedHistoryStages.value.delete(stage);
+  }
+});
 
 function displayRevision(stage: ContinuationStage_ACU): StageRevision_ACU | null {
   return stage.revisions.find(revision => revision.revision === stage.activeRevision)
@@ -518,6 +735,8 @@ defineExpose({ reload });
 .acu-v2-continuation-materials__meta { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap; }
 .acu-v2-continuation-materials__error { margin: 0; color: var(--acu-danger, #d65b5b); white-space: pre-wrap; font-size: var(--acu-font-size-body, 12px); }
 .acu-v2-continuation-materials__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.acu-v2-continuation-materials__repair-options { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px); }
+.acu-v2-continuation-materials__repair-options label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .acu-v2-continuation-materials__block { padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 20%, transparent); border-radius: 6px; display: grid; gap: 8px; }
 .acu-v2-continuation-materials__block > summary { cursor: pointer; color: var(--acu-text-1); }
 .acu-v2-continuation-materials__block--current { border-color: color-mix(in srgb, var(--acu-primary, #5b8def) 45%, transparent); }
@@ -532,6 +751,7 @@ defineExpose({ reload });
 .acu-v2-continuation-materials__turn--planned { color: var(--acu-text-2); }
 .acu-v2-continuation-materials__cards { display: grid; gap: 8px; }
 .acu-v2-continuation-materials__card { padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent); border-radius: 6px; display: grid; gap: 4px; }
+.acu-v2-continuation-materials__card--failed { border-left: 3px solid color-mix(in srgb, var(--acu-danger, #d65b5b) 75%, transparent); }
 .acu-v2-continuation-materials__card--retired { opacity: 0.55; }
 .acu-v2-continuation-materials__card > summary.acu-v2-continuation-materials__card-head { cursor: pointer; list-style: none; }
 .acu-v2-continuation-materials__card-meta a { color: inherit; word-break: break-all; }

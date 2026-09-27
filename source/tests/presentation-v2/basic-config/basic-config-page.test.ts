@@ -53,6 +53,7 @@ async function mountBasicConfigPage(settings = createSettings()) {
   vi.doMock('../../../src/presentation-v2/composables/useChatChangedListener', () => ({
     useChatChangedListener: () => {},
     useChatChangedTick: () => ref(0),
+    watchChatChanged_ACU: () => {},
   }));
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: settings,
@@ -64,7 +65,6 @@ async function mountBasicConfigPage(settings = createSettings()) {
   vi.doMock('../../../src/service/settings/settings-service', () => ({
     saveSettings_ACU: vi.fn(() => ({ saved: true, storageType: 'memory' })),
     setGlobalPlotEnabled_ACU: vi.fn((enabled: boolean) => { settings.plotSettings.enabled = enabled; }),
-    setZeroTkOccupyMode_ACU: vi.fn((enabled: boolean) => { settings.zeroTkOccupyModeDefault = enabled; }),
     setSummaryVectorIndexMode_ACU: vi.fn((enabled: boolean) => { settings.summaryVectorIndexModeDefault = enabled; }),
   }));
   vi.doMock('../../../src/service/chat/chat-service', () => ({
@@ -80,9 +80,6 @@ async function mountBasicConfigPage(settings = createSettings()) {
   }));
   vi.doMock('../../../src/service/table/storage-mode', () => ({
     getCurrentStorageMode: () => settings.storageMode,
-  }));
-  vi.doMock('../../../src/service/table/table-storage-strategy', () => ({
-    switchStorageMode: vi.fn(async (mode: string) => { settings.storageMode = mode; }),
   }));
   vi.doMock('../../../src/service/table/table-history', () => ({
     resolveTableHistoryStatesFromChat_ACU: (_chat: any[], optsList: any[]) => {

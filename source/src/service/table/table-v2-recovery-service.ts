@@ -13,6 +13,7 @@ import { detectPhysicalTableNameCollisions_ACU, type PhysicalTableNameCollision_
 import { loadTableStateFromFramesV2Detailed_ACU, type TableReplayCompatibilityRepairV2_ACU } from './storage-frame-v2-replay';
 import type { TableMutationOperationV2_ACU, TablePatchV2_ACU, TableStorageFrameV2_ACU, TableV2RecoveryBackup_ACU } from './storage-frame-v2-types';
 import { runTableWriteTransaction_ACU } from './table-write-transaction';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 
 type RecoveryKind_ACU = 'repaired_full_checkpoint' | 'confirmed_orphan_data_replace' | 'temporary_sheet_anchor_convergence' | 'redundant_full_checkpoint_convergence' | 'restored_from_recovery_backup';
 export type V2RecoveryStatus_ACU = 'recoverable_repaired_checkpoint' | 'recoverable_orphan_data_replace' | 'recoverable_temporary_sheet_anchor' | 'recoverable_compat_tolerant_replay' | 'recoverable_redundant_full_checkpoint' | 'recoverable_from_recovery_backup' | 'unrecoverable_late_checkpoint_artifacts' | 'unrecoverable_no_base' | 'unrecoverable_identity_conflict' | 'unrecoverable';
@@ -50,6 +51,7 @@ interface RecoveryPlan_ACU extends V2RecoverySummary_ACU {
   chat: any[];
   chatKey: string;
   sourceFrameFingerprint: string;
+  backupFrameFingerprint?: string;
   redundantFullIndices?: number[];
   redundantFrameFingerprints?: Array<{ messageIndex: number; fingerprint: string }>;
   candidateData: TableDataObject_ACU;
@@ -66,7 +68,7 @@ function getFrameFingerprint_ACU(frame: TableStorageFrameV2_ACU): string {
 function countAiFloorInChat_ACU(chat: any[], messageIndex: number): number {
   let count = 0;
   for (let i = 0; i <= messageIndex && i < chat.length; i += 1) {
-    if (chat[i] && !chat[i].is_user) count += 1;
+    if (isAiFloor_ACU(chat[i])) count += 1;
   }
   return count;
 }
@@ -225,6 +227,16 @@ function getPlanSourceFrame_ACU(plan: RecoveryPlan_ACU): TableStorageFrameV2_ACU
   const tagData = readIsolatedTagData_ACU(message, plan.isolationKey);
   return isV2TagData_ACU(tagData) ? tagData.storageFrame : null;
 }
+function getPlanBackupFrame_ACU(plan: RecoveryPlan_ACU): TableStorageFrameV2_ACU | null {
+  if (!Number.isInteger(plan.sourceMessageIndex)) return null;
+  const message = plan.chat[plan.sourceMessageIndex as number];
+  const tagData = readIsolatedTagData_ACU(message, plan.isolationKey) as any;
+  const backup = tagData?.recoveryBackup;
+  return backup && typeof backup === 'object' && backup.storageFrame && typeof backup.storageFrame === 'object'
+    ? backup.storageFrame as TableStorageFrameV2_ACU
+    : null;
+}
+
 function planAffectedFramesUnchanged_ACU(plan: RecoveryPlan_ACU): string | null {
   // 单根收敛会改写多个 full 帧：任一受影响帧在计划创建后变化，计划即失效。
   // 校验全部冗余 full 帧 + 根帧指纹，缺一即拒绝（P4-5）。
@@ -239,6 +251,12 @@ function planAffectedFramesUnchanged_ACU(plan: RecoveryPlan_ACU): string | null 
   const sourceFrame = getPlanSourceFrame_ACU(plan);
   if (!sourceFrame || getFrameFingerprint_ACU(sourceFrame) !== plan.sourceFrameFingerprint) {
     return '恢复源 frame 已变化，请重新诊断。';
+  }
+  if (plan.backupFrameFingerprint) {
+    const backupFrame = getPlanBackupFrame_ACU(plan);
+    if (!backupFrame || getFrameFingerprint_ACU(backupFrame) !== plan.backupFrameFingerprint) {
+      return '恢复备份 frame 已变化，请重新诊断。';
+    }
   }
   return null;
 }
@@ -604,6 +622,8 @@ async function diagnoseV2Recovery_ACU(chat: any[], isolationKey: string): Promis
     if (!tagData || typeof tagData !== 'object') continue;
     const backup = tagData.recoveryBackup as TableV2RecoveryBackup_ACU | undefined;
     if (!backup || typeof backup !== 'object' || !backup.storageFrame || typeof backup.storageFrame !== 'object') continue;
+    const liveFrame = isV2TagData_ACU(tagData) ? tagData.storageFrame : null;
+    if (!liveFrame) continue;
     const backupCheckpoint = backup.storageFrame.checkpoint;
     if (!backupCheckpoint || backupCheckpoint.kind !== 'full' || !backupCheckpoint.data) continue;
     const candidateData = backupCheckpoint.data as TableDataObject_ACU;
@@ -618,7 +638,15 @@ async function diagnoseV2Recovery_ACU(chat: any[], isolationKey: string): Promis
       requiresConfirmation: false,
       message: `检测到无锚点 V2 空信封，但其 tagData 保留 recoveryBackup（kind=${backup.recoveryKind || 'unknown'}）；可用备份中的 full checkpoint 数据重建 integrity_repair 根。应用修复时原始 frame 会保留为隔离备份。`,
     };
-    return { summary, plan: { ...summary, kind: 'restored_from_recovery_backup', chat, chatKey: String(currentChatFileIdentifier_ACU || '').trim(), sourceFrameFingerprint: getFrameFingerprint_ACU(backup.storageFrame), candidateData: repair.candidateData || candidateData } };
+    return { summary, plan: {
+      ...summary,
+      kind: 'restored_from_recovery_backup',
+      chat,
+      chatKey: String(currentChatFileIdentifier_ACU || '').trim(),
+      sourceFrameFingerprint: getFrameFingerprint_ACU(liveFrame),
+      backupFrameFingerprint: getFrameFingerprint_ACU(backup.storageFrame),
+      candidateData: repair.candidateData || candidateData,
+    } };
   }
   return { summary: { status: 'unrecoverable_no_base', isolationKey, requiresConfirmation: false, message: '仅检测到无 base 的 V2 日志；无法编造恢复数据。' } };
 }

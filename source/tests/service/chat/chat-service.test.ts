@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSettings, mockCurrentJsonTableData, mockGetChatArray, mockSaveChatToHost, mockSaveChatToHostStrict, mockSetChatMessages, mockEmitMessageUpdated, mockLogDebug, mockGetCurrentIsolationKey, mockGetLastOptimizationBase, mockSetLastOptimizationBase, mockSanitizeSheet, mockPersistTablesToChatMessage, mockRunTableUpdateCommit, mockRunTableWriteTransaction, mockLoadTableStateFromFramesV2, mockLoadTableStateFromFramesV2Detailed, mockCollectScheduleSummaryFromFramesV2, mockDeleteSummaryVectorIndexExternal, mockCleanupUnreachable, mockDeriveSheetLifecycleFromFramesV2 } = vi.hoisted(() => ({
+const { mockSettings, mockCurrentJsonTableData, mockGetChatArray, mockSaveChatToHost, mockSaveChatToHostStrict, mockSetChatMessages, mockEmitMessageUpdated, mockLogDebug, mockGetCurrentIsolationKey, mockGetLastOptimizationBase, mockSetLastOptimizationBase, mockSanitizeSheet, mockPersistTablesToChatMessage, mockRunTableUpdateCommit, mockRunTableWriteTransaction, mockLoadTableStateFromFramesV2, mockLoadTableStateFromFramesV2Detailed, mockCollectScheduleSummaryFromFramesV2, mockDeleteSummaryVectorIndexExternal, mockCleanupUnreachable, mockDeriveSheetLifecycleFromFramesV2, mockFoldVectorMirror, mockFinalizeFoldedVectorMirror } = vi.hoisted(() => ({
   mockSettings: {
     retainRecentLayers: 3,
     dataIsolationEnabled: false,
@@ -40,6 +40,8 @@ const { mockSettings, mockCurrentJsonTableData, mockGetChatArray, mockSaveChatTo
   mockDeriveSheetLifecycleFromFramesV2: vi.fn(() => ({ statusBySheetKey: {}, activeSheetKeys: [], hiddenSheetKeys: [], indeterminateSheetKeys: [], neverSeenSheetKeys: [] })),
   mockDeleteSummaryVectorIndexExternal: vi.fn(),
   mockCleanupUnreachable: vi.fn(),
+  mockFoldVectorMirror: vi.fn(),
+  mockFinalizeFoldedVectorMirror: vi.fn(),
 }));
 
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
@@ -109,9 +111,14 @@ vi.mock('../../../src/service/vector/summary-vector-index-storage-service', () =
   deleteSummaryVectorIndexExternal_ACU: mockDeleteSummaryVectorIndexExternal,
   cleanupUnreachableSummaryVectorIndexFiles_ACU: mockCleanupUnreachable,
 }));
+vi.mock('../../../src/service/vector/summary-vector-mirror-fold', () => ({
+  foldSummaryVectorMirrorAtBoundary_ACU: (...args: any[]) => mockFoldVectorMirror(...args),
+  finalizeFoldedSummaryVectorMirrorFiles_ACU: (...args: any[]) => mockFinalizeFoldedVectorMirror(...args),
+}));
 
 import {
   replaceChatMessage_ACU,
+  clearAllAiTableDataForCheckpointRestore_ACU,
   getOriginalContent_ACU,
   purgeOldLayerData_ACU,
   ensureV2BoundaryCheckpointForRetainedBuffer_ACU,
@@ -119,6 +126,8 @@ import {
   replaceManualRefillSheetBaselineInRangeAtomic_ACU,
   commitManualRefillSheetSnapshotInRangeAtomic_ACU,
   clearManualRefillIncrementalDataInRange_ACU,
+  clearManualRefillSheetDataInRange_ACU,
+  rollbackManualRefillRangeSnapshotAtomic_ACU,
   clearTableDataAtFloors_ACU,
   deleteLocalDataInChatCore_ACU,
   deleteLocalDataWithScope_ACU,
@@ -175,6 +184,60 @@ beforeEach(() => {
   mockDeriveSheetLifecycleFromFramesV2.mockReturnValue({ statusBySheetKey: {}, activeSheetKeys: [], hiddenSheetKeys: [], indeterminateSheetKeys: [], neverSeenSheetKeys: [] });
   mockDeleteSummaryVectorIndexExternal.mockResolvedValue(undefined);
   mockCleanupUnreachable.mockResolvedValue({ deletedPaths: [], retainedPaths: [], failedDeletes: [] });
+  mockFoldVectorMirror.mockResolvedValue({ folded: false, files: [] });
+  mockFinalizeFoldedVectorMirror.mockResolvedValue(undefined);
+});
+
+describe('clearAllAiTableDataForCheckpointRestore_ACU', () => {
+  it('只清理当前 isolation，保留同聊天 alpha 的 V2、Identity 与向量 manifest', async () => {
+    const alphaFrame = {
+      version: 2,
+      headRevision: 'checkpoint:alpha',
+      checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: { sheet_alpha: { content: [['row_id'], ['1']] } } },
+      logEntries: [],
+    };
+    const betaFrame = {
+      version: 2,
+      headRevision: 'checkpoint:beta',
+      checkpoint: { kind: 'full', createdAt: 2, reason: 'init', data: { sheet_beta: { content: [['row_id'], ['1']] } } },
+      logEntries: [],
+    };
+    const alphaManifest = { indexId: 'alpha-index', status: 'ready' };
+    const betaManifest = { indexId: 'beta-index', status: 'ready' };
+    const chat = [
+      {
+        is_user: false,
+        TavernDB_ACU_Identity: 'alpha',
+        TavernDB_ACU_Data: { sheet_alpha: { content: [['row_id'], ['1']] } },
+        TavernDB_ACU_IsolatedData: {
+          alpha: {
+            _acu_storage_version: 2,
+            storageFrame: alphaFrame,
+            summaryVectorIndexManifest: alphaManifest,
+          },
+          beta: {
+            _acu_storage_version: 2,
+            storageFrame: betaFrame,
+            summaryVectorIndexManifest: betaManifest,
+          },
+        },
+      },
+    ];
+    mockGetChatArray.mockReturnValue(chat);
+
+    const result = await clearAllAiTableDataForCheckpointRestore_ACU(
+      'beta',
+      { enabled: true, code: 'beta' },
+    );
+
+    const container = chat[0].TavernDB_ACU_IsolatedData;
+    expect(container.alpha.storageFrame).toBe(alphaFrame);
+    expect(container.alpha.summaryVectorIndexManifest).toEqual(alphaManifest);
+    expect(container.beta).toBeUndefined();
+    expect(chat[0].TavernDB_ACU_Identity).toBe('alpha');
+    expect(chat[0].TavernDB_ACU_Data).toEqual({ sheet_alpha: { content: [['row_id'], ['1']] } });
+    expect(result.vectorManifestsToDeleteAfterCommit).toEqual([betaManifest]);
+  });
 });
 
 // ═══ replaceChatMessage_ACU ═══
@@ -241,6 +304,34 @@ describe('getOriginalContent_ACU', () => {
       { is_user: false, message_id: 'msg1' },
     ]);
     expect(getOriginalContent_ACU(1)).toBe('原始内容');
+  });
+
+  it('缓存楼号相同但 message_id 已换楼时不得取外来原文（删楼位移）', () => {
+    mockGetLastOptimizationBase.mockReturnValue({
+      messageIndex: 1,
+      messageId: 'msgA',
+      baseContent: 'A 楼原文',
+    });
+    mockGetChatArray.mockReturnValue([
+      { is_user: true },
+      { is_user: false, message_id: 'msgB', extra: { _acu_original_content: 'B 楼自己的原文' } },
+    ]);
+    // 宿主 MESSAGE_DELETED 在 splice 之后才派发且不携带被删标识：删楼后楼号整体位移，
+    // 继续按楼号命中＝把别楼正文当本楼原文，并被永久钉进该楼 extra。
+    expect(getOriginalContent_ACU(1)).toBe('B 楼自己的原文');
+  });
+
+  it('message_id 确认命中当前楼时缓存优先于 extra', () => {
+    mockGetLastOptimizationBase.mockReturnValue({
+      messageIndex: 1,
+      messageId: 'msgB',
+      baseContent: '缓存原文',
+    });
+    mockGetChatArray.mockReturnValue([
+      { is_user: true },
+      { is_user: false, message_id: 'msgB', extra: { _acu_original_content: 'extra 原文' } },
+    ]);
+    expect(getOriginalContent_ACU(1)).toBe('缓存原文');
   });
 
   it('从 extra 获取原始内容', () => {
@@ -660,6 +751,51 @@ describe('ensureV2BoundaryCheckpointForRetainedBuffer_ACU', () => {
     }));
     expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_0.content[1][1]).toBe('剑');
     expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+  });
+
+  it('fold 文件 finalize 在 strict save 成功后失败时保留已提交的边界 checkpoint', async () => {
+    mockSettings.retainRecentLayers = 2;
+    const chat = Array.from({ length: 25 }, (_, index) => ({
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            ...(index === 0 ? {
+              checkpoint: {
+                kind: 'full', createdAt: 1, reason: 'init',
+                data: { sheet_0: { name: '物品表', content: [['row_id', '物品名'], ['1', '剑']] } },
+              },
+            } : {}),
+            logEntries: [],
+          },
+        },
+      },
+    }));
+    mockGetChatArray.mockReturnValue(chat);
+    const foldedFile = {
+      path: 'folded-pack-path',
+      scope: { chatKey: 'chat-test', isolationKey: '', sourceTableKey: 'sheet_0' },
+    };
+    mockFoldVectorMirror.mockImplementation(async (params: any) => {
+      params.chat[params.boundaryAnchorIndex].TavernDB_ACU_IsolatedData[''].storageFrame.summaryVectorIndexFrame = {
+        version: 3,
+        sourceTableKey: 'sheet_0',
+        checkpoint: { kind: 'vector_full', marker: 'folded' },
+        logEntries: [],
+      };
+      return { folded: true, files: [foldedFile] };
+    });
+    mockFinalizeFoldedVectorMirror.mockRejectedValueOnce(new Error('fold finalize failed'));
+
+    const result = await ensureV2BoundaryCheckpointForRetainedBuffer_ACU({ reason: 'manual_refill', save: true });
+
+    expect(result).toEqual(expect.objectContaining({ success: true, changed: true, anchorIndex: 23 }));
+    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeFoldedVectorMirror).toHaveBeenCalledWith([foldedFile]);
+    expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toMatchObject({ kind: 'full', reason: 'compaction' });
+    expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame.summaryVectorIndexFrame?.checkpoint).toMatchObject({ marker: 'folded' });
   });
 
   it('将兼容 replay 已重映射的旧 row_id 固化到边界 checkpoint，并无损降级旧 init 锚点', async () => {
@@ -1088,166 +1224,6 @@ describe('ensureV2BoundaryCheckpointForRetainedBuffer_ACU', () => {
     expect(mockLoadTableStateFromFramesV2).not.toHaveBeenCalled();
     expect(mockSaveChatToHost).not.toHaveBeenCalled();
     expect(chat[29].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toEqual(expect.objectContaining({ kind: 'full', reason: 'manual' }));
-  });
-
-  it.skip('唯一 immutable 向量 pointer 位于 purge 区时迁移到新 boundary，且不复制 chunks 或改写 manifest identity', async () => {
-    mockSettings.retainRecentLayers = 2;
-    const manifest = {
-      version: 1, backend: 'st-files', status: 'ready', indexId: 'idx-boundary-relocate',
-      chatKey: 'chat-test', isolationKey: 'default', sourceTableKey: 'sheet_summary', sourceTableName: '纪要表',
-      snapshotMessageId: 'message-0', indexedAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-01T00:00:00.000Z',
-      rowCount: 1, chunkCount: 1, skippedRowCount: 0, embeddingModel: 'model-a', dimension: 2,
-      rowsFile: 'vector-boundary.json', tombstoneFile: 'vector-boundary.json', manifestFile: 'vector-boundary.json', files: [],
-      baseShardCount: 0, deltaShardCount: 0, tombstoneRowCount: 0, tombstoneChunkCount: 0, externalTotalBytes: 1,
-      snapshot: { revision: 3, mode: 'single_file_snapshot', parentIndexIds: [], activeRowKeys: ['row-a'], activeChunkIds: ['chunk-a'], removedRowKeys: [], replacedRowKeys: [], batchIds: [] },
-      storageIdentity: { layoutVersion: 2, scopeFingerprint: 'scope-default', writeGeneration: 'write-a', revision: 3 },
-    };
-    const sourceState = {
-      version: 1, backend: 'st-files', status: 'ready', indexId: manifest.indexId,
-      snapshotMessageId: manifest.snapshotMessageId, sourceTableKey: manifest.sourceTableKey, sourceTableName: manifest.sourceTableName,
-      indexedAt: manifest.indexedAt, rowCount: 1, chunkCount: 1, skippedRowCount: 0,
-      rows: [{ rowKey: 'row-a', rowId: '1', rowOrder: 0, timeSpan: '', location: '', summary: '事件', indexCode: 'A', vectorSourceText: '事件', chunkIds: ['chunk-a'] }],
-      chunks: [{ chunkId: 'chunk-a', rowKey: 'row-a', rowOrder: 0, sequence: 0, text: '事件', vector: [1, 2] }],
-      manifest,
-    };
-    const chat = Array.from({ length: 25 }, (_, index) => ({
-      is_user: false,
-      TavernDB_ACU_IsolatedData: {
-        '': {
-          storageFrame: {
-            version: 2,
-            ...(index === 0 ? { checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: { sheet_0: { name: '物品表', content: [['row_id'], ['1']] } } } } : {}),
-            logEntries: [],
-          },
-          ...(index === 0 ? { summaryVectorIndexState: sourceState, summaryVectorIndexManifest: manifest } : {}),
-          _acu_storage_version: 2,
-        },
-      },
-    }));
-    mockGetChatArray.mockReturnValue(chat);
-
-    const result = await ensureV2BoundaryCheckpointForRetainedBuffer_ACU({ reason: 'manual_refill', save: true });
-
-    const anchorTag = chat[23].TavernDB_ACU_IsolatedData[''];
-    expect(result).toEqual(expect.objectContaining({ success: true, changed: true, anchorIndex: 23 }));
-    expect(anchorTag.summaryVectorIndexManifest).toEqual(manifest);
-    expect(anchorTag.summaryVectorIndexManifest).not.toBe(manifest);
-    expect(anchorTag.summaryVectorIndexState.manifest).toEqual(manifest);
-    expect(anchorTag.summaryVectorIndexState.chunks).toBeUndefined();
-    expect(anchorTag.summaryVectorIndexState.rows).toEqual([
-      expect.objectContaining(sourceState.rows[0]),
-    ]);
-    expect(anchorTag.storageFrame.checkpoint).toEqual(expect.objectContaining({ kind: 'full', reason: 'compaction' }));
-    expect(sourceState.chunks).toHaveLength(1);
-    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
-  });
-
-  it.skip('同 source scope 同 revision 存在多个 immutable generation 时拒绝猜测迁移并中止保存', async () => {
-    mockSettings.retainRecentLayers = 2;
-    const makeManifest = (indexId: string, writeGeneration: string) => ({
-      version: 1, backend: 'st-files', status: 'ready', indexId,
-      chatKey: 'chat-test', isolationKey: 'default', sourceTableKey: 'sheet_summary', sourceTableName: '纪要表',
-      snapshotMessageId: indexId, indexedAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-01T00:00:00.000Z',
-      rowCount: 0, chunkCount: 0, skippedRowCount: 0, embeddingModel: 'model-a', dimension: 2,
-      manifestFile: `${indexId}.json`, rowsFile: `${indexId}.json`, tombstoneFile: `${indexId}.json`, files: [],
-      baseShardCount: 0, deltaShardCount: 0, tombstoneRowCount: 0, tombstoneChunkCount: 0, externalTotalBytes: 1,
-      snapshot: { revision: 3, mode: 'single_file_snapshot', parentIndexIds: [], activeRowKeys: [], activeChunkIds: [], removedRowKeys: [], replacedRowKeys: [], batchIds: [] },
-      storageIdentity: { layoutVersion: 2, scopeFingerprint: 'scope-default', writeGeneration, revision: 3 },
-    });
-    const first = makeManifest('idx-generation-a', 'write-a');
-    const second = makeManifest('idx-generation-b', 'write-b');
-    const chat = Array.from({ length: 25 }, (_, index) => ({
-      is_user: false,
-      TavernDB_ACU_IsolatedData: {
-        '': {
-          storageFrame: {
-            version: 2,
-            ...(index === 0 ? { checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: { sheet_0: { name: '物品表', content: [['row_id'], ['1']] } } } } : {}),
-            logEntries: [],
-          },
-          ...(index === 0 ? { summaryVectorIndexManifest: first } : index === 1 ? { summaryVectorIndexManifest: second } : {}),
-          _acu_storage_version: 2,
-        },
-      },
-    }));
-    const before = JSON.parse(JSON.stringify(chat));
-    mockGetChatArray.mockReturnValue(chat);
-
-    const result = await ensureV2BoundaryCheckpointForRetainedBuffer_ACU({ reason: 'manual_refill', save: true });
-
-    expect(result).toEqual(expect.objectContaining({ success: false, changed: false, anchorIndex: 23 }));
-    expect(result.error).toContain('多个 immutable generation');
-    expect(mockSaveChatToHostStrict).not.toHaveBeenCalled();
-    expect(JSON.parse(JSON.stringify(chat))).toEqual(before);
-  });
-
-  it.skip('同一 tag slot 的 state 与 standalone manifest 分裂为不同 generation 时拒绝迁移', async () => {
-    mockSettings.retainRecentLayers = 2;
-    const makeManifest = (indexId: string, writeGeneration: string) => ({
-      version: 1, backend: 'st-files', status: 'ready', indexId,
-      chatKey: 'chat-test', isolationKey: 'default', sourceTableKey: 'sheet_summary', sourceTableName: '纪要表',
-      snapshotMessageId: indexId, indexedAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-01T00:00:00.000Z',
-      rowCount: 0, chunkCount: 0, skippedRowCount: 0, embeddingModel: 'model-a', dimension: 2,
-      manifestFile: `${indexId}.json`, rowsFile: `${indexId}.json`, tombstoneFile: `${indexId}.json`, files: [],
-      baseShardCount: 0, deltaShardCount: 0, tombstoneRowCount: 0, tombstoneChunkCount: 0, externalTotalBytes: 1,
-      snapshot: { revision: 3, mode: 'single_file_snapshot', parentIndexIds: [], activeRowKeys: [], activeChunkIds: [], removedRowKeys: [], replacedRowKeys: [], batchIds: [] },
-      storageIdentity: { layoutVersion: 2, scopeFingerprint: 'scope-default', writeGeneration, revision: 3 },
-    });
-    const stateManifest = makeManifest('idx-state-generation', 'write-state');
-    const standaloneManifest = makeManifest('idx-standalone-generation', 'write-standalone');
-    const chat = Array.from({ length: 25 }, (_, index) => ({
-      is_user: false,
-      TavernDB_ACU_IsolatedData: {
-        '': {
-          storageFrame: {
-            version: 2,
-            ...(index === 0 ? { checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: { sheet_0: { name: '物品表', content: [['row_id'], ['1']] } } } } : {}),
-            logEntries: [],
-          },
-          ...(index === 0 ? {
-            summaryVectorIndexState: { manifest: stateManifest },
-            summaryVectorIndexManifest: standaloneManifest,
-          } : {}),
-          _acu_storage_version: 2,
-        },
-      },
-    }));
-    const before = JSON.parse(JSON.stringify(chat));
-    mockGetChatArray.mockReturnValue(chat);
-
-    const result = await ensureV2BoundaryCheckpointForRetainedBuffer_ACU({ reason: 'manual_refill', save: true });
-
-    expect(result).toEqual(expect.objectContaining({ success: false, changed: false, anchorIndex: 23 }));
-    expect(result.error).toContain('多个 immutable generation');
-    expect(mockSaveChatToHostStrict).not.toHaveBeenCalled();
-    expect(JSON.parse(JSON.stringify(chat))).toEqual(before);
-  });
-
-  it.skip('anchor 已有 compaction checkpoint 时仍迁移缺失 pointer，且保持既有 frame 引用不变', async () => {
-    mockSettings.retainRecentLayers = 2;
-    const manifest = {
-      version: 1, backend: 'st-files', status: 'ready', indexId: 'idx-existing-boundary', chatKey: 'chat-test', isolationKey: 'default',
-      sourceTableKey: 'sheet_summary', sourceTableName: '纪要表', snapshotMessageId: 'message-0', indexedAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-01T00:00:00.000Z',
-      rowCount: 1, chunkCount: 1, skippedRowCount: 0, embeddingModel: 'model-a', dimension: 2,
-      rowsFile: 'existing-boundary.json', tombstoneFile: 'existing-boundary.json', manifestFile: 'existing-boundary.json', files: [],
-      baseShardCount: 0, deltaShardCount: 0, tombstoneRowCount: 0, tombstoneChunkCount: 0, externalTotalBytes: 1,
-      snapshot: { revision: 1, mode: 'single_file_snapshot', parentIndexIds: [], activeRowKeys: [], activeChunkIds: [], removedRowKeys: [], replacedRowKeys: [], batchIds: [] },
-      storageIdentity: { layoutVersion: 2, scopeFingerprint: 'scope-default', writeGeneration: 'write-a', revision: 1 },
-    };
-    const chat = Array.from({ length: 25 }, (_, index) => ({ is_user: false, TavernDB_ACU_IsolatedData: { '': {
-      storageFrame: { version: 2, checkpoint: index === 23 ? { kind: 'full', createdAt: 2, reason: 'compaction', data: { sheet_0: { name: '已有' } } } : undefined, logEntries: [] },
-      ...(index === 0 ? { summaryVectorIndexManifest: manifest } : {}), _acu_storage_version: 2,
-    } } }));
-    const anchorFrame = chat[23].TavernDB_ACU_IsolatedData[''].storageFrame;
-    mockGetChatArray.mockReturnValue(chat);
-
-    const result = await ensureV2BoundaryCheckpointForRetainedBuffer_ACU({ reason: 'manual_refill', save: true });
-
-    expect(result).toEqual(expect.objectContaining({ success: true, changed: true, anchorIndex: 23 }));
-    expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame).toBe(anchorFrame);
-    expect(chat[23].TavernDB_ACU_IsolatedData[''].summaryVectorIndexManifest.indexId).toBe(manifest.indexId);
-    expect(mockLoadTableStateFromFramesV2).not.toHaveBeenCalled();
-    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
   });
 
   it('已有 anchor compaction full checkpoint 时跳过写入并不保存', async () => {
@@ -1866,7 +1842,7 @@ describe('ensureV2BoundaryCheckpointForRetainedBuffer_ACU', () => {
           storageFrame: {
             version: 2,
             ...(index === 0
-              ? { checkpoint: { kind: 'full', createdAt: 1, reason, data: structuredClone(preAnchorData) } }
+              ? { checkpoint: { kind: 'full', createdAt: 1, reason, data: structuredClone(preAnchorData), restoreUpToAiFloor: 2 } }
               : {}),
             logEntries: [],
           },
@@ -1894,6 +1870,9 @@ describe('ensureV2BoundaryCheckpointForRetainedBuffer_ACU', () => {
     // 指纹一致：降级 entry 的 data 与降级前 checkpoint.data 指纹完全相同，证明无损。
     expect(getTableDataFingerprint_ACU(formerRoot.logEntries[0].operations[0].data))
       .toBe(getTableDataFingerprint_ACU(preAnchorData));
+    // 导入声明的覆盖楼层必须随降级一起保留：丢了它前沿会退回该 entry 楼层，
+    // 「已追平」的误报会在下一次边界轮转后复现（上游 issue #18 第五条）。
+    expect(formerRoot.logEntries[0].restoreUpToAiFloor).toBe(2);
     // 单根不变量：降级后全局只剩 anchor 的 compaction full。
     expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toEqual(expect.objectContaining({
       kind: 'full',
@@ -4747,5 +4726,194 @@ describe('向量外置文件删除必须晚于聊天保存', () => {
 
     expect(count).toBe(1);
     expect(mockDeleteSummaryVectorIndexExternal).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ═══ 手动重填范围清理的可回滚句柄（上游 issue #18 第四条：零提交失败必须能回滚）═══
+describe('clearManualRefillSheetDataInRange_ACU 的可回滚句柄与外置向量清理推迟', () => {
+  function makeRollbackTargetMessage(manifest: any, messageId?: string, mes = 'AI目标层'): any {
+    return {
+      is_user: false,
+      mes,
+      ...(messageId ? { send_date: messageId } : {}),
+      TavernDB_ACU_Identity: { enabled: false, code: '' },
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          independentData: { sheet_0: { name: '物品表' }, sheet_1: { name: '纪要表' } },
+          modifiedKeys: ['sheet_0', 'sheet_1'],
+          updateGroupKeys: ['sheet_0', 'sheet_1'],
+          storageFrame: {
+            version: 2,
+            checkpoint: {
+              kind: 'full',
+              reason: 'manual',
+              data: {
+                sheet_0: { name: '物品表', content: [['row_id'], ['keep']] },
+                sheet_1: { name: '纪要表', content: [['row_id'], ['old']] },
+              },
+            },
+            logEntries: [{
+              seq: 1,
+              operations: [{ kind: 'row_upsert', sheetKey: 'sheet_1', rowId: 'r1', cells: ['x'] }],
+              filledSheetKeys: ['sheet_0', 'sheet_1'],
+              changedSheetKeys: ['sheet_0', 'sheet_1'],
+              groupKeys: ['sheet_0', 'sheet_1'],
+              writeSet: [{ kind: 'sheet', sheetKey: 'sheet_0' }, { kind: 'sheet', sheetKey: 'sheet_1' }],
+            }],
+          },
+          summaryVectorIndexManifest: manifest,
+          summaryVectorIndexState: { manifest },
+        },
+      },
+    };
+  }
+
+  it('清理成功交回可回滚句柄并推迟外置向量文件删除，回滚后帧与落盘都恢复清理前状态', async () => {
+    const manifest = { indexId: 'idx-refill-rollback', files: [{ path: 'idx-refill-rollback.snapshot', role: 'snapshot' }] };
+    const chat = [makeRollbackTargetMessage(manifest)];
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    const deferred: any[] = [];
+
+    const clearedCount = await clearManualRefillSheetDataInRange_ACU([0], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+      deferExternalVectorCleanup: (manifests: any[]) => deferred.push(...manifests),
+    });
+
+    expect(clearedCount).toBe(1);
+    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+    // 帧里的数据确实被清了，否则本用例没有证明力。
+    const purgedFrame = chat[0].TavernDB_ACU_IsolatedData[''].storageFrame;
+    expect(purgedFrame.checkpoint.data.sheet_1).toBeUndefined();
+    expect(purgedFrame.logEntries[0].operations).toEqual([]);
+    // 推迟删除：清理阶段绝不删外置文件，否则零提交回滚会留下「帧回来了、外置文件没了」。
+    expect(deferred).toEqual([manifest]);
+    expect(mockDeleteSummaryVectorIndexExternal).not.toHaveBeenCalled();
+    expect(handles).toHaveLength(1);
+    expect(handles[0].sheetKeys).toContain('sheet_1');
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback).toEqual({ success: true, restoredCount: 1, skippedIndexes: [] });
+    // 回滚必须落盘：内存修好、聊天文件还是清理态等于没回滚。
+    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(2);
+    const restoredTagData = chat[0].TavernDB_ACU_IsolatedData[''];
+    expect(restoredTagData.storageFrame.checkpoint.data.sheet_1).toEqual({ name: '纪要表', content: [['row_id'], ['old']] });
+    expect(restoredTagData.storageFrame.logEntries[0].operations).toEqual([{ kind: 'row_upsert', sheetKey: 'sheet_1', rowId: 'r1', cells: ['x'] }]);
+    expect(restoredTagData.summaryVectorIndexManifest).toEqual(manifest);
+    expect(restoredTagData.modifiedKeys).toEqual(['sheet_0', 'sheet_1']);
+  });
+
+  it('聊天在重填期间被改动时按身份跳过错位楼层，不把快照写到别的楼层上', async () => {
+    const manifest = { indexId: 'idx-refill-rollback-shift', files: [] };
+    const chat = [
+      makeRollbackTargetMessage(manifest, 'm0'),
+      makeRollbackTargetMessage(manifest, 'm1'),
+      makeRollbackTargetMessage(manifest, 'm2'),
+    ];
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    await clearManualRefillSheetDataInRange_ACU([0, 1, 2], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+    });
+    // 重填期间用户删掉了中间一楼：索引 1 现在指向原来的 m2。
+    chat.splice(1, 1);
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback.success).toBe(false);
+    expect(rollback.restoredCount).toBe(1);
+    expect(rollback.skippedIndexes).toEqual([1, 2]);
+    expect(rollback.error).toContain('不是清理时的原消息');
+    // 身份仍匹配的 m0 恢复；错位的 m2 必须保持清理态——把 m1 的快照写进去比不恢复更糟。
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_1)
+      .toEqual({ name: '纪要表', content: [['row_id'], ['old']] });
+    expect(chat[1].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_1).toBeUndefined();
+    expect(chat[1].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries[0].operations).toEqual([]);
+  });
+
+  it('宿主不给任何稳定 id 时用正文兜底：楼层错位同样跳过（不靠「还是 AI 楼」放行）', async () => {
+    const manifest = { indexId: 'idx-refill-rollback-mes', files: [] };
+    // 三个 id 字段全缺（含本库 loadAllChatMessages 会复刻的位置派生 id），只有正文可区分。
+    const chat = [
+      makeRollbackTargetMessage(manifest, undefined, '目标层A'),
+      makeRollbackTargetMessage(manifest, undefined, '目标层B'),
+    ];
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    await clearManualRefillSheetDataInRange_ACU([0, 1], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+    });
+    // 删掉第一楼：索引 0 现在指向原来的「目标层B」。
+    chat.shift();
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback.success).toBe(false);
+    expect(rollback.skippedIndexes).toEqual([0, 1]);
+    // 指纹若退化成「只要还是 AI 楼就恢复」，这里会把 A 的快照写进 B。
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_1).toBeUndefined();
+  });
+
+  it('纯数字 id（按位置派生）不算可靠身份：删楼后同号楼层必须跳过', async () => {
+    const manifest = { indexId: 'idx-refill-rollback-positional-id', files: [] };
+    // 宿主/派生视图可能给出「按位置生成」的 id：删楼后同位置仍是同一个号，但已经是另一条消息。
+    const chat = [
+      { is_user: false, mes: '目标层A', id: '0', swipe_id: 0, TavernDB_ACU_Identity: { enabled: false, code: '' }, TavernDB_ACU_IsolatedData: makeRollbackTargetMessage(manifest).TavernDB_ACU_IsolatedData },
+      { is_user: false, mes: '目标层B', id: '1', swipe_id: 0, TavernDB_ACU_Identity: { enabled: false, code: '' }, TavernDB_ACU_IsolatedData: makeRollbackTargetMessage(manifest).TavernDB_ACU_IsolatedData },
+    ];
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    await clearManualRefillSheetDataInRange_ACU([0, 1], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+    });
+    // 删掉第一楼并按位置重新编号：索引 0 的 id 又是 '0'，但消息已是原来的 B。
+    chat.splice(0, 1);
+    chat[0].id = '0';
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback.success).toBe(false);
+    expect(rollback.skippedIndexes).toEqual([0, 1]);
+    // 位置号相同也必须靠正文判出「不是原消息」，否则会把 A 的快照写进 B。
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_1).toBeUndefined();
+  });
+
+  it('swipe 变化同样视为身份不符：不把快照恢复到换过 swipe 的楼层', async () => {
+    const manifest = { indexId: 'idx-refill-rollback-swipe', files: [] };
+    const chat = [makeRollbackTargetMessage(manifest, 'm0')];
+    chat[0].swipe_id = 0;
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    await clearManualRefillSheetDataInRange_ACU([0], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+    });
+    // 用户在该楼重掷 / 切换 swipe：这一楼承载的数据已不是清理时那一份。
+    chat[0].swipe_id = 1;
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback.success).toBe(false);
+    expect(rollback.skippedIndexes).toEqual([0]);
+    expect(rollback.error).toContain('已恢复 0 条');
+    // 必须保持清理态：把旧 swipe 的快照写进新 swipe 等于污染另一份数据。
+    expect(chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_1).toBeUndefined();
+  });
+
+  it('回滚保存失败时如实返回失败，不谎报已回滚', async () => {
+    const manifest = { indexId: 'idx-refill-rollback-save-fail', files: [] };
+    const chat = [makeRollbackTargetMessage(manifest)];
+    mockGetChatArray.mockReturnValue(chat);
+    const handles: any[] = [];
+    await clearManualRefillSheetDataInRange_ACU([0], ['sheet_1'], {
+      onRollbackSnapshot: (handle: any) => handles.push(handle),
+    });
+    mockSaveChatToHostStrict.mockRejectedValueOnce(new Error('rollback save failed'));
+
+    const rollback = await rollbackManualRefillRangeSnapshotAtomic_ACU(handles[0]);
+
+    expect(rollback.success).toBe(false);
+    expect(rollback.error).toContain('rollback save failed');
   });
 });

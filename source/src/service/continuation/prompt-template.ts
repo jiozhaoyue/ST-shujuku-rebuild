@@ -7,14 +7,7 @@ import {
 } from './model';
 import { buildDefaultContinuationOutlinePrompt_ACU } from './defaults';
 import {
-  buildDefaultAgentArcArchitectPrompt_ACU,
-  buildDefaultAgentBeatPlannerPrompt_ACU,
-  buildDefaultAgentMainPrompt_ACU,
-  buildDefaultAgentMainlinePlannerPrompt_ACU,
-  buildDefaultAgentMaintainerPrompt_ACU,
-  buildDefaultAgentReviewerPrompt_ACU,
-  buildDefaultAgentFinalReviewerPrompt_ACU,
-  buildDefaultAgentWebResearcherPrompt_ACU,
+  buildDefaultContinuationAgentPrompts_ACU,
 } from './agent/agent-defaults';
 
 export const CONTINUATION_PROMPT_PLACEHOLDERS_ACU = [
@@ -27,7 +20,7 @@ export const CONTINUATION_PROMPT_PLACEHOLDERS_ACU = [
   '$HISTORY_ANCHOR', '$STORY_TEXT', '$UNSETTLED_RANGE', '$AGENT_CATALOG', '$MODULE_CATALOG',
   '$TABLE_CATALOG', '$TABLE_GLOBAL', '$TABLE_CHARACTERS', '$TABLE_CHRONICLES',
   '$HOOKS_LEDGER', '$INFO_GAP', '$ACTIVE_CONSTRAINTS', '$CHRONOLOGY', '$BUDGET', '$TOOL_RESULTS',
-  '$AGENT_READ_MATERIALS', '$AGENT_TASK', '$AGENT_WRITE_SCOPE', '$USER_INTENT', '$OUTLINE_WINDOW',
+  '$AGENT_READ_MATERIALS', '$AGENT_TASK', '$AGENT_WRITE_SCOPE', '$USER_INTENT', '$USER_REQUIREMENTS', '$OUTLINE_WINDOW',
   // 目录+状态骨架占位符：楼层索引、大纲单行状态、已启用世界书目录、读集词汇表。
   '$STORY_CATALOG', '$OUTLINE_STATE', '$WORLDBOOK_CATALOG', '$AGENT_READ_CATALOG',
   // 三层正文注入与世界书命中：事件概览、尾部全文楼层、未结算正文全量、本轮语境命中条目。
@@ -48,7 +41,7 @@ const PLACEHOLDER_ALTERNATION_ACU = [...CONTINUATION_PROMPT_PLACEHOLDERS_ACU]
   .sort((left, right) => right.length - left.length)
   .map(token => token.replace(/[$]/g, '\\$'))
   .join('|');
-export type ContinuationPromptKind_ACU = 'outline' | 'agent_main' | 'agent_arc' | 'agent_maintainer' | 'agent_mainline' | 'agent_beat' | 'agent_reviewer' | 'agent_final_reviewer' | 'agent_web_researcher';
+export type ContinuationPromptKind_ACU = 'outline' | 'agent_main' | 'agent_arc' | 'agent_maintainer' | 'agent_mainline' | 'agent_beat' | 'agent_reviewer' | 'agent_final_reviewer' | 'agent_web_researcher' | 'agent_instruction_composer' | 'agent_requirements_maintainer';
 type PlaceholderResolver_ACU = () => string | Promise<string | null | undefined> | null | undefined;
 
 function failPrompt_ACU(code: 'CONTINUATION_ENVELOPE_INVALID' | 'CONTINUATION_PROMPT_INVALID' | 'CONTINUATION_PROMPT_EMPTY', phase: ContinuationErrorPhase_ACU, message: string, details?: Record<string, unknown>): never {
@@ -98,13 +91,12 @@ export async function renderContinuationPrompt_ACU(segments: unknown, resolvers:
 export function restoreContinuationPromptDefault_ACU(settings: ContinuationSettings_ACU, kind: ContinuationPromptKind_ACU): ContinuationSettings_ACU {
   if (kind === 'outline') return { ...settings, outlinePrompt: buildDefaultContinuationOutlinePrompt_ACU() };
   const agentPrompts = { ...settings.agentPrompts };
-  if (kind === 'agent_main') agentPrompts.main = buildDefaultAgentMainPrompt_ACU();
-  if (kind === 'agent_arc') agentPrompts.arcArchitect = buildDefaultAgentArcArchitectPrompt_ACU();
-  if (kind === 'agent_maintainer') agentPrompts.maintainer = buildDefaultAgentMaintainerPrompt_ACU();
-  if (kind === 'agent_mainline') agentPrompts.mainlinePlanner = buildDefaultAgentMainlinePlannerPrompt_ACU();
-  if (kind === 'agent_beat') agentPrompts.beatPlanner = buildDefaultAgentBeatPlannerPrompt_ACU();
-  if (kind === 'agent_reviewer') agentPrompts.reviewer = buildDefaultAgentReviewerPrompt_ACU();
-  if (kind === 'agent_final_reviewer') agentPrompts.finalReviewer = buildDefaultAgentFinalReviewerPrompt_ACU();
-  if (kind === 'agent_web_researcher') agentPrompts.webResearcher = buildDefaultAgentWebResearcherPrompt_ACU();
+  const key: Record<Exclude<ContinuationPromptKind_ACU, 'outline'>, keyof typeof agentPrompts> = {
+    agent_main: 'main', agent_arc: 'arcArchitect', agent_maintainer: 'maintainer',
+    agent_mainline: 'mainlinePlanner', agent_beat: 'beatPlanner', agent_reviewer: 'reviewer',
+    agent_final_reviewer: 'finalReviewer', agent_web_researcher: 'webResearcher',
+    agent_instruction_composer: 'instructionComposer', agent_requirements_maintainer: 'requirementsMaintainer',
+  };
+  agentPrompts[key[kind]] = buildDefaultContinuationAgentPrompts_ACU()[key[kind]];
   return { ...settings, agentPrompts };
 }

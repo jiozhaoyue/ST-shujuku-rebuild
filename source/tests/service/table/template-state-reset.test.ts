@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   physicalNameError: null as Error | null,
   settings: { dataIsolationEnabled: false, dataIsolationCode: '', storageMode: 'native' } as any,
   writeInitFrame: vi.fn(),
+  notifyMaterialFloor: vi.fn(),
+  snapshotMaterial: vi.fn(() => [] as any[]),
+  restoreMaterial: vi.fn(),
 }));
 
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
@@ -28,6 +31,7 @@ vi.mock('../../../src/data/storage/chat-history', () => ({
   setChatSheetGuideContainer_ACU: (_chat: any[], value: any) => { mocks.guide = value; },
 }));
 vi.mock('../../../src/service/runtime/state-manager', () => ({
+  currentChatFileIdentifier_ACU: 'chat-a',
   getCurrentIsolationKey_ACU: () => '', settings_ACU: mocks.settings,
   _set_currentJsonTableData_ACU: mocks.setRuntime,
 }));
@@ -61,6 +65,11 @@ vi.mock('../../../src/shared/utils', () => ({ logWarn_ACU: vi.fn() }));
 // 入口自身的单根断言与参数校验在 storage-frame-v2-persist.test.ts 中直接单测。
 vi.mock('../../../src/service/table/storage-frame-v2-persist', () => ({
   writeInitFullCheckpointFrameV2_ACU: mocks.writeInitFrame,
+}));
+vi.mock('../../../src/service/chat/material-checkpoint-sync', () => ({
+  notifyMaterialCheckpointFloor_ACU: mocks.notifyMaterialFloor,
+  snapshotMaterialCheckpointFields_ACU: mocks.snapshotMaterial,
+  restoreMaterialCheckpointFields_ACU: mocks.restoreMaterial,
 }));
 
 import { resetCurrentChatTableStateFromTemplate_ACU } from '../../../src/service/table/template-state-reset';
@@ -193,6 +202,23 @@ describe('resetCurrentChatTableStateFromTemplate_ACU', () => {
     expect(mocks.setRuntime).not.toHaveBeenCalled();
   });
 
+  it('hydrate await 期间切换聊天时 fail-closed，不把模板写入新聊天', async () => {
+    mocks.settings.storageMode = 'sqlite';
+    const beforeB = { is_user: false, TavernDB_ACU_IsolatedData: { '': { storageFrame: { version: 2, checkpoint: { kind: 'full', data: { sheet_b: {} } }, logEntries: [] } } } };
+    mocks.hydrateStrict.mockReset().mockImplementationOnce(async () => {
+      mocks.swappedChat = [beforeB];
+    });
+
+    const result = await resetCurrentChatTableStateFromTemplate_ACU({
+      sheet_role: { uid: 'sheet_role', name: 'Role', content: [['row_id', 'name']] },
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.error).toContain('切换');
+    expect(mocks.saveStrict).not.toHaveBeenCalled();
+    expect(mocks.swappedChat?.[0]).toBe(beforeB);
+  });
+
   it('聊天在提交中切换时恢复原聊天状态且拒绝保存', async () => {
     const oldFrame = JSON.parse(JSON.stringify(mocks.chat[0].TavernDB_ACU_IsolatedData));
     mocks.setGuide.mockImplementationOnce(() => {
@@ -294,4 +320,32 @@ describe('resetCurrentChatTableStateFromTemplate_ACU', () => {
       expect.objectContaining({ allowRuntimeDdlFallback: true }),
     );
     expect(mocks.saveStrict).toHaveBeenCalledOnce();
+  });
+
+  it('重置成功后把续写基线跟随到新 init 根楼层（TT-only：保留资料、只搬基线）', async () => {
+    mocks.chat = [
+      { is_user: false, mes: 'a', _qrf_continuation_agent: { schemaVersion: 1, settledThroughIndex: 0 } },
+      { is_user: false, mes: 'b' },
+    ];
+    const result = await resetCurrentChatTableStateFromTemplate_ACU({
+      sheet_random: { uid: 'sheet_random', name: 'Role', content: [['row_id', 'name'], ['r-1', '助手']] },
+    });
+
+    expect(result).toMatchObject({ saved: true, messageIndex: 0 });
+    expect(mocks.notifyMaterialFloor).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyMaterialFloor).toHaveBeenCalledWith(mocks.chat, 0);
+  });
+
+  it('重置严格保存失败时回滚资料字段快照', async () => {
+    mocks.chat = [
+      { is_user: false, mes: 'a', _qrf_continuation_agent: { schemaVersion: 1, settledThroughIndex: 0 } },
+    ];
+    mocks.saveStrict.mockRejectedValueOnce(new Error('host write failed')).mockResolvedValueOnce(undefined);
+
+    const result = await resetCurrentChatTableStateFromTemplate_ACU({
+      sheet_random: { uid: 'sheet_random', name: 'Role', content: [['row_id', 'name'], ['r-1', '助手']] },
+    });
+
+    expect(result).toMatchObject({ saved: false });
+    expect(mocks.restoreMaterial).toHaveBeenCalledTimes(1);
   });

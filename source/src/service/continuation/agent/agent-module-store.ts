@@ -1,12 +1,30 @@
 /**
- * service/continuation/agent/agent-module-store.ts — 楼层锚定的叙事资料快照存储
+ * service/continuation/agent/agent-module-store.ts — 楼层锚定的叙事资料存储（帧架构）
  *
- * 存储策略：全量快照写入被结算范围最后一楼的独立字段，读取时从尾向前找最近的合法快照。
- * 删楼、Swipe、编辑替换都会让该楼层连同快照一起消失，资料自动回退到上一个快照，
- * 因此这里不需要任何失效协调机制。
+ * 存储策略：schema 3 帧 = checkpoint 全量基线 + 楼层 delta。读取从最近基线起按楼层顺序
+ * 叠加当前 swipe 的 delta。删楼让该楼 delta 消失，折叠结果回到剩余链。
+ * schema 1 全量快照只在读取时当成 swipe 0 的基线，成功写入才升级。
+ *
+ * P1 加固保留：前缀指纹兼容门控、修订号乐观锁、宽容抢救诊断，一行不弱化。
  */
 
 import { getChatArray_ACU, saveChatToHostStrict_ACU } from '../../../data/gateways/chat-gateway';
+import { getActiveChatStorageIdentity_ACU } from '../../../data/storage/chat-history';
+import { findLatestTableFullCheckpointIndex_ACU } from '../../chat/material-checkpoint-sync';
+import {
+  foldAgentModuleSnapshot_ACU,
+  planAgentModuleFieldWrite_ACU,
+  planAgentModuleSnapshotWrite_ACU,
+  readMessageSwipeId_ACU,
+  type AgentModuleFoldResult_ACU,
+  type AgentModuleFrameDeps_ACU,
+} from './agent-module-frame';
+import { materializeAgentModuleSqlView_ACU } from './agent-module-sql-view';
+import {
+  parseAgentModuleSqlFieldWrites_ACU,
+  type AgentModuleSqlFieldIntent_ACU,
+  type AgentModuleSqlFieldRejection_ACU,
+} from './agent-protocol';
 import { ContinuationValidationError_ACU, createContinuationError_ACU } from '../model';
 import {
   AGENT_BLOCK_CHAR_LIMIT_ACU,
@@ -14,8 +32,14 @@ import {
   AGENT_HOOK_IMPORTANCES_ACU,
   AGENT_HOOK_STATUSES_ACU,
   AGENT_HOT_HOOK_LIMIT_ACU,
+  AGENT_MATERIAL_COMPLETION_STATES_ACU,
   AGENT_MODULE_FIELD_ACU,
+  AGENT_MODULE_FIELD_MATRIX_ACU,
   AGENT_MODULE_SCHEMA_VERSION_ACU,
+  AGENT_MODULE_SCHEMA_VERSION_V1_ACU,
+  AGENT_MODULE_SCHEMA_VERSION_V2_ACU,
+  AGENT_PENDING_FIX_CAP_ACU,
+  AGENT_PENDING_FIX_SOURCES_ACU,
   AGENT_REVEAL_STATUSES_ACU,
   AGENT_STORY_ARC_SCOPES_ACU,
   AGENT_STORY_ARC_STATUSES_ACU,
@@ -26,9 +50,17 @@ import {
   type AgentConstraintEntry_ACU,
   type AgentHookEntry_ACU,
   type AgentInfoGapEntry_ACU,
+  type AgentMaterialCompletionRecord_ACU,
+  type AgentModuleFieldRecord_ACU,
+  type AgentModuleFieldSnapshot_ACU,
+  type AgentModuleFieldUpserts_ACU,
   type AgentModuleSnapshot_ACU,
+  type AgentPendingFix_ACU,
   type AgentStoryArcEntry_ACU,
+  type AgentSubagentName_ACU,
   type AgentWebRefEntry_ACU,
+  type AgentWritableModule_ACU,
+  isAgentWritableModule_ACU,
 } from './agent-model';
 
 const IMPORTANCE_WEIGHTS_ACU: Record<string, number> = { high: 3, mid: 2, low: 1 };
@@ -45,6 +77,43 @@ function readIndex_ACU(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : -1;
 }
 
+/**
+ * 计算结算水位之前聊天前缀的短指纹。优先使用稳定 message_id；没有 ID 时仍把
+ * 楼层位置、角色、正文纳入哈希，因此删除或替换水位之前的楼层必然改变指纹。
+ */
+function chatPrefixFingerprint_ACU(messages: any[], throughIndex: number): string {
+  const end = Math.min(Math.max(throughIndex, -1), messages.length - 1);
+  let hash = 2166136261;
+  const add = (text: string): void => {
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 0x1f;
+    hash = Math.imul(hash, 16777619);
+  };
+  add(`count:${end + 1}`);
+  for (let index = 0; index <= end; index += 1) {
+    const message = isRecord_ACU(messages[index]) ? messages[index] : {};
+    const stableId = message.message_id ?? message.id ?? '';
+    add(`${index}:${String(stableId)}:${String(message.role ?? '')}:${message.is_user ? 1 : 0}:${message.is_system ? 1 : 0}:${readText_ACU(message.mes)}`);
+  }
+  return `${end + 1}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+/** 在水位合法推进后刷新前缀指纹；调用方必须在同一轮确认聊天未被替换。 */
+export function refreshAgentModuleSnapshotChatPrefix_ACU(snapshot: AgentModuleSnapshot_ACU, chat: any[]): AgentModuleSnapshot_ACU {
+  return {
+    ...snapshot,
+    settledPrefixFingerprint: chatPrefixFingerprint_ACU(chat, snapshot.settledThroughIndex),
+  };
+}
+
+function isChatPrefixCompatible_ACU(snapshot: AgentModuleSnapshot_ACU, messages: any[]): boolean {
+  if (!snapshot.settledPrefixFingerprint) return true;
+  return snapshot.settledPrefixFingerprint === chatPrefixFingerprint_ACU(messages, snapshot.settledThroughIndex);
+}
+
 function readEnum_ACU(value: unknown, allowed: readonly string[], fallback: string): string {
   return typeof value === 'string' && allowed.includes(value) ? value : fallback;
 }
@@ -54,13 +123,16 @@ export function buildEmptyAgentModuleSnapshot_ACU(): AgentModuleSnapshot_ACU {
     schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
     settledThroughIndex: -1,
     updatedAt: 0,
-    revisions: { hooks: 0, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 },
+    revisions: { hooks: 0, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0, userRequirements: 0 },
     hooks: [],
     infoGap: [],
     constraints: [],
     storyArc: [],
     chronology: [],
     webRefs: [],
+    userRequirements: [],
+    materialCompletion: { state: 'legacy_unknown', rangeStartIndex: -1, rangeEndIndex: -1, modules: {}, updatedAt: 0 },
+    pendingFixes: [],
   };
 }
 
@@ -232,6 +304,12 @@ function validateConstraintEntry_ACU(raw: unknown): AgentConstraintEntry_ACU | n
   return { id, text, reason: readText_ACU(raw.reason), createdIndex: readIndex_ACU(raw.createdIndex) };
 }
 
+function validateUserRequirementLine_ACU(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  return text ? text : null;
+}
+
 /** 取一段文本的首句，用作旧条目缺失 brief 时的兼容兜底。 */
 export function firstSentence_ACU(text: string): string {
   const flat = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -275,13 +353,16 @@ export function validateWebRefEntry_ACU(raw: unknown): AgentWebRefEntry_ACU | nu
  */
 export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapshot_ACU | null {
   if (!isRecord_ACU(raw)) return null;
-  if (raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU) return null;
+  if (raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_V1_ACU && raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_V2_ACU && raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU) return null;
+  const legacy = raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU;
+  const updatedAt = typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0;
   if (!isRecord_ACU(raw.revisions)) return null;
   if (!Array.isArray(raw.hooks) || !Array.isArray(raw.infoGap) || !Array.isArray(raw.constraints)) return null;
   const settledThroughIndex = readIndex_ACU(raw.settledThroughIndex);
   if (settledThroughIndex < 0) return null;
-  // storyArc 晚于前三个模块加入，存量楼层的快照里没有这个键。写成必需会让全部历史快照
-  // 被判非法、资料静默回退成空，因此这里按「有则校验、无则空数组」处理。
+  // storyArc 晚于前三个模块加入，存量楼层的快照里没有这个键。缺字段兼容为空，
+  // 但字段一旦出现就必须是数组；否则“损坏总纲”会被静默当成空总纲并推进写入。
+  if (Object.prototype.hasOwnProperty.call(raw, 'storyArc') && !Array.isArray(raw.storyArc)) return null;
   const storyArc = Array.isArray(raw.storyArc) ? raw.storyArc : [];
   const validatedStoryArc = storyArc.map(validateStoryArcEntry_ACU);
   // 总纲条目不能像普通搜索命中一样被悄悄过滤；任一结构损坏都应让读取端回退上一份完整快照。
@@ -294,10 +375,27 @@ export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapsh
   if (validatedChronology.some(entry => entry === null)) return null;
   if (Object.prototype.hasOwnProperty.call(raw, 'webRefs') && !Array.isArray(raw.webRefs)) return null;
   const webRefs = Array.isArray(raw.webRefs) ? raw.webRefs : [];
+  // userRequirements 晚于早期快照加入：缺字段兼容为空清单；字段一旦存在就必须是字符串数组，
+  // 且每条 trim 后非空——静默丢掉用户要求比暂时回退旧快照更危险。
+  if (Object.prototype.hasOwnProperty.call(raw, 'userRequirements') && !Array.isArray(raw.userRequirements)) return null;
+  const userRequirementsRaw = Array.isArray(raw.userRequirements) ? raw.userRequirements : [];
+  const validatedUserRequirements = userRequirementsRaw.map(validateUserRequirementLine_ACU);
+  if (validatedUserRequirements.some(entry => entry === null)) return null;
+  // pendingFixes：v1 快照没有该字段，缺字段兼容为空数组；字段一旦出现就必须整体合法，
+  // 否则调用方无法判断哪些模块需要修复，回退上一份完整快照比静默丢弃更安全。
+  const pendingPresent = Object.prototype.hasOwnProperty.call(raw, 'pendingFixes');
+  const pendingFixes = validatePendingFixes_ACU(raw.pendingFixes, pendingPresent, legacy, updatedAt);
+  if (!pendingFixes) return null;
+  const completionPresent = Object.prototype.hasOwnProperty.call(raw, 'materialCompletion');
+  const materialCompletion = validateMaterialCompletion_ACU(raw.materialCompletion, completionPresent, legacy, updatedAt);
+  if (!materialCompletion) return null;
   return {
     schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
     settledThroughIndex,
-    updatedAt: typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0,
+    ...(typeof raw.settledPrefixFingerprint === 'string' && raw.settledPrefixFingerprint
+      ? { settledPrefixFingerprint: raw.settledPrefixFingerprint }
+      : {}),
+    updatedAt,
     revisions: {
       hooks: Math.max(0, readIndex_ACU(raw.revisions.hooks)),
       infoGap: Math.max(0, readIndex_ACU(raw.revisions.infoGap)),
@@ -305,6 +403,7 @@ export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapsh
       storyArc: Math.max(0, readIndex_ACU(raw.revisions.storyArc)),
       chronology: Math.max(0, readIndex_ACU(raw.revisions.chronology)),
       webRefs: Math.max(0, readIndex_ACU(raw.revisions.webRefs)),
+      userRequirements: Math.max(0, readIndex_ACU(raw.revisions.userRequirements)),
     },
     hooks: raw.hooks.flatMap(item => { const entry = validateHookEntry_ACU(item); return entry ? [entry] : []; }),
     infoGap: raw.infoGap.flatMap(item => { const entry = validateInfoGapEntry_ACU(item); return entry ? [entry] : []; }),
@@ -312,17 +411,92 @@ export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapsh
     storyArc: validatedStoryArc as AgentStoryArcEntry_ACU[],
     chronology: validatedChronology as AgentChronologyEntry_ACU[],
     webRefs: webRefs.flatMap(item => { const entry = validateWebRefEntry_ACU(item); return entry ? [entry] : []; }),
+    userRequirements: validatedUserRequirements as string[],
+    materialCompletion,
+    pendingFixes,
   };
+}
+
+function readRangeIndex_ACU(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= -1 ? value : null;
+}
+
+function validateMaterialCompletion_ACU(raw: unknown, present: boolean, legacy: boolean, fallbackUpdatedAt: number): AgentMaterialCompletionRecord_ACU | null {
+  if (!present) return legacy
+    ? { state: 'legacy_unknown', rangeStartIndex: -1, rangeEndIndex: -1, modules: {}, updatedAt: fallbackUpdatedAt }
+    : null;
+  if (!isRecord_ACU(raw) || !AGENT_MATERIAL_COMPLETION_STATES_ACU.includes(raw.state as any)) return null;
+  const rangeStartIndex = readRangeIndex_ACU(raw.rangeStartIndex);
+  const rangeEndIndex = readRangeIndex_ACU(raw.rangeEndIndex);
+  if (rangeStartIndex === null || rangeEndIndex === null || (rangeStartIndex === -1) !== (rangeEndIndex === -1) || rangeEndIndex < rangeStartIndex) return null;
+  if (!isRecord_ACU(raw.modules)) return null;
+  const modules: AgentMaterialCompletionRecord_ACU['modules'] = {};
+  for (const [module, state] of Object.entries(raw.modules)) {
+    if (!isAgentWritableModule_ACU(module) || !AGENT_MATERIAL_COMPLETION_STATES_ACU.includes(state as any)) return null;
+    modules[module] = state as AgentMaterialCompletionRecord_ACU['state'];
+  }
+  if (typeof raw.updatedAt !== 'number' || !Number.isInteger(raw.updatedAt) || raw.updatedAt < 0) return null;
+  return { state: raw.state as AgentMaterialCompletionRecord_ACU['state'], rangeStartIndex, rangeEndIndex, modules, updatedAt: raw.updatedAt };
+}
+
+/** 缺字段视为空数组。字段存在但不合法时返回 null，调用方决定拒绝或抢救。 */
+function validatePendingFixes_ACU(raw: unknown, present: boolean, legacy: boolean, fallbackUpdatedAt: number): AgentPendingFix_ACU[] | null {
+  if (!present) return [];
+  if (!Array.isArray(raw) || raw.length > AGENT_PENDING_FIX_CAP_ACU) return null;
+  const fixes: AgentPendingFix_ACU[] = [];
+  for (const item of raw) {
+    if (!isRecord_ACU(item) || !isAgentWritableModule_ACU(item.module)) return null;
+    if (typeof item.attempts !== 'number' || !Number.isInteger(item.attempts) || item.attempts < 1 || item.attempts > 99) return null;
+    if (typeof item.firstFailedAtIndex !== 'number' || !Number.isInteger(item.firstFailedAtIndex) || item.firstFailedAtIndex < -1) return null;
+    if (!Array.isArray(item.violations) || item.violations.length > 32) return null;
+    const violations: AgentPendingFix_ACU['violations'] = [];
+    for (const violation of item.violations) {
+      if (!isRecord_ACU(violation) || typeof violation.path !== 'string' || typeof violation.message !== 'string' || !violation.message.trim()) return null;
+      violations.push({ path: violation.path, message: violation.message });
+    }
+    if (typeof item.agentName !== 'string' || !item.agentName.trim() || typeof item.lastError !== 'string' || !item.lastError.trim()) return null;
+    const source = AGENT_PENDING_FIX_SOURCES_ACU.includes(item.source as any) ? item.source as AgentPendingFix_ACU['source'] : legacy ? 'transaction_rejected' : null;
+    const completion = item.completion === 'partial' || item.completion === 'failed' ? item.completion : legacy ? 'failed' : null;
+    const rangeStartIndex = readRangeIndex_ACU(item.rangeStartIndex ?? (legacy ? item.firstFailedAtIndex : undefined));
+    const rangeEndIndex = readRangeIndex_ACU(item.rangeEndIndex ?? (legacy ? item.firstFailedAtIndex : undefined));
+    const acceptedKeys = Array.isArray(item.acceptedKeys)
+      ? item.acceptedKeys.filter((value): value is string => typeof value === 'string' && !!value.trim())
+      : legacy ? [] : null;
+    const createdAt = typeof item.createdAt === 'number' && Number.isInteger(item.createdAt) && item.createdAt >= 0
+      ? item.createdAt : legacy ? fallbackUpdatedAt : null;
+    const updatedAt = typeof item.updatedAt === 'number' && Number.isInteger(item.updatedAt) && item.updatedAt >= 0
+      ? item.updatedAt : legacy ? fallbackUpdatedAt : null;
+    if (!source || !completion || rangeStartIndex === null || rangeEndIndex === null || rangeEndIndex < rangeStartIndex || !acceptedKeys || createdAt === null || updatedAt === null || updatedAt < createdAt) return null;
+    fixes.push({
+      module: item.module,
+      agentName: item.agentName,
+      violations,
+      attempts: item.attempts,
+      firstFailedAtIndex: item.firstFailedAtIndex,
+      lastError: item.lastError,
+      source,
+      completion,
+      rangeStartIndex,
+      rangeEndIndex,
+      acceptedKeys: [...new Set(acceptedKeys)],
+      createdAt,
+      updatedAt,
+    });
+  }
+  return fixes;
 }
 
 /**
  * 宽容解析一份损坏的快照：丢掉单条非法记录、修正非法水位，尽量保住其余数据。
  * 只在严格路径全程无命中时作为兜底使用——静默回退成空快照会让用户误以为数据从未写入。
+ * 导出供帧折叠的 salvage 路径复用。
  */
-function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentModuleSnapshot_ACU; problems: string[] } | null {
+export function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentModuleSnapshot_ACU; problems: string[] } | null {
   if (!isRecord_ACU(raw)) return null;
   const problems: string[] = [];
-  if (raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU) problems.push(`schemaVersion=${String(raw.schemaVersion)} 与当前 ${AGENT_MODULE_SCHEMA_VERSION_ACU} 不一致`);
+  if (raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_V1_ACU && raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_V2_ACU && raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU) {
+    problems.push(`schemaVersion=${String(raw.schemaVersion)} 与当前 ${AGENT_MODULE_SCHEMA_VERSION_ACU} 不一致`);
+  }
   const revisions = isRecord_ACU(raw.revisions) ? raw.revisions : {};
   const pick = <T>(list: unknown, validate: (item: unknown) => T | null, label: string): T[] => {
     if (!Array.isArray(list)) { if (list !== undefined) problems.push(`${label} 不是数组`); return []; }
@@ -332,10 +506,21 @@ function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentModuleSn
   };
   const settledThroughIndex = readIndex_ACU(raw.settledThroughIndex);
   if (settledThroughIndex < 0) problems.push(`settledThroughIndex=${String(raw.settledThroughIndex)} 非法，按 0 处理`);
+  const updatedAt = typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0;
+  const legacy = raw.schemaVersion !== AGENT_MODULE_SCHEMA_VERSION_ACU;
+  const pendingPresent = Object.prototype.hasOwnProperty.call(raw, 'pendingFixes');
+  const pendingFixes = validatePendingFixes_ACU(raw.pendingFixes, pendingPresent, legacy, updatedAt);
+  if (!pendingFixes) problems.push('pendingFixes 结构非法，已按空数组读取');
+  const completionPresent = Object.prototype.hasOwnProperty.call(raw, 'materialCompletion');
+  const materialCompletion = validateMaterialCompletion_ACU(raw.materialCompletion, completionPresent, legacy, updatedAt);
+  if (!materialCompletion) problems.push('materialCompletion 结构非法，已按 legacy_unknown 读取');
   const snapshot: AgentModuleSnapshot_ACU = {
     schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
     settledThroughIndex: Math.max(0, settledThroughIndex),
-    updatedAt: typeof raw.updatedAt === 'number' && raw.updatedAt >= 0 ? raw.updatedAt : 0,
+    ...(typeof raw.settledPrefixFingerprint === 'string' && raw.settledPrefixFingerprint
+      ? { settledPrefixFingerprint: raw.settledPrefixFingerprint }
+      : {}),
+    updatedAt,
     revisions: {
       hooks: Math.max(0, readIndex_ACU(revisions.hooks)),
       infoGap: Math.max(0, readIndex_ACU(revisions.infoGap)),
@@ -343,6 +528,7 @@ function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentModuleSn
       storyArc: Math.max(0, readIndex_ACU(revisions.storyArc)),
       chronology: Math.max(0, readIndex_ACU(revisions.chronology)),
       webRefs: Math.max(0, readIndex_ACU(revisions.webRefs)),
+      userRequirements: Math.max(0, readIndex_ACU(revisions.userRequirements)),
     },
     hooks: pick(raw.hooks, validateHookEntry_ACU, 'hooks'),
     infoGap: pick(raw.infoGap, validateInfoGapEntry_ACU, 'infoGap'),
@@ -350,21 +536,43 @@ function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentModuleSn
     storyArc: pick(raw.storyArc, validateStoryArcEntry_ACU, 'storyArc'),
     chronology: pick(raw.chronology, validateChronologyEntry_ACU, 'chronology'),
     webRefs: pick(raw.webRefs, validateWebRefEntry_ACU, 'webRefs'),
+    userRequirements: pick(raw.userRequirements, validateUserRequirementLine_ACU, 'userRequirements'),
+    materialCompletion: materialCompletion ?? { state: 'legacy_unknown', rangeStartIndex: -1, rangeEndIndex: -1, modules: {}, updatedAt },
+    pendingFixes: pendingFixes ?? [],
   };
   return { snapshot, problems };
 }
 
-/** 一次读取的诊断：哪些楼层带有快照字段、是否通过严格校验、最终采用了哪一楼。 */
+/** 一次读取的诊断：哪些楼层带有资料字段、基线在哪一楼、折叠了多少 delta。 */
 export interface AgentModuleSnapshotReadDiagnostics_ACU {
-  /** 带快照字段的楼层（从末楼往前）。 */
+  /** 带资料字段的楼层（从头到尾）。 */
   candidates: Array<{ index: number; valid: boolean; problems: string[] }>;
-  /** 最终采用的楼层；无任何快照时为 null。 */
+  /** 当前基线所在楼层；无基线时为 null。 */
   adoptedIndex: number | null;
   /** 采用的是否为宽容抢救结果。 */
   salvaged: boolean;
+  /** 生效 schema 3 / legacy 基线的楼层。 */
+  checkpointIndex: number | null;
+  /** 基线之后实际叠加上的 delta 数。 */
+  foldedDeltaCount: number;
 }
 
-let lastReadDiagnostics_ACU: AgentModuleSnapshotReadDiagnostics_ACU = { candidates: [], adoptedIndex: null, salvaged: false };
+let lastReadDiagnostics_ACU: AgentModuleSnapshotReadDiagnostics_ACU = {
+  candidates: [],
+  adoptedIndex: null,
+  salvaged: false,
+  checkpointIndex: null,
+  foldedDeltaCount: 0,
+};
+
+export function agentModuleFrameDeps_ACU(): AgentModuleFrameDeps_ACU {
+  return {
+    validateSnapshot: validateAgentModuleSnapshot_ACU,
+    salvageSnapshot: salvageAgentModuleSnapshot_ACU,
+    emptySnapshot: buildEmptyAgentModuleSnapshot_ACU,
+    isSnapshotPrefixCompatible: (snapshot, chat) => isChatPrefixCompatible_ACU(snapshot, chat as any[]),
+  };
+}
 
 /** 最近一次 readAgentModuleSnapshot_ACU 的诊断信息，供面板解释“为什么资料是空的/是旧的”。 */
 export function readAgentModuleSnapshotDiagnostics_ACU(): AgentModuleSnapshotReadDiagnostics_ACU {
@@ -373,56 +581,53 @@ export function readAgentModuleSnapshotDiagnostics_ACU(): AgentModuleSnapshotRea
 
 /**
  * 读取当前生效的资料快照。
- * 严格路径：从尾向前找第一个完全合法的快照。全程无命中但存在损坏快照时，不再静默返回空，
- * 而是对最近一份做宽容抢救（丢单条坏记录）并记录诊断——数据消失必须可解释。
+ * 从最近的 checkpoint 起按楼层顺序叠加当前 swipe 的 delta。全程无合法基线但存在损坏快照时，
+ * 对最靠近末楼的一份做宽容抢救并记录诊断——数据消失必须可解释。水位不再按数组长度钳制。
+ * P1 前缀指纹门控保留在折叠基线采纳环节（deps 注入）：水位前的删楼/替换使基线失配即跳过。
  * @param chat 聊天数组，缺省取当前聊天
- * @returns 最近的合法快照；全程无命中时返回 settledThroughIndex = -1 的空快照
+ * @returns 折叠后的快照；没有任何资料时返回 settledThroughIndex = -1 的空快照
  */
 export function readAgentModuleSnapshot_ACU(chat?: any[]): AgentModuleSnapshot_ACU {
   const messages = Array.isArray(chat) ? chat : getChatArray_ACU();
-  const highestIndex = messages.length - 1;
-  const clamp = (snapshot: AgentModuleSnapshot_ACU): AgentModuleSnapshot_ACU => (
-    // 删楼后残留快照记录的水位可能指向已不存在的楼层，必须钳制，否则未结算区间会算成负数。
-    snapshot.settledThroughIndex > highestIndex ? { ...snapshot, settledThroughIndex: highestIndex } : snapshot
-  );
-  const diagnostics: AgentModuleSnapshotReadDiagnostics_ACU = { candidates: [], adoptedIndex: null, salvaged: false };
-  let firstBroken: { index: number; raw: unknown } | null = null;
-  for (let index = highestIndex; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!message || typeof message !== 'object') continue;
-    if (!Object.prototype.hasOwnProperty.call(message, AGENT_MODULE_FIELD_ACU)) continue;
-    const raw = (message as Record<string, unknown>)[AGENT_MODULE_FIELD_ACU];
-    const snapshot = validateAgentModuleSnapshot_ACU(raw);
-    if (snapshot) {
-      diagnostics.candidates.push({ index, valid: true, problems: [] });
-      diagnostics.adoptedIndex = index;
-      lastReadDiagnostics_ACU = diagnostics;
-      return clamp(snapshot);
-    }
-    const salvaged = salvageAgentModuleSnapshot_ACU(raw);
-    diagnostics.candidates.push({ index, valid: false, problems: salvaged?.problems ?? ['快照不是对象'] });
-    if (!firstBroken) firstBroken = { index, raw };
+  const folded = foldAgentModuleSnapshot_ACU(messages, agentModuleFrameDeps_ACU());
+  lastReadDiagnostics_ACU = {
+    candidates: folded.candidates,
+    adoptedIndex: folded.adoptedIndex,
+    salvaged: folded.salvaged,
+    checkpointIndex: folded.checkpointIndex,
+    foldedDeltaCount: folded.foldedDeltaCount,
+  };
+  if (folded.salvaged) {
+    console.warn(`[SP·数据库][续写资料] 楼层 ${folded.adoptedIndex} 的资料快照未通过严格校验，已按宽容模式读取：${folded.candidates.find(item => item.index === folded.adoptedIndex)?.problems.join('；') ?? ''}`);
   }
-  if (firstBroken) {
-    const salvaged = salvageAgentModuleSnapshot_ACU(firstBroken.raw);
-    if (salvaged) {
-      diagnostics.adoptedIndex = firstBroken.index;
-      diagnostics.salvaged = true;
-      lastReadDiagnostics_ACU = diagnostics;
-      console.warn(`[SP·数据库][续写资料] 楼层 ${firstBroken.index} 的资料快照未通过严格校验，已按宽容模式读取：${salvaged.problems.join('；')}`);
-      return clamp(salvaged.snapshot);
-    }
-  }
-  lastReadDiagnostics_ACU = diagnostics;
-  return buildEmptyAgentModuleSnapshot_ACU();
+  return folded.snapshot;
 }
 
 /**
- * 把快照写入指定楼层并真实提交到宿主。
+ * 读取当前生效资料的分栏视图（模块 → ID → 栏目）。
+ * 与 readAgentModuleSnapshot_ACU 同一次折叠：完整领域数组仍只来自整条 writes；
+ * 逐栏 delta 提交的 partial 记录只出现在本视图，不进入领域数组。
+ */
+export function readAgentModuleFieldSnapshot_ACU(chat?: any[]): AgentModuleFieldSnapshot_ACU {
+  const messages = Array.isArray(chat) ? chat : getChatArray_ACU();
+  const folded = foldAgentModuleSnapshot_ACU(messages, agentModuleFrameDeps_ACU());
+  lastReadDiagnostics_ACU = {
+    candidates: folded.candidates,
+    adoptedIndex: folded.adoptedIndex,
+    salvaged: folded.salvaged,
+    checkpointIndex: folded.checkpointIndex,
+    foldedDeltaCount: folded.foldedDeltaCount,
+  };
+  return folded.fields;
+}
+
+/**
+ * 把快照写入指定楼层并真实提交到宿主（帧增量）。
  *
  * 结算水位以快照自带的 settledThroughIndex 为准，只做合法性钳制（0 ≤ 水位 ≤ 承载楼层）：
  * 写盘不推水位——立总纲、用户手动保存都不代表未结算正文被结算过，水位推进只由
- * 结算派工成功后显式设置。
+ * 结算派工成功后显式设置。P1 两项加固原样保留：前缀指纹失配拒绝写入；修订号乐观锁
+ * 复核（任一类楼层比写入新即放弃落盘）。
  * @param chat 聊天数组
  * @param targetIndex 承载快照的楼层下标，通常是当前末楼
  * @param snapshot 待写入的全量快照
@@ -432,10 +637,16 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
   if (!message || typeof message !== 'object') {
     throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 资料快照的目标楼层不可用', false, { targetIndex }));
   }
-  const container = message as Record<string, unknown>;
-  const hadPrevious = Object.prototype.hasOwnProperty.call(container, AGENT_MODULE_FIELD_ACU);
-  const previous = container[AGENT_MODULE_FIELD_ACU];
   const settledThroughIndex = Math.min(Math.max(snapshot.settledThroughIndex, 0), targetIndex);
+  if (snapshot.settledPrefixFingerprint && snapshot.settledPrefixFingerprint !== chatPrefixFingerprint_ACU(chat, settledThroughIndex)) {
+    throw new ContinuationValidationError_ACU(createContinuationError_ACU(
+      'CONTINUATION_AGENT_SNAPSHOT_INVALID',
+      'agent_persist',
+      '资料快照引用的聊天前缀已变化，拒绝写入以避免删楼后按旧下标结算',
+      false,
+      { targetIndex, settledThroughIndex },
+    ));
+  }
   // 乐观锁复核：在飞 turn 的快照基准是它开始时读到的楼层修订号；期间用户手动保存会把六类
   // 修订号整体 +1（replaceAgentModuleSnapshotByUser_ACU），旧基准整份写入会静默冲掉用户内容。
   // 落盘前重读当前生效快照，任一类「楼层比写入快照新」即放弃落盘并记日志；正常路径零影响。
@@ -448,22 +659,496 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
     ['storyArc', floorSnapshot.revisions.storyArc, snapshot.revisions.storyArc],
     ['chronology', floorSnapshot.revisions.chronology, snapshot.revisions.chronology],
     ['webRefs', floorSnapshot.revisions.webRefs, snapshot.revisions.webRefs],
+    ['userRequirements', floorSnapshot.revisions.userRequirements, snapshot.revisions.userRequirements],
   ];
   for (const [name, floorRevision, incomingRevision] of revisionPairs) {
     if (floorRevision > incomingRevision) revisionDrifts.push(`${name} 楼层=${floorRevision} 写入=${incomingRevision}`);
   }
   if (revisionDrifts.length > 0) {
     console.warn(`[SP·数据库][续写资料] 检测到楼层快照修订号已被外部更新（疑似用户手动保存），放弃本次写入防止整份覆盖：${revisionDrifts.join('；')}（目标楼层 ${targetIndex}）`);
-    return;
+    throw new ContinuationValidationError_ACU(createContinuationError_ACU(
+      'CONTINUATION_AGENT_WRITE_REJECTED',
+      'agent_persist',
+      '资料快照修订号已漂移，写入被拒绝以停止当前结算',
+      false,
+      { targetIndex, revisionDrifts },
+    ));
   }
+  const stamped: AgentModuleSnapshot_ACU = {
+    ...snapshot,
+    settledThroughIndex,
+    settledPrefixFingerprint: snapshot.settledPrefixFingerprint ?? chatPrefixFingerprint_ACU(chat, settledThroughIndex),
+  };
+  const plan = planAgentModuleSnapshotWrite_ACU(
+    chat,
+    targetIndex,
+    stamped,
+    agentModuleFrameDeps_ACU(),
+    findLatestTableFullCheckpointIndex_ACU(chat),
+  );
+  if (!plan.changed) return;
   try {
-    container[AGENT_MODULE_FIELD_ACU] = { ...snapshot, settledThroughIndex, updatedAt: Date.now() };
+    for (const assignment of plan.assignments) {
+      const container = chat[assignment.index] as Record<string, unknown>;
+      if (assignment.value === undefined) delete container[AGENT_MODULE_FIELD_ACU];
+      else container[AGENT_MODULE_FIELD_ACU] = assignment.value;
+    }
     await saveChatToHostStrict_ACU();
   } catch (error) {
-    if (hadPrevious) container[AGENT_MODULE_FIELD_ACU] = previous;
-    else delete container[AGENT_MODULE_FIELD_ACU];
+    for (const assignment of plan.assignments) {
+      const container = chat[assignment.index] as Record<string, unknown>;
+      if (assignment.existed) container[AGENT_MODULE_FIELD_ACU] = assignment.previous;
+      else delete container[AGENT_MODULE_FIELD_ACU];
+    }
     throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 资料快照写盘失败，已还原楼层字段', false, { targetIndex, message: error instanceof Error ? error.message : String(error) }));
   }
+}
+
+/**
+ * 把逐栏写集作为一条 fieldUpserts delta 写入目标楼层并真实提交到宿主。
+ * 不触碰领域数组：缺栏记录只进入受控分栏视图（readAgentModuleFieldSnapshot_ACU），
+ * 完整条目仍由整条 writes 路径投影。宿主保存失败时逐楼还原，不报“已写入”。
+ */
+export async function writeAgentModuleFields_ACU(chat: any[], targetIndex: number, fieldUpserts: AgentModuleFieldUpserts_ACU): Promise<boolean> {
+  const message = Array.isArray(chat) ? chat[targetIndex] : null;
+  if (!message || typeof message !== 'object') {
+    throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 逐栏写入的目标楼层不可用', false, { targetIndex }));
+  }
+  const plan = planAgentModuleFieldWrite_ACU(chat, targetIndex, fieldUpserts, agentModuleFrameDeps_ACU());
+  if (!plan.changed) return false;
+  try {
+    for (const assignment of plan.assignments) {
+      const container = chat[assignment.index] as Record<string, unknown>;
+      if (assignment.value === undefined) delete container[AGENT_MODULE_FIELD_ACU];
+      else container[AGENT_MODULE_FIELD_ACU] = assignment.value;
+    }
+    await saveChatToHostStrict_ACU();
+    return true;
+  } catch (error) {
+    for (const assignment of plan.assignments) {
+      const container = chat[assignment.index] as Record<string, unknown>;
+      if (assignment.existed) container[AGENT_MODULE_FIELD_ACU] = assignment.previous;
+      else delete container[AGENT_MODULE_FIELD_ACU];
+    }
+    throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 逐栏写入写盘失败，已还原楼层字段', false, { targetIndex, message: error instanceof Error ? error.message : String(error) }));
+  }
+}
+
+/**
+ * 一次性折叠快照与分栏视图，并保留损坏帧的结构化诊断供提交门禁使用。
+ * （S11-TT：$FIELD 权威读取与融合提交共用同一折叠入口。）
+ */
+export function readAgentModuleFoldState_ACU(chat: any[]): AgentModuleFoldResult_ACU {
+  return foldAgentModuleSnapshot_ACU(chat, agentModuleFrameDeps_ACU());
+}
+
+/** 本次派工抓取成功的网页句柄；不得由模型自行指定来源 URL。 */
+export interface AgentFieldPage_ACU {
+  title: string;
+  source: AgentWebRefEntry_ACU['source'];
+  url: string;
+  query: string;
+  sourceStatus: AgentWebRefEntry_ACU['sourceStatus'];
+}
+
+export interface AgentModuleFieldAccepted_ACU { module: AgentWritableModule_ACU; id: string; field: string; revision: number }
+
+export interface AgentModuleFieldReceipt_ACU {
+  status: 'committed' | 'rejected' | 'persist_failed' | 'readback_failed';
+  accepted: AgentModuleFieldAccepted_ACU[];
+  rejected: AgentModuleSqlFieldRejection_ACU[];
+  /** null 表示保存/补偿后的当前状态无法确认；必须重新读取权威帧。 */
+  partials: Array<{ module: AgentWritableModule_ACU; id: string; missingFields: string[]; promotionError?: string }> | null;
+  revisions: AgentModuleSnapshot_ACU['revisions'] | null;
+  constraintProposals: string[];
+  sqlDiagnostics?: string;
+  recovery?: 'saved' | 'failed' | 'unavailable';
+}
+
+type FieldCommitModule_ACU = 'hooks' | 'infoGap' | 'storyArc' | 'chronology' | 'webRefs';
+
+const FIELD_COMMIT_ROLE_MODULES_ACU: Readonly<Partial<Record<AgentSubagentName_ACU, readonly AgentWritableModule_ACU[]>>> = {
+  'arc-architect': ['storyArc'],
+  'hook-cognition-maintainer': ['hooks', 'infoGap', 'chronology'],
+  'web-researcher': ['webRefs'],
+};
+
+function fieldCommitText_ACU(value: unknown): value is string { return typeof value === 'string'; }
+function fieldCommitNonempty_ACU(value: unknown): boolean { return fieldCommitText_ACU(value) && !!value.trim(); }
+function fieldCommitIndex_ACU(value: unknown): boolean { return typeof value === 'number' && Number.isInteger(value) && value >= 0; }
+function fieldCommitStringArray_ACU(value: unknown): boolean { return Array.isArray(value) && value.every(fieldCommitNonempty_ACU); }
+function fieldCommitRecord_ACU(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
+function fieldCommitInList_ACU(value: unknown, list: readonly string[]): boolean { return fieldCommitText_ACU(value) && list.includes(value); }
+
+/** 显式栏目逐栏校验；null、合法空值与缺栏不可混淆。 */
+function fieldCommitProblem_ACU(module: FieldCommitModule_ACU, field: string, value: unknown, snapshot: AgentModuleSnapshot_ACU, evidence: ReadonlySet<number>): string | null {
+  switch (module) {
+    case 'hooks':
+      if (field === 'status') return fieldCommitInList_ACU(value, AGENT_HOOK_STATUSES_ACU) ? null : 'status 枚举非法';
+      if (field === 'importance') return fieldCommitInList_ACU(value, AGENT_HOOK_IMPORTANCES_ACU) ? null : 'importance 枚举非法';
+      if (field === 'plantedIndex') return fieldCommitIndex_ACU(value) && (value as number) <= snapshot.settledThroughIndex && evidence.has(value as number) ? null : 'plantedIndex 必须引用已结算正文楼层';
+      return field === 'summary' ? (fieldCommitNonempty_ACU(value) ? null : 'summary 必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
+    case 'infoGap':
+      if (field === 'revealStatus') return fieldCommitInList_ACU(value, AGENT_REVEAL_STATUSES_ACU) ? null : 'revealStatus 枚举非法';
+      if (field === 'revealIndex') return value === null || (fieldCommitIndex_ACU(value) && (value as number) <= snapshot.settledThroughIndex && evidence.has(value as number)) ? null : 'revealIndex 必须为空或已结算正文楼层';
+      if (field === 'characterKnowledge') return Array.isArray(value) && value.every(item => fieldCommitRecord_ACU(item) && fieldCommitNonempty_ACU(item.name) && fieldCommitText_ACU(item.knows)) ? null : 'characterKnowledge 需要带 name / knows 的数组';
+      return field === 'topic' ? (fieldCommitNonempty_ACU(value) ? null : 'topic 必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
+    case 'chronology':
+      if (field === 'precision') return fieldCommitInList_ACU(value, AGENT_CHRONOLOGY_PRECISIONS_ACU) ? null : 'precision 枚举非法';
+      if (field === 'evidenceIndexes') {
+        const indexes = normalizeEvidenceIndexes_ACU(value);
+        return indexes?.length && indexes.every(item => item <= snapshot.settledThroughIndex && evidence.has(item)) ? null : 'evidenceIndexes 必须是非空、已结算正文楼层数组';
+      }
+      return fieldCommitNonempty_ACU(value) ? null : '时间事实栏目必须为非空文本';
+    case 'storyArc':
+      if (field === 'scope') return fieldCommitInList_ACU(value, AGENT_STORY_ARC_SCOPES_ACU) ? null : 'scope 枚举非法';
+      if (field === 'status') return fieldCommitInList_ACU(value, AGENT_STORY_ARC_STATUSES_ACU) ? null : 'status 枚举非法';
+      if (field === 'narrativeRole') return fieldCommitInList_ACU(value, AGENT_VOLUME_NARRATIVE_ROLES_ACU) ? null : 'narrativeRole 枚举非法';
+      if (field === 'stageNumbers') return Array.isArray(value) && value.every(item => Number.isInteger(item) && item >= 1) ? null : 'stageNumbers 必须是正整数数组';
+      if (field === 'completionStageNumber') return value === null || (Number.isInteger(value) && (value as number) >= 1) ? null : 'completionStageNumber 必须为正整数或 null';
+      if (field === 'targetStageRange') return fieldCommitRecord_ACU(value) && Number.isInteger(value.min) && (value.min as number) >= 1 && Number.isInteger(value.max) && (value.max as number) >= (value.min as number) ? null : 'targetStageRange 需要 min/max 正整数且 max≥min';
+      if (field === 'sustainingThreads' || field === 'payoffTargets') return fieldCommitStringArray_ACU(value) ? null : '必须是非空字符串数组';
+      return ['title', 'direction'].includes(field) ? (fieldCommitNonempty_ACU(value) ? null : '必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
+    case 'webRefs':
+      if (field === 'tags') return Array.isArray(value) && value.every(fieldCommitNonempty_ACU) ? null : 'tags 必须是非空字符串数组';
+      return ['title', 'brief'].includes(field) ? (fieldCommitNonempty_ACU(value) ? null : '必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
+  }
+}
+
+function fieldCommitDomainRow_ACU(snapshot: AgentModuleSnapshot_ACU, module: FieldCommitModule_ACU, id: string): Record<string, unknown> | null {
+  return (snapshot[module] as unknown as Array<Record<string, unknown>>).find(item => item.id === id) ?? null;
+}
+
+function fieldCommitCanonical_ACU(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(fieldCommitCanonical_ACU).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const row = value as Record<string, unknown>;
+    // JSON 落盘会丢掉 undefined。规划对象里的空可选栏目不能因此把整批更新判成不一致（上游 56540c9）。
+    return `{${Object.keys(row).filter(key => row[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${fieldCommitCanonical_ACU(row[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function fieldCommitConfirmedPartials_ACU(fields: AgentModuleFieldSnapshot_ACU): NonNullable<AgentModuleFieldReceipt_ACU['partials']> {
+  const partials: NonNullable<AgentModuleFieldReceipt_ACU['partials']> = [];
+  for (const module of ['hooks', 'infoGap', 'storyArc', 'chronology', 'webRefs'] as const) {
+    for (const [id, record] of Object.entries(fields.records[module] ?? {})) {
+      if (record.status !== 'partial') continue;
+      partials.push({ module, id, missingFields: [...record.missingFields] });
+    }
+  }
+  return partials;
+}
+
+function fieldCommitNextWebRefId_ACU(snapshot: AgentModuleSnapshot_ACU, taken: ReadonlySet<string>): string {
+  let max = 0;
+  for (const id of [...snapshot.webRefs.map(entry => entry.id), ...taken]) {
+    const matched = /^WR-(\d+)$/.exec(id);
+    if (matched) max = Math.max(max, Number.parseInt(matched[1], 10));
+  }
+  return `WR-${String(max + 1).padStart(3, '0')}`;
+}
+
+/** INSERT 省略 id 时的顺序补号（移植上游 2a8472e）：取同前缀最大号 +1，按宽度零填充。 */
+function nextSequentialId_ACU(prefix: string, width: number, taken: ReadonlySet<string>): string {
+  const pattern = new RegExp(`^${prefix}(\\d+)$`);
+  let max = 0;
+  for (const id of taken) {
+    const matched = pattern.exec(id);
+    if (matched) max = Math.max(max, Number(matched[1]));
+  }
+  return `${prefix}${String(max + 1).padStart(width, '0')}`;
+}
+
+/** 本模块全量已占用 id：领域行、逐栏记录、本批已受理逐栏写与预留集。 */
+function fieldCommitModuleTakenIds_ACU(
+  module: FieldCommitModule_ACU,
+  folded: AgentModuleFoldResult_ACU,
+  upserts: AgentModuleFieldUpserts_ACU,
+  reserved: ReadonlySet<string>,
+): Set<string> {
+  const taken = new Set<string>();
+  for (const row of folded.snapshot[module] as unknown as Array<{ id?: string }>) if (row?.id) taken.add(row.id);
+  for (const id of Object.keys(folded.fields.records[module] ?? {})) taken.add(id);
+  for (const id of Object.keys(upserts[module] ?? {})) taken.add(id);
+  const prefix = `${module}#`;
+  for (const key of reserved) if (key.startsWith(prefix)) taken.add(key.slice(prefix.length));
+  return taken;
+}
+
+/** story_arc 既有的 scope/status 视图：领域行 + 逐栏记录 + 本批已受理逐栏写（补号与 active 卷唯一性都看这里）。 */
+function fieldCommitStoryArcMeta_ACU(
+  folded: AgentModuleFoldResult_ACU,
+  upserts: AgentModuleFieldUpserts_ACU,
+): Array<{ scope?: unknown; status?: unknown; retired?: unknown }> {
+  const rows: Array<{ scope?: unknown; status?: unknown; retired?: unknown }> = folded.snapshot.storyArc.map(entry => ({ scope: entry.scope, status: entry.status, retired: entry.retired }));
+  for (const record of Object.values(folded.fields.records.storyArc ?? {})) rows.push({ scope: record.fields.scope?.value, status: record.fields.status?.value });
+  for (const values of Object.values(upserts.storyArc ?? {})) rows.push({ scope: values.scope?.value, status: values.status?.value });
+  return rows;
+}
+
+const fieldCommitQueue_ACU = new WeakMap<unknown[], Promise<void>>();
+
+/**
+ * 融合提交（S11-TT 双模 Mode F 生产入口）。
+ *
+ * 上游 agent-module-field-commit.ts 在此拆解并入现有帧/plan 路径，不另起文件、
+ * 不另起写旁路：解析走受限 SQL 白名单（protocol），栏目校验走领域规则（本函数内
+ * fieldCommitProblem_ACU，与事务层同强度），复算走 SQL 分栏层（只校验不持久化），
+ * 持久化唯一形态是帧内 fieldUpserts delta（planAgentModuleFieldWrite_ACU），并受
+ * P1 三门约束——聊天身份/目标楼层门、帧损坏门、保存前后基线/折叠回读门。
+ * 有意不移植上游的领域提升（domainUpserts）：T2 锁定 partial/complete 均不投影
+ * 领域数组，完整条目只由整条 writes 路径产生；删除既有领域条目同样不支持，
+ * 请走整行 retire。
+ */
+export function commitAgentModuleFieldWrites_ACU(input: {
+  chat: any[];
+  targetIndex: number;
+  sql: string;
+  role: AgentSubagentName_ACU;
+  resolvePage?: (handle: string) => AgentFieldPage_ACU | null;
+  isCurrent?: () => boolean;
+}): Promise<AgentModuleFieldReceipt_ACU> {
+  const prior = fieldCommitQueue_ACU.get(input.chat) ?? Promise.resolve();
+  const run = prior.catch(() => {}).then(async (): Promise<AgentModuleFieldReceipt_ACU> => {
+    const parsed = parseAgentModuleSqlFieldWrites_ACU(input.sql, input.role);
+    const folded = readAgentModuleFoldState_ACU(input.chat);
+    const receipt: AgentModuleFieldReceipt_ACU = {
+      status: 'rejected', accepted: [], rejected: [...parsed.rejected],
+      partials: fieldCommitConfirmedPartials_ACU(folded.fields),
+      revisions: { ...folded.snapshot.revisions }, constraintProposals: parsed.constraintProposals,
+    };
+    if (input.isCurrent?.() === false || getChatArray_ACU() !== input.chat
+      || !input.chat[input.targetIndex] || (input.chat[input.targetIndex] as { is_user?: unknown }).is_user === true
+      || input.targetIndex !== input.chat.length - 1) {
+      receipt.rejected.push({ path: 'chat', reason: '当前聊天或目标楼层已变化' });
+      receipt.partials = null; receipt.revisions = null; return receipt;
+    }
+    if (folded.salvaged || folded.candidates.some(item => !item.valid)) {
+      receipt.rejected.push({ path: 'frame', reason: '资料帧损坏，拒绝在宽容抢救结果上写入' });
+      receipt.partials = null; receipt.revisions = null; return receipt;
+    }
+    const evidence = new Set<number>();
+    input.chat.forEach((message, index) => {
+      if (message && typeof message === 'object' && (message as { is_user?: unknown }).is_user !== true) evidence.add(index);
+    });
+    const now = Date.now();
+    const modules = FIELD_COMMIT_ROLE_MODULES_ACU[input.role] ?? [];
+    const upserts: AgentModuleFieldUpserts_ACU = {};
+    const accepted: AgentModuleFieldAccepted_ACU[] = [];
+    const reserved = new Set<string>();
+    for (const intent of parsed.intents) {
+      const module = intent.module as FieldCommitModule_ACU;
+      if (!modules.includes(intent.module)) { receipt.rejected.push({ path: `${module}#${intent.id || '(无 ID)'}`, reason: '角色无权写入该模块' }); continue; }
+      if (intent.kind === 'delete') { receipt.rejected.push({ path: `${module}#${intent.id || '(无 ID)'}`, reason: 'TT 逐栏路径不支持删除/退役：既有条目请走整行 retire，草稿请逐栏 unset' }); continue; }
+      // INSERT 省略 id 时按模块顺序补号（移植上游 2a8472e）：story_arc 分 STORY-/VOL- 前缀，其余补 H/E/T 或沿用 WR-。
+      if (intent.kind === 'insert' && !intent.id) {
+        const taken = fieldCommitModuleTakenIds_ACU(module, folded, upserts, reserved);
+        if (module === 'storyArc') {
+          const meta = fieldCommitStoryArcMeta_ACU(folded, upserts);
+          const volumeLike = intent.fields.scope === 'volume' || intent.fields.narrativeRole !== undefined
+            || intent.fields.targetStageRange !== undefined || intent.fields.sustainingThreads !== undefined || intent.fields.payoffTargets !== undefined;
+          const storyTaken = meta.some(row => row.scope === 'story' && row.retired !== true);
+          if (intent.fields.scope === 'story' || (!volumeLike && !storyTaken)) {
+            intent.id = nextSequentialId_ACU('STORY-', 2, taken);
+            if (intent.fields.scope === undefined) intent.fields.scope = 'story';
+          } else {
+            intent.id = nextSequentialId_ACU('VOL-', 2, taken);
+            if (intent.fields.scope === undefined) intent.fields.scope = 'volume';
+          }
+        } else if (module === 'hooks') intent.id = nextSequentialId_ACU('H', 3, taken);
+        else if (module === 'infoGap') intent.id = nextSequentialId_ACU('E', 3, taken);
+        else if (module === 'chronology') intent.id = nextSequentialId_ACU('T', 3, taken);
+        else intent.id = fieldCommitNextWebRefId_ACU(folded.snapshot, taken);
+      }
+      const id = intent.id;
+      const path = `${module}#${id || '(无 ID)'}`;
+      if (!id || id.includes('#') || ['__proto__', 'prototype', 'constructor'].includes(id) || id.length > 128) {
+        receipt.rejected.push({ path, reason: '条目 ID 无效' }); continue;
+      }
+      if (module === 'storyArc' && intent.kind === 'insert') {
+        if (intent.fields.scope === undefined && /^STORY-\d+$/.test(id)) intent.fields.scope = 'story';
+        if (intent.fields.scope === undefined && /^VOL-\d+$/.test(id)) intent.fields.scope = 'volume';
+      }
+      const key = `${module}#${id}`;
+      const existing = fieldCommitDomainRow_ACU(folded.snapshot, module, id);
+      const record = folded.fields.records[module]?.[id];
+      // 新行固定 0；省略修订号时按该规则自动补，模块修订号只约束显式写错的已有行（移植上游 56540c9+2a8472e）。
+      const newInsert = intent.kind === 'insert' && !existing && !record && !reserved.has(key);
+      if (intent.expectedRevision === undefined) intent.expectedRevision = newInsert ? 0 : folded.snapshot.revisions[module];
+      const revisionOk = intent.expectedRevision === folded.snapshot.revisions[module] || (newInsert && intent.expectedRevision === 0);
+      if (!revisionOk) {
+        receipt.rejected.push({ path, reason: `revision_conflict: expected=${intent.expectedRevision}, actual=${folded.snapshot.revisions[module]}` }); continue;
+      }
+      if (intent.kind === 'insert' && (existing || record || reserved.has(key))) { receipt.rejected.push({ path, reason: 'id_exists' }); continue; }
+      if (intent.kind !== 'insert' && !existing && !record) { receipt.rejected.push({ path, reason: 'not_found' }); continue; }
+      if (existing?.retired) { receipt.rejected.push({ path, reason: 'retired: 已退役条目不可修改' }); continue; }
+      const writable: Record<string, unknown> = {};
+      for (const [field, raw] of Object.entries(intent.fields)) {
+        const fieldPath = `${path}.${field}`;
+        if (!AGENT_MODULE_FIELD_MATRIX_ACU[module].fields.includes(field) || ['retired', 'retiredReason', 'updatedIndex', 'fetchedAt', 'source', 'url', 'query', 'sourceStatus'].includes(field)) {
+          receipt.rejected.push({ path: fieldPath, reason: 'field_forbidden' }); continue;
+        }
+        if ((field === 'plantedIndex' && existing) || (field === 'scope' && existing && existing.scope !== raw)) {
+          receipt.rejected.push({ path: fieldPath, reason: '已登记的不可变栏目不能改写' }); continue;
+        }
+        const problem = fieldCommitProblem_ACU(module, field, raw, folded.snapshot, evidence);
+        if (problem) { receipt.rejected.push({ path: fieldPath, reason: problem }); continue; }
+        writable[field] = raw;
+      }
+      if (intent.pageRef) {
+        if (module !== 'webRefs') receipt.rejected.push({ path: `${path}.pageRef`, reason: 'field_forbidden' });
+        else {
+          const page = input.resolvePage?.(intent.pageRef) ?? null;
+          if (!page || page.sourceStatus !== 'ok' || !fieldCommitNonempty_ACU(page.url) || !fieldCommitNonempty_ACU(page.title)) {
+            receipt.rejected.push({ path: `${path}.pageRef`, reason: '页面句柄未在本次派工成功抓取' });
+          } else {
+            const urlProblem = fieldCommitProblem_ACU(module, 'title', page.title, folded.snapshot, evidence);
+            if (urlProblem) receipt.rejected.push({ path: `${path}.pageRef`, reason: urlProblem });
+            else {
+              writable.title = writable.title ?? page.title.trim();
+              (writable as Record<string, unknown>).__pageUrl_ACU = page.url.trim();
+            }
+          }
+        }
+      }
+      if (!Object.keys(writable).length) continue;
+      if (module === 'infoGap' && (Object.prototype.hasOwnProperty.call(writable, 'revealStatus') || Object.prototype.hasOwnProperty.call(writable, 'revealIndex'))) {
+        const baseline: Record<string, unknown> = existing ? { ...existing } : Object.fromEntries(Object.entries(record?.fields ?? {}).map(([field, entry]) => [field, entry.value]));
+        const merged = { ...baseline, ...writable };
+        if (merged.revealStatus !== undefined && (merged.revealIndex !== undefined || !!existing)) {
+          const status = merged.revealStatus;
+          const reveal = merged.revealIndex ?? null;
+          if (status === 'unrevealed' && reveal !== null
+            && Object.prototype.hasOwnProperty.call(writable, 'revealStatus')
+            && !Object.prototype.hasOwnProperty.call(writable, 'revealIndex')
+            && Object.keys(writable).length === 1) {
+            // 明确回退为未揭示时，旧资料残留的揭示楼层是可判定的脏字段；成对补写 null，避免把修复责任推回主会话。
+            writable.revealIndex = null;
+          } else if ((status === 'unrevealed' && reveal !== null) || (status !== 'unrevealed' && reveal === null)) {
+            for (const field of ['revealStatus', 'revealIndex']) if (Object.prototype.hasOwnProperty.call(writable, field)) {
+              receipt.rejected.push({ path: `${path}.${field}`, reason: 'consistency_group: 揭示状态与楼层必须一致' }); delete writable[field];
+            }
+          }
+        }
+      }
+      if (!Object.keys(writable).length) continue;
+      // 行缺 status 时自动补：story 补 active；volume 首条补 active、其余补 planned。
+      // 上游 2a8472e 口径：只要没有领域行、基线（含已有草稿记录）与本批写入都没有 status 就补，
+      // 覆盖“INSERT 未带 scope → UPDATE 才补上 scope”的草稿完成路径；已显式写过 status 的不动。
+      if (module === 'storyArc' && !existing && !Object.prototype.hasOwnProperty.call(writable, 'status')) {
+        const baseline: Record<string, unknown> = Object.fromEntries(
+          Object.entries(record?.fields ?? {}).map(([field, entry]) => [field, entry.value]),
+        );
+        if (!Object.prototype.hasOwnProperty.call(baseline, 'status')) {
+          const scope = writable.scope ?? baseline.scope;
+          if (scope === 'story') writable.status = 'active';
+          if (scope === 'volume') {
+            const activeVolume = fieldCommitStoryArcMeta_ACU(folded, upserts).some(row => row.scope === 'volume' && row.status === 'active' && row.retired !== true);
+            writable.status = activeVolume ? 'planned' : 'active';
+          }
+        }
+      }
+      const bucket = (upserts[module] ??= {});
+      const cell = (bucket[id] ??= {});
+      for (const [field, value] of Object.entries(writable)) {
+        if (field === '__pageUrl_ACU') continue;
+        cell[field] = { value };
+        accepted.push({ module, id, field, revision: 0 });
+      }
+      // pageRef 回填的 url 随 title 同批落栏（来源仍以工具回执为准，不信任模型手写）。
+      if (typeof (writable as Record<string, unknown>).__pageUrl_ACU === 'string') {
+        cell.url = { value: (writable as Record<string, unknown>).__pageUrl_ACU as string };
+        accepted.push({ module, id, field: 'url', revision: 0 });
+      }
+      if (intent.kind === 'insert') reserved.add(key);
+    }
+    if (!Object.keys(upserts).length) return receipt;
+    // SQL 分栏层复算门：白名单/乐观锁与帧侧同强度；失败即整批拒绝，不落帧。
+    let view: Awaited<ReturnType<typeof materializeAgentModuleSqlView_ACU>> | undefined;
+    try {
+      view = await materializeAgentModuleSqlView_ACU(folded.snapshot, folded.fields);
+      for (const [moduleKey, bucket] of Object.entries(upserts)) {
+        const module = moduleKey as AgentWritableModule_ACU;
+        view.applyFieldBatch({ module, expectedRevision: folded.snapshot.revisions[module], updatedAt: now, fieldWrites: bucket as Record<string, Record<string, { value?: unknown; unset?: boolean }>> });
+      }
+      const exported = view.exportDelta();
+      for (const [moduleKey, bucket] of Object.entries(upserts)) {
+        const got = (exported.fieldUpserts as Record<string, Record<string, Record<string, unknown>>> | undefined)?.[moduleKey];
+        if (fieldCommitCanonical_ACU(got ?? null) !== fieldCommitCanonical_ACU(bucket)) {
+          throw new Error(`模块 ${moduleKey} 的 SQL 分栏复算与计划写集不一致`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      receipt.rejected.push({ path: 'sql', reason: message });
+      receipt.sqlDiagnostics = message;
+      return receipt;
+    } finally { view?.dispose(); }
+    // 帧持久化门：基线快照 + 规划 + 保存 + 折叠回读，三者任一失败即补偿还原。
+    const asJson = (value: unknown): string | undefined => JSON.stringify(value);
+    const baselineIdentity = getActiveChatStorageIdentity_ACU(input.chat);
+    const baselineFloors = input.chat.map(message => ({
+      message,
+      swipeId: readMessageSwipeId_ACU(message),
+      existed: !!message && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, AGENT_MODULE_FIELD_ACU),
+      content: asJson((message as Record<string, unknown> | null)?.[AGENT_MODULE_FIELD_ACU]),
+    }));
+    const plan = planAgentModuleFieldWrite_ACU(input.chat, input.targetIndex, upserts, agentModuleFrameDeps_ACU());
+    if (!plan.changed) {
+      receipt.rejected.push({ path: 'frame', reason: '资料帧未能规划出可回读的写入' });
+      return receipt;
+    }
+    try {
+      for (const assignment of plan.assignments) {
+        const container = input.chat[assignment.index] as Record<string, unknown>;
+        if (assignment.value === undefined) delete container[AGENT_MODULE_FIELD_ACU];
+        else container[AGENT_MODULE_FIELD_ACU] = assignment.value;
+      }
+      await saveChatToHostStrict_ACU();
+    } catch (error) {
+      for (const assignment of plan.assignments) {
+        const container = input.chat[assignment.index] as Record<string, unknown>;
+        if (assignment.existed) container[AGENT_MODULE_FIELD_ACU] = assignment.previous;
+        else delete container[AGENT_MODULE_FIELD_ACU];
+      }
+      receipt.status = 'persist_failed';
+      receipt.recovery = 'unavailable';
+      receipt.partials = null; receipt.revisions = null;
+      receipt.rejected.push({ path: 'host', reason: error instanceof Error ? error.message : String(error) });
+      return receipt;
+    }
+    // 保存后回读门：聊天身份/基线楼层未被顶替，且逐栏记录可读回。
+    const intact = getChatArray_ACU() === input.chat && getActiveChatStorageIdentity_ACU(input.chat) === baselineIdentity
+      && input.chat.length === baselineFloors.length && baselineFloors.every((entry, index) => {
+        if (index === input.targetIndex) return input.chat[index] === entry.message && readMessageSwipeId_ACU(entry.message) === entry.swipeId;
+        return input.chat[index] === entry.message && readMessageSwipeId_ACU(entry.message) === entry.swipeId
+          && (Object.prototype.hasOwnProperty.call(entry.message as object, AGENT_MODULE_FIELD_ACU) === entry.existed)
+          && asJson(((entry.message as Record<string, unknown>)[AGENT_MODULE_FIELD_ACU])) === entry.content;
+      });
+    const confirmed = readAgentModuleFoldState_ACU(input.chat);
+    const expectedRecords = new Map<string, AgentModuleFieldRecord_ACU | null>();
+    for (const [moduleKey, bucket] of Object.entries(upserts)) {
+      for (const id of Object.keys(bucket)) {
+        expectedRecords.set(`${moduleKey}#${id}`, confirmed.fields.records[moduleKey as AgentWritableModule_ACU]?.[id] ?? null);
+      }
+    }
+    const readable = [...expectedRecords.values()].every(item => item !== null)
+      && !confirmed.salvaged && confirmed.candidates.every(item => item.valid);
+    if (!intact || !readable || input.isCurrent?.() === false) {
+      receipt.status = 'readback_failed';
+      receipt.recovery = 'saved';
+      receipt.rejected.push({ path: 'host', reason: '保存成功但回读未能确认逐栏记录' });
+      return receipt;
+    }
+    receipt.status = 'committed';
+    receipt.revisions = confirmed.snapshot.revisions;
+    receipt.partials = fieldCommitConfirmedPartials_ACU(confirmed.fields);
+    receipt.accepted = accepted.map(item => ({ ...item, revision: confirmed.fields.records[item.module]?.[item.id]?.fields[item.field]?.revision ?? 0 }));
+    return receipt;
+  });
+  fieldCommitQueue_ACU.set(input.chat, run.then(() => {}, () => {}));
+  return run;
 }
 
 function rejectSnapshotEdit_ACU(message: string, details?: Record<string, unknown>): never {
@@ -501,6 +1186,7 @@ export async function replaceAgentModuleSnapshotByUser_ACU(raw: unknown, chat?: 
       storyArc: current.revisions.storyArc + 1,
       chronology: current.revisions.chronology + 1,
       webRefs: current.revisions.webRefs + 1,
+      userRequirements: current.revisions.userRequirements + 1,
     },
   };
   const validated = validateAgentModuleSnapshot_ACU(merged);
@@ -512,6 +1198,7 @@ export async function replaceAgentModuleSnapshotByUser_ACU(raw: unknown, chat?: 
     ['故事总纲 storyArc', merged.storyArc, validated.storyArc],
     ['故事年代学账本 chronology', merged.chronology, validated.chronology],
     ['百科资料库 webRefs', merged.webRefs, validated.webRefs],
+    ['用户要求 userRequirements', merged.userRequirements, validated.userRequirements],
   ];
   for (const [label, input, accepted] of checks) {
     const inputLength = Array.isArray(input) ? input.length : 0;
@@ -703,12 +1390,12 @@ export function renderAgentActiveVolumePlanningContext_ACU(snapshot: AgentModule
  * 渲染故事总纲的热上下文。
  * @param snapshot 当前快照
  * @param completedStageNumbers 已真实完成的阶段编号
- * @returns 自然语言文本；总纲为空时明确指出必须先派工 arc-architect
+ * @returns 自然语言文本；总纲为空时明确指出由 open_round 固定工作流建立
  */
 export function renderAgentStoryArc_ACU(snapshot: AgentModuleSnapshot_ACU, completedStageNumbers: readonly number[] = []): string {
   const head = `当前修订号=${snapshot.revisions.storyArc}`;
   const active = snapshot.storyArc.filter(entry => !entry.retired);
-  if (!active.length) return `${head}\n当前还没有故事总纲。总纲缺失时无法判断本阶段该走到哪一步，必须先派工 arc-architect 立总纲。`;
+  if (!active.length) return `${head}\n当前还没有故事总纲。总纲缺失时无法判断本阶段该走到哪一步；输出 open_round 后，固定工作流会先调用 arc-architect 建立总纲，主 Agent 不直接派工。`;
   const sorted = [...active].sort(compareStoryArc_ACU);
   return truncateAgentBlock_ACU(`${head}\n${sorted.map(renderStoryArcEntry_ACU).join('\n')}\n\n${renderAgentActiveVolumePlanningContext_ACU(snapshot, completedStageNumbers)}`);
 }
