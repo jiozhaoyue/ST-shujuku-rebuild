@@ -42,6 +42,19 @@ npm run smoke                       # 用 jsdom 加载根 index.js 验产物可�
 **判断口径**：「某重型套件首条用例超时」先看是不是冷转译（用 `--testTimeout=120000` 复跑一次：
 若首条 20~70s 通过、其余 1~2s，就是冷转译，**不是**逻辑挂死）。真正永不 settle 的 await 见规则 L1-MR-7。
 
+**已知脆弱性（未根治，2026-09-28 记录）**：预热是一次 `import('presentation-v2/bootstrap/mount')`，
+所以它对**本文件里对 app 图依赖模块做的窄 mock** 很敏感 —— 实测 3 个文件（对 `shared/constants`
+缺 `SCRIPT_ID_PREFIX_ACU` / `TABLE_ORDER_FIELD_ACU`、对 `agent-conversation-store` 缺
+`readAgentConversation_ACU`）会让预热抛错。预热失败被吞掉只留一条 `console.warn`，
+后果是**该文件失去保护**，在高负载下表现为 17 条「莫名其妙的超时」+ 连带断言失败。
+
+- **判据**：这些文件**单跑全绿**、且同一提交在负载低的轮次全量全绿 ⇒ 就是这条，不是回归。
+- **两处诱因都是「让 app 图变大」**：① UI import 副作用模块（见 frontend 规范）；
+  ② 契约常量放错层（见 `database-guidelines.md` 的持久化面一节）。
+- **根治方向**（未做）：让那 3 个文件的 mock 补全导出；或把预热挪到 **setup 文件顶层**执行
+  （setup 文件在测试文件的 `vi.mock` 生效之前求值，理论上能免疫窄 mock —— 但需先确认
+  `expect.getState().testPath` 在那个时点可读，否则目录白名单会失效）。
+
 ## 测试本身的纪律
 
 - **禁止恒真断言**：`expect(x).toBeTruthy()` 之类在 `x` 恒真时等于没测。历史审计提交（`567d80d`）清理过「吞用例结构 bug、死协议断言、zombie mock、恒真断言」，新用例别把它们写回来。
