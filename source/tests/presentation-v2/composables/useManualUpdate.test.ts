@@ -348,6 +348,14 @@ describe('useManualUpdate destructive refill confirmation', () => {
     expect(failure!.rolledBack).toBe(true);
     expect(failure!.at).toBeGreaterThan(0);
 
+    // 「复制给 AI」的报告：必须含失败原因 + 环境 + 日志小节（报告是给 AI 读的，缺了原因就没用）
+    const report = manual.buildManualUpdateFailureReport();
+    expect(report).toContain('手动填表失败排查报告');
+    expect(report).toContain('表身份重绑定失败');
+    expect(report).toContain('## 环境');
+    expect(report).toContain('## 本次失败前后的插件日志');
+    expect(report).toContain('已过脱敏');
+
     // 用户消除后清空
     manual.dismissManualUpdateFailure();
     expect(manual.lastManualUpdateFailure.value).toBeNull();

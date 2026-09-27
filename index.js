@@ -179373,6 +179373,75 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 }
 var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$F, [["render", _sfc_render$F], ["__scopeId", "data-v-d188b9fa"]]);
 
+/**
+ * shared/plugin-identity.ts — 插件自身的身份事实（构建戳 / 版本号）
+ *
+ * 由构建期的 rollup replace 注入到全局（源码里没有字面量），因此任何想展示或上报
+ * 「这份产物是什么」的地方都必须走这里，而不是各自读全局、各自写一遍兜底。
+ * 目前的使用方：Debug 面板导出、Developer 页「环境与能力总览」。
+ *
+ * 读不到时不猜：分别回退 `dev` / `unknown`，让「这不是正式构建」这件事在界面上是可见的。
+ */
+/** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
+function getBuildStamp_ACU() {
+    try {
+        const stamp = "20260927-22";
+        return typeof stamp === 'string' && stamp ? stamp : 'dev';
+    }
+    catch {
+        return 'dev';
+    }
+}
+/** 插件版本（rollup 注入 `__ACU_BUILD_VERSION__`）；读不到返回 `unknown`。 */
+function getPluginVersion_ACU() {
+    try {
+        const v = "9.7.5";
+        return typeof v === 'string' && v ? v : 'unknown';
+    }
+    catch {
+        return 'unknown';
+    }
+}
+
+/**
+ * presentation-v2/composables/clipboard.ts — 复制文本到剪贴板（唯一实现）
+ *
+ * 为什么抽出来：本仓有不止一处「把一段排查文本复制出去给用户/给 AI」的需求
+ * （提示词检查器的排查报告、Developer 页的能力总览）。复制在酒馆宿主里并不总是可用，
+ * 所以两份实现必然会各自演化出不同的降级口径 —— 统一在这里，调用方只处理返回值。
+ *
+ * 特性检测 + 静默降级（本仓插件纪律）：宿主可能跑在无权限/无 clipboard API 的 iframe 里，
+ * 此时退回临时 textarea + execCommand；两条路都失败返回 false，由调用方提示改用导出文件。
+ * **绝不抛错打断面板。**
+ */
+async function copyTextToClipboard_ACU(text) {
+    try {
+        const clipboard = globalThis?.navigator?.clipboard;
+        if (clipboard && typeof clipboard.writeText === 'function') {
+            await clipboard.writeText(text);
+            return true;
+        }
+    }
+    catch { /* 降级到 execCommand */ }
+    try {
+        const doc = getAcuHostDocument();
+        const textarea = doc.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-1000px';
+        textarea.style.opacity = '0';
+        doc.body.appendChild(textarea);
+        textarea.select();
+        const ok = typeof doc.execCommand === 'function' && doc.execCommand('copy') === true;
+        doc.body.removeChild(textarea);
+        return ok;
+    }
+    catch {
+        return false;
+    }
+}
+
 /** 宿主世界书 API 挂起时确认弹窗不能被无限期拖住，超过该时长即降级为提示文案。 */
 const INJECTION_TARGET_RESOLVE_TIMEOUT_MS = 1500;
 const RESOLVE_TIMEOUT = Symbol('injection-target-resolve-timeout');
@@ -180039,6 +180108,71 @@ function useManualUpdate() {
             refresh();
         }
     }
+    /**
+     * 把上次失败组装成**可直接贴进酒馆让 AI 排查**的脱敏文本。
+     *
+     * 为什么要有：失败原因此前只进 toast（部分宿主不可见），后来加到页面上但用户还得自己去开 Debug
+     * 面板、导出文件、再贴给 AI——三步且要离开当前页面。这里一步到位：失败原因 + 环境事实 +
+     * 本次失败前后的插件日志尾部（已脱敏），粘进聊天即可让 AI 照着定位。
+     */
+    function buildManualUpdateFailureReport() {
+        const failure = lastManualUpdateFailure.value;
+        if (!failure)
+            return '（当前没有失败记录）';
+        const safeGet = (fn) => {
+            try {
+                const v = fn();
+                return v === undefined || v === null || v === '' ? '—' : String(v);
+            }
+            catch {
+                return '—';
+            }
+        };
+        const lines = [];
+        lines.push('# 手动填表失败排查报告');
+        lines.push(`时间：${new Date(failure.at).toISOString()}`);
+        lines.push('');
+        lines.push('## 失败原因');
+        lines.push(failure.text);
+        lines.push('');
+        lines.push('## 环境');
+        lines.push(`- 宿主：${safeGet(() => getAcuHostKind())}`);
+        lines.push(`- 插件版本：${safeGet(() => getPluginVersion_ACU())}`);
+        lines.push(`- 构建戳：${safeGet(() => getBuildStamp_ACU())}`);
+        lines.push(`- 存储模式：${(() => { try {
+            return isSqliteMode() ? 'SQLite' : 'JSON（原生）';
+        }
+        catch {
+            return '—';
+        } })()}`);
+        lines.push(`- 聊天标识：${String(currentChatFileIdentifier_ACU || '—')}`);
+        lines.push('');
+        lines.push('## 本次失败前后的插件日志（尾部，已脱敏）');
+        try {
+            const tail = getRecentLogs_ACU(200)
+                .filter(entry => /填表|Manual Refill|Manual Update|TableUpdate|Storage|SyncBridge/.test(entry.message))
+                .slice(-40)
+                .map(entry => `[${new Date(entry.timestamp).toISOString().slice(11, 23)}] ${entry.level} ${entry.message}`);
+            lines.push(tail.length ? tail.join('\n') : '(尾部日志里没有填表相关条目)');
+        }
+        catch {
+            lines.push('(读取运行日志失败)');
+        }
+        lines.push('');
+        lines.push('> 本报告由插件生成并已过脱敏（不含密钥/请求头）。若日志不足以定位，可在「高级工具 → Debug」开采集后重试一次再导全量。');
+        return maskSensitiveText_ACU(lines.join('\n'));
+    }
+    async function copyManualUpdateFailureReport() {
+        if (!lastManualUpdateFailure.value) {
+            toast.info('当前没有可复制的失败记录。');
+            return;
+        }
+        const ok = await copyTextToClipboard_ACU(buildManualUpdateFailureReport());
+        if (ok)
+            toast.success('已复制失败排查报告（已脱敏），可直接贴进聊天让 AI 排查。');
+        else
+            toast.warning('复制失败（宿主未开放剪贴板）。可在「高级工具 → 导出 Debug 数据」取全量日志。');
+    }
     return {
         selectedManualTableKeys,
         manualContextDepth,
@@ -180048,6 +180182,8 @@ function useManualUpdate() {
         catchUpBusy,
         lastManualUpdateFailure,
         dismissManualUpdateFailure: () => { lastManualUpdateFailure.value = null; },
+        buildManualUpdateFailureReport,
+        copyManualUpdateFailureReport,
         sheetKeys,
         sheetNames,
         runtimeReady,
@@ -180104,8 +180240,8 @@ var _sfc_main$E = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-form-fill-page[data-v-d0e26c56] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-form-fill-page__grid[data-v-d0e26c56] {\r\n  grid-template-areas:\r\n    \"status update\"\r\n    \"manual template\"\r\n    \"manual template\";\n}\n.acu-v2-form-fill-page__panel--status[data-v-d0e26c56] {\r\n  grid-area: status;\n}\n.acu-v2-form-fill-page__panel--update[data-v-d0e26c56] {\r\n  grid-area: update;\n}\n.acu-v2-form-fill-page__panel--template[data-v-d0e26c56] {\r\n  grid-area: template;\n}\n.acu-v2-form-fill-page__panel--manual[data-v-d0e26c56] {\r\n  grid-area: manual;\n}\n.acu-v2-form-fill-page__manual-failure[data-v-d0e26c56] {\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head[data-v-d0e26c56] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  justify-content: space-between;\r\n  gap: var(--acu-space-2, 8px);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head span[data-v-d0e26c56] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-form-fill-page__manual-failure-text[data-v-d0e26c56] {\r\n  margin: var(--acu-space-100, 4px) 0 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.6);\r\n  word-break: break-word;\n}\n.acu-v2-form-fill-page__manual-failure-hint[data-v-d0e26c56] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-2, 8px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-d0e26c56] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-form-fill-page__status-line[data-v-d0e26c56] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-v2-form-fill-page__status-chat[data-v-d0e26c56] {\r\n  max-width: min(42ch, 100%);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-form-fill-page__checkpoint-label[data-v-d0e26c56] {\r\n  color: var(--acu-accent);\n}\n.acu-v2-form-fill-page__manual-extra[data-v-d0e26c56] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\n}\n.acu-v2-form-fill-page__checkpoint-risk[data-v-d0e26c56] {\r\n  color: var(--acu-danger);\r\n  font-weight: 700;\n}\n.acu-v2-form-fill-page__table-wrap[data-v-d0e26c56] {\r\n  min-width: 0;\r\n  overflow: auto;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-0);\n}\n.acu-v2-form-fill-page__status-table[data-v-d0e26c56] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  min-width: 560px;\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__status-table th[data-v-d0e26c56],\r\n.acu-v2-form-fill-page__status-table td[data-v-d0e26c56] {\r\n  padding: 8px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\n}\n.acu-v2-form-fill-page__status-table th[data-v-d0e26c56] {\r\n  color: var(--acu-text-3);\r\n  font-weight: 600;\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-form-fill-page__status-table td[data-v-d0e26c56] {\r\n  color: var(--acu-text-2);\n}\n.acu-v2-form-fill-page__status-table tr:last-child td[data-v-d0e26c56] {\r\n  border-bottom: 0;\n}\n.acu-v2-form-fill-page__status-row--ready td[data-v-d0e26c56] {\r\n  color: var(--acu-text-1);\n}\n.acu-v2-form-fill-page__empty[data-v-d0e26c56] {\r\n  text-align: center !important;\r\n  color: var(--acu-text-3) !important;\n}\n.acu-v2-form-fill-page__actions[data-v-d0e26c56] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-form-fill-page[data-v-d0e26c56] {\r\n    padding: 14px;\n}\n.acu-v2-form-fill-page__grid[data-v-d0e26c56] {\r\n    grid-template-areas:\r\n      \"status\"\r\n      \"update\"\r\n      \"manual\"\r\n      \"template\";\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-d0e26c56] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/FormFillPage.vue#style-0-d0e26c56");
-var FormFillPage_vue_vue_type_style_index_0_scoped_d0e26c56_lang = null;
+injectSfcStyle("\n.acu-v2-form-fill-page[data-v-25f22afa] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-form-fill-page__grid[data-v-25f22afa] {\r\n  grid-template-areas:\r\n    \"status update\"\r\n    \"manual template\"\r\n    \"manual template\";\n}\n.acu-v2-form-fill-page__panel--status[data-v-25f22afa] {\r\n  grid-area: status;\n}\n.acu-v2-form-fill-page__panel--update[data-v-25f22afa] {\r\n  grid-area: update;\n}\n.acu-v2-form-fill-page__panel--template[data-v-25f22afa] {\r\n  grid-area: template;\n}\n.acu-v2-form-fill-page__panel--manual[data-v-25f22afa] {\r\n  grid-area: manual;\n}\n.acu-v2-form-fill-page__manual-failure[data-v-25f22afa] {\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head[data-v-25f22afa] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  justify-content: space-between;\r\n  gap: var(--acu-space-2, 8px);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head span[data-v-25f22afa] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-form-fill-page__manual-failure-text[data-v-25f22afa] {\r\n  margin: var(--acu-space-100, 4px) 0 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.6);\r\n  word-break: break-word;\n}\n.acu-v2-form-fill-page__manual-failure-hint[data-v-25f22afa] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-2, 8px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-form-fill-page__manual-failure-actions[data-v-25f22afa] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-25f22afa] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-form-fill-page__status-line[data-v-25f22afa] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-v2-form-fill-page__status-chat[data-v-25f22afa] {\r\n  max-width: min(42ch, 100%);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-form-fill-page__checkpoint-label[data-v-25f22afa] {\r\n  color: var(--acu-accent);\n}\n.acu-v2-form-fill-page__manual-extra[data-v-25f22afa] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\n}\n.acu-v2-form-fill-page__checkpoint-risk[data-v-25f22afa] {\r\n  color: var(--acu-danger);\r\n  font-weight: 700;\n}\n.acu-v2-form-fill-page__table-wrap[data-v-25f22afa] {\r\n  min-width: 0;\r\n  overflow: auto;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-0);\n}\n.acu-v2-form-fill-page__status-table[data-v-25f22afa] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  min-width: 560px;\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__status-table th[data-v-25f22afa],\r\n.acu-v2-form-fill-page__status-table td[data-v-25f22afa] {\r\n  padding: 8px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\n}\n.acu-v2-form-fill-page__status-table th[data-v-25f22afa] {\r\n  color: var(--acu-text-3);\r\n  font-weight: 600;\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-form-fill-page__status-table td[data-v-25f22afa] {\r\n  color: var(--acu-text-2);\n}\n.acu-v2-form-fill-page__status-table tr:last-child td[data-v-25f22afa] {\r\n  border-bottom: 0;\n}\n.acu-v2-form-fill-page__status-row--ready td[data-v-25f22afa] {\r\n  color: var(--acu-text-1);\n}\n.acu-v2-form-fill-page__empty[data-v-25f22afa] {\r\n  text-align: center !important;\r\n  color: var(--acu-text-3) !important;\n}\n.acu-v2-form-fill-page__actions[data-v-25f22afa] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-form-fill-page[data-v-25f22afa] {\r\n    padding: 14px;\n}\n.acu-v2-form-fill-page__grid[data-v-25f22afa] {\r\n    grid-template-areas:\r\n      \"status\"\r\n      \"update\"\r\n      \"manual\"\r\n      \"template\";\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-25f22afa] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/FormFillPage.vue#style-0-25f22afa");
+var FormFillPage_vue_vue_type_style_index_0_scoped_25f22afa_lang = null;
 
 const _hoisted_1$E = { class: "acu-v2-form-fill-page" };
 const _hoisted_2$z = ["title"];
@@ -180118,9 +180254,10 @@ const _hoisted_8$j = { key: 1 };
 const _hoisted_9$h = { class: "acu-v2-form-fill-page__manual-failure-head" };
 const _hoisted_10$h = { class: "acu-v2-form-fill-page__manual-failure-text" };
 const _hoisted_11$g = { class: "acu-v2-form-fill-page__manual-failure-hint" };
-const _hoisted_12$e = { class: "acu-v2-form-fill-page__manual-number-grid" };
-const _hoisted_13$c = { class: "acu-v2-form-fill-page__manual-extra" };
-const _hoisted_14$b = { class: "acu-v2-form-fill-page__actions" };
+const _hoisted_12$e = { class: "acu-v2-form-fill-page__manual-failure-actions" };
+const _hoisted_13$c = { class: "acu-v2-form-fill-page__manual-number-grid" };
+const _hoisted_14$b = { class: "acu-v2-form-fill-page__manual-extra" };
+const _hoisted_15$b = { class: "acu-v2-form-fill-page__actions" };
 function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$E, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-form-fill-page__grid" }, {
 		default: withCtx(() => [
@@ -180137,7 +180274,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						"aria-label": "表格状态概览"
 					}, {
 						default: withCtx(() => [
-							_cache[5] || (_cache[5] = createTextVNode(
+							_cache[6] || (_cache[6] = createTextVNode(
 								" 当前聊天: ",
 								-1
 								/* CACHED */
@@ -180146,7 +180283,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 								class: "acu-text__value acu-v2-form-fill-page__status-chat",
 								title: $setup.dashboard.chatFileIdentifier.value || "未初始化"
 							}, toDisplayString($setup.dashboard.chatFileIdentifier.value || "未初始化"), 9, _hoisted_2$z),
-							_cache[6] || (_cache[6] = createTextVNode(
+							_cache[7] || (_cache[7] = createTextVNode(
 								" · AI回复累计层数: ",
 								-1
 								/* CACHED */
@@ -180158,7 +180295,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 								1
 								/* TEXT */
 							),
-							_cache[7] || (_cache[7] = createTextVNode(
+							_cache[8] || (_cache[8] = createTextVNode(
 								" · 当前 full checkpoint: ",
 								-1
 								/* CACHED */
@@ -180185,14 +180322,14 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						key: 0,
 						kind: "info"
 					}, {
-						default: withCtx(() => [..._cache[8] || (_cache[8] = [createTextVNode(
+						default: withCtx(() => [..._cache[9] || (_cache[9] = [createTextVNode(
 							" 当前尚未加载数据库表格。 ",
 							-1
 							/* CACHED */
 						)])]),
 						_: 1
 					})) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_5$o, [createBaseVNode("table", _hoisted_6$n, [_cache[11] || (_cache[11] = createBaseVNode(
+					createBaseVNode("div", _hoisted_5$o, [createBaseVNode("table", _hoisted_6$n, [_cache[12] || (_cache[12] = createBaseVNode(
 						"thead",
 						null,
 						[createBaseVNode("tr", null, [
@@ -180204,7 +180341,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						])],
 						-1
 						/* CACHED */
-					)), createBaseVNode("tbody", null, [!$setup.dashboard.tableRows.value.length ? (openBlock(), createElementBlock("tr", _hoisted_7$l, [..._cache[9] || (_cache[9] = [createBaseVNode(
+					)), createBaseVNode("tbody", null, [!$setup.dashboard.tableRows.value.length ? (openBlock(), createElementBlock("tr", _hoisted_7$l, [..._cache[10] || (_cache[10] = [createBaseVNode(
 						"td",
 						{
 							colspan: "5",
@@ -180256,7 +180393,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 										key: 0,
 										variant: "success"
 									}, {
-										default: withCtx(() => [..._cache[10] || (_cache[10] = [createTextVNode(
+										default: withCtx(() => [..._cache[11] || (_cache[11] = [createTextVNode(
 											"就绪",
 											-1
 											/* CACHED */
@@ -180302,7 +180439,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						class: "acu-v2-form-fill-page__manual-failure"
 					}, {
 						default: withCtx(() => [
-							createBaseVNode("div", _hoisted_9$h, [_cache[12] || (_cache[12] = createBaseVNode(
+							createBaseVNode("div", _hoisted_9$h, [_cache[13] || (_cache[13] = createBaseVNode(
 								"strong",
 								null,
 								"上次手动填表未成功",
@@ -180325,25 +180462,42 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 							createBaseVNode(
 								"p",
 								_hoisted_11$g,
-								toDisplayString($setup.manualUpdate.lastManualUpdateFailure.value.rolledBack ? "本次未写入任何数据，已自动回滚清理——旧数据没有丢，可以直接改配置后重试。" : "排查建议：到「高级工具 → 运行日志」开 Debug 采集后重试一次，再「导出 Debug 数据」交给 AI 定位；" + "表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。"),
+								toDisplayString($setup.manualUpdate.lastManualUpdateFailure.value.rolledBack ? "本次未写入任何数据，已自动回滚清理——旧数据没有丢，可以直接改配置后重试。" : "排查建议：先点「复制排查报告」把它贴进聊天让 AI 定位；表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。"),
 								1
 								/* TEXT */
 							),
-							createVNode($setup["AcuButton"], {
+							createBaseVNode("div", _hoisted_12$e, [createVNode($setup["AcuButton"], {
 								size: "sm",
-								onClick: _cache[0] || (_cache[0] = ($event) => $setup.manualUpdate.dismissManualUpdateFailure())
+								variant: "primary",
+								onClick: _cache[0] || (_cache[0] = ($event) => $setup.manualUpdate.copyManualUpdateFailureReport())
 							}, {
-								default: withCtx(() => [..._cache[13] || (_cache[13] = [createTextVNode(
+								default: withCtx(() => [..._cache[14] || (_cache[14] = [createBaseVNode(
+									"i",
+									{ class: "fa-solid fa-clipboard" },
+									null,
+									-1
+									/* CACHED */
+								), createTextVNode(
+									" 复制排查报告 ",
+									-1
+									/* CACHED */
+								)])]),
+								_: 1
+							}), createVNode($setup["AcuButton"], {
+								size: "sm",
+								onClick: _cache[1] || (_cache[1] = ($event) => $setup.manualUpdate.dismissManualUpdateFailure())
+							}, {
+								default: withCtx(() => [..._cache[15] || (_cache[15] = [createTextVNode(
 									"知道了",
 									-1
 									/* CACHED */
 								)])]),
 								_: 1
-							})
+							})])
 						]),
 						_: 1
 					})) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_12$e, [createVNode($setup["AcuFormRow"], {
+					createBaseVNode("div", _hoisted_13$c, [createVNode($setup["AcuFormRow"], {
 						label: "手动处理最近 N 层",
 						hint: "从可用 AI 回复中取最近 N 层执行手动填表。"
 					}, {
@@ -180352,7 +180506,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 							min: 0,
 							step: 1,
 							"model-value": $setup.manualUpdate.manualContextDepth.value,
-							onChange: _cache[1] || (_cache[1] = ($event) => $setup.manualUpdate.setManualContextDepth($event))
+							onChange: _cache[2] || (_cache[2] = ($event) => $setup.manualUpdate.setManualContextDepth($event))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					}), createVNode($setup["AcuFormRow"], {
@@ -180364,7 +180518,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 							min: 1,
 							step: 1,
 							"model-value": $setup.manualUpdate.manualBatchSize.value,
-							onChange: _cache[2] || (_cache[2] = ($event) => $setup.manualUpdate.setManualBatchSize($event))
+							onChange: _cache[3] || (_cache[3] = ($event) => $setup.manualUpdate.setManualBatchSize($event))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					})]),
@@ -180382,7 +180536,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						"sheet-names": $setup.manualUpdate.sheetNames.value,
 						disabled: !$setup.manualUpdate.runtimeReady.value,
 						"empty-text": "当前没有可手动填表的表格。",
-						"onUpdate:selectedKeys": _cache[3] || (_cache[3] = ($event) => $setup.manualUpdate.setManualSelectedKeys($event)),
+						"onUpdate:selectedKeys": _cache[4] || (_cache[4] = ($event) => $setup.manualUpdate.setManualSelectedKeys($event)),
 						onSelectAll: $setup.manualUpdate.selectAllManualTables,
 						onSelectNone: $setup.manualUpdate.selectNoManualTables
 					}, null, 8, [
@@ -180393,7 +180547,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						"onSelectAll",
 						"onSelectNone"
 					]),
-					createBaseVNode("div", _hoisted_13$c, [createVNode($setup["AcuFormRow"], {
+					createBaseVNode("div", _hoisted_14$b, [createVNode($setup["AcuFormRow"], {
 						label: "本次填表附加要求",
 						hint: "留空时不会给本次手动填表追加额外要求。"
 					}, {
@@ -180401,7 +180555,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 							"model-value": $setup.manualUpdate.manualExtraHint.value,
 							rows: 4,
 							placeholder: "仅用于本次手动填表...",
-							"onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => $setup.manualUpdate.manualExtraHint.value = $event)
+							"onUpdate:modelValue": _cache[5] || (_cache[5] = ($event) => $setup.manualUpdate.manualExtraHint.value = $event)
 						}, null, 8, ["model-value"])]),
 						_: 1
 					})]),
@@ -180409,7 +180563,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						key: 1,
 						kind: "warning"
 					}, {
-						default: withCtx(() => [..._cache[14] || (_cache[14] = [createTextVNode(
+						default: withCtx(() => [..._cache[16] || (_cache[16] = [createTextVNode(
 							" 交火模式纪要索引启用时不建议手动更新表格；特殊场景下仍可点击执行。 ",
 							-1
 							/* CACHED */
@@ -180424,7 +180578,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						)]),
 						_: 1
 					}),
-					createBaseVNode("div", _hoisted_14$b, [createVNode($setup["AcuButton"], {
+					createBaseVNode("div", _hoisted_15$b, [createVNode($setup["AcuButton"], {
 						variant: "secondary",
 						disabled: $setup.manualUpdate.manualUpdateBusy.value || $setup.manualUpdate.catchUpBusy.value || !$setup.manualUpdate.selectedManualTableKeys.value.length,
 						onClick: $setup.manualUpdate.runManualCatchUp
@@ -180454,7 +180608,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$E], ["__scopeId", "data-v-d0e26c56"]]);
+var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$E], ["__scopeId", "data-v-25f22afa"]]);
 
 /**
  * 填表提示词填写指南（说明文案）。
@@ -197363,36 +197517,6 @@ function useLogViewer() {
 }
 
 /**
- * shared/plugin-identity.ts — 插件自身的身份事实（构建戳 / 版本号）
- *
- * 由构建期的 rollup replace 注入到全局（源码里没有字面量），因此任何想展示或上报
- * 「这份产物是什么」的地方都必须走这里，而不是各自读全局、各自写一遍兜底。
- * 目前的使用方：Debug 面板导出、Developer 页「环境与能力总览」。
- *
- * 读不到时不猜：分别回退 `dev` / `unknown`，让「这不是正式构建」这件事在界面上是可见的。
- */
-/** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
-function getBuildStamp_ACU() {
-    try {
-        const stamp = "20260927-22";
-        return typeof stamp === 'string' && stamp ? stamp : 'dev';
-    }
-    catch {
-        return 'dev';
-    }
-}
-/** 插件版本（rollup 注入 `__ACU_BUILD_VERSION__`）；读不到返回 `unknown`。 */
-function getPluginVersion_ACU() {
-    try {
-        const v = "9.7.5";
-        return typeof v === 'string' && v ? v : 'unknown';
-    }
-    catch {
-        return 'unknown';
-    }
-}
-
-/**
  * service/table/self-check.ts — 启动/运行自检快照（设计文档 §4 卡死自诊断的观测面）
  *
  * 纯读聚合器：只调用各子系统的只读接口，任何探针失败都在该探针位记录错误字符串，
@@ -198534,45 +198658,6 @@ function _sfc_render$e(_ctx, _cache, $props, $setup, $data, $options) {
 	})]);
 }
 var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc_render$e], ["__scopeId", "data-v-0ccbee42"]]);
-
-/**
- * presentation-v2/composables/clipboard.ts — 复制文本到剪贴板（唯一实现）
- *
- * 为什么抽出来：本仓有不止一处「把一段排查文本复制出去给用户/给 AI」的需求
- * （提示词检查器的排查报告、Developer 页的能力总览）。复制在酒馆宿主里并不总是可用，
- * 所以两份实现必然会各自演化出不同的降级口径 —— 统一在这里，调用方只处理返回值。
- *
- * 特性检测 + 静默降级（本仓插件纪律）：宿主可能跑在无权限/无 clipboard API 的 iframe 里，
- * 此时退回临时 textarea + execCommand；两条路都失败返回 false，由调用方提示改用导出文件。
- * **绝不抛错打断面板。**
- */
-async function copyTextToClipboard_ACU(text) {
-    try {
-        const clipboard = globalThis?.navigator?.clipboard;
-        if (clipboard && typeof clipboard.writeText === 'function') {
-            await clipboard.writeText(text);
-            return true;
-        }
-    }
-    catch { /* 降级到 execCommand */ }
-    try {
-        const doc = getAcuHostDocument();
-        const textarea = doc.createElement('textarea');
-        textarea.value = text;
-        textarea.setAttribute('readonly', '');
-        textarea.style.position = 'fixed';
-        textarea.style.top = '-1000px';
-        textarea.style.opacity = '0';
-        doc.body.appendChild(textarea);
-        textarea.select();
-        const ok = typeof doc.execCommand === 'function' && doc.execCommand('copy') === true;
-        doc.body.removeChild(textarea);
-        return ok;
-    }
-    catch {
-        return false;
-    }
-}
 
 /**
  * useCapabilityOverview — Developer 页「环境与能力总览」的数据接缝

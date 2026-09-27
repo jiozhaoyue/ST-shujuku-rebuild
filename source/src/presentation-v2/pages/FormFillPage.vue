@@ -114,11 +114,16 @@
             {{
               manualUpdate.lastManualUpdateFailure.value.rolledBack
                 ? '本次未写入任何数据，已自动回滚清理——旧数据没有丢，可以直接改配置后重试。'
-                : '排查建议：到「高级工具 → 运行日志」开 Debug 采集后重试一次，再「导出 Debug 数据」交给 AI 定位；'
-                  + '表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。'
+                : '排查建议：先点「复制排查报告」把它贴进聊天让 AI 定位；表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。'
             }}
           </p>
-          <AcuButton size="sm" @click="manualUpdate.dismissManualUpdateFailure()">知道了</AcuButton>
+          <div class="acu-v2-form-fill-page__manual-failure-actions">
+            <AcuButton size="sm" variant="primary" @click="manualUpdate.copyManualUpdateFailureReport()">
+              <i class="fa-solid fa-clipboard"></i>
+              复制排查报告
+            </AcuButton>
+            <AcuButton size="sm" @click="manualUpdate.dismissManualUpdateFailure()">知道了</AcuButton>
+          </div>
         </AcuMessage>
 
         <div class="acu-v2-form-fill-page__manual-number-grid">
@@ -342,6 +347,12 @@ watch(useTemplateRuntimeChangeTick(), () => {
   color: var(--acu-text-3);
   font-size: var(--acu-font-size-caption, 11px);
   line-height: var(--acu-line-height-caption, 1.5);
+}
+
+.acu-v2-form-fill-page__manual-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--acu-space-2, 8px);
 }
 
 .acu-v2-form-fill-page__manual-number-grid {

@@ -9,6 +9,12 @@ import {
   getCurrentIsolationKey_ACU,
 } from '../../service/runtime/state-manager';
 import { getChatArray_ACU } from '../../service/chat/chat-service';
+import { getAcuHostKind } from '../../shared/host-bridge';
+import { getBuildStamp_ACU, getPluginVersion_ACU } from '../../shared/plugin-identity';
+import { getRecentLogs_ACU, maskSensitiveText_ACU } from '../../shared/log-buffer';
+import { isSqliteMode } from '../../service/table/storage-mode';
+import { copyTextToClipboard_ACU as copyTextToClipboard } from './clipboard';
+
 import { saveSettings_ACU } from '../../service/settings/settings-service';
 import {
   getCurrentTableDisplayData_ACU,
@@ -99,6 +105,9 @@ export interface ManualUpdateState {
   /** 上次手动填表的失败（持久显示，不随 toast 消失）；成功或用户消除后清空。 */
   lastManualUpdateFailure: Ref<{ at: number; text: string; rolledBack: boolean } | null>;
   dismissManualUpdateFailure: () => void;
+  /** 组装「可贴给 AI」的失败排查文本（失败原因 + 环境 + 日志尾部，已脱敏）。 */
+  buildManualUpdateFailureReport: () => string;
+  copyManualUpdateFailureReport: () => Promise<void>;
   sheetKeys: ComputedRef<string[]>;
   sheetNames: ComputedRef<Record<string, string>>;
   /** runtime 是否已持有真实表格数据；false（如 purge 后）时展示层仅展示模板，选择器应禁用 */
@@ -782,6 +791,58 @@ export function useManualUpdate(): ManualUpdateState {
     }
   }
 
+  /**
+   * 把上次失败组装成**可直接贴进酒馆让 AI 排查**的脱敏文本。
+   *
+   * 为什么要有：失败原因此前只进 toast（部分宿主不可见），后来加到页面上但用户还得自己去开 Debug
+   * 面板、导出文件、再贴给 AI——三步且要离开当前页面。这里一步到位：失败原因 + 环境事实 +
+   * 本次失败前后的插件日志尾部（已脱敏），粘进聊天即可让 AI 照着定位。
+   */
+  function buildManualUpdateFailureReport(): string {
+    const failure = lastManualUpdateFailure.value;
+    if (!failure) return '（当前没有失败记录）';
+    const safeGet = (fn: () => unknown): string => {
+      try { const v = fn(); return v === undefined || v === null || v === '' ? '—' : String(v); } catch { return '—'; }
+    };
+    const lines: string[] = [];
+    lines.push('# 手动填表失败排查报告');
+    lines.push(`时间：${new Date(failure.at).toISOString()}`);
+    lines.push('');
+    lines.push('## 失败原因');
+    lines.push(failure.text);
+    lines.push('');
+    lines.push('## 环境');
+    lines.push(`- 宿主：${safeGet(() => getAcuHostKind())}`);
+    lines.push(`- 插件版本：${safeGet(() => getPluginVersion_ACU())}`);
+    lines.push(`- 构建戳：${safeGet(() => getBuildStamp_ACU())}`);
+    lines.push(`- 存储模式：${(() => { try { return isSqliteMode() ? 'SQLite' : 'JSON（原生）'; } catch { return '—'; } })()}`);
+    lines.push(`- 聊天标识：${String(currentChatFileIdentifier_ACU || '—')}`);
+    lines.push('');
+    lines.push('## 本次失败前后的插件日志（尾部，已脱敏）');
+    try {
+      const tail = getRecentLogs_ACU(200)
+        .filter(entry => /填表|Manual Refill|Manual Update|TableUpdate|Storage|SyncBridge/.test(entry.message))
+        .slice(-40)
+        .map(entry => `[${new Date(entry.timestamp).toISOString().slice(11, 23)}] ${entry.level} ${entry.message}`);
+      lines.push(tail.length ? tail.join('\n') : '(尾部日志里没有填表相关条目)');
+    } catch {
+      lines.push('(读取运行日志失败)');
+    }
+    lines.push('');
+    lines.push('> 本报告由插件生成并已过脱敏（不含密钥/请求头）。若日志不足以定位，可在「高级工具 → Debug」开采集后重试一次再导全量。');
+    return maskSensitiveText_ACU(lines.join('\n'));
+  }
+
+  async function copyManualUpdateFailureReport(): Promise<void> {
+    if (!lastManualUpdateFailure.value) {
+      toast.info('当前没有可复制的失败记录。');
+      return;
+    }
+    const ok = await copyTextToClipboard(buildManualUpdateFailureReport());
+    if (ok) toast.success('已复制失败排查报告（已脱敏），可直接贴进聊天让 AI 排查。');
+    else toast.warning('复制失败（宿主未开放剪贴板）。可在「高级工具 → 导出 Debug 数据」取全量日志。');
+  }
+
   return {
     selectedManualTableKeys,
     manualContextDepth,
@@ -791,6 +852,8 @@ export function useManualUpdate(): ManualUpdateState {
     catchUpBusy,
     lastManualUpdateFailure,
     dismissManualUpdateFailure: () => { lastManualUpdateFailure.value = null; },
+    buildManualUpdateFailureReport,
+    copyManualUpdateFailureReport,
     sheetKeys,
     sheetNames,
     runtimeReady,
