@@ -6,8 +6,15 @@ dist/
 .codebuddy/
 .specify/
 .limcode/
-.claude/
 .zcode/
+
+# Claude Code 项目级配置：Trellis 托管的这几个子路径随仓分发，其余（launch.json、worktrees/）留在本地
+.claude/*
+!.claude/agents/
+!.claude/commands/
+!.claude/hooks/
+!.claude/skills/
+!.claude/settings.json
 
 # 本地分析缓存/归档
 .analysis-cache.md
@@ -16,6 +23,7 @@ dist/
 
 # 日志与临时文件
 *.log
+*.bak
 .acu-*.txt
 tsc.log
 .smoke-trace.log
@@ -40,3 +48,9 @@ desktop.ini
 
 # 救援工具本地输出（含用户会话数据，禁止入库）
 .rescue-out/
+
+# Trellis：任务目录与开发者日志只作工作副本（规则 L0-17），公开仓不入库；
+# 规范条文一律落 .trellis/spec/（该目录入库）。与 tavern-init 写入的
+# session_auto_commit: false 配套。口径同 ST-Delegation-of-authority（公开仓防泄露）。
+.trellis/tasks/
+.trellis/workspace/
