@@ -6,6 +6,7 @@
  * rollup moduleAssemblyPlugin 对 .js 文件跳过 TS 转译，直接注入。
  */
 import DEFAULT_FILL_PROMPT_ACU from './table-defaults/fill-prompt.js';
+import { USER_PREFILL_CONTENT_ACU } from './user-prefill.js';
 
     export const DEFAULT_CHAR_CARD_PROMPT_ACU = DEFAULT_FILL_PROMPT_ACU;
 
@@ -342,8 +343,8 @@ import DEFAULT_FILL_PROMPT_ACU from './table-defaults/fill-prompt.js';
     "deletable": true
   },
   {
-    "role": "assistant",
-    "content": "<thought>\n收到指令，我将一步一步进行思考，首先让我来根据用户的输入结合上下文与背景设定推测剧情大概会如何发展",
+    "role": "user",
+    "content": USER_PREFILL_CONTENT_ACU,
     "deletable": true
   }
 ];

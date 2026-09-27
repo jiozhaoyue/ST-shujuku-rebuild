@@ -128,6 +128,11 @@ describe('saveGlobalMeta_ACU', () => {
     expect(result).toBe(false);
     expect(mockLogWarn).toHaveBeenCalled();
   });
+
+  it('存储门面明确返回 false 时不得谎报成功', () => {
+    mockStore.setItem.mockImplementationOnce(() => false);
+    expect(saveGlobalMeta_ACU()).toBe(false);
+  });
 });
 
 // ═══ readProfileSettingsFromStorage_ACU ═══

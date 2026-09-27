@@ -5,6 +5,7 @@ import { AgentSubagentRuntime_ACU } from '../../../../src/service/continuation/a
 import { buildEmptyAgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-module-store';
 import { appendAgentConversation_ACU, buildEmptyAgentConversation_ACU } from '../../../../src/service/continuation/agent/agent-conversation-store';
 import { buildEmptyAgentWorldbookSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-worldbook-read';
+import { USER_PREFILL_CONTENT_ACU } from '../../../../src/shared/user-prefill.js';
 import { buildDefaultContinuationSettings_ACU } from '../../../../src/service/continuation/defaults';
 import { ContinuationValidationError_ACU, type ContinuationInternalAiRequestIdentity_ACU } from '../../../../src/service/continuation/model';
 import { isAgentSessionRunning_ACU, readAgentSessionLog_ACU, resetAgentSessionLogForTests_ACU } from '../../../../src/service/continuation/agent/agent-session-log';
@@ -627,8 +628,9 @@ describe('主 Agent 提示词装配', () => {
     expect(messages[runtimeIndex].content).toContain('阶段 2：禁区试探');
     expect(messages[runtimeIndex].content).toContain('大纲是计划，不是已经发生的事实');
     expect(messages[runtimeIndex].content.startsWith('【运行时快照】')).toBe(true);
-    expect(lastMessage_ACU(messages).role).toBe('assistant');
-    expect(lastMessage_ACU(messages).content.endsWith('"thought": "')).toBe(true);
+    expect(lastMessage_ACU(messages).role).toBe('user');
+    // V36（user-prefill 切换批）：预填充以 user + USER_PREFILL 形态收尾，锚定语义「预填充恒最后」不变。
+    expect(lastMessage_ACU(messages).content).toBe(USER_PREFILL_CONTENT_ACU);
     expect(messages.some(message => message.content.includes('$HISTORY_ANCHOR'))).toBe(false);
   });
 

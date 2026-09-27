@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentSubagentRuntime_ACU, renderStoryArcVolumePlanInstruction_ACU } from '../../../../src/service/continuation/agent/agent-subagent-runtime';
+import { USER_PREFILL_CONTENT_ACU } from '../../../../src/shared/user-prefill.js';
 import { buildEmptyAgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-module-store';
 import { buildDefaultContinuationSettings_ACU } from '../../../../src/service/continuation/defaults';
 import type { AiUsageMetadata_ACU } from '../../../../src/service/continuation/internal-ai-call';
@@ -201,8 +202,10 @@ describe('AgentSubagentRuntime_ACU usage 累计', () => {
 
     const messages = calls[0];
     const last = messages[messages.length - 1];
-    expect(last.role).toBe('assistant');
-    expect(last.content).toBe('{\n  "summary": "');
+    // V36（user-prefill 切换批）后尾段预填充形态为 user + USER_PREFILL；锁定的语义不变：
+    // 预填充恒为最后一条消息，运行时注入（卷数计划/预算状态）都落在它之前。
+    expect(last.role).toBe('user');
+    expect(last.content).toBe(USER_PREFILL_CONTENT_ACU);
     // 读取预算状态是运行时信息，紧贴预填充注入，是模型看到的最后一条 user 消息。
     expect(messages[messages.length - 2].role).toBe('user');
     expect(messages[messages.length - 2].content).toContain('【读取预算状态】');
@@ -502,5 +505,32 @@ describe('契约解析被拒时改指 write_sql（上游 3c4beb9+56540c9 的 TT 
     const repair = calls[1].map(message => message.content).join('\n');
     expect(repair).toContain('请修正后重新输出符合契约的 JSON 对象');
     expect(repair).not.toContain('write_sql');
+  });
+});
+
+describe('尾部预填充识别（user-prefill 形态，移植上游 ce867f86）', () => {
+  it('user + USER_PREFILL 收尾也识别为尾部预填充：运行时追加落在它之前', async () => {
+    const { insertBeforeTrailingPrefill_ACU } = await import('../../../../src/service/continuation/agent/agent-subagent-runtime');
+    const { USER_PREFILL_CONTENT_ACU } = await import('../../../../src/shared/user-prefill.js');
+    const messages = [
+      { role: 'system', content: '骨架' },
+      { role: 'user', content: USER_PREFILL_CONTENT_ACU },
+    ];
+    const out = insertBeforeTrailingPrefill_ACU(messages, { role: 'user', content: '预算状态' });
+    expect(out[out.length - 1].content).toBe(USER_PREFILL_CONTENT_ACU);
+    expect(out[out.length - 2].content).toBe('预算状态');
+  });
+
+  it('assistant 旧形态尾段仍识别；普通 user 尾段不误判、直接追加', async () => {
+    const { insertBeforeTrailingPrefill_ACU } = await import('../../../../src/service/continuation/agent/agent-subagent-runtime');
+    const legacy = [
+      { role: 'user', content: '骨架' },
+      { role: 'assistant', content: '{\n  "summary": "' },
+    ];
+    const outLegacy = insertBeforeTrailingPrefill_ACU(legacy, { role: 'user', content: '注入' });
+    expect(outLegacy[outLegacy.length - 1]).toEqual(legacy[1]);
+    const plain = [{ role: 'user', content: '普通收尾（非预填充）' }];
+    const outPlain = insertBeforeTrailingPrefill_ACU(plain, { role: 'user', content: '注入' });
+    expect(outPlain.map(item => item.content)).toEqual(['普通收尾（非预填充）', '注入']);
   });
 });

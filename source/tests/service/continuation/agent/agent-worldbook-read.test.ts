@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU } from '../../../../src/service/continuation/agent/agent-defaults';
 import {
   buildEmptyAgentWorldbookSnapshot_ACU,
   renderAgentWorldbookBrowseCatalog_ACU,
@@ -10,6 +11,18 @@ import {
   type AgentWorldbookEntryView_ACU,
   type AgentWorldbookSnapshot_ACU,
 } from '../../../../src/service/continuation/agent/agent-worldbook-read';
+
+describe('运行时快照资料边界（TT 移植上游 86be318e）', () => {
+  it('不再单独注入表格目录；世界书仍通过目录、命中条目和读取地址访问', () => {
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).not.toContain('$TABLE_CATALOG');
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).not.toContain('【表格目录】');
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).toContain('$WORLDBOOK_HITS');
+    // 本地快照口径：世界书目录与读取地址词汇表不受本次收窄影响。
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).toContain('$WORLDBOOK_CATALOG');
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).toContain('$AGENT_READ_CATALOG');
+    expect(AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU).toContain('$MODULE_CATALOG');
+  });
+});
 
 function snapshot_ACU(): AgentWorldbookSnapshot_ACU {
   return {

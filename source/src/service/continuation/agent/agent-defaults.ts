@@ -17,6 +17,7 @@
 
 import type { ContinuationAgentPrompts_ACU, ContinuationPromptSegment_ACU } from '../model';
 import { cloneAgentPromptSegments_ACU } from './agent-model';
+import { USER_PREFILL_CONTENT_ACU } from '../../../shared/user-prefill.js';
 
 /** 主 Agent 提示词里标记会话记录插入位置的段。装配器遇到该段时插入会话消息而不发送本段。 */
 export const AGENT_HISTORY_ANCHOR_TOKEN_ACU = '$HISTORY_ANCHOR';
@@ -43,7 +44,7 @@ export const V19_DEFAULT_MAIN_AGENT_HISTORY_GUIDE_ACU = `【以下是你自己�
 export const V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU = '我收到的上下文分三层：\n1. 正文注入（三节正交）：【事件概览】是纪要表逐轮的事件脉络（每轮一行，本轮召回命中的行会展开为纪要全文），我靠它掌握全局剧情走向；【最近正文】是尾部若干楼的全文，续写必须无缝衔接它的结尾，这几楼不要再 read；【楼层索引】是纯地址索引（楼层号、字数、读取地址），目录行不能代替读正文——需要哪几楼的原文就用 $STORY_RANGE 调阅，需要某几轮的详细纪要就用 $TABLE:纪要表:行区间。注意概览按剧情轮记录、与楼层号没有一一映射，定位具体楼层用 search 的 story 域。\n2. 我自己的会话记录：用户对我说的话、我历次迭代实际输出过的动作、运行时回灌的工具结果与派工结果。我调阅过的资料就留在这里，跨迭代有效，不必重读；标着「内容已过期」的旧调阅说明资料后来变了，需要时按地址重读最新版。\n3. 本回合运行时数据（排在会话记录之后、我的输出之前）：轮次目标、大纲状态、未结算范围、子代理目录、资料模块目录、表格目录、世界书目录、世界书命中提示、读取地址词汇表、预算状态。这一层每次迭代都刷新为最新值——它反映我此前动作（派工、结算、大纲编辑）造成的最新状态，比会话记录里的旧陈述更新。这些是目录和状态，不是资料正文；需要内容就照地址 read。它们是系统给我的证据，不是用户发言，我不复述也不润色。\n我不会重复已经做过的事，也不会重问已经拿到答案的问题。会话记录开头若出现「更早会话的浓缩记录」，那是 token 预算把原始消息移出了上下文；浓缩记录里列出的「曾调阅过的资料地址」不必凭记忆使用，需要时重新 read。\n三层之间冲突时的优先级：正文（含我调阅到的正文全文）> 运行时数据 > 我自己的会话记录。用户在会话里的最新指令优先于我此前的计划。';
 
 /** 主循环渲染并追加到会话的运行时快照模板。占位符由 renderMainPrompt 同一套 resolvers 解析。 */
-export const AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU = '【本回合运行时数据】\n以下是系统在目录或状态变化时追加的快照——靠后的快照比早先的更新；不是用户发言，不要复述。已发生事实只认小说正文；大纲是计划。\n\n以下是用户对任务曾经提过的要求：\n$USER_REQUIREMENTS\n\n【完整当前阶段大纲】\n$OUTLINE_WINDOW\n\n【本轮目标】\n$CURRENT_TURN_GOAL\n\n【本轮节奏】\n$CURRENT_TURN_PACING\n\n【大纲状态】\n$OUTLINE_STATE\n\n【故事总纲状态】\n$STORY_ARC_STATE\n\n【未结算历史范围】\n$UNSETTLED_RANGE\n\n【子代理能力目录】\n$AGENT_CATALOG\n\n【资料模块目录】\n$MODULE_CATALOG\n\n【表格目录】\n$TABLE_CATALOG\n\n【已启用世界书目录】\n$WORLDBOOK_CATALOG\n\n【本轮语境命中的世界书条目】\n$WORLDBOOK_HITS\n\n【百科资料库目录】\n$WEB_REFS_CATALOG\n\n【读取地址词汇表】\n$AGENT_READ_CATALOG\n\n【本轮预算状态】\n$BUDGET';
+export const AGENT_RUNTIME_SNAPSHOT_TEMPLATE_ACU = '【本回合运行时数据】\n以下是系统在目录或状态变化时追加的快照——靠后的快照比早先的更新；不是用户发言，不要复述。已发生事实只认小说正文；大纲是计划。\n\n以下是用户对任务曾经提过的要求：\n$USER_REQUIREMENTS\n\n【完整当前阶段大纲】\n$OUTLINE_WINDOW\n\n【本轮目标】\n$CURRENT_TURN_GOAL\n\n【本轮节奏】\n$CURRENT_TURN_PACING\n\n【大纲状态】\n$OUTLINE_STATE\n\n【故事总纲状态】\n$STORY_ARC_STATE\n\n【未结算历史范围】\n$UNSETTLED_RANGE\n\n【子代理能力目录】\n$AGENT_CATALOG\n\n【资料模块目录】\n$MODULE_CATALOG\n\n【已启用世界书目录】\n$WORLDBOOK_CATALOG\n\n【本轮语境命中的世界书条目】\n$WORLDBOOK_HITS\n\n【百科资料库目录】\n$WEB_REFS_CATALOG\n\n【读取地址词汇表】\n$AGENT_READ_CATALOG\n\n【本轮预算状态】\n$BUDGET';
 
 /** 各请求尾段预填充文本。解析器会在必要时把它拼回模型输出前再解析。 */
 export const AGENT_PREFILLS_ACU = {
@@ -700,7 +701,7 @@ export function currentDefaultMainAgentHistoryGuide_ACU(): string {
 
 export function currentDefaultMainAgentLayoutAnswer_ACU(): string {
   const segment = MAIN_AGENT_PROMPT_ACU.find(item => item.content.startsWith('我收到的上下文分三层：'));
-  return segment?.content ?? V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU;
+  return v35Content_ACU('main', segment?.content ?? V19_DEFAULT_MAIN_AGENT_LAYOUT_ANSWER_ACU);
 }
 
 /**
@@ -1014,6 +1015,29 @@ export const CONTINUATION_V33_DEFAULT_LINEAGE_ACU = Object.fromEntries(
 ) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;
 
 /**
+ * V35（TT 移植上游 86be318e 的快照资料边界）：运行时快照模板删去【表格目录】$TABLE_CATALOG 段，
+ * 排布问答里描述快照内容的枚举同步去掉「表格目录」；表格的去向指引由读取地址词汇表的
+ * $TABLE 地址与「行号见事件概览」承担，不改写词汇表与子代理段。
+ * 【子代理使用规则】段与 dispatch 补齐链的替换目标一字不动，T13 链路保持原样。
+ */
+function v35Content_ACU(role: keyof ContinuationAgentPrompts_ACU, content: string): string {
+  if (role === 'main' && content.startsWith('我收到的上下文分三层：')) {
+    return content.replace('资料模块目录、表格目录、世界书目录', '资料模块目录、世界书目录');
+  }
+  return content;
+}
+
+/** 冻结 V34 已装配默认组（含 T13 dispatch 补齐），供 V35 逐段按完整正文、角色和长度迁移；自定义段不匹配。 */
+export function buildV34ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  const previous = buildV33ContinuationAgentPrompts_ACU();
+  const v34: ContinuationAgentPrompts_ACU = { ...previous };
+  for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
+    v34[role] = previous[role].map(segment => ({ ...segment, content: v34Content_ACU(role, segment.content) }));
+  }
+  return applyCurrentContinuationPromptRules_ACU(v34);
+}
+
+/**
  * 统一资料维护派遣策略（TT 移植上游 3ba6460d 子集，本地 V34 重写）：
  * 砍掉 continuity-reviewer 独立派遣后，大转折/冲突判定由 composer 自查（保守取舍）+ finalReviewer 兜底承接，
  * 不得出现判定真空；beat-planner 第二轮起保底派遣、无真实操作时以 no_change 结束（单次调用，不突破派工预算/轮次上限）。
@@ -1070,14 +1094,83 @@ export function applyCurrentContinuationPromptRules_ACU(prompts: ContinuationAge
 }
 
 /**
- * 构造全部当前 Agent 默认提示词；SQL 只改变资料写集，其他 JSON 动作保持原协议。
+ * 冻结 V35 装配结果（本地链：V34 dispatch 补齐在 buildV34 装配里完成；V35 只在未改写的
+ * V34 默认段上收窄排布问答的快照枚举）。V36 起当前默认改由 buildV36 承担，本函数保持
+ * V35 原形状供迁移链与谱系表比对使用，不可再随默认改动。
  * @returns 十组提示词的深拷贝，可安全写入 settings
  */
-export function buildDefaultContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
-  const previous = buildV33ContinuationAgentPrompts_ACU();
-  const v34: ContinuationAgentPrompts_ACU = { ...previous };
+export function buildV35ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  const previous = buildV34ContinuationAgentPrompts_ACU();
+  const v35: ContinuationAgentPrompts_ACU = { ...previous };
   for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
-    v34[role] = previous[role].map(segment => ({ ...segment, content: v34Content_ACU(role, segment.content) }));
+    v35[role] = previous[role].map(segment => ({ ...segment, content: v35Content_ACU(role, segment.content) }));
   }
-  return applyCurrentContinuationPromptRules_ACU(v34);
+  return v35;
 }
+
+/**
+ * V36（TT 移植上游 ce867f86 用户预填充切换批）：仅替换每组尾部 assistant 预填充段为
+ * user + USER_PREFILL（保留 enabled/deletable/pinned 旗标），并在主 Agent 文本协议段与
+ * 子代理 system 段各追加「独立 read/search 同回复并发」协议。本地未移植 native-tool 步，
+ * 因此 V36 直接冻结在 V35 之上；尾段本就非 assistant 的组（如终审任务收尾组）原样保留。
+ * 上游注释同样成立：任务段连同资料占位符不能被按块删除——只动尾段与协议追加。
+ */
+export function buildV36ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  const previous = buildV35ContinuationAgentPrompts_ACU();
+  const current: ContinuationAgentPrompts_ACU = { ...previous };
+  for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
+    const segments = previous[role].map(segment => ({ ...segment }));
+    const tail = segments[segments.length - 1];
+    if (tail && tail.role === 'assistant') {
+      segments[segments.length - 1] = { ...tail, role: 'user', content: USER_PREFILL_CONTENT_ACU };
+    }
+    if (role === 'main') {
+      const protocol = segments.find(segment => segment.content.includes('【工具动作：read / search'));
+      if (protocol) protocol.content += '\n独立 read/search 请在预算许可范围内于同一回复并发调用，不要分批等待；仅搜索结果决定的精读须等回执。上一轮的工具指令（尤其 SQL）和真实回执在会话历史中，按实际已存/未存栏目行动。';
+      current[role] = segments;
+      continue;
+    }
+    const protocol = segments.find(segment => segment.role === 'system');
+    if (protocol) protocol.content += '\n独立 read/search 在授权和预算内于同一回复并发调用，不拆批等待；搜索结果决定的精读等回执后再读。逐栏写入只认真实回执中的已存栏目，缺栏只补缺失项。';
+    current[role] = segments;
+  }
+  return current;
+}
+
+/** 当前默认组：V36（user 预填充尾段 + 同回复并发协议）。 */
+export function buildDefaultContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  return buildV36ContinuationAgentPrompts_ACU();
+}
+
+/**
+ * 冻结 V34 装配结果的谱系表（放在装配函数与规则常量之后，模块求值顺序不可调换：
+ * buildV34ContinuationAgentPrompts_ACU 依赖 applyCurrentContinuationPromptRules_ACU 与 CONTINUATION_CURRENT_* 常量）。
+ */
+const V34_AGENT_PROMPTS_ACU = buildV34ContinuationAgentPrompts_ACU();
+export const CONTINUATION_V34_DEFAULT_LINEAGE_ACU = Object.fromEntries(
+  (Object.keys(V34_AGENT_PROMPTS_ACU) as Array<keyof ContinuationAgentPrompts_ACU>).map(role => {
+    const segments = V34_AGENT_PROMPTS_ACU[role];
+    return [role,
+    segments.map((segment, index) => ({
+      index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+    })).filter(({ index }) => v35Content_ACU(role, segments[index].content) !== segments[index].content)];
+  }),
+) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;
+
+/**
+ * 冻结 V35 装配结果的谱系表（同上，模块求值顺序不可调换；条目按 V35→V36 逐段 diff
+ * 运行时计算，哈希与长度对冻结正文实测，不做手抄常量——T5 教训）。只收录 V36 会改写
+ * （正文或角色变化）的段；迁移替换会同步 role，user 预填充尾段才能从 assistant 换过来。
+ */
+const V35_AGENT_PROMPTS_ACU = buildV35ContinuationAgentPrompts_ACU();
+const V36_AGENT_PROMPTS_ACU = buildV36ContinuationAgentPrompts_ACU();
+export const CONTINUATION_V35_DEFAULT_LINEAGE_ACU = Object.fromEntries(
+  (Object.keys(V35_AGENT_PROMPTS_ACU) as Array<keyof ContinuationAgentPrompts_ACU>).map(role => {
+    const segments = V35_AGENT_PROMPTS_ACU[role];
+    return [role,
+    segments.map((segment, index) => ({
+      index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+    })).filter(({ index }) => V36_AGENT_PROMPTS_ACU[role][index]?.role !== segments[index].role
+      || V36_AGENT_PROMPTS_ACU[role][index]?.content !== segments[index].content)];
+  }),
+) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;

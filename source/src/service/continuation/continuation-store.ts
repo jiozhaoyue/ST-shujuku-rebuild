@@ -1,8 +1,9 @@
 import { getChatArray_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { getActiveChatStorageIdentity_ACU } from '../../data/storage/chat-history';
-import { buildDefaultContinuationSettings_ACU, buildDefaultContinuationOutlinePrompt_ACU, buildDefaultContinuationAgentApiPresets_ACU, buildDefaultContinuationWebResearchSettings_ACU, buildDefaultContinuationWorkflowSettings_ACU, CONTINUATION_FINAL_REVIEW_MAX_EXTRA_READS_DEFAULT_ACU, CONTINUATION_FINAL_REVIEW_READ_TOKEN_BUDGET_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU, CONTINUATION_MIN_GENERATION_TOKENS_DEFAULT_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V17_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V18_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V19_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V20_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V21_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V22_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V23_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V24_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V25_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V26_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU, V23_DEFAULT_OUTLINE_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_METHOD_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_PACING_SEGMENT_ACU, V23_DEFAULT_OUTLINE_SYSTEM_SEGMENT_ACU, V24_OUTLINE_LONGFORM_PACING_CONTRACT_ACU, V26_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V27_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU } from './defaults';
+import { USER_PREFILL_CONTENT_ACU } from '../../shared/user-prefill.js';
+import { buildDefaultContinuationSettings_ACU, buildDefaultContinuationOutlinePrompt_ACU, buildDefaultContinuationAgentApiPresets_ACU, buildDefaultContinuationWebResearchSettings_ACU, buildDefaultContinuationWorkflowSettings_ACU, CONTINUATION_FINAL_REVIEW_MAX_EXTRA_READS_DEFAULT_ACU, CONTINUATION_FINAL_REVIEW_READ_TOKEN_BUDGET_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_DEFAULT_ACU, CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU, CONTINUATION_MIN_GENERATION_TOKENS_DEFAULT_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V17_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V18_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V19_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V20_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V21_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V22_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V23_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V24_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V25_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V26_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V27_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V29_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V30_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU, V23_DEFAULT_OUTLINE_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_METHOD_ACK_SEGMENT_ACU, V23_DEFAULT_OUTLINE_PACING_SEGMENT_ACU, V23_DEFAULT_OUTLINE_SYSTEM_SEGMENT_ACU, V24_OUTLINE_LONGFORM_PACING_CONTRACT_ACU, V26_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V27_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU, V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU } from './defaults';
 import { reconcileContinuationEnvelopeCursor_ACU } from './stage-cursor';
-import { AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU, AGENT_HISTORY_READ_RULE_V17_ACU, AGENT_HISTORY_READ_RULE_V18_ACU, AGENT_PROMPT_DEFAULT_LINEAGE_ACU, CONTINUATION_CURRENT_COMPOSER_RULES_ACU, CONTINUATION_CURRENT_FINAL_REVIEW_RULES_ACU, CONTINUATION_CURRENT_MAIN_WORKFLOW_RULES_ACU, CONTINUATION_V33_DEFAULT_LINEAGE_ACU, buildV33ContinuationAgentPrompts_ACU, buildDefaultAgentArcArchitectPrompt_ACU, buildDefaultContinuationAgentPrompts_ACU, currentDefaultMainAgentHistoryGuide_ACU, currentDefaultMainAgentLayoutAnswer_ACU, findAgentPromptSlot_ACU, hashAgentPromptContent_ACU, isV18DefaultMainAgentNonRootSystemSegment_ACU, isV19DefaultMainAgentHistoryGuide_ACU, isV19DefaultMainAgentLayoutAnswer_ACU, isV19DefaultMainAgentRuntimeSegment_ACU, migrateV29DefaultMainAgentContentToV30_ACU, V20_DEFAULT_ARC_ARCHITECT_CONTRACT_ACU, V20_DEFAULT_ARC_ARCHITECT_EPISTEMOLOGY_ACU, V20_DEFAULT_ARC_ARCHITECT_PURPOSE_ACU, V20_DEFAULT_ARC_ARCHITECT_SYSTEM_ACU, V20_DEFAULT_ARC_ARCHITECT_TASK_ACU, V23_MAIN_AGENT_PACING_RULE_ACU, V24_MAIN_AGENT_PACING_RULE_ACU, V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU, V26_FINAL_REVIEWER_CHRONOLOGY_RULES_ACU, V26_MAIN_AGENT_CHRONOLOGY_RULE_ACU, V26_MAINTAINER_CHRONOLOGY_CONTRACT_ACU, type AgentPromptSlotKey_ACU } from './agent/agent-defaults';
+import { AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU, AGENT_HISTORY_READ_RULE_V17_ACU, AGENT_HISTORY_READ_RULE_V18_ACU, AGENT_PROMPT_DEFAULT_LINEAGE_ACU, CONTINUATION_CURRENT_COMPOSER_RULES_ACU, CONTINUATION_CURRENT_FINAL_REVIEW_RULES_ACU, CONTINUATION_CURRENT_MAIN_WORKFLOW_RULES_ACU, CONTINUATION_V33_DEFAULT_LINEAGE_ACU, CONTINUATION_V34_DEFAULT_LINEAGE_ACU, CONTINUATION_V35_DEFAULT_LINEAGE_ACU, buildV33ContinuationAgentPrompts_ACU, buildV34ContinuationAgentPrompts_ACU, buildV35ContinuationAgentPrompts_ACU, buildV36ContinuationAgentPrompts_ACU, buildDefaultAgentArcArchitectPrompt_ACU, buildDefaultContinuationAgentPrompts_ACU, currentDefaultMainAgentHistoryGuide_ACU, currentDefaultMainAgentLayoutAnswer_ACU, findAgentPromptSlot_ACU, hashAgentPromptContent_ACU, isV18DefaultMainAgentNonRootSystemSegment_ACU, isV19DefaultMainAgentHistoryGuide_ACU, isV19DefaultMainAgentLayoutAnswer_ACU, isV19DefaultMainAgentRuntimeSegment_ACU, migrateV29DefaultMainAgentContentToV30_ACU, V20_DEFAULT_ARC_ARCHITECT_CONTRACT_ACU, V20_DEFAULT_ARC_ARCHITECT_EPISTEMOLOGY_ACU, V20_DEFAULT_ARC_ARCHITECT_PURPOSE_ACU, V20_DEFAULT_ARC_ARCHITECT_SYSTEM_ACU, V20_DEFAULT_ARC_ARCHITECT_TASK_ACU, V23_MAIN_AGENT_PACING_RULE_ACU, V24_MAIN_AGENT_PACING_RULE_ACU, V25_ARC_ARCHITECT_VOLUME_CAPACITY_CONTRACT_ACU, V26_FINAL_REVIEWER_CHRONOLOGY_RULES_ACU, V26_MAIN_AGENT_CHRONOLOGY_RULE_ACU, V26_MAINTAINER_CHRONOLOGY_CONTRACT_ACU, type AgentPromptSlotKey_ACU } from './agent/agent-defaults';
 import {
   AGENT_HISTORY_TOKEN_BUDGET_DEFAULT_ACU,
   AGENT_READ_FALLBACK_TOKENS_DEFAULT_ACU,
@@ -675,6 +676,75 @@ function migrateV33AgentPromptsToV34_ACU(raw: unknown): unknown {
   return changed ? next : raw;
 }
 
+/**
+ * V34 → V35（TT 移植上游 86be318e 的快照资料边界）：运行时快照模板删去【表格目录】$TABLE_CATALOG 段，
+ * 排布问答里描述快照内容的枚举按谱系同步收窄。谱系替换只命中与冻结的 V34 默认全文逐字相同的段
+ * （角色 + 长度 + 哈希 + 原文四重校验），用户改写段原样保留；替换后内容等于当前默认，再跑一遍不再命中，天然幂等。
+ * T13 的 dispatch 补齐链冻结在 buildV34ContinuationAgentPrompts_ACU 装配里，本步不触碰、也不可再触碰。
+ */
+function migrateV34AgentPromptsToV35_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const previous = buildV34ContinuationAgentPrompts_ACU();
+  const current = buildV35ContinuationAgentPrompts_ACU();
+  let changed = false;
+  const next = { ...raw };
+  for (const role of Object.keys(CONTINUATION_V34_DEFAULT_LINEAGE_ACU) as (keyof typeof previous)[]) {
+    if (!Array.isArray(raw[role])) continue;
+    next[role] = raw[role].map(segment => {
+      if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+      const content = segment.content;
+      const entry = CONTINUATION_V34_DEFAULT_LINEAGE_ACU[role].find(item => item.role === segment.role
+        && item.length === content.length && item.hash === hashAgentPromptContent_ACU(content)
+        && content === previous[role][item.index].content);
+      if (!entry) return segment;
+      changed = true;
+      return { ...segment, content: current[role][entry.index].content };
+    });
+  }
+  return changed ? next : raw;
+}
+
+/**
+ * V35 → V36（TT 移植上游 ce867f86 user-prefill 切换批）：尾部 assistant 预填充段换成
+ * user + USER_PREFILL，主文本协议段与子代理 system 段的并发协议追加按谱系同步。谱系替换
+ * 只命中与冻结的 V35 默认全文逐字相同的段（角色 + 长度 + 哈希 + 原文四重校验），命中后
+ * 角色随 V36 形态一起换；用户改写段原样保留，终审任务收尾段等本就非 assistant 的尾段不触碰。
+ * 替换后内容等于当前默认，再跑一遍不再命中，天然幂等。
+ */
+function migrateV35AgentPromptsToV36_ACU(raw: unknown): unknown {
+  if (!isRecord_ACU(raw)) return raw;
+  const previous = buildV35ContinuationAgentPrompts_ACU();
+  const current = buildV36ContinuationAgentPrompts_ACU();
+  let changed = false;
+  const next = { ...raw };
+  for (const role of Object.keys(CONTINUATION_V35_DEFAULT_LINEAGE_ACU) as (keyof typeof previous)[]) {
+    if (!Array.isArray(raw[role])) continue;
+    next[role] = raw[role].map(segment => {
+      if (!isRecord_ACU(segment) || typeof segment.content !== 'string') return segment;
+      const content = segment.content;
+      const entry = CONTINUATION_V35_DEFAULT_LINEAGE_ACU[role].find(item => item.role === segment.role
+        && item.length === content.length && item.hash === hashAgentPromptContent_ACU(content)
+        && content === previous[role][item.index].content);
+      if (!entry) return segment;
+      changed = true;
+      return { ...segment, role: current[role][entry.index].role, content: current[role][entry.index].content };
+    });
+  }
+  return changed ? next : raw;
+}
+
+/**
+ * V36 → V37（TT 移植上游 255dfd62）：outlinePrompt 独立存放，V36 漏掉了它。
+ * 仅当尾段恰为冻结的 V36 默认上下文注入段（V31 全文逐字）时追加 user 预填充尾段；
+ * 用户定制收尾不强刷。已带预填充尾段的组再跑不命中，幂等。
+ */
+function migrateV36OutlinePromptToV37_ACU(raw: unknown): unknown {
+  if (!Array.isArray(raw) || !raw.length) return raw;
+  const last = raw[raw.length - 1];
+  if (!isRecord_ACU(last) || last.role !== 'user' || last.content !== V31_DEFAULT_OUTLINE_CONTEXT_SEGMENT_ACU) return raw;
+  return [...raw, { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true }];
+}
+
 function migrateV30OutlinePromptToV31_ACU(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
   let changed = false;
@@ -949,7 +1019,10 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V31_ACU
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU
     && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU
-    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU) {
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU
+    && promptForceDefaultVersion !== CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU) {
     outlinePrompt = buildDefaultContinuationOutlinePrompt_ACU();
     agentPrompts = buildDefaultContinuationAgentPrompts_ACU();
     promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V28_ACU;
@@ -1003,6 +1076,18 @@ function validateSettings_ACU(raw: unknown): ContinuationSettings_ACU {
   if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU) {
     agentPrompts = migrateV33AgentPromptsToV34_ACU(agentPrompts);
     promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU) {
+    agentPrompts = migrateV34AgentPromptsToV35_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU) {
+    agentPrompts = migrateV35AgentPromptsToV36_ACU(agentPrompts);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU;
+  }
+  if (promptForceDefaultVersion === CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU) {
+    outlinePrompt = migrateV36OutlinePromptToV37_ACU(outlinePrompt);
+    promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU;
   }
   
   return {

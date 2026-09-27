@@ -1,3 +1,4 @@
+import { USER_PREFILL_CONTENT_ACU } from '../../shared/user-prefill.js';
 import { callContinuationInternalAi_ACU, CONTINUATION_ROLE_OUTPUT_TOKEN_FLOORS_ACU, type ContinuationInternalAiCallOptions_ACU } from './internal-ai-call';
 import { normalizeContinuationInternalAiRetryLimit_ACU } from './defaults';
 import { resolveContinuationAgentApiPreset_ACU, type ContinuationApiPresetDependencies_ACU, type ContinuationResolvedApiPreset_ACU } from './api-preset';
@@ -271,6 +272,9 @@ export class ContinuationOutlinePlanner_ACU {
     // 校验错误不再写回骨架占位符：重试只追加 transcript，前缀保持字节级稳定以便命中缓存。
     const rendered = await renderContinuationPrompt_ACU(request.settings.outlinePrompt, resolvers, request.reason === 'manual_replan' ? 'replan' : 'outline_prompt');
     // 大纲提示词没引用总纲与启用大纲时，运行时补注入一次：模型不能凭空猜方向与既有轮次进度。
+    // 预填充必须恒为最后一条消息：先把尾部 user 预填充摘下来，让补注入落在它之前，发送时再放回
+    // （TT 移植上游 255dfd62——注入落点缺陷的同款修复）。
+    const trailingPrefill = rendered.messages[rendered.messages.length - 1]?.content === USER_PREFILL_CONTENT_ACU ? rendered.messages.pop() : undefined;
     const renderedBlob = rendered.messages.map(message => message.content).join('\n');
     const injected: string[] = [];
     const storyArc = resolvers.$STORY_ARC ? String(await resolvers.$STORY_ARC() ?? '').trim() : '';
@@ -289,7 +293,7 @@ export class ContinuationOutlinePlanner_ACU {
       if (!isCurrent(identity)) {
         throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'outline_call', '阶段大纲内部请求已失效', false));
       }
-      const raw = await this.dependencies.callInternalAi(messages, preset, identity, request.signal ?? null, {
+      const raw = await this.dependencies.callInternalAi(trailingPrefill ? [...messages, trailingPrefill] : messages, preset, identity, request.signal ?? null, {
         promptCacheEnabled: request.settings.promptCacheEnabled,
         cacheScope: 'outline',
         minOutputTokens: CONTINUATION_ROLE_OUTPUT_TOKEN_FLOORS_ACU.outline,

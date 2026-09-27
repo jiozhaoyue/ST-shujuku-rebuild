@@ -1,5 +1,6 @@
 import { CONTINUATION_AGENT_API_PRESET_ROLES_ACU, ContinuationValidationError_ACU, createContinuationError_ACU, type ContinuationAgentApiPresets_ACU, type ContinuationPromptSegment_ACU, type ContinuationSettings_ACU, type ContinuationStageSize_ACU, type ContinuationTurnRange_ACU, type ContinuationWebResearchSettings_ACU } from './model';
 import { buildDefaultContinuationAgentPrompts_ACU } from './agent/agent-defaults';
+import { USER_PREFILL_CONTENT_ACU } from '../../shared/user-prefill.js';
 import {
   AGENT_HISTORY_TOKEN_BUDGET_DEFAULT_ACU,
   AGENT_READ_FALLBACK_TOKENS_DEFAULT_ACU,
@@ -183,6 +184,20 @@ export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V32_ACU = 'spv4.0-continu
 export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V33_ACU = 'spv4.1-continuation-information-boundary-v33';
 /** 清理活动默认段中的旧 JSON 写集指令，逐段迁移且保留用户自定义（TT 对标上游 V34）。 */
 export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU = 'spv4.2-continuation-sql-prompts-v34';
+/**
+ * V35 运行时快照删去【表格目录】$TABLE_CATALOG 段（TT 移植上游 86be318e 快照资料边界）：
+ * 表格去向由读取地址词汇表的 $TABLE 地址与事件概览行号承担；排布问答的快照枚举按谱系同步，
+ * 用户定制段保留。世界书暴露范围同步收窄为「只屏蔽纪要与纪要索引」。
+ */
+export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU = 'spv4.3-continuation-snapshot-table-catalog-v35';
+/**
+ * V36（TT 移植上游 ce867f86 user-prefill 切换批）：各组尾部 assistant 预填充换成
+ * user + USER_PREFILL，协议段追加同回复并发；本地链未走上游 native-tool 档，V36 直接
+ * 冻结在 V35 之上。尾段本就非 assistant 的组（终审任务段收尾）不动。
+ */
+export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU = 'spv4.4-continuation-user-prefill-v36';
+/** V37（TT 移植上游 255dfd62）：V36 漏掉独立存放的 outlinePrompt，只对它补一次默认预填充尾段。 */
+export const CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU = 'spv4.5-continuation-outline-user-prefill-v37';
 
 /**
  * 连续高压轮上限的默认值。8 轮约等于 8000 字全程没有喘息——这才是病态；
@@ -228,7 +243,8 @@ function clonePromptSegments_ACU(segments: readonly ContinuationPromptSegment_AC
 }
 
 export function buildDefaultContinuationOutlinePrompt_ACU(): ContinuationPromptSegment_ACU[] {
-  return clonePromptSegments_ACU(DEFAULT_OUTLINE_PROMPT_ACU);
+  // 预填充恒在最后一组启用段之后；planner 注入 $STORY_ARC/大纲时会先摘下再放回（移植上游 255dfd62）。
+  return [...clonePromptSegments_ACU(DEFAULT_OUTLINE_PROMPT_ACU), { role: 'user', content: USER_PREFILL_CONTENT_ACU, enabled: true, deletable: true }];
 }
 
 export function buildDefaultContinuationWorkflowSettings_ACU(): ContinuationSettings_ACU['workflow'] {
@@ -279,7 +295,7 @@ export function buildDefaultContinuationSettings_ACU(): ContinuationSettings_ACU
     agentApiPresets: buildDefaultContinuationAgentApiPresets_ACU(),
     outlinePrompt: buildDefaultContinuationOutlinePrompt_ACU(),
     agentPrompts: buildDefaultContinuationAgentPrompts_ACU(),
-    promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V34_ACU,
+    promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU,
   };
 }
 

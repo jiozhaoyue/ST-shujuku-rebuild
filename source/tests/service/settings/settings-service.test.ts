@@ -131,6 +131,7 @@ vi.mock('../../../src/shared/defaults-json.js', () => ({
   DEFAULT_CHAR_CARD_PROMPT_ACU: [{ role: 'USER', content: '默认提示词' }],
   DEFAULT_CHAR_CARD_PROMPT_SQL_ACU: [{ role: 'USER', content: '默认 sql 提示词' }],
   DEFAULT_MERGE_SUMMARY_PROMPT_ACU: '默认合并提示词',
+  DEFAULT_PLOT_PROMPT_GROUP_ACU: [{ role: 'SYSTEM', content: '默认剧情头段' }, { role: 'user', content: 'mock-plot-user-prefill-tail', deletable: true }],
   DEFAULT_PLOT_SETTINGS_ACU: { enabled: false },
   DEFAULT_TABLE_TEMPLATE_ACU: DEFAULT_TEMPLATE_STR_ACU,
   ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU: JSON.stringify(DEFAULT_TEMPLATE_STR_ACU),
@@ -147,6 +148,8 @@ vi.mock('../../../src/shared/defaults', () => ({
   TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU: 'test-template-assistant-prompt-force-default',
   VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU: 'spv3.6.3-keyword-prompt-content-based-refresh',
   VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU: 'spv9.2-recall-params-force-override',
+  USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU: 'spv9.3-user-prefill-profile',
+  USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU: 'spv9.3-user-prefill-vector',
   VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU: ['summaryIndexKeywordMinRows', 'topK', 'minScore', 'recallCandidateLimit', 'bm25CandidateLimit', 'recentFixedInjectCount', 'rerankBatchSize'],
   SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU: 'spv3.6.10-v2-writer-force-enable',
   defaultWorldbookConfig_ACU: {
@@ -168,6 +171,7 @@ vi.mock('../../../src/shared/defaults', () => ({
     rerankBatchSize: 300,
     summaryIndexV2WriteEnabled: true,
     summaryIndexV2WriteScopeAllowlist: [],
+    keywordPromptGroup: [{ role: 'user', content: 'mock-keyword-user-prefill-tail', deletable: true }],
     summaryPromptGroup: []
   },
   buildDefaultPlotWorldbookConfig_ACU: () => ({ source: 'character', manualSelection: [], enabledEntries: {} }),
@@ -328,6 +332,7 @@ beforeEach(() => {
   mockSettings.currentTemplatePresetName = '';
   mockSettings.tableTemplateDefaultsRefreshVersion = '';
   mockSettings.tableFillPromptForceDefaultVersion = '';
+  delete mockSettings.userPrefillProfileForceDefaultVersion;
   mockSettings.maxConcurrentGroups = 1;
   mockSettings.zeroTkOccupyModeDefault = false;
   mockSettings.characterSettings = {};
@@ -775,6 +780,7 @@ describe('loadSettings_ACU', () => {
   it('当前 defaults marker 下仍补齐缺失的 V2 rollout 字段并持久化，不触发关键词默认值覆盖', () => {
     mockGlobalMeta.vectorMemoryConfigGlobal = {
       defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
+      keywordPromptForceDefaultVersion: 'spv9.3-user-prefill-vector',
       keywordPromptGroup: [{ content: '用户自定义关键词提示词' }],
     };
 
@@ -822,6 +828,7 @@ describe('loadSettings_ACU', () => {
     mockGlobalMeta.vectorMemoryConfigGlobal = {
       defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
       summaryIndexV2WriteForceEnableVersion: 'spv3.6.10-v2-writer-force-enable',
+      keywordPromptForceDefaultVersion: 'spv9.3-user-prefill-vector',
       summaryIndexKeywordMinRows: 100,
       topK: 60,
       minScore: 0.6,
@@ -867,6 +874,7 @@ describe('loadSettings_ACU', () => {
       defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
       summaryIndexV2WriteForceEnableVersion: 'spv3.6.10-v2-writer-force-enable',
       recallParamsForceOverrideVersion: 'spv9.2-recall-params-force-override',
+      keywordPromptForceDefaultVersion: 'spv9.3-user-prefill-vector',
       topK: 80,
       minScore: 0.5,
       recentFixedInjectCount: 20,
@@ -877,6 +885,92 @@ describe('loadSettings_ACU', () => {
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.topK).toBe(80);
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.minScore).toBe(0.5);
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.recentFixedInjectCount).toBe(20);
+  });
+
+  // ═══ spv9.3 user-prefill 一次性覆盖迁移（TT 移植上游 ce867f86）═══
+
+  it('spv9.3 关键词提示词一次性覆盖：marker 缺失时刷成带 user 预填充尾段的新默认', () => {
+    mockGlobalMeta.vectorMemoryConfigGlobal = {
+      defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
+      summaryIndexV2WriteForceEnableVersion: 'spv3.6.10-v2-writer-force-enable',
+      recallParamsForceOverrideVersion: 'spv9.2-recall-params-force-override',
+      keywordPromptGroup: [{ role: 'assistant', content: '<thinking>\n' }],
+    };
+
+    loadSettings_ACU();
+
+    const config = mockGlobalMeta.vectorMemoryConfigGlobal;
+    expect(config.keywordPromptGroup).toEqual([{ role: 'user', content: 'mock-keyword-user-prefill-tail', deletable: true }]);
+    expect(config.keywordPromptForceDefaultVersion).toBe('spv9.3-user-prefill-vector');
+    expect(mockSaveGlobalMeta).toHaveBeenCalled();
+  });
+
+  it('spv9.3 关键词提示词覆盖：globalMeta 保存失败必须回滚组与 marker，下一次加载重试', () => {
+    const previousGroup = [{ role: 'assistant', content: '<thinking>\n' }];
+    mockGlobalMeta.vectorMemoryConfigGlobal = {
+      defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
+      summaryIndexV2WriteForceEnableVersion: 'spv3.6.10-v2-writer-force-enable',
+      recallParamsForceOverrideVersion: 'spv9.2-recall-params-force-override',
+      keywordPromptGroup: previousGroup,
+    };
+    mockSaveGlobalMeta.mockReturnValue(false);
+
+    loadSettings_ACU();
+
+    const config = mockGlobalMeta.vectorMemoryConfigGlobal;
+    expect(config.keywordPromptGroup).toEqual(previousGroup);
+    expect(config.keywordPromptForceDefaultVersion).toBeUndefined();
+  });
+
+  it('spv9.3 关键词提示词 marker 已写入后，保留用户后续自定义的关键词提示词', () => {
+    mockGlobalMeta.vectorMemoryConfigGlobal = {
+      defaultsRefreshVersion: 'spv3.6.3-keyword-prompt-content-based-refresh',
+      summaryIndexV2WriteForceEnableVersion: 'spv3.6.10-v2-writer-force-enable',
+      recallParamsForceOverrideVersion: 'spv9.2-recall-params-force-override',
+      keywordPromptForceDefaultVersion: 'spv9.3-user-prefill-vector',
+      keywordPromptGroup: [{ role: 'user', content: '用户之后自定义的关键词提示词' }],
+    };
+
+    loadSettings_ACU();
+
+    expect(mockGlobalMeta.vectorMemoryConfigGlobal.keywordPromptGroup)
+      .toEqual([{ role: 'user', content: '用户之后自定义的关键词提示词' }]);
+  });
+
+  it('spv9.3 剧情提示词组一次性覆盖：marker 缺失时刷 promptGroup 并持久化', () => {
+    mockReadProfileSettings.mockReturnValue({
+      plotSettings: { plotWorldbookConfig: null, promptGroup: [{ role: 'assistant', content: '旧 assistant 尾段' }] },
+    });
+
+    loadSettings_ACU();
+
+    expect(mockSettings.plotSettings.promptGroup)
+      .toEqual([{ role: 'SYSTEM', content: '默认剧情头段' }, { role: 'user', content: 'mock-plot-user-prefill-tail', deletable: true }]);
+    expect(mockSettings.userPrefillProfileForceDefaultVersion).toBe('spv9.3-user-prefill-profile');
+    expect(mockPersistSettingsToStorage).toHaveBeenCalled();
+  });
+
+  it('spv9.3 剧情提示词组覆盖：保存失败必须回滚 promptGroup 与 marker，不谎报成功', () => {
+    mockReadProfileSettings.mockReturnValue({
+      plotSettings: { plotWorldbookConfig: null, promptGroup: [{ role: 'assistant', content: '旧 assistant 尾段' }] },
+    });
+    mockPersistSettingsToStorage.mockReturnValue(false);
+
+    loadSettings_ACU();
+
+    expect(mockSettings.plotSettings.promptGroup).toEqual([{ role: 'assistant', content: '旧 assistant 尾段' }]);
+    expect(mockSettings.userPrefillProfileForceDefaultVersion).toBeUndefined();
+  });
+
+  it('spv9.3 剧情提示词组 marker 已写入后，保留用户后续自定义 promptGroup', () => {
+    mockReadProfileSettings.mockReturnValue({
+      userPrefillProfileForceDefaultVersion: 'spv9.3-user-prefill-profile',
+      plotSettings: { plotWorldbookConfig: null, promptGroup: [{ role: 'user', content: '用户后续自定义剧情提示词' }] },
+    });
+
+    loadSettings_ACU();
+
+    expect(mockSettings.plotSettings.promptGroup).toEqual([{ role: 'user', content: '用户后续自定义剧情提示词' }]);
   });
 
   it('解析异常时回退到默认设置', () => {
