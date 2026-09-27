@@ -30,27 +30,17 @@ import type {
  * 消息上全部本地表格数据字段清单。
  * 硬清空、残留扫描与事务快照必须基于此清单；新增存储字段必须同步更新。
  */
-export const MESSAGE_TABLE_FIELDS_ACU: readonly string[] = [
-    'TavernDB_ACU_IsolatedData',
-    'TavernDB_ACU_IndependentData',
-    'TavernDB_ACU_Data',
-    'TavernDB_ACU_SummaryData',
-    'TavernDB_ACU_Identity',
-    'TavernDB_ACU_LocalMessageAnchor',
-    'TavernDB_ACU_ModifiedKeys',
-    'TavernDB_ACU_UpdateGroupKeys',
-    '_acu_local_template_base_state_seeded',
-] as const;
+import {
+    MESSAGE_TABLE_FIELDS_ACU,
+    FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU,
+} from '../../shared/persisted-surface';
+export { MESSAGE_TABLE_FIELDS_ACU, FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU };
 
 /**
  * chat[0] 上额外挂载的聊天级 scope/Guide 镜像字段（含旧版表头清单）。
  * 仅在首条消息上清空；chatMetadata 侧的对应字段由 storage 层 setter 清空。
  */
-export const FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU: readonly string[] = [
-    'TavernDB_ACU_ScopedConfig',
-    'TavernDB_ACU_InternalSheetGuide',
-    'TavernDB_ACU_TableHeaderGuide',
-] as const;
+
 
 // ════════════════════════════════════════════════════════════════
 // 内部辅助

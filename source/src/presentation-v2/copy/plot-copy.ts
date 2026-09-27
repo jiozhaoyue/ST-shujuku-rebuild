@@ -181,6 +181,21 @@ export const plotCopy = {
       skillifyReset: "载入内置默认 Skill 化提示词",
       skillifyResetSuccess: "已载入内置默认 Skill 化提示词；点击保存后才会写入选定作用域。",
       emptyText: "暂无提示词段。",
+      /**
+       * 两段成为「填写指南」的说明文案。写作口径：人读得懂、AI 也照着填。
+       * 输出契约已核实：两处调用点都开了 JSON 格式约束
+       * （`agent-decision-engine.ts` 与 `agent-skillify-service.ts` 的 `needsJsonFormat: true`），
+       * 且响应由「从回复里提取一个 JSON 对象再解析」得到 —— 写成散文会解析失败并退回兜底。
+       */
+      decisionTutorial:
+        "这里编辑的是 Agent 决定「哪些世界书条目该启用、哪些该停用」时发给 AI 的提示词。"
+        + "输出必须是**可解析的 JSON 对象**（调用点已开 JSON 格式约束；解析器会从回复里提取 JSON 对象）。"
+        + "字段名以「载入内置默认决策提示词」给出的那份为准——改字段而不同步改提示词会让决策退回兜底，"
+        + "表现为「Agent 好像没在做事」。",
+      skillifyTutorial:
+        "这里编辑的是把世界书条目「Skill 化」（补出描述、触发时机等元数据）时发给 AI 的提示词。"
+        + "输出同样必须是**可解析的 JSON 对象**（调用点已开 JSON 格式约束），结果会被写回该条目的元数据。"
+        + "字段以「载入内置默认 Skill 化提示词」为准；缺失字段的条目会被判为不可用而不参与后续决策。",
     },
   },
 };

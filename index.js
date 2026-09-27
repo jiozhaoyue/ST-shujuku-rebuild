@@ -38646,6 +38646,49 @@ function literalToCellValue_ACU$1(literal) {
 }
 
 /**
+ * shared/persisted-surface.ts — 本插件**持久化面**的契约清单（单一事实源）
+ *
+ * 本插件的状态只落四类通道，字段名在这里集中登记，供三处消费：
+ * 1. 数据层实现（`data/repositories/chat-message-data-repo.ts`、`service/vector/summary-vector-index-types.ts`）
+ *    直接从这里取常量，**不再各写一份字面量**；
+ * 2. 守卫用例 `tests/integration/pure-db-mode-compat.test.ts` 用它钉住「源码里用到的
+ *    `TavernDB_ACU_*` 名字集合必须与登记清单逐字相等」（多一个=新增未归类，少一个=清单过期）；
+ * 3. Developer 页「环境与能力总览」把它作为**可审查的持久化面**展示出来。
+ *
+ * 为什么放在 `shared/`：这是**契约**而非实现细节——UI 要读它、守卫用例要读它、数据层要实现它。
+ * 放在数据层会让 UI 为了读一份清单而把整个 data 依赖图拽进 app 图（2026-09-28 实测：那会与
+ * 若干测试文件的窄 mock 冲突，使 `tests/setup/warm-app-graph.ts` 的预热抛错并连带让重型套件超时）。
+ * 放在 service 层同理。契约放 `shared/` 是这三方唯一都合适的位置。
+ */
+/**
+ * 消息上全部本地表格数据字段清单。
+ * 硬清空、残留扫描与事务快照必须基于此清单；新增存储字段必须同步更新这里
+ * （守卫用例会因「多一个未归类」而变红，逼作者更新契约）。
+ */
+const MESSAGE_TABLE_FIELDS_ACU = Object.freeze([
+    'TavernDB_ACU_IsolatedData',
+    'TavernDB_ACU_IndependentData',
+    'TavernDB_ACU_Data',
+    'TavernDB_ACU_SummaryData',
+    'TavernDB_ACU_Identity',
+    'TavernDB_ACU_LocalMessageAnchor',
+    'TavernDB_ACU_ModifiedKeys',
+    'TavernDB_ACU_UpdateGroupKeys',
+    '_acu_local_template_base_state_seeded',
+]);
+/**
+ * chat[0] 上额外挂载的聊天级 scope/Guide 镜像字段（含旧版表头清单）。
+ * 仅在首条消息上清空；chatMetadata 侧的对应字段由 storage 层 setter 清空。
+ */
+const FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU = Object.freeze([
+    'TavernDB_ACU_ScopedConfig',
+    'TavernDB_ACU_InternalSheetGuide',
+    'TavernDB_ACU_TableHeaderGuide',
+]);
+/** 纪要向量索引注册表在服务端向量存储里的路径（不经聊天接口）。 */
+const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry';
+
+/**
  * data/repositories/chat-message-data-repo.ts — 消息级表格数据 CRUD
  *
  * 封装所有对 message.TavernDB_ACU_* 字段的底层读写操作。
@@ -38657,33 +38700,10 @@ function literalToCellValue_ACU$1(literal) {
  * 3. 不包含业务逻辑（不做合并策略、不做优先级判断，只做字段级 CRUD）
  * 4. 统一处理 string/object 格式（IsolatedData 可能是 JSON 字符串）
  */
-// ════════════════════════════════════════════════════════════════
-// 字段清单常量（单一事实来源）
-// ════════════════════════════════════════════════════════════════
-/**
- * 消息上全部本地表格数据字段清单。
- * 硬清空、残留扫描与事务快照必须基于此清单；新增存储字段必须同步更新。
- */
-const MESSAGE_TABLE_FIELDS_ACU = [
-    'TavernDB_ACU_IsolatedData',
-    'TavernDB_ACU_IndependentData',
-    'TavernDB_ACU_Data',
-    'TavernDB_ACU_SummaryData',
-    'TavernDB_ACU_Identity',
-    'TavernDB_ACU_LocalMessageAnchor',
-    'TavernDB_ACU_ModifiedKeys',
-    'TavernDB_ACU_UpdateGroupKeys',
-    '_acu_local_template_base_state_seeded',
-];
 /**
  * chat[0] 上额外挂载的聊天级 scope/Guide 镜像字段（含旧版表头清单）。
  * 仅在首条消息上清空；chatMetadata 侧的对应字段由 storage 层 setter 清空。
  */
-const FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU = [
-    'TavernDB_ACU_ScopedConfig',
-    'TavernDB_ACU_InternalSheetGuide',
-    'TavernDB_ACU_TableHeaderGuide',
-];
 // ════════════════════════════════════════════════════════════════
 // 内部辅助
 // ════════════════════════════════════════════════════════════════
@@ -49013,7 +49033,6 @@ function sha256Base64UrlSync_ACU(text) {
 const SUMMARY_VECTOR_INDEX_CONTENT_PACK_SCHEMA_ACU = 'content_addressed_vector_pack';
 const SUMMARY_VECTOR_INDEX_CONTENT_PACK_VERSION_ACU = 1;
 const SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU = 1;
-const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry';
 
 function getRequestHeaders_ACU() {
     const contextHeaders = SillyTavern_API_ACU?.getRequestHeaders?.();
@@ -151173,7 +151192,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260927-21";
+        const stamp = "20260927-22";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -172936,6 +172955,19 @@ const plotCopy = {
             skillifyReset: "载入内置默认 Skill 化提示词",
             skillifyResetSuccess: "已载入内置默认 Skill 化提示词；点击保存后才会写入选定作用域。",
             emptyText: "暂无提示词段。",
+            /**
+             * 两段成为「填写指南」的说明文案。写作口径：人读得懂、AI 也照着填。
+             * 输出契约已核实：两处调用点都开了 JSON 格式约束
+             * （`agent-decision-engine.ts` 与 `agent-skillify-service.ts` 的 `needsJsonFormat: true`），
+             * 且响应由「从回复里提取一个 JSON 对象再解析」得到 —— 写成散文会解析失败并退回兜底。
+             */
+            decisionTutorial: "这里编辑的是 Agent 决定「哪些世界书条目该启用、哪些该停用」时发给 AI 的提示词。"
+                + "输出必须是**可解析的 JSON 对象**（调用点已开 JSON 格式约束；解析器会从回复里提取 JSON 对象）。"
+                + "字段名以「载入内置默认决策提示词」给出的那份为准——改字段而不同步改提示词会让决策退回兜底，"
+                + "表现为「Agent 好像没在做事」。",
+            skillifyTutorial: "这里编辑的是把世界书条目「Skill 化」（补出描述、触发时机等元数据）时发给 AI 的提示词。"
+                + "输出同样必须是**可解析的 JSON 对象**（调用点已开 JSON 格式约束），结果会被写回该条目的元数据。"
+                + "字段以「载入内置默认 Skill 化提示词」为准；缺失字段的条目会被判为不可用而不参与后续决策。",
         },
     },
 };
@@ -182795,8 +182827,8 @@ var _sfc_main$u = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-agent-advanced[data-v-ac5b42ed] { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section[data-v-ac5b42ed] { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 100%; padding: 12px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2);\n}\n.acu-agent-advanced__section-head[data-v-ac5b42ed] { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section-head > div[data-v-ac5b42ed] { min-width: 0;\n}\n.acu-agent-advanced__section-head h4[data-v-ac5b42ed],\r\n.acu-agent-advanced__prompt-head h5[data-v-ac5b42ed] { margin: 0; min-width: 0; color: var(--acu-text-1); overflow-wrap: anywhere;\n}\n.acu-agent-advanced__section-head p[data-v-ac5b42ed] { margin: 4px 0 0; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px); line-height: 1.5; overflow-wrap: anywhere;\n}\n.acu-agent-advanced__grid[data-v-ac5b42ed] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__prompt-head[data-v-ac5b42ed] { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%; margin-top: 4px;\n}\n.acu-agent-advanced[data-v-ac5b42ed] .acu-form-row,\r\n.acu-agent-advanced[data-v-ac5b42ed] .acu-form-row__control,\r\n.acu-agent-advanced[data-v-ac5b42ed] .acu-input,\r\n.acu-agent-advanced[data-v-ac5b42ed] .acu-segmented,\r\n.acu-agent-advanced[data-v-ac5b42ed] .acu-prompt-segs {\r\n  min-width: 0;\r\n  max-width: 100%;\n}\n@media (max-width: 720px) {\n.acu-agent-advanced[data-v-ac5b42ed] { gap: 12px;\n}\n.acu-agent-advanced__section[data-v-ac5b42ed] { gap: 10px; padding: 10px;\n}\n.acu-agent-advanced__grid[data-v-ac5b42ed] { grid-template-columns: minmax(0, 1fr);\n}\n.acu-agent-advanced__section-head[data-v-ac5b42ed],\r\n  .acu-agent-advanced__prompt-head[data-v-ac5b42ed] { flex-direction: column; align-items: stretch;\n}\n}\n@media (max-width: 420px) {\n.acu-agent-advanced__section[data-v-ac5b42ed] { padding: 8px;\n}\n}\r\n", "src/presentation-v2/components/WorldbookAgentAdvancedPanel.vue#style-0-ac5b42ed");
-var WorldbookAgentAdvancedPanel_vue_vue_type_style_index_0_scoped_ac5b42ed_lang = null;
+injectSfcStyle("\n.acu-agent-advanced[data-v-8770567d] { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section[data-v-8770567d] { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 100%; padding: 12px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2);\n}\n.acu-agent-advanced__section-head[data-v-8770567d] { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section-head > div[data-v-8770567d] { min-width: 0;\n}\n.acu-agent-advanced__section-head h4[data-v-8770567d],\r\n.acu-agent-advanced__prompt-head h5[data-v-8770567d] { margin: 0; min-width: 0; color: var(--acu-text-1); overflow-wrap: anywhere;\n}\n.acu-agent-advanced__section-head p[data-v-8770567d] { margin: 4px 0 0; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px); line-height: 1.5; overflow-wrap: anywhere;\n}\n.acu-agent-advanced__grid[data-v-8770567d] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__prompt-head[data-v-8770567d] { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%; margin-top: 4px;\n}\n.acu-agent-advanced[data-v-8770567d] .acu-form-row,\r\n.acu-agent-advanced[data-v-8770567d] .acu-form-row__control,\r\n.acu-agent-advanced[data-v-8770567d] .acu-input,\r\n.acu-agent-advanced[data-v-8770567d] .acu-segmented,\r\n.acu-agent-advanced[data-v-8770567d] .acu-prompt-segs {\r\n  min-width: 0;\r\n  max-width: 100%;\n}\n@media (max-width: 720px) {\n.acu-agent-advanced[data-v-8770567d] { gap: 12px;\n}\n.acu-agent-advanced__section[data-v-8770567d] { gap: 10px; padding: 10px;\n}\n.acu-agent-advanced__grid[data-v-8770567d] { grid-template-columns: minmax(0, 1fr);\n}\n.acu-agent-advanced__section-head[data-v-8770567d],\r\n  .acu-agent-advanced__prompt-head[data-v-8770567d] { flex-direction: column; align-items: stretch;\n}\n}\n@media (max-width: 420px) {\n.acu-agent-advanced__section[data-v-8770567d] { padding: 8px;\n}\n}\r\n", "src/presentation-v2/components/WorldbookAgentAdvancedPanel.vue#style-0-8770567d");
+var WorldbookAgentAdvancedPanel_vue_vue_type_style_index_0_scoped_8770567d_lang = null;
 
 const _hoisted_1$u = { class: "acu-agent-advanced" };
 const _hoisted_2$s = { class: "acu-agent-advanced__section" };
@@ -183079,12 +183111,17 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 							"show-slot": false,
 							"allow-move": true,
 							rows: 7,
+							tutorial: $setup.plotCopy.agentControl.prompts.decisionTutorial,
 							"empty-text": $setup.plotCopy.agentControl.prompts.emptyText,
 							onAdd: _cache[1] || (_cache[1] = (position) => $setup.addPromptSegment("decision", position)),
 							onDelete: _cache[2] || (_cache[2] = (index) => $setup.deletePromptSegment("decision", index)),
 							onMove: _cache[3] || (_cache[3] = (index, delta) => $setup.movePromptSegment("decision", index, delta)),
 							onUpdate: _cache[4] || (_cache[4] = (index, patch) => $setup.updatePromptSegment("decision", index, patch))
-						}, null, 8, ["segments", "empty-text"]),
+						}, null, 8, [
+							"segments",
+							"tutorial",
+							"empty-text"
+						]),
 						createBaseVNode("div", _hoisted_18$8, [createBaseVNode(
 							"h5",
 							null,
@@ -183108,12 +183145,17 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 							"show-slot": false,
 							"allow-move": true,
 							rows: 7,
+							tutorial: $setup.plotCopy.agentControl.prompts.skillifyTutorial,
 							"empty-text": $setup.plotCopy.agentControl.prompts.emptyText,
 							onAdd: _cache[6] || (_cache[6] = (position) => $setup.addPromptSegment("skillify", position)),
 							onDelete: _cache[7] || (_cache[7] = (index) => $setup.deletePromptSegment("skillify", index)),
 							onMove: _cache[8] || (_cache[8] = (index, delta) => $setup.movePromptSegment("skillify", index, delta)),
 							onUpdate: _cache[9] || (_cache[9] = (index, patch) => $setup.updatePromptSegment("skillify", index, patch))
-						}, null, 8, ["segments", "empty-text"])
+						}, null, 8, [
+							"segments",
+							"tutorial",
+							"empty-text"
+						])
 					],
 					64
 					/* STABLE_FRAGMENT */
@@ -183123,7 +183165,7 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open", "title"]);
 }
-var WorldbookAgentAdvancedPanel = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$u], ["__scopeId", "data-v-ac5b42ed"]]);
+var WorldbookAgentAdvancedPanel = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$u], ["__scopeId", "data-v-8770567d"]]);
 
 var _sfc_main$t = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookAgentControlBar',
@@ -197332,7 +197374,7 @@ function useLogViewer() {
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20260927-21";
+        const stamp = "20260927-22";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {

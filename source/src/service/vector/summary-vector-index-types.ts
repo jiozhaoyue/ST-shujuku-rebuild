@@ -480,7 +480,7 @@ export interface SummaryVectorIndexSafeGcResult_ACU {
 }
 
 export const SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU = 1;
-export const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry';
+export { SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU } from '../../shared/persisted-surface';
 
 // ─── 纪要向量镜像（表格 V2 同层镜像协议）────────────────────────────────
 

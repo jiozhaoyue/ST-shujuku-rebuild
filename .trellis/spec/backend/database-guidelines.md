@@ -59,6 +59,12 @@
 | **浏览器本地** | IndexedDB：`TavernDB_ACU_VectorHotCache` / `VectorTempCache`；localStorage：`acu_v2_ui_state`、`TavernDB_ACU_vector_orphan_sweep_last_run` | 与宿主存储无关，不受影响 |
 | **服务端向量文件** | `TavernDB_ACU_vector_registry` 及其路径族 | 不经 `/api/chats/*`，不在接管范围；**按聊天定键的东西在「一个家族多分支」下要自己保证键仍稳定** |
 
+**契约常量的落点**：这四类通道的**字段名清单**放在 `shared/persisted-surface.ts`（单一事实源），
+数据层与向量层从它取常量并 re-export，UI 与守卫用例也读它。放 `shared/` 的理由不只是分层好看：
+UI 若为读一份清单而 import `data/**` 或 `service/vector/**`，会把整张依赖图拽进 app 图 ——
+实测（2026-09-28）那会与若干测试文件的窄 mock 冲突，使 `tests/setup/warm-app-graph.ts` 的预热抛错，
+**预热失效 → 重型套件退回冷转译 → 首条用例超时**（表现是「莫名其妙的超时」，与真实改动毫无关联）。
+
 **两条硬前提**（守卫用例 `tests/integration/pure-db-mode-compat.test.ts` 会钉住，破了就变红）：
 
 1. **不绕过宿主聊天通道**：源码里**不得**直连 `/api/chats/*`、**不得**读写文件系统。

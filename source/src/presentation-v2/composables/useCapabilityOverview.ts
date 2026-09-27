@@ -15,11 +15,13 @@ import { topLevelWindow_ACU } from '../../shared/env';
 import { getBuildStamp_ACU, getPluginVersion_ACU } from '../../shared/plugin-identity';
 import { ACU_V2_STORAGE_KEY } from '../../shared/v2-ui-state';
 import { maskSensitiveText_ACU } from '../../shared/log-buffer';
+// 持久化面清单是**契约常量**，放 shared/：UI 读它不必把 data/service 依赖图拽进 app 图
+// （实测那会与若干测试文件的窄 mock 冲突，使 warm-app-graph 预热抛错并连带让重型套件超时）。
 import {
   MESSAGE_TABLE_FIELDS_ACU,
   FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU,
-} from '../../data/repositories/chat-message-data-repo';
-import { SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU } from '../../service/vector/summary-vector-index-types';
+  SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU,
+} from '../../shared/persisted-surface';
 import { isSqliteMode } from '../../service/table/storage-mode';
 import {
   currentChatFileIdentifier_ACU,
