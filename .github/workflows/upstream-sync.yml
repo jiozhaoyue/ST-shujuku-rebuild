@@ -108,8 +108,12 @@ jobs:
           # 合并步骤把 manifest.json 整体按「我方」解决（为保住 author/homePage 身份字段），
           # 这会连 version 一起留在旧值 —— 实测自动同步一次就把 manifest 落到 9.7.2
           # 而 package.json 已是 9.7.5，两者长期脱节。此处只改写 version，身份字段不动。
+          #
+          # 只做「版本值」的定点替换，不整文件重写：整文件 JSON.stringify 会把 CRLF 换成 LF
+          # （committed blob 是 CRLF），在 Linux runner 上产生整文件改动；定点替换同时天然幂等
+          # （值已一致时不写盘，不制造任何 diff）。
           PKG_VERSION=$(node -p "require('./source/package.json').version")
-          node -e "const fs=require('fs');const p='./manifest.json';const m=JSON.parse(fs.readFileSync(p,'utf8'));m.version=process.argv[1];fs.writeFileSync(p, JSON.stringify(m,null,4)+'\n');" "$PKG_VERSION"
+          MANIFEST_VERSION="$PKG_VERSION" node -e 'const fs=require("fs");const p="./manifest.json";const s=fs.readFileSync(p,"utf8");const o=s.replace(/("version"\s*:\s*")[^"]*(")/, "$1"+process.env.MANIFEST_VERSION+"$2");if(o!==s){fs.writeFileSync(p,o);console.log("manifest.json version 已同步为 "+process.env.MANIFEST_VERSION);}else{console.log("manifest.json version 已一致，未写盘");}'
           git add index.js sql-wasm.wasm manifest.json
           git commit -m "merge: 同步上游 shuiyue-cmyk/shujuku-rebuild@$(git rev-parse --short upstream/$UPSTREAM_BRANCH)（CI 自动同步，质量门通过）"
           echo "status=committed" >> "$GITHUB_OUTPUT"

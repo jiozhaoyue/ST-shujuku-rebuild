@@ -191,7 +191,11 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 修复（三处）：
 
-1. 工作流质量门步骤在提交前把 `manifest.json` 的 `version` 改写为 `source/package.json` 的版本，身份字段不动；
+1. 工作流质量门步骤在提交前把 `manifest.json` 的 `version` 改写为 `source/package.json` 的版本，身份字段不动。
+   实现上**只做「版本值」的定点替换**，不用整文件 `JSON.stringify` 重写 —— 后者会把 committed blob 的
+   CRLF 换成 LF（blob 是 CRLF），在 Linux runner 上产生整文件改动；定点替换天然幂等（值已一致时不写盘）。
+   已用**脚本原文**在 CRLF 副本上三向验证：版本正确改写（9.7.2 → 9.7.5）、裸 LF 数为 0（换行符保真）、
+   重复运行输出「已一致，未写盘」且文件哈希不变、结果与仓库文件归一换行后**逐字节相同**；
 2. `manifest.json` 立即修正为 `9.7.5`；
 3. `source/tests/shared/manifest-identity.test.ts` 新增守卫用例「version 与 source/package.json 一致」，
    把这类漂移从静默变成质量门失败。负例自检：故意把 manifest 写成 `9.7.2` 时该用例失败，
