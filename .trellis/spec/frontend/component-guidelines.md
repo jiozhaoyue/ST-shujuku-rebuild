@@ -107,6 +107,42 @@ defineEmits<{
 
 ---
 
+## 提示词编辑器的「填写指南」纪律（8 处共用 `_lib/AcuPromptSegments.vue`）
+
+本插件有 **8 处**提示词段编辑器（填表 / 改表助手 / 正文替换 / 关键词生成 / 剧情推进 / 世界书 Agent ×2 / 智能续写），
+全部复用 `presentation-v2/components/_lib/AcuPromptSegments.vue`。该组件带一个**默认收起**的
+「填写指南」折叠块（收起是为了在有限屏幕里不挤掉正文），由两个可选 prop 驱动：
+
+- `tutorial`：一段「这段提示词做什么 + 输出被怎么消费」。**不传时有通用兜底**（段 / role / 主插槽 A、B / 顺序的语义），
+  所以每个调用点都有教程可看；
+- `tokens`：占位符速查。
+
+**硬约束（破了两条守卫用例会变红）**：
+
+1. **占位符清单必须来自服务层单一事实源**，组件里**不得**硬编码 token 字面量。
+   先例与类型：`shared/prompt-placeholder-doc.ts` 的 `PromptPlaceholderDoc_ACU`；
+   各域清单定义在**该域的服务模块**（`service/ai/prompt-observer.ts` 的 `PROMPT_PLACEHOLDER_DOCS_ACU`、
+   `service/optimization/content-optimization.ts` 的 `CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU`、
+   `service/template-assistant/service.ts` 的 `TEMPLATE_ASSISTANT_PLACEHOLDER_DOCS_ACU`）。
+2. **占位符同形不同义，清单按域隔离、绝不互借**（实测）：`$1` 在填表链是「最近对话内容」，
+   在正文替换链是「世界书内容」；`$8` 分别是「手动填表的额外要求」与「本轮用户输入」。
+   写成一份公用清单必然误导用户 —— 守卫用例专门断言这两处差异。
+
+**写教程的口径**：人读得懂、AI 也照着填；每条占位符都必须在代码里找得到真实替换点才准写
+（`$X` 内容槽只在 `callCustomOpenAI_ACU` 的填表链上做单遍替换；其他功能域各自拼 messages，没有「段」概念）。
+
+**验证**：
+
+```bash
+cd source
+npx vitest run tests/presentation-v2/components/form-fill-prompt-drawer.test.ts \
+                tests/presentation-v2/components/content-replace-prompt-drawer.test.ts
+# 组件里不得出现 token 字面量（期望无输出；行首判定，避免 JSDoc 假阳性）
+grep -rnE "^\\s*<code>\\\$" src/presentation-v2/components --include="*.vue"
+```
+
+---
+
 ## 验证
 
 ```bash

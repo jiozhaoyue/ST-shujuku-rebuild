@@ -324,6 +324,50 @@ describe('useManualUpdate destructive refill confirmation', () => {
     expect(toast.items.at(-1)?.text).not.toContain('已回滚清理');
     __resetToastStoreForTests();
   });
+
+  // 手动填表是破坏性操作，失败原因此前只进 toast —— 部分宿主上 toast 不可见/一闪而过，
+  // 实测真机出现过「清理后零提交回滚」在界面上完全看不到。必须有留在页面上的持久痕迹。
+  it('失败会留下持久的 lastManualUpdateFailure，成功则清空', async () => {
+    const { useManualUpdate, dialog, orchestrateManualUpdate_ACU, __resetToastStoreForTests } = await importManualUpdate();
+    const manual = useManualUpdate();
+    expect(manual.lastManualUpdateFailure.value).toBeNull();
+
+    orchestrateManualUpdate_ACU.mockResolvedValueOnce({
+      success: false,
+      error: '表身份重绑定失败：别名「sheet_0」无法证明其在当前基底中的对应表。',
+      rolledBackCleanup: true,
+    });
+    const failedRun = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await failedRun;
+
+    const failure = manual.lastManualUpdateFailure.value;
+    expect(failure).not.toBeNull();
+    expect(failure!.text).toContain('表身份重绑定失败');
+    expect(failure!.rolledBack).toBe(true);
+    expect(failure!.at).toBeGreaterThan(0);
+
+    // 用户消除后清空
+    manual.dismissManualUpdateFailure();
+    expect(manual.lastManualUpdateFailure.value).toBeNull();
+
+    // 成功后不再留旧失败
+    orchestrateManualUpdate_ACU.mockResolvedValueOnce({ success: false, error: '先造一次失败' });
+    const again = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await again;
+    expect(manual.lastManualUpdateFailure.value).not.toBeNull();
+
+    orchestrateManualUpdate_ACU.mockResolvedValueOnce({ success: true });
+    const okRun = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await okRun;
+    expect(manual.lastManualUpdateFailure.value).toBeNull();
+    __resetToastStoreForTests();
+  });
 });
 
 describe('useManualUpdate purge 后执行边界守卫', () => {

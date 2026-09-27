@@ -12,24 +12,19 @@
 
     <div class="acu-content-replace-prompt-drawer__meta">
       <span>{{ segments.length }} 段提示词</span>
-      <code>$CONTENT</code>
-      <code>$1</code>
-      <code>$5</code>
-      <code>$6</code>
-      <code>$7</code>
-      <code>$8</code>
-      <code>$U</code>
-      <code>$C</code>
     </div>
 
     <div class="acu-content-replace-prompt-drawer__toolbar">
       <AcuButton size="sm" @click="$emit('reset')">载入默认提示词</AcuButton>
     </div>
 
+    <!-- 占位符不再在模板里硬编码：清单来自服务层单一事实源，见 CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU。 -->
     <AcuPromptSegments
       :segments="segments"
       :show-slot="true"
       :rows="8"
+      :tutorial="CONTENT_REPLACE_PROMPT_TUTORIAL"
+      :tokens="contentReplaceTokens"
       empty-text="暂无正文替换提示词段。点击下方按钮添加第一段。"
       @add="$emit('add', $event)"
       @delete="$emit('delete', $event)"
@@ -47,9 +42,28 @@
 import AcuButton from './_lib/AcuButton.vue';
 import AcuDrawer from './_lib/AcuDrawer.vue';
 import AcuMessage from './_lib/AcuMessage.vue';
-import AcuPromptSegments, { type PromptSegment } from './_lib/AcuPromptSegments.vue';
+import AcuPromptSegments, { type PromptSegment, type PromptTokenHint } from './_lib/AcuPromptSegments.vue';
+import { CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU } from '../../service/optimization/content-optimization';
 import { useDialogStore } from '../stores/dialog-store';
 import type { ContentReplaceMessage } from '../stores/content-replace-store';
+
+/**
+ * 正文替换提示词填写指南（说明文案）。
+ *
+ * ⚠️ 本域的占位符与填表链**同形不同义**（这里 `$1` 是世界书、`$8` 是本轮用户输入），
+ * 所以清单必须用本域自己的 `CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU`，不能套用填表那份。
+ * 组件里**不得**硬编码 token 字面量：本抽屉原有一行并列 8 个 `<code>` 的 chip，
+ * 它虽然当时与实现相符，但一是与清单重复、二是没有任何说明，现已换成单一事实源 + 可展开指南。
+ */
+const CONTENT_REPLACE_PROMPT_TUTORIAL =
+  '这里编辑的是「改写当前楼层正文」时发给 AI 的提示词。AI 的回复会被当作改写结果写回楼层，'
+  + '所以提示词里要写清改写口径（保留什么、可改什么、输出格式）。'
+  + '$CONTENT 是待改写正文本身——它被删掉后运行时不知道该改哪一段，务必保留。';
+
+const contentReplaceTokens: PromptTokenHint[] = CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU.map(doc => ({
+  token: doc.token,
+  meaning: doc.description,
+}));
 
 const props = defineProps<{
   isOpen: boolean;

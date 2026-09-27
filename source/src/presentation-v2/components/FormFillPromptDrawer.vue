@@ -23,6 +23,8 @@
     <AcuPromptSegments
       :segments="segments"
       :rows="8"
+      :tutorial="FORM_FILL_PROMPT_TUTORIAL"
+      :tokens="FORM_FILL_PROMPT_TOKENS"
       @add="$emit('add', $event)"
       @delete="$emit('delete', $event)"
       @update="(index, patch) => $emit('update', index, patch)"
@@ -41,9 +43,27 @@ import AcuDrawer from './_lib/AcuDrawer.vue';
 import AcuFileButton from './_lib/AcuFileButton.vue';
 import AcuMessage from './_lib/AcuMessage.vue';
 import AcuPromptSegments from './_lib/AcuPromptSegments.vue';
-import type { PromptSegment } from './_lib/AcuPromptSegments.vue';
+import type { PromptSegment, PromptTokenHint } from './_lib/AcuPromptSegments.vue';
 import type { FormFillMessage } from '../composables/useFormFillSettings';
+import { PROMPT_PLACEHOLDER_DOCS_ACU } from '../../service/ai/prompt-observer';
 import { useDialogStore } from '../stores/dialog-store';
+
+/**
+ * 填表提示词填写指南（说明文案）。
+ *
+ * 写作口径：**人读得懂、AI 也照着填**。
+ * 占位符清单**不在这里硬编码** —— 它是服务层单一事实源 `PROMPT_PLACEHOLDER_DOCS_ACU`
+ * （形态对齐改表助手的 `TEMPLATE_ASSISTANT_PLACEHOLDER_DOCS_ACU`），此处只做映射。
+ */
+const FORM_FILL_PROMPT_TUTORIAL =
+  '这里是每次填表时真正发给 AI 的提示词。每「段」= 一条消息，段右侧的 role 决定它作为 SYSTEM / USER / ASSISTANT 发出。'
+  + 'AI 的回复必须含 <tableEdit>…</tableEdit>，其中的 SQL 会被执行并写回表格——所以提示词里要明确告诉 AI「输出什么格式」。'
+  + '下面这些占位符会在发送前被替换成真实内容；直接写字面量不会被替换。';
+
+const FORM_FILL_PROMPT_TOKENS: PromptTokenHint[] = PROMPT_PLACEHOLDER_DOCS_ACU.map(doc => ({
+  token: doc.token,
+  meaning: doc.description,
+}));
 
 const props = defineProps<{
   isOpen: boolean;

@@ -59,6 +59,7 @@ import {
   replaceDbSqlVariables
 } from '../runtime/template-vars/sql-query-var';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
+import type { PromptPlaceholderDoc_ACU } from '../../shared/prompt-placeholder-doc';
 /**
  * service/optimization/content-optimization.ts — 正文优化服务逻辑
  * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
@@ -68,7 +69,26 @@ import { isAiFloor_ACU } from '../../shared/ai-floor';
   export { buildDefaultContentOptimizationPromptGroup_ACU } from '../../shared/defaults';
 
   // --- [正文优化] 核心函数 ---
-  
+
+  /**
+   * 正文替换提示词的占位符清单 —— **本域单一事实源**（UI 只渲染，不得硬编码 token）。
+   *
+   * ⚠️ **与填表链的 `$X` 语义不同名同义不同**：这里的 `$1` 是「世界书内容」，
+   * 填表链的 `$1` 是「最近对话内容」；这里的 `$8` 是「本轮用户输入」，
+   * 填表链的 `$8` 是「手动填表的额外要求」。两套清单各自定义、不得互相套用。
+   * 填表链见 `service/ai/prompt-observer.ts` 的 `PROMPT_PLACEHOLDER_DOCS_ACU`。
+   */
+  export const CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU: readonly PromptPlaceholderDoc_ACU[] = Object.freeze([
+    { token: '$CONTENT', description: '待改写的正文本身（占位符为空时运行时不知道该改哪一段，务必保留）' },
+    { token: '$1', description: '世界书内容（已过随机数、{[db…]}/{[sql…]} 替换）' },
+    { token: '$5', description: '纪要表 / 总体大纲表内容；开启交火模式时优先取世界书的「纪要索引」条目' },
+    { token: '$6', description: '上一轮剧情规划数据' },
+    { token: '$7', description: '前文上下文' },
+    { token: '$8', description: '本轮用户输入' },
+    { token: '$U', description: '用户设定描述' },
+    { token: '$C', description: '角色描述' },
+  ]);
+
   /**
    * 获取正文优化使用的占位符内容
    * @param {string} userMessage - 用户消息（用于$8占位符）

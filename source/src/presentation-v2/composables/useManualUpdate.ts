@@ -96,6 +96,9 @@ export interface ManualUpdateState {
   manualExtraHint: Ref<string>;
   manualUpdateBusy: Ref<boolean>;
   catchUpBusy: Ref<boolean>;
+  /** 上次手动填表的失败（持久显示，不随 toast 消失）；成功或用户消除后清空。 */
+  lastManualUpdateFailure: Ref<{ at: number; text: string; rolledBack: boolean } | null>;
+  dismissManualUpdateFailure: () => void;
   sheetKeys: ComputedRef<string[]>;
   sheetNames: ComputedRef<Record<string, string>>;
   /** runtime 是否已持有真实表格数据；false（如 purge 后）时展示层仅展示模板，选择器应禁用 */
@@ -271,6 +274,14 @@ export function useManualUpdate(): ManualUpdateState {
   const manualExtraHint = ref('');
   const manualUpdateBusy = ref(false);
   const catchUpBusy = ref(false);
+  /**
+   * 上次手动填表的失败（**留在页面上**，不随 toast 消失）。
+   *
+   * 为什么需要：手动填表是破坏性操作（先删范围内 checkpoint 再重填），而失败原因此前只进
+   * `finishToast` —— 在部分宿主上 toast 不可见或一闪而过。实测 2026-09-28：真机上「清理后零提交
+   * 回滚」这类失败在界面上完全看不到，用户只会发现表格没更新。破坏性操作的失败必须有持久痕迹。
+   */
+  const lastManualUpdateFailure = ref<{ at: number; text: string; rolledBack: boolean } | null>(null);
   const refreshTick = ref(0);
   let progressToastId: string | null = null;
   let abortRequested = false;
@@ -593,16 +604,32 @@ export function useManualUpdate(): ManualUpdateState {
         : `${result.autoMergeTriggered
             ? `手动填表完成;自动合并总结${result.autoMergeSuccess ? '已完成' : '未完成'}。`
             : '手动填表完成。'}`;
+      const failureText = abortRequested
+        ? `手动填表任务已由用户终止。${rollbackNote}`
+        : `${result.error || '手动填表失败。'}${rollbackNote}`;
       finishToast(
         result.success ? (result.checkpointWarning || result.rolledBackCleanup ? 'warning' : 'success') : (abortRequested || result.error?.includes('终止') ? 'warning' : 'error'),
         result.success
           ? `${successText}${result.rolledBackCleanup ? '' : rollbackNote}${result.checkpointWarning
                 ? ` 但 AI 楼层保留边界 checkpoint 建立失败：${result.checkpointWarning}`
                 : ''}`
-          : (abortRequested ? `手动填表任务已由用户终止。${rollbackNote}` : `${result.error || '手动填表失败。'}${rollbackNote}`),
+          : failureText,
       );
+      // 成功即清掉旧失败；失败则把原因留在页面上（用户主动消除前一直在）。
+      if (result.success && !result.rolledBackCleanup) {
+        lastManualUpdateFailure.value = null;
+      } else {
+        // 回滚场景也必须带上**原因**：只写「已回滚清理」会把最有用的定位信息丢掉。
+        lastManualUpdateFailure.value = {
+          at: Date.now(),
+          text: result.rolledBackCleanup ? `本次未写入任何数据，已回滚清理。原因：${failureText}` : failureText,
+          rolledBack: result.rolledBackCleanup === true,
+        };
+      }
     } catch (error: any) {
-      finishToast('error', error?.message || '手动填表执行异常。');
+      const text = error?.message || '手动填表执行异常。';
+      finishToast('error', text);
+      lastManualUpdateFailure.value = { at: Date.now(), text, rolledBack: false };
     } finally {
       manualUpdateBusy.value = false;
       refresh();
@@ -762,6 +789,8 @@ export function useManualUpdate(): ManualUpdateState {
     manualExtraHint,
     manualUpdateBusy,
     catchUpBusy,
+    lastManualUpdateFailure,
+    dismissManualUpdateFailure: () => { lastManualUpdateFailure.value = null; },
     sheetKeys,
     sheetNames,
     runtimeReady,

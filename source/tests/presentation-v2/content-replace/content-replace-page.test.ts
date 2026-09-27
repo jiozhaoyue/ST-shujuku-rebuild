@@ -66,7 +66,10 @@ async function mountContentReplacePage() {
     getConnectionManagerProfiles_ACU: () => [],
     fetchAvailableModels_ACU: vi.fn(async () => ({ success: true, models: [] })),
   }));
-  vi.doMock('../../../src/service/optimization/content-optimization', () => ({
+  // 部分 mock：只替换 performContentOptimization_ACU，保留真实的占位符文档常量
+  // （UI 的「填写指南」直接读它；整模块替换会让那份常量变 undefined 并连带打挂整页用例）。
+  vi.doMock('../../../src/service/optimization/content-optimization', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../../src/service/optimization/content-optimization')>()),
     performContentOptimization_ACU: performOptimization,
   }));
   vi.doMock('../../../src/service/chat/chat-service', () => ({

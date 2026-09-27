@@ -93,6 +93,34 @@
         :title="formFillCopy.panels.manual.title"
         :description="formFillCopy.panels.manual.description"
       >
+        <!--
+          上次手动填表的失败**留在页面上**。手动填表是破坏性操作（先删范围内 checkpoint 再重填），
+          而失败原因此前只进 toast —— 部分宿主上 toast 不可见或一闪而过，实测真机就出现过
+          「清理后零提交回滚」在界面上完全看不到、用户只发现表格没更新。这里给它一个不会消失的落点。
+        -->
+        <AcuMessage
+          v-if="manualUpdate.lastManualUpdateFailure.value"
+          kind="error"
+          class="acu-v2-form-fill-page__manual-failure"
+        >
+          <div class="acu-v2-form-fill-page__manual-failure-head">
+            <strong>上次手动填表未成功</strong>
+            <span>{{ formatFailureTime(manualUpdate.lastManualUpdateFailure.value.at) }}</span>
+          </div>
+          <p class="acu-v2-form-fill-page__manual-failure-text">
+            {{ manualUpdate.lastManualUpdateFailure.value.text }}
+          </p>
+          <p class="acu-v2-form-fill-page__manual-failure-hint">
+            {{
+              manualUpdate.lastManualUpdateFailure.value.rolledBack
+                ? '本次未写入任何数据，已自动回滚清理——旧数据没有丢，可以直接改配置后重试。'
+                : '排查建议：到「高级工具 → 运行日志」开 Debug 采集后重试一次，再「导出 Debug 数据」交给 AI 定位；'
+                  + '表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。'
+            }}
+          </p>
+          <AcuButton size="sm" @click="manualUpdate.dismissManualUpdateFailure()">知道了</AcuButton>
+        </AcuMessage>
+
         <div class="acu-v2-form-fill-page__manual-number-grid">
           <AcuFormRow
             label="手动处理最近 N 层"
@@ -233,6 +261,13 @@ async function refreshAll(): Promise<void> {
   await dashboard.refresh();
 }
 
+/** 失败时间显示成 HH:MM，避免把整个 ISO 串塞进报错块（有限屏幕优先）。 */
+function formatFailureTime(at: number): string {
+  const d = new Date(at);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 onMounted(() => {
   void refreshAll();
 });
@@ -275,6 +310,38 @@ watch(useTemplateRuntimeChangeTick(), () => {
 
 .acu-v2-form-fill-page__panel--manual {
   grid-area: manual;
+}
+
+.acu-v2-form-fill-page__manual-failure {
+  margin-bottom: var(--acu-space-3, 12px);
+}
+
+.acu-v2-form-fill-page__manual-failure-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--acu-space-2, 8px);
+  font-size: var(--acu-font-size-body, 12px);
+}
+
+.acu-v2-form-fill-page__manual-failure-head span {
+  color: var(--acu-text-3);
+  font-size: var(--acu-font-size-caption, 11px);
+}
+
+.acu-v2-form-fill-page__manual-failure-text {
+  margin: var(--acu-space-100, 4px) 0 0;
+  color: var(--acu-text-1);
+  font-size: var(--acu-font-size-body, 12px);
+  line-height: var(--acu-line-height-body, 1.6);
+  word-break: break-word;
+}
+
+.acu-v2-form-fill-page__manual-failure-hint {
+  margin: var(--acu-space-100, 4px) 0 var(--acu-space-2, 8px);
+  color: var(--acu-text-3);
+  font-size: var(--acu-font-size-caption, 11px);
+  line-height: var(--acu-line-height-caption, 1.5);
 }
 
 .acu-v2-form-fill-page__manual-number-grid {

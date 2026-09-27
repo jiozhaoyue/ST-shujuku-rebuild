@@ -83525,6 +83525,31 @@ const PROMPT_PLACEHOLDER_SEGMENT_ACU = Object.freeze({
 const PROMPT_SEGMENT_SKELETON_ACU = '骨架';
 /** 表名占位符 `{{表名}}` 解析出的世界书内容段名。 */
 const PROMPT_SEGMENT_TABLE_WORLDBOOK_ACU = '表名世界书';
+/**
+ * 填表提示词可用占位符清单 —— **单一事实源**。
+ *
+ * 覆盖两类替换面（同一次发送里按顺序作用，见 `prompt-api-call.ts` 与 `runtime/template-vars/`）：
+ * 1. `$X` 内容槽：本文件上方的 `PROMPT_PLACEHOLDER_SEGMENT_ACU` 定义其段名归属；
+ * 2. 模板变量：`{{表名}}` / `{[db…]}` / `{[sql…]}` / `<if …>` 由 `runtime/template-vars/` 实现。
+ *
+ * 形态对齐姊妹面的既有约定（`TEMPLATE_ASSISTANT_PLACEHOLDER_DOCS_ACU`）：文档常量放服务层，
+ * UI 只渲染、不硬编码 token 字面量，避免两处漂移。
+ */
+const PROMPT_PLACEHOLDER_DOCS_ACU = Object.freeze([
+    { token: '$0', description: '表格数据与建表 DDL：参与本次填表的表，含列定义与现有数据行（最占字数，通常应保留）' },
+    { token: '$1', description: '最近对话内容（已带 <user_data> 边界与免责声明，不必再自己包一层）' },
+    { token: '$4', description: '世界书内容' },
+    { token: '$6', description: '上一轮剧情推进产出的规划数据（未启用剧情推进时为空）' },
+    { token: '$8', description: '手动填表时用户临时填写的额外要求' },
+    { token: '$9', description: '世界书内容（已剔除数据库自身生成的条目，避免自我污染）' },
+    { token: '$U', description: '用户设定（persona 描述）' },
+    { token: '$C', description: '角色设定（角色卡描述）' },
+    { token: '{{表名}}', description: '该表名对应世界书条目的正文' },
+    { token: '{[db.表.where("列","值").get("列")]}', description: '从表格读值；也支持 .all() / .count() 等形态（表名列名可用中文）' },
+    { token: '{[sql "SELECT …"]}', description: '直接执行只读 SQL 取值（写语句会被拒）' },
+    { token: '{[db…as X]} / {[sql…as X]}', description: '把取值结果存成变量 X，后文用 $v:X 引用' },
+    { token: '<if seed="…">…<else>…</if>', description: '条件段：条件键可用 seed / cell / cond / db / sql；可嵌套' },
+]);
 // ═══════════════════════════════════════════════════════════════
 // 内存上限（具名导出，便于测试与后续调参）
 // ═══════════════════════════════════════════════════════════════
@@ -87143,6 +87168,24 @@ function clearAutoTableFillProcessed_ACU() {
 }
 
 // --- [正文优化] 核心函数 ---
+/**
+ * 正文替换提示词的占位符清单 —— **本域单一事实源**（UI 只渲染，不得硬编码 token）。
+ *
+ * ⚠️ **与填表链的 `$X` 语义不同名同义不同**：这里的 `$1` 是「世界书内容」，
+ * 填表链的 `$1` 是「最近对话内容」；这里的 `$8` 是「本轮用户输入」，
+ * 填表链的 `$8` 是「手动填表的额外要求」。两套清单各自定义、不得互相套用。
+ * 填表链见 `service/ai/prompt-observer.ts` 的 `PROMPT_PLACEHOLDER_DOCS_ACU`。
+ */
+const CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU = Object.freeze([
+    { token: '$CONTENT', description: '待改写的正文本身（占位符为空时运行时不知道该改哪一段，务必保留）' },
+    { token: '$1', description: '世界书内容（已过随机数、{[db…]}/{[sql…]} 替换）' },
+    { token: '$5', description: '纪要表 / 总体大纲表内容；开启交火模式时优先取世界书的「纪要索引」条目' },
+    { token: '$6', description: '上一轮剧情规划数据' },
+    { token: '$7', description: '前文上下文' },
+    { token: '$8', description: '本轮用户输入' },
+    { token: '$U', description: '用户设定描述' },
+    { token: '$C', description: '角色描述' },
+]);
 /**
  * 获取正文优化使用的占位符内容
  * @param {string} userMessage - 用户消息（用于$8占位符）
@@ -151117,7 +151160,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260927-18";
+        const stamp = "20260927-20";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -169403,7 +169446,7 @@ const _hoisted_8$p = {
 	key: 2,
 	class: "fa-solid fa-check acu-preset-dd__check"
 };
-const _hoisted_9$l = {
+const _hoisted_9$m = {
 	key: 0,
 	class: "acu-preset-dd__empty"
 };
@@ -169474,7 +169517,7 @@ function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 			/* KEYED_FRAGMENT */
 		)), !$props.items.length ? (openBlock(), createElementBlock(
 			"li",
-			_hoisted_9$l,
+			_hoisted_9$m,
 			toDisplayString($props.emptyText),
 			1
 			/* TEXT */
@@ -170131,7 +170174,7 @@ const _hoisted_5$u = {
 const _hoisted_6$t = { class: "acu-api-config-panel__two-col" };
 const _hoisted_7$q = { class: "acu-api-config-panel__two-col" };
 const _hoisted_8$o = { class: "acu-api-config-panel__editor-section" };
-const _hoisted_9$k = { class: "acu-api-config-panel__actions" };
+const _hoisted_9$l = { class: "acu-api-config-panel__actions" };
 function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.apiCopy.panels.preset.title,
@@ -170405,7 +170448,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 						)]),
 						_: 1
 					})) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_9$k, [createVNode($setup["AcuButton"], {
+					createBaseVNode("div", _hoisted_9$l, [createVNode($setup["AcuButton"], {
 						disabled: !$setup.activeDraftDirty,
 						onClick: $setup.syncActiveDraft
 					}, {
@@ -173394,44 +173437,108 @@ var _sfc_main$P = /*@__PURE__*/ defineComponent({
         showSlot: { type: Boolean, default: true },
         allowMove: { type: Boolean, default: false },
         rows: { default: 6 },
-        emptyText: { default: '暂无提示词段。点击下方按钮添加第一段。' }
+        emptyText: { default: '暂无提示词段。点击下方按钮添加第一段。' },
+        tutorial: { default: '' },
+        tokens: { default: () => [] }
     },
     emits: ["add", "delete", "move", "update"],
     setup(__props, { expose: __expose, emit: __emit }) {
         __expose();
+        const props = __props;
+        /** 填写指南默认收起：提示词编辑器本身已占满侧抽屉，指南不该再抢屏。 */
+        const guideOpen = ref(false);
+        /**
+         * 通用填写指南。没有专属说明的调用点会拿到它——
+         * 对**每一个**提示词编辑器都成立（段 / role / 主插槽 / 顺序的语义本身就不自明），
+         * 比在 8 处各写一段可能过期的文案更可靠；有专属内容的面（如填表）再叠加自己的说明与占位符清单。
+         */
+        const DEFAULT_TUTORIAL_ACU = '每一「段」= 发给 AI 的一条单独消息，按这里的顺序从上到下发出。'
+            + '段右侧的 role 决定它以 SYSTEM / USER / ASSISTANT 的身份发出——不同后端对顺序与角色敏感，改顺序可能改变模型行为。'
+            + '「主插槽 A / B」用来标记特殊段：A = 主提示词，B = 拦截任务详细指令；普通段留「普通段」即可。'
+            + '留空某段会让它作为空消息发出，建议删除而不是留空。';
+        /** 调用点给了专属说明就用它，否则退到通用说明（保证每处都有教程可看）。 */
+        const guideText = computed(() => props.tutorial || DEFAULT_TUTORIAL_ACU);
         const emit = __emit;
         function onSlot(index, raw) {
             const value = raw === 'A' || raw === 'B' ? raw : '';
             emit('update', index, { mainSlot: value });
         }
-        const __returned__ = { DEFAULT_ROLE_OPTIONS, DEFAULT_SLOT_OPTIONS, emit, onSlot, AcuButton, AcuIconButton, AcuSelect, AcuTextarea };
+        const __returned__ = { DEFAULT_ROLE_OPTIONS, DEFAULT_SLOT_OPTIONS, props, guideOpen, DEFAULT_TUTORIAL_ACU, guideText, emit, onSlot, AcuButton, AcuDisclosureGroup, AcuIconButton, AcuInfoBanner, AcuSelect, AcuTextarea };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-prompt-segs[data-v-573cb4fb] { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__add[data-v-573cb4fb] { display: flex; justify-content: center; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__add-btn[data-v-573cb4fb] { max-width: 100%; white-space: normal;\n}\n.acu-prompt-segs__list[data-v-573cb4fb] {\r\n  list-style: none; margin: 0; padding: 0;\r\n  display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-573cb4fb] {\r\n  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent; padding: 0 0 12px;\r\n  display: flex; flex-direction: column; gap: 8px;\r\n  min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-573cb4fb]:last-child {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-prompt-segs__item-head[data-v-573cb4fb] {\r\n  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__index[data-v-573cb4fb] {\r\n  font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\r\n  min-width: 26px;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-prompt-segs__role[data-v-573cb4fb] { flex: 1 1 110px; min-width: 0; max-width: 180px;\n}\n.acu-prompt-segs__slot[data-v-573cb4fb] { flex: 1 1 120px; min-width: 0; max-width: 200px;\n}\n.acu-prompt-segs__actions[data-v-573cb4fb] {\r\n  margin-left: auto;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  min-width: 0;\n}\n.acu-prompt-segs[data-v-573cb4fb] .acu-textarea,\r\n.acu-prompt-segs[data-v-573cb4fb] textarea {\r\n  width: 100%;\r\n  min-width: 0;\r\n  max-width: 100%;\r\n  box-sizing: border-box;\n}\n.acu-prompt-segs__empty[data-v-573cb4fb] {\r\n  padding: 10px 0; text-align: center;\r\n  color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 480px) {\n.acu-prompt-segs__item-head[data-v-573cb4fb] { align-items: stretch;\n}\n.acu-prompt-segs__index[data-v-573cb4fb] { flex: 0 0 100%;\n}\n.acu-prompt-segs__role[data-v-573cb4fb],\r\n  .acu-prompt-segs__slot[data-v-573cb4fb] { flex-basis: 100%; max-width: 100%;\n}\n.acu-prompt-segs__actions[data-v-573cb4fb] { width: 100%; margin-left: 0; justify-content: flex-end;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuPromptSegments.vue#style-0-573cb4fb");
-var AcuPromptSegments_vue_vue_type_style_index_0_scoped_573cb4fb_lang = null;
+injectSfcStyle("\n.acu-prompt-segs[data-v-f2de588c] { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__guide[data-v-f2de588c] { min-width: 0;\n}\n.acu-prompt-segs__guide-text[data-v-f2de588c] { margin-bottom: var(--acu-space-150, 6px);\n}\n.acu-prompt-segs__tokens[data-v-f2de588c] { margin: 0; display: flex; flex-direction: column; gap: var(--acu-space-100, 4px); min-width: 0;\n}\n.acu-prompt-segs__token[data-v-f2de588c] { display: flex; gap: var(--acu-space-2, 8px); align-items: baseline; min-width: 0;\n}\n.acu-prompt-segs__token dt[data-v-f2de588c] { flex: 0 0 auto; margin: 0;\n}\n.acu-prompt-segs__token dd[data-v-f2de588c] {\r\n  margin: 0; min-width: 0; flex: 1 1 auto;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  word-break: break-word;\n}\n.acu-prompt-segs__token code[data-v-f2de588c] {\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-1);\r\n  background: var(--acu-bg-2);\r\n  padding: 1px var(--acu-space-100, 4px);\r\n  border-radius: var(--acu-radius-sm);\r\n  white-space: nowrap;\n}\n.acu-prompt-segs__add[data-v-f2de588c] { display: flex; justify-content: center; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__add-btn[data-v-f2de588c] { max-width: 100%; white-space: normal;\n}\n.acu-prompt-segs__list[data-v-f2de588c] {\r\n  list-style: none; margin: 0; padding: 0;\r\n  display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-f2de588c] {\r\n  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent; padding: 0 0 12px;\r\n  display: flex; flex-direction: column; gap: 8px;\r\n  min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-f2de588c]:last-child {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-prompt-segs__item-head[data-v-f2de588c] {\r\n  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__index[data-v-f2de588c] {\r\n  font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\r\n  min-width: 26px;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-prompt-segs__role[data-v-f2de588c] { flex: 1 1 110px; min-width: 0; max-width: 180px;\n}\n.acu-prompt-segs__slot[data-v-f2de588c] { flex: 1 1 120px; min-width: 0; max-width: 200px;\n}\n.acu-prompt-segs__actions[data-v-f2de588c] {\r\n  margin-left: auto;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  min-width: 0;\n}\n.acu-prompt-segs[data-v-f2de588c] .acu-textarea,\r\n.acu-prompt-segs[data-v-f2de588c] textarea {\r\n  width: 100%;\r\n  min-width: 0;\r\n  max-width: 100%;\r\n  box-sizing: border-box;\n}\n.acu-prompt-segs__empty[data-v-f2de588c] {\r\n  padding: 10px 0; text-align: center;\r\n  color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 480px) {\n.acu-prompt-segs__item-head[data-v-f2de588c] { align-items: stretch;\n}\n.acu-prompt-segs__index[data-v-f2de588c] { flex: 0 0 100%;\n}\n.acu-prompt-segs__role[data-v-f2de588c],\r\n  .acu-prompt-segs__slot[data-v-f2de588c] { flex-basis: 100%; max-width: 100%;\n}\n.acu-prompt-segs__actions[data-v-f2de588c] { width: 100%; margin-left: 0; justify-content: flex-end;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuPromptSegments.vue#style-0-f2de588c");
+var AcuPromptSegments_vue_vue_type_style_index_0_scoped_f2de588c_lang = null;
 
 const _hoisted_1$O = { class: "acu-prompt-segs" };
-const _hoisted_2$I = { class: "acu-prompt-segs__add" };
-const _hoisted_3$C = { class: "acu-prompt-segs__list" };
-const _hoisted_4$z = { class: "acu-prompt-segs__item-head" };
-const _hoisted_5$t = { class: "acu-prompt-segs__index" };
-const _hoisted_6$s = { class: "acu-prompt-segs__actions" };
-const _hoisted_7$p = {
+const _hoisted_2$I = {
+	key: 0,
+	class: "acu-prompt-segs__tokens"
+};
+const _hoisted_3$C = { class: "acu-prompt-segs__add" };
+const _hoisted_4$z = { class: "acu-prompt-segs__list" };
+const _hoisted_5$t = { class: "acu-prompt-segs__item-head" };
+const _hoisted_6$s = { class: "acu-prompt-segs__index" };
+const _hoisted_7$p = { class: "acu-prompt-segs__actions" };
+const _hoisted_8$n = {
 	key: 0,
 	class: "acu-prompt-segs__empty"
 };
-const _hoisted_8$n = { class: "acu-prompt-segs__add" };
+const _hoisted_9$k = { class: "acu-prompt-segs__add" };
 function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("div", _hoisted_1$O, [
-		createBaseVNode("div", _hoisted_2$I, [createVNode($setup["AcuButton"], {
+		createCommentVNode(" 填写指南：默认收起，避免在有限屏幕里挤掉正文；展开后给出段/role/槽语义与占位符速查。 "),
+		createVNode($setup["AcuDisclosureGroup"], {
+			class: "acu-prompt-segs__guide",
+			label: "填写指南",
+			meta: $props.tokens && $props.tokens.length ? `${$props.tokens.length} 个可用占位符` : "",
+			expanded: $setup.guideOpen,
+			onToggle: _cache[0] || (_cache[0] = ($event) => $setup.guideOpen = !$setup.guideOpen)
+		}, {
+			default: withCtx(() => [createVNode($setup["AcuInfoBanner"], {
+				tone: "tip",
+				class: "acu-prompt-segs__guide-text"
+			}, {
+				default: withCtx(() => [createTextVNode(
+					toDisplayString($setup.guideText),
+					1
+					/* TEXT */
+				)]),
+				_: 1
+			}), $props.tokens && $props.tokens.length ? (openBlock(), createElementBlock("dl", _hoisted_2$I, [(openBlock(true), createElementBlock(
+				Fragment,
+				null,
+				renderList($props.tokens, (item) => {
+					return openBlock(), createElementBlock("div", {
+						key: item.token,
+						class: "acu-prompt-segs__token"
+					}, [createBaseVNode("dt", null, [createBaseVNode(
+						"code",
+						null,
+						toDisplayString(item.token),
+						1
+						/* TEXT */
+					)]), createBaseVNode(
+						"dd",
+						null,
+						toDisplayString(item.meaning),
+						1
+						/* TEXT */
+					)]);
+				}),
+				128
+				/* KEYED_FRAGMENT */
+			))])) : createCommentVNode("v-if", true)]),
+			_: 1
+		}, 8, ["meta", "expanded"]),
+		createBaseVNode("div", _hoisted_3$C, [createVNode($setup["AcuButton"], {
 			size: "sm",
 			class: "acu-prompt-segs__add-btn",
-			onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("add", "top"))
+			onClick: _cache[1] || (_cache[1] = ($event) => _ctx.$emit("add", "top"))
 		}, {
-			default: withCtx(() => [..._cache[2] || (_cache[2] = [createBaseVNode(
+			default: withCtx(() => [..._cache[3] || (_cache[3] = [createBaseVNode(
 				"i",
 				{ class: "fa-solid fa-plus" },
 				null,
@@ -173444,17 +173551,17 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 			)])]),
 			_: 1
 		})]),
-		createBaseVNode("ol", _hoisted_3$C, [(openBlock(true), createElementBlock(
+		createBaseVNode("ol", _hoisted_4$z, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($props.segments, (seg, index) => {
 				return openBlock(), createElementBlock("li", {
 					key: index,
 					class: "acu-prompt-segs__item"
-				}, [createBaseVNode("header", _hoisted_4$z, [
+				}, [createBaseVNode("header", _hoisted_5$t, [
 					createBaseVNode(
 						"span",
-						_hoisted_5$t,
+						_hoisted_6$s,
 						"#" + toDisplayString(index + 1),
 						1
 						/* TEXT */
@@ -173483,7 +173590,7 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 						"model-value",
 						"onUpdate:modelValue"
 					])) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_6$s, [$props.allowMove ? (openBlock(), createElementBlock(
+					createBaseVNode("div", _hoisted_7$p, [$props.allowMove ? (openBlock(), createElementBlock(
 						Fragment,
 						{ key: 0 },
 						[createVNode($setup["AcuIconButton"], {
@@ -173536,17 +173643,17 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 			/* KEYED_FRAGMENT */
 		)), !$props.segments.length ? (openBlock(), createElementBlock(
 			"li",
-			_hoisted_7$p,
+			_hoisted_8$n,
 			toDisplayString($props.emptyText),
 			1
 			/* TEXT */
 		)) : createCommentVNode("v-if", true)]),
-		createBaseVNode("div", _hoisted_8$n, [createVNode($setup["AcuButton"], {
+		createBaseVNode("div", _hoisted_9$k, [createVNode($setup["AcuButton"], {
 			size: "sm",
 			class: "acu-prompt-segs__add-btn",
-			onClick: _cache[1] || (_cache[1] = ($event) => _ctx.$emit("add", "bottom"))
+			onClick: _cache[2] || (_cache[2] = ($event) => _ctx.$emit("add", "bottom"))
 		}, {
-			default: withCtx(() => [..._cache[3] || (_cache[3] = [createBaseVNode(
+			default: withCtx(() => [..._cache[4] || (_cache[4] = [createBaseVNode(
 				"i",
 				{ class: "fa-solid fa-plus" },
 				null,
@@ -173561,7 +173668,7 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 		})])
 	]);
 }
-var AcuPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$P], ["__scopeId", "data-v-573cb4fb"]]);
+var AcuPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$P], ["__scopeId", "data-v-f2de588c"]]);
 
 var _sfc_main$O = /*@__PURE__*/ defineComponent({
     __name: 'PlotPromptSegments',
@@ -173671,7 +173778,7 @@ const _hoisted_8$m = { class: "acu-v2-plot-task-editor__grid" };
 const _hoisted_9$j = { class: "acu-v2-plot-task-editor__grid acu-v2-plot-task-editor__grid--wide" };
 const _hoisted_10$i = { class: "acu-v2-plot-task-editor__section" };
 const _hoisted_11$h = { class: "acu-v2-plot-task-editor__section" };
-const _hoisted_12$e = {
+const _hoisted_12$f = {
 	key: 1,
 	class: "acu-v2-plot-task-editor__empty"
 };
@@ -173914,7 +174021,7 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 			onMove: _cache[21] || (_cache[21] = (index, delta) => _ctx.$emit("segment-move", index, delta)),
 			onUpdate: _cache[22] || (_cache[22] = (index, patch) => _ctx.$emit("segment-update", index, patch))
 		}, null, 8, ["segments"])])
-	])) : (openBlock(), createElementBlock("div", _hoisted_12$e, " 请在上方选择一个任务进行编辑。 "));
+	])) : (openBlock(), createElementBlock("div", _hoisted_12$f, " 请在上方选择一个任务进行编辑。 "));
 }
 var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$N, [["render", _sfc_render$N], ["__scopeId", "data-v-7b343fef"]]);
 
@@ -179415,6 +179522,14 @@ function useManualUpdate() {
     const manualExtraHint = ref('');
     const manualUpdateBusy = ref(false);
     const catchUpBusy = ref(false);
+    /**
+     * 上次手动填表的失败（**留在页面上**，不随 toast 消失）。
+     *
+     * 为什么需要：手动填表是破坏性操作（先删范围内 checkpoint 再重填），而失败原因此前只进
+     * `finishToast` —— 在部分宿主上 toast 不可见或一闪而过。实测 2026-09-28：真机上「清理后零提交
+     * 回滚」这类失败在界面上完全看不到，用户只会发现表格没更新。破坏性操作的失败必须有持久痕迹。
+     */
+    const lastManualUpdateFailure = ref(null);
     const refreshTick = ref(0);
     let progressToastId = null;
     let abortRequested = false;
@@ -179701,14 +179816,31 @@ function useManualUpdate() {
                 : `${result.autoMergeTriggered
                     ? `手动填表完成;自动合并总结${result.autoMergeSuccess ? '已完成' : '未完成'}。`
                     : '手动填表完成。'}`;
+            const failureText = abortRequested
+                ? `手动填表任务已由用户终止。${rollbackNote}`
+                : `${result.error || '手动填表失败。'}${rollbackNote}`;
             finishToast(result.success ? (result.checkpointWarning || result.rolledBackCleanup ? 'warning' : 'success') : (abortRequested || result.error?.includes('终止') ? 'warning' : 'error'), result.success
                 ? `${successText}${result.rolledBackCleanup ? '' : rollbackNote}${result.checkpointWarning
                     ? ` 但 AI 楼层保留边界 checkpoint 建立失败：${result.checkpointWarning}`
                     : ''}`
-                : (abortRequested ? `手动填表任务已由用户终止。${rollbackNote}` : `${result.error || '手动填表失败。'}${rollbackNote}`));
+                : failureText);
+            // 成功即清掉旧失败；失败则把原因留在页面上（用户主动消除前一直在）。
+            if (result.success && !result.rolledBackCleanup) {
+                lastManualUpdateFailure.value = null;
+            }
+            else {
+                // 回滚场景也必须带上**原因**：只写「已回滚清理」会把最有用的定位信息丢掉。
+                lastManualUpdateFailure.value = {
+                    at: Date.now(),
+                    text: result.rolledBackCleanup ? `本次未写入任何数据，已回滚清理。原因：${failureText}` : failureText,
+                    rolledBack: result.rolledBackCleanup === true,
+                };
+            }
         }
         catch (error) {
-            finishToast('error', error?.message || '手动填表执行异常。');
+            const text = error?.message || '手动填表执行异常。';
+            finishToast('error', text);
+            lastManualUpdateFailure.value = { at: Date.now(), text, rolledBack: false };
         }
         finally {
             manualUpdateBusy.value = false;
@@ -179869,6 +180001,8 @@ function useManualUpdate() {
         manualExtraHint,
         manualUpdateBusy,
         catchUpBusy,
+        lastManualUpdateFailure,
+        dismissManualUpdateFailure: () => { lastManualUpdateFailure.value = null; },
         sheetKeys,
         sheetNames,
         runtimeReady,
@@ -179904,6 +180038,12 @@ var _sfc_main$D = /*@__PURE__*/ defineComponent({
             manualUpdate.refresh();
             await dashboard.refresh();
         }
+        /** 失败时间显示成 HH:MM，避免把整个 ISO 串塞进报错块（有限屏幕优先）。 */
+        function formatFailureTime(at) {
+            const d = new Date(at);
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
         onMounted(() => {
             void refreshAll();
         });
@@ -179913,14 +180053,14 @@ var _sfc_main$D = /*@__PURE__*/ defineComponent({
         watch(useTemplateRuntimeChangeTick(), () => {
             void refreshAll();
         });
-        const __returned__ = { dashboard, manualUpdate, panelNavItems, refreshAll, AcuBadge, AcuButton, AcuFormRow, AcuInput, AcuMessage, AcuMobilePanelNav, AcuPanel, AcuPanelGrid, AcuText, AcuTextarea, FormFillUpdateSettingsPanel, TableTemplatePresetPanel, TableSelector, get formFillCopy() { return formFillCopy; } };
+        const __returned__ = { dashboard, manualUpdate, panelNavItems, refreshAll, formatFailureTime, AcuBadge, AcuButton, AcuFormRow, AcuInput, AcuMessage, AcuMobilePanelNav, AcuPanel, AcuPanelGrid, AcuText, AcuTextarea, FormFillUpdateSettingsPanel, TableTemplatePresetPanel, TableSelector, get formFillCopy() { return formFillCopy; } };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-v2-form-fill-page[data-v-4031488c] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-form-fill-page__grid[data-v-4031488c] {\r\n  grid-template-areas:\r\n    \"status update\"\r\n    \"manual template\"\r\n    \"manual template\";\n}\n.acu-v2-form-fill-page__panel--status[data-v-4031488c] {\r\n  grid-area: status;\n}\n.acu-v2-form-fill-page__panel--update[data-v-4031488c] {\r\n  grid-area: update;\n}\n.acu-v2-form-fill-page__panel--template[data-v-4031488c] {\r\n  grid-area: template;\n}\n.acu-v2-form-fill-page__panel--manual[data-v-4031488c] {\r\n  grid-area: manual;\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-4031488c] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-form-fill-page__status-line[data-v-4031488c] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-v2-form-fill-page__status-chat[data-v-4031488c] {\r\n  max-width: min(42ch, 100%);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-form-fill-page__checkpoint-label[data-v-4031488c] {\r\n  color: var(--acu-accent);\n}\n.acu-v2-form-fill-page__manual-extra[data-v-4031488c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\n}\n.acu-v2-form-fill-page__checkpoint-risk[data-v-4031488c] {\r\n  color: var(--acu-danger);\r\n  font-weight: 700;\n}\n.acu-v2-form-fill-page__table-wrap[data-v-4031488c] {\r\n  min-width: 0;\r\n  overflow: auto;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-0);\n}\n.acu-v2-form-fill-page__status-table[data-v-4031488c] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  min-width: 560px;\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__status-table th[data-v-4031488c],\r\n.acu-v2-form-fill-page__status-table td[data-v-4031488c] {\r\n  padding: 8px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\n}\n.acu-v2-form-fill-page__status-table th[data-v-4031488c] {\r\n  color: var(--acu-text-3);\r\n  font-weight: 600;\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-form-fill-page__status-table td[data-v-4031488c] {\r\n  color: var(--acu-text-2);\n}\n.acu-v2-form-fill-page__status-table tr:last-child td[data-v-4031488c] {\r\n  border-bottom: 0;\n}\n.acu-v2-form-fill-page__status-row--ready td[data-v-4031488c] {\r\n  color: var(--acu-text-1);\n}\n.acu-v2-form-fill-page__empty[data-v-4031488c] {\r\n  text-align: center !important;\r\n  color: var(--acu-text-3) !important;\n}\n.acu-v2-form-fill-page__actions[data-v-4031488c] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-form-fill-page[data-v-4031488c] {\r\n    padding: 14px;\n}\n.acu-v2-form-fill-page__grid[data-v-4031488c] {\r\n    grid-template-areas:\r\n      \"status\"\r\n      \"update\"\r\n      \"manual\"\r\n      \"template\";\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-4031488c] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/FormFillPage.vue#style-0-4031488c");
-var FormFillPage_vue_vue_type_style_index_0_scoped_4031488c_lang = null;
+injectSfcStyle("\n.acu-v2-form-fill-page[data-v-d0e26c56] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-form-fill-page__grid[data-v-d0e26c56] {\r\n  grid-template-areas:\r\n    \"status update\"\r\n    \"manual template\"\r\n    \"manual template\";\n}\n.acu-v2-form-fill-page__panel--status[data-v-d0e26c56] {\r\n  grid-area: status;\n}\n.acu-v2-form-fill-page__panel--update[data-v-d0e26c56] {\r\n  grid-area: update;\n}\n.acu-v2-form-fill-page__panel--template[data-v-d0e26c56] {\r\n  grid-area: template;\n}\n.acu-v2-form-fill-page__panel--manual[data-v-d0e26c56] {\r\n  grid-area: manual;\n}\n.acu-v2-form-fill-page__manual-failure[data-v-d0e26c56] {\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head[data-v-d0e26c56] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  justify-content: space-between;\r\n  gap: var(--acu-space-2, 8px);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head span[data-v-d0e26c56] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-form-fill-page__manual-failure-text[data-v-d0e26c56] {\r\n  margin: var(--acu-space-100, 4px) 0 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.6);\r\n  word-break: break-word;\n}\n.acu-v2-form-fill-page__manual-failure-hint[data-v-d0e26c56] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-2, 8px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-d0e26c56] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-form-fill-page__status-line[data-v-d0e26c56] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-v2-form-fill-page__status-chat[data-v-d0e26c56] {\r\n  max-width: min(42ch, 100%);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-form-fill-page__checkpoint-label[data-v-d0e26c56] {\r\n  color: var(--acu-accent);\n}\n.acu-v2-form-fill-page__manual-extra[data-v-d0e26c56] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\n}\n.acu-v2-form-fill-page__checkpoint-risk[data-v-d0e26c56] {\r\n  color: var(--acu-danger);\r\n  font-weight: 700;\n}\n.acu-v2-form-fill-page__table-wrap[data-v-d0e26c56] {\r\n  min-width: 0;\r\n  overflow: auto;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-0);\n}\n.acu-v2-form-fill-page__status-table[data-v-d0e26c56] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  min-width: 560px;\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__status-table th[data-v-d0e26c56],\r\n.acu-v2-form-fill-page__status-table td[data-v-d0e26c56] {\r\n  padding: 8px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\n}\n.acu-v2-form-fill-page__status-table th[data-v-d0e26c56] {\r\n  color: var(--acu-text-3);\r\n  font-weight: 600;\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-form-fill-page__status-table td[data-v-d0e26c56] {\r\n  color: var(--acu-text-2);\n}\n.acu-v2-form-fill-page__status-table tr:last-child td[data-v-d0e26c56] {\r\n  border-bottom: 0;\n}\n.acu-v2-form-fill-page__status-row--ready td[data-v-d0e26c56] {\r\n  color: var(--acu-text-1);\n}\n.acu-v2-form-fill-page__empty[data-v-d0e26c56] {\r\n  text-align: center !important;\r\n  color: var(--acu-text-3) !important;\n}\n.acu-v2-form-fill-page__actions[data-v-d0e26c56] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-form-fill-page[data-v-d0e26c56] {\r\n    padding: 14px;\n}\n.acu-v2-form-fill-page__grid[data-v-d0e26c56] {\r\n    grid-template-areas:\r\n      \"status\"\r\n      \"update\"\r\n      \"manual\"\r\n      \"template\";\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-d0e26c56] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/FormFillPage.vue#style-0-d0e26c56");
+var FormFillPage_vue_vue_type_style_index_0_scoped_d0e26c56_lang = null;
 
 const _hoisted_1$D = { class: "acu-v2-form-fill-page" };
 const _hoisted_2$y = ["title"];
@@ -179930,9 +180070,12 @@ const _hoisted_5$n = { class: "acu-v2-form-fill-page__table-wrap" };
 const _hoisted_6$m = { class: "acu-v2-form-fill-page__status-table" };
 const _hoisted_7$k = { key: 0 };
 const _hoisted_8$j = { key: 1 };
-const _hoisted_9$h = { class: "acu-v2-form-fill-page__manual-number-grid" };
-const _hoisted_10$h = { class: "acu-v2-form-fill-page__manual-extra" };
-const _hoisted_11$g = { class: "acu-v2-form-fill-page__actions" };
+const _hoisted_9$h = { class: "acu-v2-form-fill-page__manual-failure-head" };
+const _hoisted_10$h = { class: "acu-v2-form-fill-page__manual-failure-text" };
+const _hoisted_11$g = { class: "acu-v2-form-fill-page__manual-failure-hint" };
+const _hoisted_12$e = { class: "acu-v2-form-fill-page__manual-number-grid" };
+const _hoisted_13$c = { class: "acu-v2-form-fill-page__manual-extra" };
+const _hoisted_14$b = { class: "acu-v2-form-fill-page__actions" };
 function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$D, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-form-fill-page__grid" }, {
 		default: withCtx(() => [
@@ -179949,7 +180092,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						"aria-label": "表格状态概览"
 					}, {
 						default: withCtx(() => [
-							_cache[4] || (_cache[4] = createTextVNode(
+							_cache[5] || (_cache[5] = createTextVNode(
 								" 当前聊天: ",
 								-1
 								/* CACHED */
@@ -179958,7 +180101,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 								class: "acu-text__value acu-v2-form-fill-page__status-chat",
 								title: $setup.dashboard.chatFileIdentifier.value || "未初始化"
 							}, toDisplayString($setup.dashboard.chatFileIdentifier.value || "未初始化"), 9, _hoisted_2$y),
-							_cache[5] || (_cache[5] = createTextVNode(
+							_cache[6] || (_cache[6] = createTextVNode(
 								" · AI回复累计层数: ",
 								-1
 								/* CACHED */
@@ -179970,7 +180113,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 								1
 								/* TEXT */
 							),
-							_cache[6] || (_cache[6] = createTextVNode(
+							_cache[7] || (_cache[7] = createTextVNode(
 								" · 当前 full checkpoint: ",
 								-1
 								/* CACHED */
@@ -179997,14 +180140,14 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						key: 0,
 						kind: "info"
 					}, {
-						default: withCtx(() => [..._cache[7] || (_cache[7] = [createTextVNode(
+						default: withCtx(() => [..._cache[8] || (_cache[8] = [createTextVNode(
 							" 当前尚未加载数据库表格。 ",
 							-1
 							/* CACHED */
 						)])]),
 						_: 1
 					})) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_5$n, [createBaseVNode("table", _hoisted_6$m, [_cache[10] || (_cache[10] = createBaseVNode(
+					createBaseVNode("div", _hoisted_5$n, [createBaseVNode("table", _hoisted_6$m, [_cache[11] || (_cache[11] = createBaseVNode(
 						"thead",
 						null,
 						[createBaseVNode("tr", null, [
@@ -180016,7 +180159,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						])],
 						-1
 						/* CACHED */
-					)), createBaseVNode("tbody", null, [!$setup.dashboard.tableRows.value.length ? (openBlock(), createElementBlock("tr", _hoisted_7$k, [..._cache[8] || (_cache[8] = [createBaseVNode(
+					)), createBaseVNode("tbody", null, [!$setup.dashboard.tableRows.value.length ? (openBlock(), createElementBlock("tr", _hoisted_7$k, [..._cache[9] || (_cache[9] = [createBaseVNode(
 						"td",
 						{
 							colspan: "5",
@@ -180068,7 +180211,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 										key: 0,
 										variant: "success"
 									}, {
-										default: withCtx(() => [..._cache[9] || (_cache[9] = [createTextVNode(
+										default: withCtx(() => [..._cache[10] || (_cache[10] = [createTextVNode(
 											"就绪",
 											-1
 											/* CACHED */
@@ -180107,7 +180250,55 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 				description: $setup.formFillCopy.panels.manual.description
 			}, {
 				default: withCtx(() => [
-					createBaseVNode("div", _hoisted_9$h, [createVNode($setup["AcuFormRow"], {
+					createCommentVNode("\r\n          上次手动填表的失败**留在页面上**。手动填表是破坏性操作（先删范围内 checkpoint 再重填），\r\n          而失败原因此前只进 toast —— 部分宿主上 toast 不可见或一闪而过，实测真机就出现过\r\n          「清理后零提交回滚」在界面上完全看不到、用户只发现表格没更新。这里给它一个不会消失的落点。\r\n        "),
+					$setup.manualUpdate.lastManualUpdateFailure.value ? (openBlock(), createBlock($setup["AcuMessage"], {
+						key: 0,
+						kind: "error",
+						class: "acu-v2-form-fill-page__manual-failure"
+					}, {
+						default: withCtx(() => [
+							createBaseVNode("div", _hoisted_9$h, [_cache[12] || (_cache[12] = createBaseVNode(
+								"strong",
+								null,
+								"上次手动填表未成功",
+								-1
+								/* CACHED */
+							)), createBaseVNode(
+								"span",
+								null,
+								toDisplayString($setup.formatFailureTime($setup.manualUpdate.lastManualUpdateFailure.value.at)),
+								1
+								/* TEXT */
+							)]),
+							createBaseVNode(
+								"p",
+								_hoisted_10$h,
+								toDisplayString($setup.manualUpdate.lastManualUpdateFailure.value.text),
+								1
+								/* TEXT */
+							),
+							createBaseVNode(
+								"p",
+								_hoisted_11$g,
+								toDisplayString($setup.manualUpdate.lastManualUpdateFailure.value.rolledBack ? "本次未写入任何数据，已自动回滚清理——旧数据没有丢，可以直接改配置后重试。" : "排查建议：到「高级工具 → 运行日志」开 Debug 采集后重试一次，再「导出 Debug 数据」交给 AI 定位；" + "表格身份类失败通常与聊天历史中的建表结构（DDL）缺失有关。"),
+								1
+								/* TEXT */
+							),
+							createVNode($setup["AcuButton"], {
+								size: "sm",
+								onClick: _cache[0] || (_cache[0] = ($event) => $setup.manualUpdate.dismissManualUpdateFailure())
+							}, {
+								default: withCtx(() => [..._cache[13] || (_cache[13] = [createTextVNode(
+									"知道了",
+									-1
+									/* CACHED */
+								)])]),
+								_: 1
+							})
+						]),
+						_: 1
+					})) : createCommentVNode("v-if", true),
+					createBaseVNode("div", _hoisted_12$e, [createVNode($setup["AcuFormRow"], {
 						label: "手动处理最近 N 层",
 						hint: "从可用 AI 回复中取最近 N 层执行手动填表。"
 					}, {
@@ -180116,7 +180307,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 							min: 0,
 							step: 1,
 							"model-value": $setup.manualUpdate.manualContextDepth.value,
-							onChange: _cache[0] || (_cache[0] = ($event) => $setup.manualUpdate.setManualContextDepth($event))
+							onChange: _cache[1] || (_cache[1] = ($event) => $setup.manualUpdate.setManualContextDepth($event))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					}), createVNode($setup["AcuFormRow"], {
@@ -180128,7 +180319,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 							min: 1,
 							step: 1,
 							"model-value": $setup.manualUpdate.manualBatchSize.value,
-							onChange: _cache[1] || (_cache[1] = ($event) => $setup.manualUpdate.setManualBatchSize($event))
+							onChange: _cache[2] || (_cache[2] = ($event) => $setup.manualUpdate.setManualBatchSize($event))
 						}, null, 8, ["model-value"])]),
 						_: 1
 					})]),
@@ -180146,7 +180337,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						"sheet-names": $setup.manualUpdate.sheetNames.value,
 						disabled: !$setup.manualUpdate.runtimeReady.value,
 						"empty-text": "当前没有可手动填表的表格。",
-						"onUpdate:selectedKeys": _cache[2] || (_cache[2] = ($event) => $setup.manualUpdate.setManualSelectedKeys($event)),
+						"onUpdate:selectedKeys": _cache[3] || (_cache[3] = ($event) => $setup.manualUpdate.setManualSelectedKeys($event)),
 						onSelectAll: $setup.manualUpdate.selectAllManualTables,
 						onSelectNone: $setup.manualUpdate.selectNoManualTables
 					}, null, 8, [
@@ -180157,7 +180348,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						"onSelectAll",
 						"onSelectNone"
 					]),
-					createBaseVNode("div", _hoisted_10$h, [createVNode($setup["AcuFormRow"], {
+					createBaseVNode("div", _hoisted_13$c, [createVNode($setup["AcuFormRow"], {
 						label: "本次填表附加要求",
 						hint: "留空时不会给本次手动填表追加额外要求。"
 					}, {
@@ -180165,15 +180356,15 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 							"model-value": $setup.manualUpdate.manualExtraHint.value,
 							rows: 4,
 							placeholder: "仅用于本次手动填表...",
-							"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => $setup.manualUpdate.manualExtraHint.value = $event)
+							"onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => $setup.manualUpdate.manualExtraHint.value = $event)
 						}, null, 8, ["model-value"])]),
 						_: 1
 					})]),
 					$setup.manualUpdate.vectorIndexWarning.value ? (openBlock(), createBlock($setup["AcuMessage"], {
-						key: 0,
+						key: 1,
 						kind: "warning"
 					}, {
-						default: withCtx(() => [..._cache[11] || (_cache[11] = [createTextVNode(
+						default: withCtx(() => [..._cache[14] || (_cache[14] = [createTextVNode(
 							" 交火模式纪要索引启用时不建议手动更新表格；特殊场景下仍可点击执行。 ",
 							-1
 							/* CACHED */
@@ -180188,7 +180379,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 						)]),
 						_: 1
 					}),
-					createBaseVNode("div", _hoisted_11$g, [createVNode($setup["AcuButton"], {
+					createBaseVNode("div", _hoisted_14$b, [createVNode($setup["AcuButton"], {
 						variant: "secondary",
 						disabled: $setup.manualUpdate.manualUpdateBusy.value || $setup.manualUpdate.catchUpBusy.value || !$setup.manualUpdate.selectedManualTableKeys.value.length,
 						onClick: $setup.manualUpdate.runManualCatchUp
@@ -180218,8 +180409,18 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$D], ["__scopeId", "data-v-4031488c"]]);
+var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$D], ["__scopeId", "data-v-d0e26c56"]]);
 
+/**
+ * 填表提示词填写指南（说明文案）。
+ *
+ * 写作口径：**人读得懂、AI 也照着填**。
+ * 占位符清单**不在这里硬编码** —— 它是服务层单一事实源 `PROMPT_PLACEHOLDER_DOCS_ACU`
+ * （形态对齐改表助手的 `TEMPLATE_ASSISTANT_PLACEHOLDER_DOCS_ACU`），此处只做映射。
+ */
+const FORM_FILL_PROMPT_TUTORIAL = '这里是每次填表时真正发给 AI 的提示词。每「段」= 一条消息，段右侧的 role 决定它作为 SYSTEM / USER / ASSISTANT 发出。'
+    + 'AI 的回复必须含 <tableEdit>…</tableEdit>，其中的 SQL 会被执行并写回表格——所以提示词里要明确告诉 AI「输出什么格式」。'
+    + '下面这些占位符会在发送前被替换成真实内容；直接写字面量不会被替换。';
 var _sfc_main$C = /*@__PURE__*/ defineComponent({
     __name: 'FormFillPromptDrawer',
     props: {
@@ -180231,6 +180432,10 @@ var _sfc_main$C = /*@__PURE__*/ defineComponent({
     emits: ["close", "save", "reset", "import-file", "export", "add", "delete", "update"],
     setup(__props, { expose: __expose, emit: __emit }) {
         __expose();
+        const FORM_FILL_PROMPT_TOKENS = PROMPT_PLACEHOLDER_DOCS_ACU.map(doc => ({
+            token: doc.token,
+            meaning: doc.description,
+        }));
         const props = __props;
         const emit = __emit;
         const dialogStore = useDialogStore();
@@ -180248,14 +180453,14 @@ var _sfc_main$C = /*@__PURE__*/ defineComponent({
             if (await confirmIfDirty())
                 emit('close');
         }
-        const __returned__ = { props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuFileButton, AcuMessage, AcuPromptSegments };
+        const __returned__ = { FORM_FILL_PROMPT_TUTORIAL, FORM_FILL_PROMPT_TOKENS, props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuFileButton, AcuMessage, AcuPromptSegments };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-form-fill-prompt-drawer__toolbar[data-v-2d4e260e] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-form-fill-prompt-drawer__actions[data-v-2d4e260e] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/FormFillPromptDrawer.vue#style-0-2d4e260e");
-var FormFillPromptDrawer_vue_vue_type_style_index_0_scoped_2d4e260e_lang = null;
+injectSfcStyle("\n.acu-form-fill-prompt-drawer__toolbar[data-v-6dca3003] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-form-fill-prompt-drawer__actions[data-v-6dca3003] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/FormFillPromptDrawer.vue#style-0-6dca3003");
+var FormFillPromptDrawer_vue_vue_type_style_index_0_scoped_6dca3003_lang = null;
 
 const _hoisted_1$C = { class: "acu-form-fill-prompt-drawer__toolbar" };
 const _hoisted_2$x = { class: "acu-form-fill-prompt-drawer__actions" };
@@ -180330,10 +180535,12 @@ function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["AcuPromptSegments"], {
 				segments: $props.segments,
 				rows: 8,
+				tutorial: $setup.FORM_FILL_PROMPT_TUTORIAL,
+				tokens: $setup.FORM_FILL_PROMPT_TOKENS,
 				onAdd: _cache[3] || (_cache[3] = ($event) => _ctx.$emit("add", $event)),
 				onDelete: _cache[4] || (_cache[4] = ($event) => _ctx.$emit("delete", $event)),
 				onUpdate: _cache[5] || (_cache[5] = (index, patch) => _ctx.$emit("update", index, patch))
-			}, null, 8, ["segments"]),
+			}, null, 8, ["segments", "tokens"]),
 			createBaseVNode("footer", _hoisted_2$x, [createVNode($setup["AcuButton"], { onClick: $setup.requestClose }, {
 				default: withCtx(() => [..._cache[11] || (_cache[11] = [createTextVNode(
 					"关闭",
@@ -180357,7 +180564,7 @@ function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var FormFillPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$C], ["__scopeId", "data-v-2d4e260e"]]);
+var FormFillPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$C], ["__scopeId", "data-v-6dca3003"]]);
 
 var _sfc_main$B = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookSelector',
@@ -190025,6 +190232,19 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 }
 var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$l], ["__scopeId", "data-v-249ee71c"]]);
 
+/**
+ * 关键词生成提示词填写指南（说明文案）。
+ *
+ * 输出契约来自解析实现 `service/vector/summary-vector-index-runtime.ts` 的 `parseKeywords_ACU`：
+ * 优先取 `<keywords>…</keywords>` 内的内容；取不到时回退到「关键词：」前缀；
+ * 关键词之间用 `，,、\n;；|` 任一分隔；`<thinking>` / `<thought>` / `<think>` 块会被剥掉。
+ * 因此提示词里**明确要求用 <keywords> 标签、只输出关键词**，命中率最高。
+ */
+const KEYWORD_PROMPT_TUTORIAL = '这里编辑的是「为交火模式生成检索关键词」时发给 AI 的提示词。'
+    + 'AI 的回复会被解析成关键词列表用于召回：优先读 <keywords>…</keywords> 里的内容，'
+    + '读不到才回退到「关键词：」前缀；关键词之间用逗号、顿号、分号或换行分隔。'
+    + '所以最稳的写法是明确要求 AI「只用 <keywords> 标签输出关键词、不要解释」——'
+    + '写成散文会导致关键词被整段当成一个词，检索命中率下降。';
 var _sfc_main$k = /*@__PURE__*/ defineComponent({
     __name: 'VectorIndexPromptDrawer',
     props: {
@@ -190054,14 +190274,14 @@ var _sfc_main$k = /*@__PURE__*/ defineComponent({
             if (await confirmIfDirty())
                 emit('close');
         }
-        const __returned__ = { props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuMessage, AcuPromptSegments };
+        const __returned__ = { KEYWORD_PROMPT_TUTORIAL, props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuMessage, AcuPromptSegments };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-vector-prompt-drawer__toolbar[data-v-75f9cd80] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-vector-prompt-drawer__actions[data-v-75f9cd80] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/VectorIndexPromptDrawer.vue#style-0-75f9cd80");
-var VectorIndexPromptDrawer_vue_vue_type_style_index_0_scoped_75f9cd80_lang = null;
+injectSfcStyle("\n.acu-vector-prompt-drawer__toolbar[data-v-37f943f7] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-vector-prompt-drawer__actions[data-v-37f943f7] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/VectorIndexPromptDrawer.vue#style-0-37f943f7");
+var VectorIndexPromptDrawer_vue_vue_type_style_index_0_scoped_37f943f7_lang = null;
 
 const _hoisted_1$k = { class: "acu-vector-prompt-drawer__toolbar" };
 const _hoisted_2$j = { class: "acu-vector-prompt-drawer__actions" };
@@ -190101,6 +190321,7 @@ function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
 				"show-slot": false,
 				"role-options": $props.roleOptions,
 				rows: 8,
+				tutorial: $setup.KEYWORD_PROMPT_TUTORIAL,
 				"empty-text": "暂无关键词提示词段。点击下方按钮添加第一段。",
 				onAdd: _cache[1] || (_cache[1] = ($event) => _ctx.$emit("add", $event)),
 				onDelete: _cache[2] || (_cache[2] = ($event) => _ctx.$emit("delete", $event)),
@@ -190129,7 +190350,7 @@ function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var VectorIndexPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$k], ["__scopeId", "data-v-75f9cd80"]]);
+var VectorIndexPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$k], ["__scopeId", "data-v-37f943f7"]]);
 
 const RERANK_BATCH_SIZE_LIMITS = {
     min: VECTOR_RERANK_MIN_BATCH_SIZE_ACU,
@@ -194777,6 +194998,17 @@ function _sfc_render$g(_ctx, _cache, $props, $setup, $data, $options) {
 }
 var ContentReplacePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["render", _sfc_render$g], ["__scopeId", "data-v-6492496d"]]);
 
+/**
+ * 正文替换提示词填写指南（说明文案）。
+ *
+ * ⚠️ 本域的占位符与填表链**同形不同义**（这里 `$1` 是世界书、`$8` 是本轮用户输入），
+ * 所以清单必须用本域自己的 `CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU`，不能套用填表那份。
+ * 组件里**不得**硬编码 token 字面量：本抽屉原有一行并列 8 个 `<code>` 的 chip，
+ * 它虽然当时与实现相符，但一是与清单重复、二是没有任何说明，现已换成单一事实源 + 可展开指南。
+ */
+const CONTENT_REPLACE_PROMPT_TUTORIAL = '这里编辑的是「改写当前楼层正文」时发给 AI 的提示词。AI 的回复会被当作改写结果写回楼层，'
+    + '所以提示词里要写清改写口径（保留什么、可改什么、输出格式）。'
+    + '$CONTENT 是待改写正文本身——它被删掉后运行时不知道该改哪一段，务必保留。';
 var _sfc_main$f = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePromptDrawer',
     props: {
@@ -194788,6 +195020,10 @@ var _sfc_main$f = /*@__PURE__*/ defineComponent({
     emits: ["close", "save", "reset", "add", "delete", "update"],
     setup(__props, { expose: __expose, emit: __emit }) {
         __expose();
+        const contentReplaceTokens = CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU.map(doc => ({
+            token: doc.token,
+            meaning: doc.description,
+        }));
         const props = __props;
         const emit = __emit;
         const dialogStore = useDialogStore();
@@ -194805,14 +195041,14 @@ var _sfc_main$f = /*@__PURE__*/ defineComponent({
             if (await confirmIfDirty())
                 emit('close');
         }
-        const __returned__ = { props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuMessage, AcuPromptSegments };
+        const __returned__ = { CONTENT_REPLACE_PROMPT_TUTORIAL, contentReplaceTokens, props, emit, dialogStore, confirmIfDirty, requestClose, AcuButton, AcuDrawer, AcuMessage, AcuPromptSegments };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-content-replace-prompt-drawer__meta[data-v-c737de28] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-content-replace-prompt-drawer__meta code[data-v-c737de28] {\r\n  padding: 2px 5px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-content-replace-prompt-drawer__toolbar[data-v-c737de28] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-content-replace-prompt-drawer__actions[data-v-c737de28] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/ContentReplacePromptDrawer.vue#style-0-c737de28");
-var ContentReplacePromptDrawer_vue_vue_type_style_index_0_scoped_c737de28_lang = null;
+injectSfcStyle("\n.acu-content-replace-prompt-drawer__meta[data-v-6567b059] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-content-replace-prompt-drawer__meta code[data-v-6567b059] {\r\n  padding: 2px 5px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-content-replace-prompt-drawer__toolbar[data-v-6567b059] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-content-replace-prompt-drawer__actions[data-v-6567b059] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/ContentReplacePromptDrawer.vue#style-0-6567b059");
+var ContentReplacePromptDrawer_vue_vue_type_style_index_0_scoped_6567b059_lang = null;
 
 const _hoisted_1$f = { class: "acu-content-replace-prompt-drawer__meta" };
 const _hoisted_2$e = { class: "acu-content-replace-prompt-drawer__toolbar" };
@@ -194837,93 +195073,38 @@ function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$f, [
-				createBaseVNode(
-					"span",
-					null,
-					toDisplayString($props.segments.length) + " 段提示词",
-					1
-					/* TEXT */
-				),
-				_cache[6] || (_cache[6] = createBaseVNode(
-					"code",
-					null,
-					"$CONTENT",
-					-1
-					/* CACHED */
-				)),
-				_cache[7] || (_cache[7] = createBaseVNode(
-					"code",
-					null,
-					"$1",
-					-1
-					/* CACHED */
-				)),
-				_cache[8] || (_cache[8] = createBaseVNode(
-					"code",
-					null,
-					"$5",
-					-1
-					/* CACHED */
-				)),
-				_cache[9] || (_cache[9] = createBaseVNode(
-					"code",
-					null,
-					"$6",
-					-1
-					/* CACHED */
-				)),
-				_cache[10] || (_cache[10] = createBaseVNode(
-					"code",
-					null,
-					"$7",
-					-1
-					/* CACHED */
-				)),
-				_cache[11] || (_cache[11] = createBaseVNode(
-					"code",
-					null,
-					"$8",
-					-1
-					/* CACHED */
-				)),
-				_cache[12] || (_cache[12] = createBaseVNode(
-					"code",
-					null,
-					"$U",
-					-1
-					/* CACHED */
-				)),
-				_cache[13] || (_cache[13] = createBaseVNode(
-					"code",
-					null,
-					"$C",
-					-1
-					/* CACHED */
-				))
-			]),
+			createBaseVNode("div", _hoisted_1$f, [createBaseVNode(
+				"span",
+				null,
+				toDisplayString($props.segments.length) + " 段提示词",
+				1
+				/* TEXT */
+			)]),
 			createBaseVNode("div", _hoisted_2$e, [createVNode($setup["AcuButton"], {
 				size: "sm",
 				onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("reset"))
 			}, {
-				default: withCtx(() => [..._cache[14] || (_cache[14] = [createTextVNode(
+				default: withCtx(() => [..._cache[6] || (_cache[6] = [createTextVNode(
 					"载入默认提示词",
 					-1
 					/* CACHED */
 				)])]),
 				_: 1
 			})]),
+			createCommentVNode(" 占位符不再在模板里硬编码：清单来自服务层单一事实源，见 CONTENT_OPTIMIZATION_PLACEHOLDER_DOCS_ACU。 "),
 			createVNode($setup["AcuPromptSegments"], {
 				segments: $props.segments,
 				"show-slot": true,
 				rows: 8,
+				tutorial: $setup.CONTENT_REPLACE_PROMPT_TUTORIAL,
+				tokens: $setup.contentReplaceTokens,
 				"empty-text": "暂无正文替换提示词段。点击下方按钮添加第一段。",
 				onAdd: _cache[1] || (_cache[1] = ($event) => _ctx.$emit("add", $event)),
 				onDelete: _cache[2] || (_cache[2] = ($event) => _ctx.$emit("delete", $event)),
 				onUpdate: _cache[3] || (_cache[3] = (index, patch) => _ctx.$emit("update", index, patch))
-			}, null, 8, ["segments"]),
+			}, null, 8, ["segments", "tokens"]),
 			createBaseVNode("footer", _hoisted_3$c, [createVNode($setup["AcuButton"], { onClick: $setup.requestClose }, {
-				default: withCtx(() => [..._cache[15] || (_cache[15] = [createTextVNode(
+				default: withCtx(() => [..._cache[7] || (_cache[7] = [createTextVNode(
 					"关闭",
 					-1
 					/* CACHED */
@@ -194934,7 +195115,7 @@ function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
 				disabled: !$props.dirty,
 				onClick: _cache[4] || (_cache[4] = ($event) => _ctx.$emit("save"))
 			}, {
-				default: withCtx(() => [..._cache[16] || (_cache[16] = [createTextVNode(
+				default: withCtx(() => [..._cache[8] || (_cache[8] = [createTextVNode(
 					"保存提示词",
 					-1
 					/* CACHED */
@@ -194945,7 +195126,7 @@ function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var ContentReplacePromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["render", _sfc_render$f], ["__scopeId", "data-v-c737de28"]]);
+var ContentReplacePromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["render", _sfc_render$f], ["__scopeId", "data-v-6567b059"]]);
 
 const contentReplaceCopy = {
     nav: {
@@ -197180,7 +197361,7 @@ function collectSelfCheckSnapshot_ACU() {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260927-18";
+        const stamp = "20260927-20";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {

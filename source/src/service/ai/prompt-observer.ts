@@ -56,6 +56,36 @@ export const PROMPT_SEGMENT_SKELETON_ACU = '骨架';
 /** 表名占位符 `{{表名}}` 解析出的世界书内容段名。 */
 export const PROMPT_SEGMENT_TABLE_WORLDBOOK_ACU = '表名世界书';
 
+/** 填表提示词里一个占位符的说明条目（供 UI 渲染「填写指南」，**不得在组件里硬编码字面量**）。 */
+import type { PromptPlaceholderDoc_ACU } from '../../shared/prompt-placeholder-doc';
+export type { PromptPlaceholderDoc_ACU };
+
+/**
+ * 填表提示词可用占位符清单 —— **单一事实源**。
+ *
+ * 覆盖两类替换面（同一次发送里按顺序作用，见 `prompt-api-call.ts` 与 `runtime/template-vars/`）：
+ * 1. `$X` 内容槽：本文件上方的 `PROMPT_PLACEHOLDER_SEGMENT_ACU` 定义其段名归属；
+ * 2. 模板变量：`{{表名}}` / `{[db…]}` / `{[sql…]}` / `<if …>` 由 `runtime/template-vars/` 实现。
+ *
+ * 形态对齐姊妹面的既有约定（`TEMPLATE_ASSISTANT_PLACEHOLDER_DOCS_ACU`）：文档常量放服务层，
+ * UI 只渲染、不硬编码 token 字面量，避免两处漂移。
+ */
+export const PROMPT_PLACEHOLDER_DOCS_ACU: readonly PromptPlaceholderDoc_ACU[] = Object.freeze([
+  { token: '$0', description: '表格数据与建表 DDL：参与本次填表的表，含列定义与现有数据行（最占字数，通常应保留）' },
+  { token: '$1', description: '最近对话内容（已带 <user_data> 边界与免责声明，不必再自己包一层）' },
+  { token: '$4', description: '世界书内容' },
+  { token: '$6', description: '上一轮剧情推进产出的规划数据（未启用剧情推进时为空）' },
+  { token: '$8', description: '手动填表时用户临时填写的额外要求' },
+  { token: '$9', description: '世界书内容（已剔除数据库自身生成的条目，避免自我污染）' },
+  { token: '$U', description: '用户设定（persona 描述）' },
+  { token: '$C', description: '角色设定（角色卡描述）' },
+  { token: '{{表名}}', description: '该表名对应世界书条目的正文' },
+  { token: '{[db.表.where("列","值").get("列")]}', description: '从表格读值；也支持 .all() / .count() 等形态（表名列名可用中文）' },
+  { token: '{[sql "SELECT …"]}', description: '直接执行只读 SQL 取值（写语句会被拒）' },
+  { token: '{[db…as X]} / {[sql…as X]}', description: '把取值结果存成变量 X，后文用 $v:X 引用' },
+  { token: '<if seed="…">…<else>…</if>', description: '条件段：条件键可用 seed / cell / cond / db / sql；可嵌套' },
+]);
+
 // ═══════════════════════════════════════════════════════════════
 // 内存上限（具名导出，便于测试与后续调参）
 // ═══════════════════════════════════════════════════════════════
