@@ -15,6 +15,11 @@ import { describe, it, beforeAll, expect, vi } from 'vitest';
 import { buildLongHistoryFixture_ACU } from '../service/table/v2-long-history-fixture';
 import { loadTableStateFromFramesV2Detailed_ACU, loadTableStatesAtBoundariesFromFramesV2Detailed_ACU } from '../../src/service/table/storage-frame-v2-replay';
 
+// 冷 replay 用例实测：单跑 14.46s、全量套件并发时 >15s —— 默认 15s 超时把它翻成假失败。
+// 本文件按设计不设硬门禁（只打数值、不做性能断言），所以「超时失败」是纯噪音，会淹没真失败。
+// 这里放宽的是整文件超时，不改被测逻辑，也不引入性能门槛。
+vi.setConfig({ testTimeout: 60000 });
+
 // 复用既有测试的模块解析方式：真实 state-manager/chat-gateway，仅静音 log。
 vi.mock('../../src/shared/utils', async () => {
   const actual = await vi.importActual<any>('../../src/shared/utils');
