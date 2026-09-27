@@ -25,6 +25,12 @@ import { useDevOptions } from './useDevOptions';
 import { useToastStore } from '../stores/toast-store';
 import { buildPromptInspectionReport } from './prompt-inspection-report';
 
+/**
+ * 类型再导出：`components/` 不应直接 import service（口径见 frontend/directory-structure
+ * 「在 pages/ components 里直接 import 核心层 → 抽 composable」）。组件只认这个接缝。
+ */
+export type { PromptMessageStat_ACU, PromptObservationRecord_ACU, PromptSegmentStat_ACU } from '../../service/ai/prompt-observer';
+
 /** 触发下载的文件名前缀（导出内容由观察器脱敏后给出）。 */
 const EXPORT_FILENAME_PREFIX_ACU = 'acu-prompt-observations';
 

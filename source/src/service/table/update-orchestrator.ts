@@ -5006,6 +5006,11 @@ export async function orchestrateManualUpdate_ACU(
     // 已提交过 bucket 就绝不回滚：那会覆盖已落地的写入，与 provisional bridge 的零提交回滚语义一致。
     // 手动追平/自动填表路径的 staging 汇合失败会自行返回 integrity_failed，不在此回滚。
     const failManualRefillSession = async (failureError: string): Promise<ManualUpdateResult> => {
+        // 必须把失败原因落进日志缓冲：这条路径此前只把原因放进返回值的 error（→ UI toast），
+        // 而 toast 在部分宿主上不可见/一闪而过，结果是「手动填表清理→零提交回滚」这类
+        // 破坏性操作的失败在运行日志与 Debug 导出里**完全查不到原因**（实测 2026-09-28：
+        // 真机 3 秒内零提交回滚，日志零线索）。warn 级别保证默认采集就带着原因。
+        logWarn_ACU(`[Manual Refill] 本次重填失败，将按零提交语义回滚（清理前数据会恢复）：${failureError}`);
         const { rolledBackCleanup, rollbackNote } = await rollbackRefillCleanupOnZeroCommit();
         // 清理失败或 bucket 失败后：运行时快照可能停在中间态，必须按聊天记录里的
         // 已提交事实重新同步，否则界面会显示与持久化结果不一致的数据。

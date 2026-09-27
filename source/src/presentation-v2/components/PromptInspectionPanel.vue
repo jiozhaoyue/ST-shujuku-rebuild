@@ -116,8 +116,7 @@ import {
   formatRecordMeta,
   formatRecordTitle,
 } from '../composables/prompt-inspection-report';
-import { usePromptInspection } from '../composables/usePromptInspection';
-import type { PromptMessageStat_ACU, PromptObservationRecord_ACU } from '../../service/ai/prompt-observer';
+import { usePromptInspection, type PromptMessageStat_ACU, type PromptObservationRecord_ACU } from '../composables/usePromptInspection';
 
 const flow = usePromptInspection();
 

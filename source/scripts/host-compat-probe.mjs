@@ -47,6 +47,15 @@ const TARGETS = [
     context: {},
     // PureTavern 是 ST 兼容宿主：必须落到通用分支，不能被自有标记带偏
     expect: { tauri: false, luker: false },
+    // PureTavern 的扩展注册表**按浏览器会话存**（实测：同一会话装完 discover 有 19 项，
+    // 新会话又回到 17 项）⇒ 每个新 context 都得先走它自己的 ST 兼容安装路由，
+    // 再重载页面让扩展在引导期被注入。这是它原生的安装通道，不是我们绕过去塞文件
+    // （实测往 .generated/public 直接放文件不生效：扩展清单不来自目录扫描）。
+    install: {
+      endpoint: '/api/extensions/install',
+      body: { url: 'https://github.com/jiozhaoyue/ST-shujuku-rebuild', global: true },
+      reloadAfter: true,
+    },
   },
   {
     id: 'ttavern',
@@ -65,7 +74,21 @@ const TARGETS = [
 ];
 
 const OPEN_TIMEOUT_MS = 180_000;
-const READY_TIMEOUT_MS = 300_000;
+/**
+ * 单目标总时限。为什么必须有：某个宿主（实测 PureTavern 8899）可能一直停在加载态，
+ * 没有总时限时一轮探测会被单个目标拖死，且 caller 看不出卡在哪一步。
+ * 超出即记为该目标失败并继续下一个（失败也是一种报告）。
+ */
+const TARGET_TIMEOUT_MS = Number(process.env.ACU_PROBE_TARGET_TIMEOUT_MS || 300_000);
+
+/** 带总时限地跑一个 Promise；超时抛错但**不**取消内部（由调用方负责关浏览器）。 */
+function withDeadline(promise, ms, label) {
+  let timer = null;
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} 超过总时限 ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([promise, guard]).finally(() => { if (timer) clearTimeout(timer); });
+}
 
 function parseArgs(argv) {
   const out = { only: null, json: false };
@@ -130,8 +153,12 @@ async function probeTarget(chromium, target) {
     notes: [],
   };
   let browser = null;
+  // 看门狗：超过单目标总时限就关掉浏览器 —— 关浏览器会让所有在飞的 goto/waitFor 立刻 reject，
+  // 于是卡住的宿主不会拖死整轮探测（否则实测会被 PureTavern 卡住 30 分钟以上）。
+  let watchdog = null;
   try {
     browser = await chromium.launch({ headless: true });
+    watchdog = setTimeout(() => { try { browser?.close(); } catch { /* ignore */ } }, TARGET_TIMEOUT_MS);
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, ...target.context });
     if (target.initScript) await context.addInitScript(target.initScript);
     const page = await context.newPage();
@@ -147,6 +174,25 @@ async function probeTarget(chromium, target) {
     const response = await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: OPEN_TIMEOUT_MS });
     report.checks.httpStatus = response ? response.status() : null;
 
+    // ⓪ 需要先安装的宿主（PureTavern）：走它自己的安装路由，然后重载让扩展在引导期被注入
+    if (target.install) {
+      report.checks.installResult = await page.evaluate(async (install) => {
+        try {
+          const res = await fetch(install.endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(install.body),
+          });
+          const text = await res.text();
+          return { status: res.status, body: text.slice(0, 300) };
+        } catch (error) { return { error: String(error).slice(0, 200) }; }
+      }, target.install);
+      if (target.install.reloadAfter) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: OPEN_TIMEOUT_MS });
+        await page.waitForTimeout(3000);
+      }
+    }
+
     // ① 宿主全局探测（与实现无关）
     report.checks.hostGlobals = await page.evaluate(() => ({
       sillyTavern: typeof window.SillyTavern,
@@ -155,16 +201,9 @@ async function probeTarget(chromium, target) {
       pureTavern: typeof window.__PURE_TAVERN__,
     }));
 
-    // ② 插件产物注入（判据用「脚本 URL 里的仓名」，不依赖某一侧的内部 id）
-    await page.waitForFunction(
-      () => typeof window.AutoCardUpdaterAPI === 'object' && window.AutoCardUpdaterAPI !== null,
-      null,
-      { timeout: READY_TIMEOUT_MS },
-    ).catch(() => {});
-    report.checks.pluginScriptInjected = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('script[src]')).some(s => /shujuku/i.test(s.getAttribute('src') || '')));
-    report.checks.apiMethodCount = await page.evaluate(() =>
-      window.AutoCardUpdaterAPI ? Object.keys(window.AutoCardUpdaterAPI).length : 0);
+    // ② 先问宿主自己装没装这个插件（与实现无关的判据）。
+    // 顺序很关键：放在等 API 挂载之前 —— 没装的话等下去只会白等到看门狗超时，
+    // 而且会把「未安装」误报成「拉不起来」。
     report.checks.extensionDiscoverable = await page.evaluate(async () => {
       try {
         const res = await fetch('/api/extensions/discover');
@@ -173,11 +212,29 @@ async function probeTarget(chromium, target) {
         return Array.isArray(list) && list.some(e => /shujuku/i.test(e?.name || ''));
       } catch { return false; }
     });
+    if (!report.checks.extensionDiscoverable) {
+      report.notes.push('该实例的 /api/extensions/discover 未列出本插件 —— 判定为「未安装」，不作兼容性结论。');
+      report.pluginErrors = classifyPluginErrors(pluginErrors);
+      report.pageErrors = pageErrors;
+      report.status = 'ok';
+      return report;
+    }
 
-    // ③ 打开 V2 界面并读面板标题
+    // ③ 插件产物注入（判据用「脚本 URL 里的仓名」，不依赖某一侧的内部 id）
+    await page.waitForFunction(
+      () => typeof window.AutoCardUpdaterAPI === 'object' && window.AutoCardUpdaterAPI !== null,
+      null,
+      { timeout: TARGET_TIMEOUT_MS },
+    ).catch(() => {});
+    report.checks.pluginScriptInjected = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('script[src]')).some(s => /shujuku/i.test(s.getAttribute('src') || '')));
+    report.checks.apiMethodCount = await page.evaluate(() =>
+      window.AutoCardUpdaterAPI ? Object.keys(window.AutoCardUpdaterAPI).length : 0);
+
+    // ④ 打开 V2 界面并读面板标题
     if (typeof (await page.evaluate(() => typeof window.AutoCardUpdaterAPI?.openSettings)) === 'string') {
       await page.evaluate(async () => { try { await window.AutoCardUpdaterAPI.openSettings(); } catch { /* 记在下方断言上 */ } });
-      await page.waitForSelector('.acu-panel', { timeout: READY_TIMEOUT_MS }).catch(() => {});
+      await page.waitForSelector('.acu-panel', { timeout: TARGET_TIMEOUT_MS }).catch(() => {});
       report.panels = await page.evaluate(() =>
         Array.from(document.querySelectorAll('.acu-panel__title')).map(e => e.textContent?.trim()).filter(Boolean));
       report.checks.v2RootMounted = await page.evaluate(() => !!document.querySelector('#acu-app-v2'));
@@ -192,15 +249,25 @@ async function probeTarget(chromium, target) {
     report.status = 'error';
     report.notes.push(String(error?.message || error).slice(0, 400));
   } finally {
+    if (watchdog) clearTimeout(watchdog);
     try { await browser?.close(); } catch { /* ignore */ }
   }
   return report;
 }
 
-/** 把报告判成 PASS / FAIL，并给出可读理由。 */
+/** 把报告判成 PASS / FAIL / SKIP，并给出可读理由。 */
 function verdict(report, target) {
   const reasons = [];
   const c = report.checks || {};
+  // 「宿主上没装这个插件」不是兼容性结论 —— 必须与「装了但跑不起来」分开。
+  // 判据用宿主自己的扩展清单接口（与实现无关），避免把「未安装」误报成「不兼容」。
+  if (report.status === 'ok' && c.extensionDiscoverable === false) {
+    return {
+      pass: false,
+      skip: true,
+      reasons: ['该实例未安装本插件（/api/extensions/discover 未列出 shujuku）—— 先安装再跑本项，SKIP 不是兼容结论'],
+    };
+  }
   if (report.status !== 'ok') reasons.push('探测过程异常：' + (report.notes[0] || ''));
   if (c.httpStatus && c.httpStatus >= 400) reasons.push(`首页 HTTP ${c.httpStatus}`);
   if (!c.pluginScriptInjected) reasons.push('页面未注入插件脚本');
@@ -214,7 +281,7 @@ function verdict(report, target) {
   if (!target.expect.tauri && globals.tauriTavern === 'object') reasons.push('意外检测到 __TAURITAVERN__');
   if (target.expect.luker && globals.luker !== 'object') reasons.push('未检测到 window.Luker');
   if (!target.expect.luker && globals.luker === 'object' && target.id !== 'st') reasons.push('意外检测到 window.Luker');
-  return { pass: reasons.length === 0, reasons };
+  return { pass: reasons.length === 0, skip: false, reasons };
 }
 
 const args = parseArgs(process.argv);
@@ -229,10 +296,12 @@ const results = [];
 for (const target of selected) {
   const report = await probeTarget(chromium, target);
   const v = verdict(report, target);
-  results.push({ ...report, pass: v.pass, reasons: v.reasons });
+  const outcome = v.skip ? 'skip' : (v.pass ? 'pass' : 'fail');
+  results.push({ ...report, outcome, pass: v.pass, skip: !!v.skip, reasons: v.reasons });
   if (!args.json) {
-    const flag = v.pass ? 'PASS' : 'FAIL';
+    const flag = outcome === 'skip' ? 'SKIP' : (outcome === 'pass' ? 'PASS' : 'FAIL');
     console.log(`\n=== [${flag}] ${target.label} (${target.id}) — ${target.url}`);
+    if (report.checks.installResult) console.log(`  安装         : ${JSON.stringify(report.checks.installResult).slice(0, 200)}`);
     console.log(`  插件脚本注入 : ${report.checks.pluginScriptInjected}`);
     console.log(`  API 方法数   : ${report.checks.apiMethodCount}`);
     console.log(`  V2 根节点    : ${report.checks.v2RootMounted}`);
@@ -243,15 +312,20 @@ for (const target of selected) {
     if (attributableErrors.length) console.log(`  插件报错     :\n    - ${attributableErrors.slice(0, 5).map(e => e.text).join('\n    - ')}`);
     if (opaqueErrors.length) console.log(`  不可归因告警 : ${opaqueErrors.length} 条（跨源 Script error./资源加载失败，不计失败）`);
     if (report.pageErrors?.length) console.log(`  页面异常     : ${report.pageErrors.length} 条（不区分来源，仅供参考）`);
-    if (!v.pass) console.log(`  未通过原因   : ${v.reasons.join('；')}`);
+    if (outcome !== 'pass') console.log(`${outcome === 'skip' ? '跳过原因' : '未通过原因'}   : ${v.reasons.join('；')}`);
   }
 }
 
 if (args.json) {
   console.log(JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
 } else {
-  const failed = results.filter(r => !r.pass);
-  console.log(`\n汇总：${results.length - failed.length}/${results.length} 通过` + (failed.length ? ` — 失败：${failed.map(r => r.id).join(', ')}` : ''));
+  const failed = results.filter(r => r.outcome === 'fail');
+  const skipped = results.filter(r => r.outcome === 'skip');
+  const passed = results.filter(r => r.outcome === 'pass');
+  console.log(`\n汇总：${passed.length} 通过 / ${skipped.length} 跳过 / ${failed.length} 失败`
+    + (skipped.length ? ` — 跳过（未安装，不是兼容结论）：${skipped.map(r => r.id).join(', ')}` : '')
+    + (failed.length ? ` — 失败：${failed.map(r => r.id).join(', ')}` : ''));
 }
 
-process.exit(results.every(r => r.pass) ? 0 : 1);
+// 退出码只反映**失败**：跳过（未安装）不算失败，否则本机永远红。
+process.exit(results.some(r => r.outcome === 'fail') ? 1 : 0);

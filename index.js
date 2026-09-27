@@ -117995,6 +117995,11 @@ async function orchestrateManualUpdate_ACU(targetKeys, processBatch, refreshData
     // 已提交过 bucket 就绝不回滚：那会覆盖已落地的写入，与 provisional bridge 的零提交回滚语义一致。
     // 手动追平/自动填表路径的 staging 汇合失败会自行返回 integrity_failed，不在此回滚。
     const failManualRefillSession = async (failureError) => {
+        // 必须把失败原因落进日志缓冲：这条路径此前只把原因放进返回值的 error（→ UI toast），
+        // 而 toast 在部分宿主上不可见/一闪而过，结果是「手动填表清理→零提交回滚」这类
+        // 破坏性操作的失败在运行日志与 Debug 导出里**完全查不到原因**（实测 2026-09-28：
+        // 真机 3 秒内零提交回滚，日志零线索）。warn 级别保证默认采集就带着原因。
+        logWarn_ACU(`[Manual Refill] 本次重填失败，将按零提交语义回滚（清理前数据会恢复）：${failureError}`);
         const { rolledBackCleanup, rollbackNote } = await rollbackRefillCleanupOnZeroCommit();
         // 清理失败或 bucket 失败后：运行时快照可能停在中间态，必须按聊天记录里的
         // 已提交事实重新同步，否则界面会显示与持久化结果不一致的数据。
@@ -151112,7 +151117,7 @@ topLevelWindow_ACU.AutoCardUpdaterAPI = api;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260927-15";
+        const stamp = "20260927-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -197175,7 +197180,7 @@ function collectSelfCheckSnapshot_ACU() {
  */
 function getBuildStamp() {
     try {
-        const stamp = "20260927-15";
+        const stamp = "20260927-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -198599,8 +198604,8 @@ var _sfc_main$c = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-prompt-inspection__control[data-v-b049c721] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: var(--acu-space-3, 12px);\n}\n.acu-v2-prompt-inspection__actions[data-v-b049c721] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-prompt-inspection__howto[data-v-b049c721] {\n  margin-top: var(--acu-space-3, 12px);\n}\n.acu-v2-prompt-inspection__empty[data-v-b049c721] {\n  margin: var(--acu-space-3, 12px) 0 0;\n  padding: var(--acu-space-4, 16px);\n  border: 1px dashed var(--acu-border);\n  border-radius: var(--acu-radius-md);\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n  line-height: var(--acu-line-height-body, 1.6);\n  text-align: center;\n}\n.acu-v2-prompt-inspection__records[data-v-b049c721] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-3, 12px);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__stats[data-v-b049c721] {\n  margin-bottom: var(--acu-space-2, 8px);\n}\n.acu-v2-prompt-inspection__drift[data-v-b049c721] {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--acu-space-2, 8px);\n  padding: var(--acu-space-2, 8px) 0;\n  border-top: 1px solid var(--acu-border-2);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__drift-text[data-v-b049c721] {\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  word-break: break-word;\n}\n.acu-v2-prompt-inspection__section[data-v-b049c721] {\n  margin-top: var(--acu-space-3, 12px);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__section-title[data-v-b049c721] {\n  margin: 0 0 var(--acu-space-150, 6px);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-weight: 600;\n}\n.acu-v2-prompt-inspection__note[data-v-b049c721] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-prompt-inspection__content[data-v-b049c721] {\n  margin: 0;\n  padding: var(--acu-space-2, 8px);\n  background: var(--acu-bg-2);\n  border-radius: var(--acu-radius-sm);\n  color: var(--acu-text-1);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  white-space: pre-wrap;\n  word-break: break-word;\n  overflow-x: auto;\n}\n@media (max-width: 860px) {\n.acu-v2-prompt-inspection__control[data-v-b049c721] {\n    align-items: stretch;\n}\n}\n", "src/presentation-v2/components/PromptInspectionPanel.vue#style-0-b049c721");
-var PromptInspectionPanel_vue_vue_type_style_index_0_scoped_b049c721_lang = null;
+injectSfcStyle("\n.acu-v2-prompt-inspection__control[data-v-1f9dcbed] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: var(--acu-space-3, 12px);\n}\n.acu-v2-prompt-inspection__actions[data-v-1f9dcbed] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-prompt-inspection__howto[data-v-1f9dcbed] {\n  margin-top: var(--acu-space-3, 12px);\n}\n.acu-v2-prompt-inspection__empty[data-v-1f9dcbed] {\n  margin: var(--acu-space-3, 12px) 0 0;\n  padding: var(--acu-space-4, 16px);\n  border: 1px dashed var(--acu-border);\n  border-radius: var(--acu-radius-md);\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n  line-height: var(--acu-line-height-body, 1.6);\n  text-align: center;\n}\n.acu-v2-prompt-inspection__records[data-v-1f9dcbed] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-3, 12px);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__stats[data-v-1f9dcbed] {\n  margin-bottom: var(--acu-space-2, 8px);\n}\n.acu-v2-prompt-inspection__drift[data-v-1f9dcbed] {\n  display: flex;\n  align-items: flex-start;\n  gap: var(--acu-space-2, 8px);\n  padding: var(--acu-space-2, 8px) 0;\n  border-top: 1px solid var(--acu-border-2);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__drift-text[data-v-1f9dcbed] {\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  word-break: break-word;\n}\n.acu-v2-prompt-inspection__section[data-v-1f9dcbed] {\n  margin-top: var(--acu-space-3, 12px);\n  min-width: 0;\n}\n.acu-v2-prompt-inspection__section-title[data-v-1f9dcbed] {\n  margin: 0 0 var(--acu-space-150, 6px);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-weight: 600;\n}\n.acu-v2-prompt-inspection__note[data-v-1f9dcbed] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-prompt-inspection__content[data-v-1f9dcbed] {\n  margin: 0;\n  padding: var(--acu-space-2, 8px);\n  background: var(--acu-bg-2);\n  border-radius: var(--acu-radius-sm);\n  color: var(--acu-text-1);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  white-space: pre-wrap;\n  word-break: break-word;\n  overflow-x: auto;\n}\n@media (max-width: 860px) {\n.acu-v2-prompt-inspection__control[data-v-1f9dcbed] {\n    align-items: stretch;\n}\n}\n", "src/presentation-v2/components/PromptInspectionPanel.vue#style-0-1f9dcbed");
+var PromptInspectionPanel_vue_vue_type_style_index_0_scoped_1f9dcbed_lang = null;
 
 const _hoisted_1$c = { class: "acu-v2-prompt-inspection__control" };
 const _hoisted_2$b = { class: "acu-v2-prompt-inspection__actions" };
@@ -198849,7 +198854,7 @@ function _sfc_render$c(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var PromptInspectionPanel = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$c], ["__scopeId", "data-v-b049c721"]]);
+var PromptInspectionPanel = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$c], ["__scopeId", "data-v-1f9dcbed"]]);
 
 const developerCopy = {
     panels: {

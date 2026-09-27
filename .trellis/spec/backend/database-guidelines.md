@@ -48,6 +48,31 @@
 
 ---
 
+## 持久化面（四类落点）与纯数据库模式兼容
+
+本插件的全部状态只落在**四类**通道，改动持久化前必须先归类（未归类的新通道 = 审查不通过）：
+
+| 通道 | 内容 | 在 chatfilesys 纯数据库模式下 |
+| --- | --- | --- |
+| **消息字段** | `TavernDB_ACU_IsolatedData` / `IndependentData` / `Data` / `SummaryData` / `Identity` / `LocalMessageAnchor` / `ModifiedKeys` / `UpdateGroupKeys`（清单：`MESSAGE_TABLE_FIELDS_ACU`） | 随消息进库：拦截层把整份内容拆回「第几层 / 第几个变体」，读回时按酒馆原格式组装 ⇒ **无感可用** |
+| **chat[0] 镜像 + chatMetadata** | `TavernDB_ACU_ScopedConfig` / `InternalSheetGuide` / `TableHeaderGuide`（清单：`FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU`）；chatMetadata 侧同名两键为**权威源** | 只被**转发**、不被接管（纯数据库模式有意不碰别人的聊天状态）⇒ 走原生通道 |
+| **浏览器本地** | IndexedDB：`TavernDB_ACU_VectorHotCache` / `VectorTempCache`；localStorage：`acu_v2_ui_state`、`TavernDB_ACU_vector_orphan_sweep_last_run` | 与宿主存储无关，不受影响 |
+| **服务端向量文件** | `TavernDB_ACU_vector_registry` 及其路径族 | 不经 `/api/chats/*`，不在接管范围；**按聊天定键的东西在「一个家族多分支」下要自己保证键仍稳定** |
+
+**两条硬前提**（守卫用例 `tests/integration/pure-db-mode-compat.test.ts` 会钉住，破了就变红）：
+
+1. **不绕过宿主聊天通道**：源码里**不得**直连 `/api/chats/*`、**不得**读写文件系统。
+   聊天持久化只有单一漏斗 `data/gateways/chat-gateway.ts`（`saveChat()`）。
+   理由：拦截层装在宿主网络出口上，绕过出口就等于绕过拦截层 —— 纯数据库模式下会写进空气。
+2. **持久化面显式可审查**：源码用到的 `TavernDB_ACU_*` 名字集合必须与上表逐字相等
+   （多一个 = 新增未归类；少一个 = 清单过期，两种情况都会失败）。
+
+**为什么值得记**：姊妹插件 `ST-chatfilesys-rebuild`（仓群 `My-repo`）的纯数据库模式会
+接管 `/api/chats/*`；本插件之所以**结构性兼容**，正是因为上面两条从一开始就成立 ——
+它不是「适配出来的」，而是**没做错事**。契约详情见该仓 `docs/pure-db-mode-explained.md`。
+
+---
+
 ## 反模式
 
 - 手拼 SQL 字符串绕过受限 DML 类型。

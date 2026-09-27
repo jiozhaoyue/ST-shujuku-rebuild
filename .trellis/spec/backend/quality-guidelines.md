@@ -96,6 +96,14 @@ NODE_PATH="C:/nvm4w/nodejs/node_modules" npm run compat:probe -- --only=st,luker
   自有标记，但**没有** `__TAURITAVERN__`、也没有 `Luker.getContext` ⇒ 宿主判定必须落到 `sillytavern`
   （探测器的 `expect` 会卡这条）。同一矩阵的单元版见 `tests/shared/host-compat/four-host-matrix.test.ts`。
 
+**PureTavern 怎么装**（2026-09-28 现场取证）：它的三方扩展**不**扫描目录，
+而是走自己的 `POST /api/extensions/install {url, global, branch}`（ST 兼容路由，
+源码 `apps/web/src/features/extensions/legacy/register-routes.ts`）。
+未安装时探测器会报 **SKIP**（判据 `/api/extensions/discover` 未列出 shujuku）——
+**SKIP 不是兼容结论**，装好再跑才算数。
+注意：往 `apps/web/.generated/public/scripts/extensions/third-party/` 直接放文件**不生效**
+（那是生成目录，且扩展清单不来自它）。
+
 - **E2E / 自动化只许对 Dev 实例**（8001 Dev ST / 8003 Dev Luker / 8899 Dev PureTavern）；**严禁 8002 / 8004 Real 实例**（规则 L0-13 与 P-11 误连风险）。
 - Dev 与 Real 宿主版本完全相同，仅差端口号——不要靠版本号区分。
 
