@@ -24,6 +24,7 @@ import { getAcuHostDocument } from '../bootstrap/host-document';
 import { useDevOptions } from './useDevOptions';
 import { useToastStore } from '../stores/toast-store';
 import { buildPromptInspectionReport } from './prompt-inspection-report';
+import { copyTextToClipboard_ACU as copyTextToClipboard } from './clipboard';
 
 /**
  * 类型再导出：`components/` 不应直接 import service（口径见 frontend/directory-structure
@@ -46,37 +47,6 @@ function downloadTextFile_ACU(filename: string, text: string): void {
   doc.body.removeChild(anchor);
   // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-/**
- * 复制文本到剪贴板。特性检测 + 静默降级（本仓插件纪律）：
- * 宿主可能跑在无权限/无 clipboard API 的 iframe 里，此时退回临时 textarea + execCommand。
- * 两条路都失败时返回 false，由调用方提示用户改用「导出 JSON」——绝不抛错打断面板。
- */
-async function copyTextToClipboard_ACU(text: string): Promise<boolean> {
-  try {
-    const clipboard = (globalThis as any)?.navigator?.clipboard;
-    if (clipboard && typeof clipboard.writeText === 'function') {
-      await clipboard.writeText(text);
-      return true;
-    }
-  } catch { /* 降级到 execCommand */ }
-  try {
-    const doc = getAcuHostDocument();
-    const textarea = doc.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.top = '-1000px';
-    textarea.style.opacity = '0';
-    doc.body.appendChild(textarea);
-    textarea.select();
-    const ok = typeof (doc as any).execCommand === 'function' && (doc as any).execCommand('copy') === true;
-    doc.body.removeChild(textarea);
-    return ok;
-  } catch {
-    return false;
-  }
 }
 
 export function usePromptInspection() {
@@ -137,7 +107,7 @@ export function usePromptInspection() {
       toast.info('当前没有可复制的提示词记录。');
       return;
     }
-    const ok = await copyTextToClipboard_ACU(buildPromptInspectionReport(records.value));
+    const ok = await copyTextToClipboard(buildPromptInspectionReport(records.value));
     if (ok) toast.success(`已复制 ${records.value.length} 条记录的排查报告（已脱敏），可直接贴进聊天让 AI 排查。`);
     else toast.warning('复制失败（宿主未开放剪贴板）。请改用「导出 JSON」，或展开记录手动选取文本。');
   }

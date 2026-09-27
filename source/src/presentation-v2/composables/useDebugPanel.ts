@@ -30,26 +30,9 @@ import {
 import { getAcuHostDocument } from '../bootstrap/host-document';
 import { useToastStore } from '../stores/toast-store';
 import { getAcuHostKind } from '../../shared/host-bridge';
+import { getBuildStamp_ACU, getPluginVersion_ACU } from '../../shared/plugin-identity';
 import { collectSelfCheckSnapshot_ACU } from '../../service/table/self-check';
 import { settings_ACU, currentJsonTableData_ACU, currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
-
-function getBuildStamp(): string {
-  try {
-    const stamp = (globalThis as any).__ACU_BUILD_STAMP__;
-    return typeof stamp === 'string' && stamp ? stamp : 'dev';
-  } catch {
-    return 'dev';
-  }
-}
-
-function getPluginVersion(): string {
-  try {
-    const v = (globalThis as any).__ACU_BUILD_VERSION__;
-    return typeof v === 'string' && v ? v : 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
 
 function maskSecret(value: unknown): string {
   // 密钥一律全掩码：此前返回前后各 3 字符（如 sk-***123），6 个有效字符会显著降低爆破空间，
@@ -198,8 +181,8 @@ export function useDebugPanel() {
         const presetCfg = activePreset?.apiConfig || null;
         const env = {
           host: getAcuHostKind(),
-          buildStamp: getBuildStamp(),
-          version: getPluginVersion(),
+          buildStamp: getBuildStamp_ACU(),
+          version: getPluginVersion_ACU(),
           exportedAt: new Date().toISOString(),
           chatId: currentChatFileIdentifier_ACU,
           selfCheck: collectSelfCheckSnapshot_ACU(),
@@ -302,8 +285,8 @@ export function useDebugPanel() {
     const presetCfg = activePreset?.apiConfig || null;
     const env = {
       host: getAcuHostKind(),
-      buildStamp: getBuildStamp(),
-      version: getPluginVersion(),
+      buildStamp: getBuildStamp_ACU(),
+      version: getPluginVersion_ACU(),
       exportedAt: new Date().toISOString(),
       chatId: currentChatFileIdentifier_ACU,
       streamingEnabled: presetCfg ? presetCfg.streamingEnabled === true : settings_ACU?.streamingEnabled === true,

@@ -61,6 +61,22 @@
 - 在 `pages/` / `components/` 里直接 import `data/**` —— 抽 `composables/useXxx.ts`（核心层规范里有 grep 自查）。
 - 改 `page-registry.ts` 里已合并的注册项（应当**追加**）。
 - 自建第二个路由/页面可见性机制。
+- **UI import 副作用模块**（典型：`presentation/bootstrap/api-registry.ts`）。
+
+### 为什么「UI 不得 import 副作用模块」是硬规则（2026-09-28 实测回归）
+
+`presentation/bootstrap/api-registry.ts` 是**安装全局 API** 的模块——它没有任何业务模块 import，
+由入口挂载；它的模块初始化体里会直接改写 `topLevelWindow_ACU.AutoCardUpdaterAPI`。
+
+实测教训：Developer 页的「环境与能力总览」一开始直接 import 该模块读分组索引，把它拽进了
+app 依赖图 → `tests/setup/warm-app-graph.ts` 预热 app 图时会执行它 → 它把**测试里被 mock 的**
+`topLevelWindow_ACU` 对象上的 `AutoCardUpdaterAPI` 整个替换掉 → 无关用例
+（`tests/presentation/bootstrap/init.test.ts` 的 `_notifyTableUpdate` 间谍）连带转红。
+**表现极具迷惑性**：报错点与被改的文件毫无关系。
+
+**正确做法**：需要这类「全局安装面」的数据时，让它**把数据挂到宿主全局**（如
+`__ACU_API_GROUP_INDEX__` 与 `AutoCardUpdaterAPI` 同处），UI 从全局读——与 UI 读 API 本身同路。
+**判据**：动手前 grep 一下「谁 import 它」，若答案里没有业务模块，那就是副作用模块，UI 不许 import。
 
 ---
 

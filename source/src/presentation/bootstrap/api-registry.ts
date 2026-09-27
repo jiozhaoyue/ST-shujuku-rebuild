@@ -63,6 +63,17 @@ for (const { name, methods } of apiGroupEntries) {
     }
 }
 
+/**
+ * 分组索引 —— 公开 API 的**自描述面**：组名 → 该组下的方法名。
+ *
+ * 用途：Developer 页「环境与能力总览」据此列出「这个插件能做什么」，并整体复制给
+ * 酒馆里的 AI 让它知道可调用的接口（用户要求的「agent 友好」）。分组信息只在这里有，
+ * 消费方不要去猜方法名前缀。
+ */
+export const ACU_API_GROUP_INDEX_ACU: Readonly<Record<string, readonly string[]>> = Object.freeze(
+    Object.fromEntries(apiGroupEntries.map(({ name, methods }) => [name, Object.freeze(Object.keys(methods))])),
+);
+
 // SQL 同步读取只能在 SQLite runtime 完整发布后对外可见。
 // getter 会在聊天切换/重载窗口自动隐藏，避免第三方脚本把“函数存在”误判为“运行时可查询”。
 installRuntimeGatedSqlReadApi_ACU(api, sqlApi);
@@ -72,3 +83,8 @@ apiRef = api;
 
 // --- 挂载到全局 ---
 (topLevelWindow_ACU as any).AutoCardUpdaterAPI = api;
+// 分组索引随 API 一起挂到宿主全局：UI 只从全局读，**不得 import 本模块**。
+// 本模块是「安装全局 API」的副作用模块（没有任何业务模块 import 它，由入口挂载），
+// UI 一旦 import 它就会把它拽进 app 依赖图 —— 实测会把测试里 mock 掉的
+// `topLevelWindow_ACU` 对象上的 AutoCardUpdaterAPI 直接替换掉，连带打挂无关用例。
+(topLevelWindow_ACU as any).__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;

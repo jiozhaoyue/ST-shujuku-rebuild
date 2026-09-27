@@ -126,6 +126,106 @@ describe('DeveloperPage', () => {
   });
 });
 
+describe('DeveloperPage · 环境与能力总览', () => {
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
+
+  /**
+   * 面板从**宿主全局**读 API 分组索引（UI 不得 import `presentation/bootstrap/api-registry` —— 那是
+   * 安装全局 API 的副作用模块，拽进 app 图会连带打挂无关用例）。测试同样按这条路装一份假索引。
+   */
+  const FAKE_API_INDEX: Record<string, string[]> = {
+    'core-data': ['exportTableAsJson', 'triggerUpdate'],
+    'table-crud': ['createSheet', 'deleteSheet', 'renameSheet'],
+    settings: ['getApiPresets'],
+  };
+  function installFakeApiIndex(): void {
+    (globalThis as any).__ACU_API_GROUP_INDEX__ = FAKE_API_INDEX;
+    (globalThis as any).AutoCardUpdaterAPI = Object.fromEntries(
+      Object.values(FAKE_API_INDEX).flat().map(name => [name, () => undefined]),
+    );
+  }
+  const fakeTotal = Object.values(FAKE_API_INDEX).reduce((sum, list) => sum + list.length, 0);
+
+  function overviewPanel(): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+      .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('环境与能力总览'))!;
+  }
+
+  it('面板渲染：环境事实 + 运行时可调用方法计数徽章', async () => {
+    installFakeApiIndex();
+    const { mount } = await mountDeveloperPage();
+
+    const panel = overviewPanel();
+    expect(panel).toBeTruthy();
+    const text = panel.textContent || '';
+    expect(text).toContain('宿主');
+    expect(text).toContain('构建戳');
+    expect(text).toContain('存储模式');
+    // 徽章报的是**运行时实际可调用**数（假索引与假 API 对象大小一致）
+    expect(text).toContain(`可调用 ${fakeTotal} 个方法`);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('分组默认收起，展开后列出该组方法名（来自全局分组索引）', async () => {
+    installFakeApiIndex();
+    const { mount } = await mountDeveloperPage();
+
+    const groupName = 'core-data';
+    const panel = overviewPanel();
+    const header = () => Array.from(panel.querySelectorAll<HTMLButtonElement>('.acu-disclosure-group__header'))
+      .find(node => (node.textContent || '').includes(groupName))!;
+    expect(header().getAttribute('aria-expanded')).toBe('false');
+
+    header().click();
+    await settle();
+    expect(header().getAttribute('aria-expanded')).toBe('true');
+    const bodyText = overviewPanel().textContent || '';
+    for (const method of FAKE_API_INDEX[groupName]) expect(bodyText).toContain(method);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('持久化面列出四类通道，字段清单与数据层常量一致', async () => {
+    installFakeApiIndex();
+    const { mount } = await mountDeveloperPage();
+    const { MESSAGE_TABLE_FIELDS_ACU, FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU } =
+      await import('../../src/data/repositories/chat-message-data-repo');
+
+    const text = overviewPanel().textContent || '';
+    for (const channel of ['聊天消息字段', 'chat[0] 镜像 + chatMetadata', '浏览器本地', '服务端向量文件']) {
+      expect(text, `缺少通道 ${channel}`).toContain(channel);
+    }
+    // 字段名来自数据层常量（不是抄的），抽两个代表做存在性断言
+    expect(text).toContain(MESSAGE_TABLE_FIELDS_ACU[0]);
+    expect(text).toContain(FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU[0]);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('「复制总览给 AI」把脱敏文本写进剪贴板', async () => {
+    installFakeApiIndex();
+    const { mount } = await mountDeveloperPage();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(globalThis.navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    const button = Array.from(overviewPanel().querySelectorAll<HTMLButtonElement>('button'))
+      .find(b => (b.textContent || '').includes('复制总览给 AI'))!;
+    button.click();
+    await settle();
+    await settle();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    // 断言结构而不是具体数字：报告必须含三节标题，说明它是拼出来的而不是空串
+    const payload = String(writeText.mock.calls[0][0]);
+    expect(payload).toContain('数据库插件能力与存储总览');
+    expect(payload).toContain('可调用的公开 API');
+    expect(payload).toContain('状态持久化面');
+
+    mount.__resetAcuV2MountForTests();
+  });
+});
+
 describe('DeveloperPage · 提示词检查器', () => {
   /** 稳定等待 Vue 把订阅回调带来的响应式变更渲染到 DOM。 */
   const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
