@@ -112,6 +112,16 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 设计依据：`docs/superpowers/specs/2026-09-07-chat-db-rescue-and-template-migration-design.md`。
 
+**后续增量（本台账补记，基线 `6859302` 之后我方新增的差量）**：
+
+| 文件 | 规模（vs `upstream/master`，含既有差量） | 引入任务 | 说明 | 上游是否已实现 | 下次追平冲突口径 |
+|---|---|---|---|---|---|
+| `source/src/service/ai/prompt-observer.ts` (+449/−0) / `prompt-inspection-report.ts` / `presentation-v2` 的 `PromptInspectionPanel.vue`、`usePromptInspection.ts` | 新增文件为主 | 阶段 2 `09-27-prompt-assembly-inspector` | 出站提示词的段级观测、diff、导出（我方差量） | **否** | **按我方** |
+| `source/src/service/ai/prompt-builder/prompt-api-call.ts` | +187/−41（**含该文件既有差量**：SSRF 守卫 / 120s 超时 / 租约复检；本次新增为其中的 `parseStreamResponse_ACU` 真流式增量读取 + `onDelta` 回调 + 停滞诊断约 +130 行） | 阶段 3 `09-28-streaming-incremental-read` | 正文由整读改为 `body.getReader()` 增量读取；**保留整读回退**（能力检测）。逐字节一致由「两条路径共用 `consumeSseLine_ACU`」在构造上保证 | **否** —— 上游 `prompt-api-call.ts:413` **也是** `response.text()` 整读 | **按我方**。注意：`3f6f534` 曾在追平上游时**刻意保留**上游当时的 `parseStreamResponse` 形态，本次方向与该次相反 —— 追平时若上游仍未改此处则冲突按我方；若上游自行改成 `getReader`，则逐行比对后**取上游实现 + 只叠加我方的 `onDelta`/停滞诊断**（最小改动优先） |
+
+> 上述两行是在基线 `6859302` 之后新增的，故本文件「2. 差量总览」的规模数字（`35 个文件 / +2757 / −26`）
+> **已不含它们**。刷新方式：重跑 §1 的三条命令。
+
 ### G. 分发产物与 CI（按我方，构建/运维生成）
 
 | 文件 | 说明 |

@@ -8,7 +8,7 @@
 export { prepareAIInput_ACU } from './prompt-prepare';
 
 // API 调用 + 响应处理
-export { callCustomOpenAI_ACU, handleApiResponse_ACU, extractAiUsageMetadata_ACU, RetryableAiResponseError_ACU, type AiUsageMetadata_ACU } from './prompt-api-call';
+export { callCustomOpenAI_ACU, handleApiResponse_ACU, extractAiUsageMetadata_ACU, RetryableAiResponseError_ACU, SSE_STALL_DIAG_MS_ACU, type AiUsageMetadata_ACU } from './prompt-api-call';
 
 // 表格编辑解析
 export { extractTableEditInner_ACU, parseAndApplyTableEdits_ACU, parseAndApplyTableEditsToData_ACU } from './table-edit-parser';

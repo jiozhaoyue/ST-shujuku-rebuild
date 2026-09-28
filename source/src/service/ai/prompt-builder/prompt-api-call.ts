@@ -453,62 +453,159 @@ export class RetryableAiResponseError_ACU extends Error {
     }
   }
 
+  /**
+   * 读流期间「连续无数据」的诊断阈值。
+   * 本常量只用于**报**（logDebug），不用于**掐**：中断语义归 api-call 的 120s 计时器独有
+   * （INTERNAL_AI_FETCH_TIMEOUT_MS_ACU，覆盖正文读取，在 finally 清理）。两个阈值各管一件事，避免互相打架。
+   */
+  export const SSE_STALL_DIAG_MS_ACU = 30_000;
+
+  interface SseParseState_ACU {
+    result: string;
+    sawDone: boolean;
+    usage: AiUsageMetadata_ACU | null;
+  }
+
+  /**
+   * 观测回调：绝不 await、绝不抛错 —— 观测异常不允许影响响应主流程。
+   * 不传回调时只是一次布尔判断（关闭观测零额外开销）。
+   */
+  function notifySseDelta_ACU(delta: string, onDelta?: (delta: string) => void): void {
+    if (!onDelta) return;
+    try { onDelta(delta); } catch { /* 观测异常不影响响应主流程。 */ }
+  }
+
+  /**
+   * 处理一行 SSE 文本，就地更新 state。
+   *
+   * **增量路径与整读回退共用本函数** —— 「逐字节一致」由此在构造上成立，
+   * 而不是靠两处实现各自写对。判定顺序、trim 时机、解析失败的静默忽略均与拆分前逐字等价。
+   */
+  function consumeSseLine_ACU(line: string, state: SseParseState_ACU, onDelta?: (delta: string) => void): void {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload) return;
+    if (payload === '[DONE]') {
+      state.sawDone = true;
+      return;
+    }
+    try {
+      const data = JSON.parse(payload);
+      const delta = data?.choices?.[0]?.delta?.content;
+      if (typeof delta === 'string') {
+        state.result += delta;
+        notifySseDelta_ACU(delta, onDelta);
+      }
+      const usage = extractResponseUsageMetadata_ACU(data);
+      state.usage = mergeAiUsageMetadata_ACU(state.usage, usage);
+      // Anthropic SSE 分支（claude_messages 接口协议）
+      if (data?.type === 'content_block_delta' && data?.delta?.type === 'text_delta' && typeof data?.delta?.text === 'string') {
+        state.result += data.delta.text;
+        notifySseDelta_ACU(data.delta.text, onDelta);
+      } else if (data?.type === 'message_stop') {
+        state.sawDone = true;
+      }
+    } catch {
+      // 忽略无法解析的 data 行（注释/空行）
+    }
+  }
+
+  /**
+   * 把增量文本切成行，语义与 `text.split('\n')` 等价：
+   * 末行无换行也算一行；`\r\n` 的行尾 `\r` 由消费方的 `trim()` 处理；
+   * 空行原样交给消费方（由它自己忽略）。末尾恰好换行时不产生多余空行。
+   */
+  function createSseLineSplitter_ACU(onLine: (line: string) => void) {
+    let buffer = '';
+    return {
+      push(chunk: string): void {
+        buffer += chunk;
+        let index: number;
+        while ((index = buffer.indexOf('\n')) !== -1) {
+          onLine(buffer.slice(0, index));
+          buffer = buffer.slice(index + 1);
+        }
+      },
+      flush(): void {
+        if (buffer) {
+          onLine(buffer);
+          buffer = '';
+        }
+      },
+    };
+  }
+
   // SSE 流式响应解析：逐行提取 data: 前缀的 JSON，拼接 choices[0].delta.content。
   // 兼容 Claude Messages 原样透传的 Anthropic SSE（接口协议=claude_messages 时 TT 不归一化流）：
   // content_block_delta(text_delta).delta.text 拼内容，message_stop 视为流结束（等价 [DONE]）。
   // usage 出现在流末尾的独立 chunk（choices 为空数组），需开启 stream_options.include_usage 才会下发。
-  async function parseStreamResponse_ACU(response: any, onUsage?: (usage: AiUsageMetadata_ACU) => void) {
+  //
+  // 读取形态按**能力检测**分流（不是异常兜底）：
+  //   - response.body 有 getReader ⇒ 真流式增量读取（可诊断停滞、可判截断）；
+  //   - 否则 ⇒ 退回 await response.text() 整读（测试桩 / 不支持流体的宿主）。
+  // 两条路径汇聚到 consumeSseLine_ACU，故返回值恒等。
+  async function parseStreamResponse_ACU(
+    response: any,
+    onUsage?: (usage: AiUsageMetadata_ACU) => void,
+    onDelta?: (delta: string) => void,
+  ) {
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-      const text = await response.text();
-      let result = '';
-      let sawDone = false;
-      let capturedUsage: AiUsageMetadata_ACU | null = null;
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload) continue;
-        if (payload === '[DONE]') {
-          sawDone = true;
-          continue;
+      const state: SseParseState_ACU = { result: '', sawDone: false, usage: null };
+      const body = response?.body;
+      if (body && typeof body.getReader === 'function') {
+        const reader = body.getReader();
+        const splitter = createSseLineSplitter_ACU(line => consumeSseLine_ACU(line, state, onDelta));
+        // TextDecoder 必须带 { stream: true }：正文含中文，chunk 边界可能切在字符中间，
+        // 不带 stream 会把半个字符静默解成 U+FFFD；EOF 时再 decode() 一次冲掉解码器内部残留。
+        const decoder = new TextDecoder();
+        let stallReported = false;
+        const armStallDiag = (): void => {
+          if (stallReported) return; // 只报一次，不刷屏
+          if (stallTimer !== null) clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => {
+            stallReported = true;
+            logDebug_ACU(`[parseStreamResponse] 流式响应连续 ${SSE_STALL_DIAG_MS_ACU / 1000}s 无数据（只报不掐，中断仍由 120s 计时器负责）。`);
+          }, SSE_STALL_DIAG_MS_ACU);
+        };
+        armStallDiag();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          armStallDiag();
+          splitter.push(decoder.decode(value, { stream: true }));
         }
-        try {
-          const data = JSON.parse(payload);
-          const delta = data?.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string') { result += delta; }
-          const usage = extractResponseUsageMetadata_ACU(data);
-          capturedUsage = mergeAiUsageMetadata_ACU(capturedUsage, usage);
-          // Anthropic SSE 分支（claude_messages 接口协议）
-          if (data?.type === 'content_block_delta' && data?.delta?.type === 'text_delta' && typeof data?.delta?.text === 'string') {
-            result += data.delta.text;
-          } else if (data?.type === 'message_stop') {
-            sawDone = true;
-          }
-        } catch {
-          // 忽略无法解析的 data 行（注释/空行）
-        }
+        splitter.push(decoder.decode());
+        splitter.flush();
+      } else {
+        const text = await response.text();
+        for (const line of text.split('\n')) consumeSseLine_ACU(line, state, onDelta);
       }
-      if (capturedUsage && onUsage) {
-        try { onUsage(capturedUsage); } catch { /* 用量回调异常不允许影响响应主流程。 */ }
+      if (state.usage && onUsage) {
+        try { onUsage(state.usage); } catch { /* 用量回调异常不允许影响响应主流程。 */ }
       }
-      if (!sawDone) {
+      if (!state.sawDone) {
         // [M1] 流式响应未收到 [DONE]：按截断处理，丢弃部分内容返回 null。
         // 上游 callCustomOpenAI 会把 null 转成 RetryableAiResponseError_ACU（model 类可重试错误），
         // collectGroupFillResponse 据此走重试；此前仅告警仍返回半截内容，会让调用方把截断误判为成功。
         // 本函数拿不到 abort 标志，一律按截断处理（用户中止场景在 fetch 层已抛 AbortError，不会走到这里）。
-        logWarn_ACU(`[parseStreamResponse] 流式响应未收到 [DONE]（可能被网络中断/截断），丢弃已收集的部分内容，长度: ${result.length}`);
+        logWarn_ACU(`[parseStreamResponse] 流式响应未收到 [DONE]（可能被网络中断/截断），丢弃已收集的部分内容，长度: ${state.result.length}`);
         return null;
       }
-      if (!result) {
+      if (!state.result) {
         logWarn_ACU('[parseStreamResponse] 流式响应未解析出任何内容。');
       }
-      return result || null;
+      return state.result || null;
     } catch (e: any) {
-      // response.text() 可能在流尚未读完时因用户取消/内部超时而抛 AbortError。
+      // 响应体读取（含 reader.read()）可能在流尚未读完时因用户取消/内部超时而抛 AbortError。
       // 解析失败可降级为 null，但控制流取消必须穿透到调用层分类。
       if (e?.name === 'AbortError') throw e;
       logError_ACU('[parseStreamResponse] Failed to parse stream:', e);
       return null;
+    } finally {
+      // 与 api-call 的计时器同一纪律：不清理会随轮数堆积。
+      if (stallTimer !== null) clearTimeout(stallTimer);
     }
   }
 
@@ -517,12 +614,12 @@ export class RetryableAiResponseError_ACU extends Error {
    * 预设级流式开关可能与全局不同，若按全局判断会把 SSE 当 JSON（或反之）解析失败。
    * requestWantsStream 缺省时回退全局 settings_ACU.streamingEnabled（兼容旧调用方）。
    */
-  export async function handleApiResponse_ACU(response: any, requestWantsStream?: boolean, onUsage?: (usage: AiUsageMetadata_ACU) => void) {
+  export async function handleApiResponse_ACU(response: any, requestWantsStream?: boolean, onUsage?: (usage: AiUsageMetadata_ACU) => void, onDelta?: (delta: string) => void) {
     const wantsStream = requestWantsStream !== undefined
       ? requestWantsStream === true
       : settings_ACU.streamingEnabled === true;
     if (wantsStream) {
-      return await parseStreamResponse_ACU(response, onUsage);
+      return await parseStreamResponse_ACU(response, onUsage, onDelta);
     }
     return await parseNonStreamResponse_ACU(response, onUsage);
   }

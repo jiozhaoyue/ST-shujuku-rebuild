@@ -16,7 +16,8 @@ npm run smoke                       # 用 jsdom 加载根 index.js 验产物可�
 
 - `npm run test:parallel`：显式并行跑（`--fileParallelism --maxWorkers=4`）。
 - 单文件 / 单用例：`npx vitest run tests/xxx.test.ts`、`npx vitest run -t "用例名"`。
-- 规模基线：421 个 `*.test.ts`、8661 用例（2026-09-28 实测，全绿）。
+- 规模基线：425 个 `*.test.ts`（424 通过 + 1 跳过）、8709 用例（8705 通过 + 4 跳过），**0 失败**
+  （2026-09-28 实测，含 T3.1 新增 9 条；上一次记录为 421 文件 / 8661 用例）。
 
 ## vitest 配置里必须知道的五件事（`source/vitest.config.ts`）
 

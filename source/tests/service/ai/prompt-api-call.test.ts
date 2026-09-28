@@ -131,7 +131,9 @@ import {
   extractAiUsageMetadata_ACU,
   handleApiResponse_ACU,
   RetryableAiResponseError_ACU,
+  SSE_STALL_DIAG_MS_ACU,
 } from '../../../src/service/ai/prompt-builder/prompt-api-call';
+import { logDebug_ACU } from '../../../src/shared/utils';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -165,7 +167,7 @@ afterEach(() => {
   delete (globalThis as any).EjsTemplate;
 });
 
-// ═══ handleApiResponse_ACU（流式输出开关已剥离，恒非流式） ═══
+// ═══ handleApiResponse_ACU（按 requestWantsStream / streamingEnabled 分流流式与 JSON） ═══
 describe('handleApiResponse_ACU', () => {
   it('非流式模式：解析 JSON 响应中的 choices[0].message.content', async () => {
     const mockResponse = {
@@ -769,6 +771,197 @@ describe('handleApiResponse_ACU 响应解析', () => {
   });
 });
 
+// ═══ 真流式增量读取（T3.1） ═══
+// 覆盖：response.body.getReader 增量路径 vs response.text 整读回退的**返回值恒等**，
+// 以及分块边界、多字节字符边界、截断、取消、观测回调、停滞诊断。
+describe('parseStreamResponse_ACU — 真流式增量读取', () => {
+  const encoder = new TextEncoder();
+
+  /** 伪造带 body.getReader 的响应（能力检测会选中增量路径）。 */
+  const makeStreamResponse = (chunks: Array<string | Uint8Array>) => {
+    const encoded = chunks.map(chunk => (typeof chunk === 'string' ? encoder.encode(chunk) : chunk));
+    let index = 0;
+    return {
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (index >= encoded.length) return { done: true, value: undefined };
+            const value = encoded[index];
+            index += 1;
+            return { done: false, value };
+          },
+          cancel: async () => undefined,
+          releaseLock: () => undefined,
+        }),
+      },
+    };
+  };
+
+  // 覆盖：无 data: 前缀的注释行、OpenAI delta、usage-only（choices 为空数组）、
+  // Anthropic content_block_delta / message_stop、空行、末行。中文用于触发多字节字节边界。
+  const SSE_FULL_TEXT = [
+    ': 这是一条注释行（无 data: 前缀，应被忽略）',
+    'data: {"choices":[{"delta":{"content":"你"}}]}',
+    'data: {"choices":[{"delta":{"content":"好，世界"}}],"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":4}}}',
+    'data: {"choices":[],"usage":{"cache_creation_input_tokens":6}}',
+    'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"（Claude 段）"}}',
+    'data: {"type":"message_stop"}',
+    '',
+  ].join('\n');
+  const SSE_FULL_EXPECTED = '你好，世界（Claude 段）';
+
+  const readViaFallback = (text: string) => handleApiResponse_ACU({ text: async () => text }, true);
+
+  it('回退路径：body 不可用时走整读，结果与增量路径一致（AC3）', async () => {
+    const viaFallback = await readViaFallback(SSE_FULL_TEXT);
+    const viaStream = await handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true);
+    expect(viaFallback).toBe(SSE_FULL_EXPECTED);
+    expect(viaStream).toBe(viaFallback);
+  });
+
+  it('穷举切分：任意两段字符串切分点结果恒等于整读（AC1）', async () => {
+    const reference = await readViaFallback(SSE_FULL_TEXT);
+    for (let i = 0; i <= SSE_FULL_TEXT.length; i += 1) {
+      const actual = await handleApiResponse_ACU(
+        makeStreamResponse([SSE_FULL_TEXT.slice(0, i), SSE_FULL_TEXT.slice(i)]),
+        true,
+      );
+      expect({ cut: i, actual }).toEqual({ cut: i, actual: reference });
+    }
+  });
+
+  it('逐字节切分：含中文正文在任意字节处切断均与整读一致且无 U+FFFD（AC2 / D1）', async () => {
+    const reference = await readViaFallback(SSE_FULL_TEXT);
+    expect(reference).toBe(SSE_FULL_EXPECTED);
+    expect(reference).not.toContain('�');
+
+    // 逐字节切开：会切进多字节字符内部 —— 不带 TextDecoder({stream:true}) 的实现会在此静默解出 U+FFFD。
+    const bytes = encoder.encode(SSE_FULL_TEXT);
+    for (let i = 0; i <= bytes.length; i += 1) {
+      const actual = await handleApiResponse_ACU(
+        makeStreamResponse([bytes.slice(0, i), bytes.slice(i)]),
+        true,
+      );
+      expect({ cut: i, actual }).toEqual({ cut: i, actual: reference });
+    }
+  });
+
+  it('分块边界：CRLF 行尾、末行无换行、每 3 字符一块均与整读一致（AC2）', async () => {
+    const cases: Array<[string, string[]]> = [
+      ['CRLF 行尾', [SSE_FULL_TEXT.replace(/\n/g, '\r\n')]],
+      ['末行无换行', [SSE_FULL_TEXT.replace(/\n$/, '')]],
+      ['整段一块', [SSE_FULL_TEXT]],
+      ['每 3 字符一块', SSE_FULL_TEXT.match(/[\s\S]{1,3}/g) as string[]],
+    ];
+    for (const [label, chunks] of cases) {
+      const expected = await readViaFallback(chunks.join(''));
+      const actual = await handleApiResponse_ACU(makeStreamResponse(chunks), true);
+      expect({ label, expected }).toEqual({ label, expected: SSE_FULL_EXPECTED });
+      expect({ label, actual }).toEqual({ label, actual: expected });
+    }
+  });
+
+  it('截断：未见 [DONE] / message_stop 时返回 null（AC4）', async () => {
+    const truncated = ['data: {"choices":[{"delta":{"content":"半截"}}]}', ''].join('\n');
+    await expect(readViaFallback(truncated)).resolves.toBeNull();
+    await expect(handleApiResponse_ACU(makeStreamResponse([truncated]), true)).resolves.toBeNull();
+  });
+
+  it('正常结束：[DONE] 与 message_stop 两种终态都返回内容（AC4）', async () => {
+    const openAiDone = ['data: {"choices":[{"delta":{"content":"完"}}]}', 'data: [DONE]', ''].join('\n');
+    await expect(handleApiResponse_ACU(makeStreamResponse([openAiDone]), true)).resolves.toBe('完');
+
+    const anthropicDone = [
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"完"}}',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+    await expect(handleApiResponse_ACU(makeStreamResponse([anthropicDone]), true)).resolves.toBe('完');
+  });
+
+  it('流中途取消：AbortError 原样上抛，不被降级为 null（AC5）', async () => {
+    const abortError = new DOMException('stream body read aborted', 'AbortError');
+    let calls = 0;
+    const response = {
+      body: {
+        getReader: () => ({
+          read: async () => {
+            calls += 1;
+            if (calls === 1) {
+              return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":"半"}}]}\n') };
+            }
+            throw abortError;
+          },
+          cancel: async () => undefined,
+          releaseLock: () => undefined,
+        }),
+      },
+    };
+    await expect(handleApiResponse_ACU(response, true)).rejects.toBe(abortError);
+  });
+
+  it('观测回调：逐 delta 被调用，且回调抛错不影响返回值（AC6）', async () => {
+    const seen: string[] = [];
+    const result = await handleApiResponse_ACU(
+      makeStreamResponse([SSE_FULL_TEXT]),
+      true,
+      undefined,
+      delta => { seen.push(delta); },
+    );
+    expect(result).toBe(SSE_FULL_EXPECTED);
+    expect(seen).toEqual(['你', '好，世界', '（Claude 段）']);
+
+    const throwing = vi.fn(() => { throw new Error('观测炸了'); });
+    await expect(
+      handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true, undefined, throwing),
+    ).resolves.toBe(SSE_FULL_EXPECTED);
+    expect(throwing).toHaveBeenCalled();
+  });
+
+  it('停滞诊断：连续无数据超阈值时只报一次，且不中断读流（AC10 / R7）', async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseSecond: (value: any) => void = () => undefined;
+      let calls = 0;
+      const response = {
+        body: {
+          getReader: () => ({
+            read: () => {
+              calls += 1;
+              if (calls === 1) {
+                return Promise.resolve({
+                  done: false,
+                  value: encoder.encode('data: {"choices":[{"delta":{"content":"甲"}}]}\n'),
+                });
+              }
+              if (calls === 2) {
+                return new Promise(resolve => { releaseSecond = resolve; });
+              }
+              return Promise.resolve({ done: true, value: undefined });
+            },
+            cancel: async () => undefined,
+            releaseLock: () => undefined,
+          }),
+        },
+      };
+
+      const pending = handleApiResponse_ACU(response, true);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(SSE_STALL_DIAG_MS_ACU + 1);
+
+      const stallLogs = vi.mocked(logDebug_ACU).mock.calls
+        .filter(call => String(call[0]).includes('无数据'));
+      expect(stallLogs).toHaveLength(1);
+
+      // 只报不掐：读流仍挂在原处；喂给它终态后照常收尾
+      releaseSecond({ done: false, value: encoder.encode('data: [DONE]\n') });
+      await expect(pending).resolves.toBe('甲');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('usage 提取与合并（上游 bb20a45f 移植）', () => {
   it('非流式模式：usage 与 usageMetadata 按已报告字段合并，usageMetadata 后覆盖', async () => {
     mockSettings.streamingEnabled = false;
@@ -794,7 +987,8 @@ describe('usage 提取与合并（上游 bb20a45f 移植）', () => {
   it('流式模式：多个 usage 片段只覆盖后续已定义字段，结束后仅回调一次', async () => {
     mockSettings.streamingEnabled = true;
     const onUsage = vi.fn();
-    // 本库流式为 text() 整读形态（上游为 body.getReader 增量），SSE 片段拼接为整段文本验证同一 usage 合并语义。
+    // 本用例用 text() 整读形态喂 SSE 文本（走回退路径），验证与增量路径同一套 usage 合并语义。
+    // 注：上游与我方**都是** text() 整读；我方另支持 body.getReader 增量（见上节）。
     // 第二参传 undefined（非 null）才能落回 settings 判定流式开关；本库语义 null=明确非流式。
     const result = await handleApiResponse_ACU({
       text: async () =>
