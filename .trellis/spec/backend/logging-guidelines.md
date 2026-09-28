@@ -51,6 +51,64 @@
 （实测：`{"api_key":"sk-…"}` 能命中，`{\"api_key\":\"sk-…\"}` 命中不了）。
 正确做法是**在对象图上、字符串还没被转义时**逐字段脱敏，之后再 stringify。
 
+## 响应观测（第二段，`prompt-observer.ts` 的 `beginPromptStreamObservation_ACU`）
+
+在「出站提示词」之上再记一段 **AI 响应正文**，与所属记录配对。接线点在 `service/ai/api-call.ts`
+的**两个** AI 出口：`postChatCompletion_ACU`（主生成，无硬超时）与
+`callAIWithResolvedPreset_ACU`（内部调用，带 120s 超时）。
+**判据**：`grep -n "handleApiResponse_ACU(" source/src/service/ai/api-call.ts` 的调用点数
+应等于已接线数 —— 上游若新增/改名 AI 出口，必须同步接线，否则出现「有提示词、无正文」的半截记录。
+
+**配对机制**：`buildCustomApiRequestBody_ACU` 记录时把**请求体对象引用**存进 `WeakMap<object, number>`；
+下游出口收到的是**同一个引用** ⇒ 直接取回记录 id。不做字符串指纹、不做时间窗猜测。
+前提是「同一引用」—— 若某调用方重新构造了 body，则取不到、该次不观测正文（**不猜**）。
+
+**坑（实测，极易写错）**：`transport`（取回方式）**不能**由「`onDelta` 是否被调用」推断 ——
+`parseStreamResponse_ACU` 的**整读回退分支同样逐行触发 onDelta**
+（`service/ai/prompt-builder/prompt-api-call.ts:583` 对 `text.split('\n')` 逐行调
+`consumeSseLine_ACU(line, state, onDelta)`）。正确判据是 `resolveStreamTransport_ACU`
+（`api-call.ts`）的 `response.body?.getReader` 能力检测，**与 `parseStreamResponse_ACU:557` 同一判据**。
+三档语义：`incremental`（真增量）/ `buffered`（SSE 整读回退）/ `json`（未走 SSE）。
+
+**有界收尾**：成功路径调 `finish`、异常路径调 `abort`，两者都必须能 settle（规则 L1-MR-7）。
+handle 的三个方法（`onDelta` / `finish` / `abort`）**都不抛错、都不 await**。
+
+## 写库流水观测（第三段，`service/table/write-pipeline-observer.ts`）
+
+「AI 说完了到底要写什么」的观测面。唯一埋点在写库主链的**单一收口点**
+`service/table/table-update-commit.ts` 的 `runTableUpdateCommit_ACU`
+（填表 / agent 协议 / chat-service / 可视化保存 / 导入全走它）。
+观测代码**不识别来源**，只透传 `options.source` —— 新增写入来源**无需**改观测代码（这就是设计判据）。
+
+| 埋点位置 | `outcome` | 说明 |
+| --- | --- | --- |
+| `saved === true` 之后 | `saved` | 落盘成功；记的是**实际提交给持久化层**的 `operations` |
+| `skipChatSave` 的 else 分支 | `runtime_only` | 只改运行时、未落盘 |
+| 外层 `catch` 内、`return` 前 | `failed` | 带 `errorCategory` |
+
+**边界（不是缺口）**：函数入口的**前置门禁失败**（provisional bridge 未清理 / legacy 迁移未通过 /
+commit scope 已切换 / `stage_only` 分支）是**直接 `return`、不经 `catch`** ⇒ 不产出记录。
+这属「提交根本没开始」而非「提交失败」，其诊断信息仍由既有 warn/error 日志承载。
+
+**如实标注优先于好看**：`operations` 取 `persistOptions.operations ?? options.operations`；
+两者皆空时置 `operationsUnavailable: true`，UI 显示「未提供语句（由持久化层构建）」
+—— **不得**把它显示成「写了 0 条」。
+
+**语句富化**（纯函数 `summarizeMutationOperations_ACU`，可单测、不依赖开关）：覆盖
+`service/table/storage-frame-v2-types.ts:273-282` 的全部 9 种 operation kind；
+未知/畸形 kind **不得抛错**，降级为 `structured / other` 并保留 kind 名。
+裸 SQL 复用 `shared/restricted-sql-dml.ts` 的 `parseRestrictedSqlDml_ACU`（**不自己写 SQL 解析**）；
+DSL 按**行**拆分（`insertRow` / `updateRow` / `deleteRow`；首参是**表索引** ⇒ 表名记 `#N`，不猜名）。
+
+**就近关联的诚实边界**：第三段 → 第一段用「来源 → scope 映射 + 10 分钟窗口」取最近一条提示词记录
+（提交时请求体引用已不在作用域，无法用 WeakMap）。窗口外或无映射来源 ⇒ **不给关联**，
+UI 显示「无关联」，不做超出该口径的推断。
+
+**面板**：`presentation-v2/components/WritePipelinePanel.vue`（Developer 页），
+三段在**同一个面板**内呈现：出站提示词摘要 → 响应正文（含 transport 徽章）→ 语句列表。
+开关 `writePipelineEnabled` 与 `promptInspectEnabled` 同形态（`stores/dev-options-store.ts`），
+默认关闭、关闭零开销。
+
 ## 裸 console 的边界
 
 全仓 `shared/service/data` 的裸 `console.*` 只有 **12 处**（2026-09-27 实测），且集中在两类位置：

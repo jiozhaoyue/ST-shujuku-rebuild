@@ -12,6 +12,7 @@ import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers
 import { acquirePresetRateLimitSlot_ACU } from './preset-rate-limiter';
 import { isDebugLogEnabled } from '../../shared/log-buffer';
 import {
+    beginPromptStreamObservation_ACU,
     isPromptObservationEnabled_ACU,
     recordPromptAssembly_ACU,
     type PromptSegmentStat_ACU,
@@ -497,10 +498,25 @@ export function buildCustomApiRequestBody_ACU(
       messages: Array.isArray(body.messages) ? body.messages : [],
       effectiveApiConfig: { model: body.model, url: body.reverse_proxy, streamingEnabled: body.stream },
       overrides: { sessionNamespace: opts.sessionNamespace, promptSegments: opts.promptSegments },
+      // 凭这个引用与响应侧配对（postChatCompletion_ACU 收到同一个对象）。
+      linkBody: body,
     });
   }
 
   return body;
+}
+
+/**
+ * 判定一次响应的**取回方式**（供观测记录）。
+ *
+ * 与 `parseStreamResponse_ACU` 的能力检测（`response.body` 是否有 `getReader`）**同一判据**。
+ * 刻意不靠「onDelta 是否被调用」来分辨：SSE 的整读回退分支同样逐行触发 onDelta，
+ * 二者在回调层面不可区分（见 `prompt-builder/prompt-api-call.ts` 的 parseStreamResponse_ACU）。
+ */
+function resolveStreamTransport_ACU(requestWantsStream: boolean, response: unknown): 'incremental' | 'buffered' | 'json' {
+    if (!requestWantsStream) return 'json';
+    const body = (response as any)?.body;
+    return body && typeof body.getReader === 'function' ? 'incremental' : 'buffered';
 }
 
 /**
@@ -534,7 +550,24 @@ export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal
         throw new AgentApiHttpError_ACU(res.status, `API请求失败: ${res.status} ${errTxt}`);
     }
     const requestWantsStream = (body as any)?.stream === true;
-    return handleApiResponse_ACU(res, requestWantsStream);
+    // 响应观测（三段式的第二段）：与请求组装时登记的记录凭 body 引用配对；
+    // 开关关闭时恒为 null，onDelta 保持 undefined ⇒ 与接线前逐字一致。
+    const streamHandle = beginPromptStreamObservation_ACU(body);
+    const transport = resolveStreamTransport_ACU(requestWantsStream, res);
+    try {
+        const text = await handleApiResponse_ACU(
+            res,
+            requestWantsStream,
+            undefined,
+            streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined,
+        );
+        streamHandle?.finish({ ...(typeof text === 'string' ? { text } : {}), transport });
+        return text;
+    } catch (error) {
+        // 有界收尾：无论成功失败都让观测句柄 settle，绝不留下悬挂的观测态。
+        streamHandle?.abort(error instanceof Error ? error.message : String(error));
+        throw error;
+    }
 }
 
 /**
@@ -779,7 +812,23 @@ export async function callAIWithResolvedPreset_ACU(
         }
         assertNotAborted_ACU(signal);
         const requestWantsStream = (body as any)?.stream === true;
-        const content = await handleApiResponse_ACU(response, requestWantsStream, lifecycle?.onUsage);
+        // 响应观测（第二段）：与请求组装时登记的记录凭 body 引用配对；关闭时为 null。
+        const streamHandle = beginPromptStreamObservation_ACU(body);
+        const transport = resolveStreamTransport_ACU(requestWantsStream, response);
+        let content: string | null;
+        try {
+          content = await handleApiResponse_ACU(
+              response,
+              requestWantsStream,
+              lifecycle?.onUsage,
+              streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined,
+          );
+        } catch (error) {
+          // 有界收尾：观测句柄必须 settle，且异常按原样上抛给外层 catch（不改既有取消/超时语义）。
+          streamHandle?.abort(error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+        streamHandle?.finish({ ...(typeof content === 'string' ? { text: content } : {}), transport });
         return typeof content === 'string' && content.trim() ? content.trim() : null;
       } catch (error: any) {
         // 响应体读取阶段被外部 signal 取消时，与 fetch 阶段使用同一用户取消语义。

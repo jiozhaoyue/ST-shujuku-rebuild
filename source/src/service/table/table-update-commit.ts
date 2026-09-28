@@ -15,6 +15,11 @@ import {
   markRuntimeOnlyPendingSheets_ACU,
   runRegisteredRuntimeOnlyPendingFlush_ACU,
 } from './runtime-only-pending-state';
+import {
+  isTableWriteObservationEnabled_ACU,
+  recordTableWritePipeline_ACU,
+  type TableWriteOutcome_ACU,
+} from './write-pipeline-observer';
 
 export interface TableUpdateCommitApplyContext_ACU {
   transactionContext: TableWriteTransactionContext_ACU;
@@ -260,6 +265,38 @@ function assertExpectedCommitScope_ACU(options: RunTableUpdateCommitOptions_ACU,
   }
 }
 
+/**
+ * 写库流水观测（第三段）的统一入口。**开关关闭时只做一次布尔判断即返回**（零开销）。
+ *
+ * 观测器自身不抛错；这里再包一层 try/catch 是为了让「观测绝不影响提交」成为本文件的
+ * 局部不变量 —— 即便未来观测器实现有疏漏，也不会把提交结果带坏。
+ */
+function observeWritePipeline_ACU(
+  options: RunTableUpdateCommitOptions_ACU,
+  payload: {
+    outcome: TableWriteOutcome_ACU;
+    operations?: TableMutationOperationV2_ACU[];
+    targetMessageIndex?: number;
+    targetSheetKeys?: string[] | null;
+    errorCategory?: TableUpdateCommitErrorCategory_ACU;
+  },
+): void {
+  if (!isTableWriteObservationEnabled_ACU()) return;
+  try {
+    recordTableWritePipeline_ACU({
+      source: options.source,
+      reason: options.reason,
+      outcome: payload.outcome,
+      targetMessageIndex: payload.targetMessageIndex ?? options.targetMessageIndex,
+      targetSheetKeys: payload.targetSheetKeys ?? options.targetSheetKeys ?? [],
+      operations: payload.operations,
+      errorCategory: payload.errorCategory,
+    });
+  } catch {
+    // 观测失败绝不外溢。
+  }
+}
+
 export async function runTableUpdateCommit_ACU<T>(
   options: RunTableUpdateCommitOptions_ACU,
   apply: (context: TableUpdateCommitApplyContext_ACU) => Promise<TableUpdateCommitApplyResult_ACU<T>> | TableUpdateCommitApplyResult_ACU<T>,
@@ -404,8 +441,23 @@ export async function runTableUpdateCommit_ACU<T>(
                 classifyPersistRejection_ACU(saveResult.error),
               );
             }
+            // 写库流水（第三段）：落盘成功后记录本次**实际提交**的 operations。
+            // 取的是传给持久化层的同一份 operations（persistOptions 优先），因此与真实写入一致。
+            observeWritePipeline_ACU(options, {
+              outcome: 'saved',
+              operations,
+              targetMessageIndex: messageIndex ?? options.targetMessageIndex,
+              targetSheetKeys,
+            });
           } else {
             markRuntimeOnlyPendingAfterSkipChatSave_ACU(options, revisionWriteSet, applied.tableData, preApplyData);
+            // 只改运行时、未落盘：同样产出一条，但如实标为 runtime_only。
+            observeWritePipeline_ACU(options, {
+              outcome: 'runtime_only',
+              operations,
+              targetMessageIndex: options.targetMessageIndex,
+              targetSheetKeys,
+            });
           }
 
           _set_currentJsonTableData_ACU(cloneTableData_ACU(applied.tableData));
@@ -442,6 +494,14 @@ export async function runTableUpdateCommit_ACU<T>(
     } else {
       logWarn_ACU(`[TableUpdateCommit] ${options.reason} 已跳过（${errorCategory}）：${message} 统一指引：外部写入请等待 AI 填表完成后重试；范围校验失败请切回当前聊天重新执行填表。`, error);
     }
+    // 写库流水（第三段）：失败的提交同样留痕 —— 失败时最有诊断价值的正是「打算写什么」。
+    // 注意：operations 只有调用方经 options 显式给出的那份可见；填表链把 operations 放在
+    // apply 返回的 persist 里，闭包外拿不到 ⇒ 这种情况下记录会标 operationsUnavailable（如实）。
+    observeWritePipeline_ACU(options, {
+      outcome: 'failed',
+      operations: options.operations,
+      errorCategory,
+    });
     return {
       success: false,
       error: message,

@@ -96,10 +96,54 @@ export const PROMPT_OBSERVATION_MAX_RECORDS_ACU = 30;
 export const PROMPT_OBSERVATION_MAX_MESSAGE_CHARS_ACU = 120_000;
 /** 缓冲总字符预算；超预算时丢最旧记录。 */
 export const PROMPT_OBSERVATION_MAX_TOTAL_CHARS_ACU = 2 * 1024 * 1024;
+/** 单条**响应正文**上限（字符）；超出截断并置 `truncated`。与消息正文同量级。 */
+export const PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU = 120_000;
 
 // ═══════════════════════════════════════════════════════════════
 // 类型
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * 第二段观测：本次 AI 响应的**正文**。由 `beginPromptStreamObservation_ACU` 在响应收完后
+ * 原地补写进所属记录（记录在请求组装时就已落缓冲）。
+ */
+export interface PromptResponseStat_ACU {
+  /** 截断前字符数。 */
+  chars: number;
+  /** 上限截断后正文（导出时逐字段脱敏）。 */
+  content: string;
+  /** 正文被截断时置位。 */
+  truncated?: boolean;
+  /**
+   * 本次响应的取回方式：
+   * - `incremental`：真流式增量读（`response.body.getReader()` 能力检测通过）；
+   * - `buffered`：SSE 但退回 `response.text()` 整读（测试桩 / 不支持流体的宿主）；
+   * - `json`：请求未带 stream，压根没走 SSE。
+   *
+   * **不可**用 `chunkCount > 0` 判增量 —— 整读回退分支同样逐行触发 onDelta
+   * （`prompt-builder/prompt-api-call.ts` 的 `parseStreamResponse_ACU`）。
+   */
+  transport: 'incremental' | 'buffered' | 'json';
+  /** onDelta 回调次数（SSE 的两条路径都会触发）。 */
+  chunkCount: number;
+  /** 首次回调距本次观测开始的毫秒数（首字延迟）；无回调时缺失。 */
+  firstDeltaMs?: number;
+  /** 从开始观测到收完的毫秒数。 */
+  totalMs: number;
+}
+
+/**
+ * 逐块观测句柄。`postChatCompletion_ACU` 在 fetch 前取一次（开关关闭时得到 `null`），
+ * 把 `onDelta` 转给响应解析，收尾时调 `finish`。
+ *
+ * 契约：三个方法**都不抛错、都不 await**，且可安全多次/乱序调用（后到的 finish 覆盖前值）。
+ */
+export interface PromptStreamObservationHandle_ACU {
+  onDelta(delta: string): void;
+  /** @param options.text 最终拼接正文（权威值）；缺省时用 handle 内累积的 delta。 */
+  finish(options?: { text?: string; transport?: PromptResponseStat_ACU['transport'] }): void;
+  abort(reason?: string): void;
+}
 
 export interface PromptMessageStat_ACU {
   role: string;
@@ -152,6 +196,11 @@ export interface PromptObservationRecord_ACU {
   unsegmentedChars?: number;
   /** 任一条消息被截断时置位。 */
   truncated?: boolean;
+  /**
+   * 第二段：本次调用的响应正文。请求组装时未知，由 `beginPromptStreamObservation_ACU`
+   * 在响应收完后原地补写；未接线或响应失败时缺失（缺失即如实呈现，不伪造）。
+   */
+  response?: PromptResponseStat_ACU;
 }
 
 export interface PromptObservationInput_ACU {
@@ -161,6 +210,14 @@ export interface PromptObservationInput_ACU {
     sessionNamespace?: string;
     promptSegments?: PromptSegmentStat_ACU[];
   };
+  /**
+   * 本次出站的**请求体对象引用**（`buildCustomApiRequestBody_ACU` 的返回值）。
+   *
+   * 用途：与响应侧配对。`postChatCompletion_ACU` 收到的是同一个对象引用，于是
+   * `beginPromptStreamObservation_ACU(body)` 能凭引用精确取回本记录 —— 不做字符串指纹、
+   * 不做时间窗猜测。仅在开关开启时被登记（关闭时零开销）。
+   */
+  linkBody?: object;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -179,6 +236,13 @@ let _bufferedChars = 0;
 const _subscribers = new Set<(records: readonly PromptObservationRecord_ACU[]) => void>();
 /** 每个 scope 的上一次出站消息序列（本模块自持，刻意不共用 drift 内核的 Map，见文件头）。 */
 const _lastMessagesByScope = new Map<string, AgentPromptMessage_ACU[]>();
+/**
+ * 请求体对象引用 → 记录 id。响应侧凭同一引用精确配对（见 `PromptObservationInput_ACU.linkBody`）。
+ * 用 WeakMap：请求体被 GC 后条目自动消失，长期运行不累积。声明为 `let` 以便测试重置。
+ */
+let _recordIdByBody = new WeakMap<object, number>();
+/** 每个 scope 最近一条记录的 id 与时间（供写库流水「就近关联」，见 getLatestObservationIdForScope_ACU）。 */
+const _latestLinkByScope = new Map<string, { id: number; at: number }>();
 /** token 估算串行链：避免多条记录同时压满宿主分词器。 */
 let _estimateChain: Promise<void> = Promise.resolve();
 /** 清空留痕（谁在何时清空），与 log-buffer 同形态。 */
@@ -297,6 +361,12 @@ export function recordPromptAssembly_ACU(input: PromptObservationInput_ACU): voi
     _bufferedChars += totalChars;
     trimToBudget_ACU();
 
+    // 4b) 配对登记：请求体引用 → 本记录（供响应侧精确配对），并在 scope 上留一个「最近一条」。
+    if (input?.linkBody && typeof input.linkBody === 'object') {
+      _recordIdByBody.set(input.linkBody, record.id);
+    }
+    _latestLinkByScope.set(scope, { id: record.id, at: record.at });
+
     // 5) 异步补 token（不阻塞；失败只降级）
     scheduleTokenEstimation_ACU(record);
 
@@ -304,6 +374,103 @@ export function recordPromptAssembly_ACU(input: PromptObservationInput_ACU): voi
   } catch (error) {
     try { logDebug_ACU('[提示词观测] 记录失败，已忽略（不影响本次 API 调用）。', error); } catch { /* ignore */ }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 响应观测（第二段）
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 开始观测一次响应正文。**开关关闭时返回 `null`**（调用方只需一次判空，零开销）。
+ *
+ * 配对规则：凭 `body` 这个**对象引用**取回请求组装时登记的记录 id。取不到（例如某调用方
+ * 重新构造了请求体）时返回 `null` —— **不猜**，宁可该次不观测响应，也不误配到别人的记录。
+ *
+ * 返回的 handle 三个方法都不抛错、都不 await；`onDelta` 被高频调用，内部只做计数与有限累积。
+ */
+export function beginPromptStreamObservation_ACU(body: unknown): PromptStreamObservationHandle_ACU | null {
+  if (!_enabled) return null;
+  try {
+    if (!body || typeof body !== 'object') return null;
+    const recordId = _recordIdByBody.get(body as object);
+    if (recordId === undefined) return null;
+    const record = _records.find(item => item.id === recordId);
+    if (!record) return null; // 已被挤出缓冲，补写无意义
+
+    const startedAt = Date.now();
+    let chunkCount = 0;
+    let firstDeltaAt: number | null = null;
+    let accumulated = '';
+    let accumulatedOverflow = false;
+
+    const buildStat_ACU = (text: string, transport: PromptResponseStat_ACU['transport']): PromptResponseStat_ACU => {
+      const chars = text.length;
+      let content = text;
+      let truncated = false;
+      if (content.length > PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU) {
+        content = content.slice(0, PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU);
+        truncated = true;
+      }
+      return {
+        chars,
+        content,
+        transport,
+        chunkCount,
+        totalMs: Date.now() - startedAt,
+        ...(firstDeltaAt !== null ? { firstDeltaMs: firstDeltaAt - startedAt } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      };
+    };
+
+    return {
+      onDelta(delta: string): void {
+        try {
+          if (typeof delta !== 'string' || delta === '') return;
+          chunkCount += 1;
+          if (firstDeltaAt === null) firstDeltaAt = Date.now();
+          // 累积只为「调用方没给最终正文」时兜底；到上限即停止拼接（仍继续计数），
+          // 避免长生成把内存撑爆 —— 超过上限的部分本来也会被截断。
+          if (!accumulatedOverflow) {
+            if (accumulated.length + delta.length > PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU) {
+              accumulatedOverflow = true;
+            } else {
+              accumulated += delta;
+            }
+          }
+        } catch { /* 观测异常绝不影响响应主流程 */ }
+      },
+      finish(options?: { text?: string; transport?: PromptResponseStat_ACU['transport'] }): void {
+        try {
+          if (!_records.includes(record)) return;
+          const rawText = typeof options?.text === 'string' ? options.text : accumulated;
+          // 保守降级：调用方未声明取回方式时，有回调只能说是 SSE（不声称增量），无回调则是非流式。
+          const transport = options?.transport ?? (chunkCount > 0 ? 'buffered' : 'json');
+          record.response = buildStat_ACU(rawText, transport);
+          notify_ACU();
+        } catch (error) {
+          try { logDebug_ACU('[提示词观测] 响应补写失败，已忽略。', error); } catch { /* ignore */ }
+        }
+      },
+      abort(reason?: string): void {
+        try {
+          logDebug_ACU(`[提示词观测] 本次响应观测中止（${String(reason || '原因未给')}），未补写正文。`);
+        } catch { /* ignore */ }
+      },
+    };
+  } catch (error) {
+    try { logDebug_ACU('[提示词观测] 响应观测启动失败，已忽略。', error); } catch { /* ignore */ }
+    return null;
+  }
+}
+
+/**
+ * 某 scope 最近一条出站提示词记录的 id 与时间。供**写库流水**做「就近关联」——
+ * 提交发生在响应之后，请求体引用已不在作用域，无法用 WeakMap，故按 scope 取最近一条，
+ * 并由调用方自行校验时间窗（`service/table/write-pipeline-observer.ts`）。
+ */
+export function getLatestObservationIdForScope_ACU(scope: string): { id: number; at: number } | null {
+  const entry = _latestLinkByScope.get(String(scope ?? ''));
+  return entry ? { id: entry.id, at: entry.at } : null;
 }
 
 /** 三重上限：条数、总字符预算。丢最旧。 */
@@ -378,6 +545,7 @@ export function clearPromptObservations_ACU(caller = 'unknown'): void {
   _records = [];
   _bufferedChars = 0;
   _lastMessagesByScope.clear();
+  _latestLinkByScope.clear();
   _clearHistory.push({ at: Date.now(), caller: String(caller || 'unknown').slice(0, 80) });
   if (_clearHistory.length > 20) _clearHistory.splice(0, _clearHistory.length - 20);
   notify_ACU();
@@ -416,6 +584,7 @@ export function exportPromptObservations_ACU(): string {
         maxRecords: PROMPT_OBSERVATION_MAX_RECORDS_ACU,
         maxMessageChars: PROMPT_OBSERVATION_MAX_MESSAGE_CHARS_ACU,
         maxTotalChars: PROMPT_OBSERVATION_MAX_TOTAL_CHARS_ACU,
+        maxResponseChars: PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU,
       },
       records: _records.map(record => ({
         ...record,
@@ -423,6 +592,7 @@ export function exportPromptObservations_ACU(): string {
         model: mask_ACU(record.model),
         endpointHost: mask_ACU(record.endpointHost),
         messages: record.messages.map(message => ({ ...message, content: mask_ACU(message.content) })),
+        ...(record.response ? { response: { ...record.response, content: mask_ACU(record.response.content) } } : {}),
         ...(record.segments ? { segments: record.segments.map(segment => ({ ...segment })) } : {}),
       })),
     };
@@ -444,6 +614,8 @@ export function __resetPromptObservationForTests_ACU(): void {
   _bufferedChars = 0;
   _subscribers.clear();
   _lastMessagesByScope.clear();
+  _recordIdByBody = new WeakMap<object, number>();
+  _latestLinkByScope.clear();
   _clearHistory.length = 0;
   _estimateChain = Promise.resolve();
 }

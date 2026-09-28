@@ -118,8 +118,18 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 |---|---|---|---|---|---|
 | `source/src/service/ai/prompt-observer.ts` (+449/−0) / `prompt-inspection-report.ts` / `presentation-v2` 的 `PromptInspectionPanel.vue`、`usePromptInspection.ts` | 新增文件为主 | 阶段 2 `09-27-prompt-assembly-inspector` | 出站提示词的段级观测、diff、导出（我方差量） | **否** | **按我方** |
 | `source/src/service/ai/prompt-builder/prompt-api-call.ts` | +187/−41（**含该文件既有差量**：SSRF 守卫 / 120s 超时 / 租约复检；本次新增为其中的 `parseStreamResponse_ACU` 真流式增量读取 + `onDelta` 回调 + 停滞诊断约 +130 行） | 阶段 3 `09-28-streaming-incremental-read` | 正文由整读改为 `body.getReader()` 增量读取；**保留整读回退**（能力检测）。逐字节一致由「两条路径共用 `consumeSseLine_ACU`」在构造上保证 | **否** —— 上游 `prompt-api-call.ts:413` **也是** `response.text()` 整读 | **按我方**。注意：`3f6f534` 曾在追平上游时**刻意保留**上游当时的 `parseStreamResponse` 形态，本次方向与该次相反 —— 追平时若上游仍未改此处则冲突按我方；若上游自行改成 `getReader`，则逐行比对后**取上游实现 + 只叠加我方的 `onDelta`/停滞诊断**（最小改动优先） |
+| `source/src/service/table/write-pipeline-observer.ts`（新） | 新增文件（约 400 行） | 阶段 3 `09-28-write-pipeline-observer` | 写库流水观测内核：把**提交给持久化层的** `operations` 归一成「方言 + 操作类型 + 表 + 原文」；三重上限（30 条 / 单条 8k 字符 / 总 2 MiB）；导出逐字段脱敏 | **否** | **按我方** |
+| `source/src/service/ai/prompt-observer.ts` | 在既有我方文件上增量（约 +150 行） | 同上 | 新增 `linkBody`（`WeakMap` 按**请求体对象引用**精确配对响应）、`beginPromptStreamObservation_ACU`、`getLatestObservationIdForScope_ACU`、`PromptResponseStat_ACU`（含 `transport` 三档），响应正文纳入导出脱敏 | **否** | **按我方** |
+| `source/src/service/ai/api-call.ts` | 约 +30/−3 | 同上 | 两个 AI 出口（`postChatCompletion_ACU`、`callAIWithResolvedPreset_ACU`）接线响应观测；`resolveStreamTransport_ACU` 与 `parseStreamResponse_ACU` 共用同一能力检测判据 | **否** | **按我方** |
+| `source/src/service/table/table-update-commit.ts` | 约 +45 | 同上 | 写库**单一收口点**三处埋点（`saved` / `runtime_only` / `failed`）；观测代码只透传 `options.source`，**不识别来源**（新增来源无需改观测代码） | **否** | **按我方** |
+| `source/src/presentation-v2/` 的 `WritePipelinePanel.vue`、`useWritePipeline.ts`（新增）+ `dev-options-store.ts`、`useDevOptions.ts`、`DeveloperPage.vue`（增量） | 新增 + 增量 | 同上 | Developer 页三段式面板（出站提示词 → 响应正文 → 语句）；观测默认关闭，关闭时埋点只做一次布尔判断 | **否** | **按我方** |
 
-> 上述两行是在基线 `6859302` 之后新增的，故本文件「2. 差量总览」的规模数字（`35 个文件 / +2757 / −26`）
+> **口径提示（阶段 3）**：上表前两行是 T3.1 的差量，其余为 **T3.2** 新增。三者的**共同前提**是
+> 「本方注册的 AI 出口只有两个」—— 若上游新增/改名 AI 出口，追平时必须同步在**新出口**上接线响应观测，
+> 否则会出现「有出站提示词、无响应正文」的半截记录（面板会如实显示为「未补写」，但不该长期如此）。
+> 判据：`grep -n "handleApiResponse_ACU(" source/src/service/ai/api-call.ts` 的调用点数应等于已接线数。
+
+> 上述各行是在基线 `6859302` 之后新增的，故本文件「2. 差量总览」的规模数字（`35 个文件 / +2757 / −26`）
 > **已不含它们**。刷新方式：重跑 §1 的三条命令。
 
 ### G. 分发产物与 CI（按我方，构建/运维生成）

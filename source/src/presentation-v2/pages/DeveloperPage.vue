@@ -35,6 +35,8 @@
 
       <PromptInspectionPanel />
 
+      <WritePipelinePanel />
+
       <CapabilityOverviewPanel />
     </AcuPanelGrid>
   </section>
@@ -48,6 +50,7 @@ import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
 import CapabilityOverviewPanel from "../components/CapabilityOverviewPanel.vue";
 import PromptInspectionPanel from "../components/PromptInspectionPanel.vue";
+import WritePipelinePanel from "../components/WritePipelinePanel.vue";
 import ToggleRow from "../components/DashboardToggleRow.vue";
 import { useDevOptions } from "../composables/useDevOptions";
 import { useFormFillSettings } from "../composables/useFormFillSettings";

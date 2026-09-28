@@ -9,12 +9,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetPromptObservationForTests_ACU,
   PROMPT_OBSERVATION_MAX_RECORDS_ACU,
+  PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU,
   PROMPT_PLACEHOLDER_SEGMENT_ACU,
   PROMPT_SEGMENT_SKELETON_ACU,
   PROMPT_SEGMENT_TABLE_WORLDBOOK_ACU,
+  beginPromptStreamObservation_ACU,
   clearPromptObservations_ACU,
   exportPromptObservations_ACU,
   extractEndpointHost_ACU,
+  getLatestObservationIdForScope_ACU,
   getPromptObservationClearHistory_ACU,
   getPromptObservations_ACU,
   isPromptObservationEnabled_ACU,
@@ -379,5 +382,146 @@ describe('prompt-observer · 健壮性', () => {
     expect(record.messages[0].role).toBe('');
     expect(record.messages[0].content).toBe('[object Object]');
     expect(record.messages[1].content).toBe('');
+  });
+});
+
+describe('响应观测（第二段）', () => {
+  beforeEach(() => {
+    __resetPromptObservationForTests_ACU();
+    mockLogDebug.mockClear();
+    setPromptObservationEnabled_ACU(true);
+  });
+
+  it('凭 linkBody 的同一引用配对，finish 原地补写 response 并通知订阅者', () => {
+    const body = { messages: [], model: 'm', stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    const notified: number[] = [];
+    subscribePromptObservations_ACU(records => notified.push(records.length));
+
+    const handle = beginPromptStreamObservation_ACU(body);
+    expect(handle).not.toBeNull();
+    handle!.onDelta('收');
+    handle!.onDelta('到');
+    handle!.finish({ text: '收到', transport: 'incremental' });
+
+    const record = getPromptObservations_ACU()[0];
+    expect(record.response).toMatchObject({
+      chars: 2,
+      content: '收到',
+      transport: 'incremental',
+      chunkCount: 2,
+    });
+    expect(record.response!.totalMs).toBeGreaterThanOrEqual(0);
+    expect(record.response!.firstDeltaMs).toBeGreaterThanOrEqual(0);
+    expect(notified.length).toBeGreaterThan(0);
+  });
+
+  it('关闭时返回 null（调用方零开销）', () => {
+    setPromptObservationEnabled_ACU(false);
+    expect(beginPromptStreamObservation_ACU({ stream: true })).toBeNull();
+  });
+
+  it('引用不同（重新构造的 body）取不到句柄 —— 不猜', () => {
+    recordPromptAssembly_ACU(makeInput({ linkBody: { stream: true } }));
+    expect(beginPromptStreamObservation_ACU({ stream: true })).toBeNull();
+  });
+
+  it('未登记 linkBody 时取不到句柄', () => {
+    recordPromptAssembly_ACU(makeInput());
+    expect(beginPromptStreamObservation_ACU({ stream: true })).toBeNull();
+  });
+
+  it('记录已被挤出缓冲时返回 null（补写无意义）', () => {
+    const body = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    for (let index = 0; index <= PROMPT_OBSERVATION_MAX_RECORDS_ACU; index += 1) {
+      recordPromptAssembly_ACU(makeInput());
+    }
+    expect(beginPromptStreamObservation_ACU(body)).toBeNull();
+  });
+
+  it('调用方未声明 transport 时保守降级：有回调记 buffered、无回调记 json', () => {
+    const sseBody = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: sseBody }));
+    const sseHandle = beginPromptStreamObservation_ACU(sseBody)!;
+    sseHandle.onDelta('x');
+    sseHandle.finish();
+
+    const nonStreamBody = { stream: false };
+    recordPromptAssembly_ACU(makeInput({ linkBody: nonStreamBody }));
+    beginPromptStreamObservation_ACU(nonStreamBody)!.finish();
+
+    const records = getPromptObservations_ACU();
+    expect(records[0].response!.transport).toBe('buffered');
+    expect(records[1].response!.transport).toBe('json');
+  });
+
+  it('调用方未给最终正文时用累计 delta 兜底', () => {
+    const body = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    const handle = beginPromptStreamObservation_ACU(body)!;
+    handle.onDelta('hello ');
+    handle.onDelta('world');
+    handle.finish();
+
+    expect(getPromptObservations_ACU()[0].response!.content).toBe('hello world');
+  });
+
+  it('正文超上限截断，chars 记截断前长度', () => {
+    const body = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    const long = 'x'.repeat(PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU + 10);
+    beginPromptStreamObservation_ACU(body)!.finish({ text: long });
+
+    const response = getPromptObservations_ACU()[0].response!;
+    expect(response.truncated).toBe(true);
+    expect(response.chars).toBe(PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU + 10);
+    expect(response.content.length).toBe(PROMPT_OBSERVATION_MAX_RESPONSE_CHARS_ACU);
+  });
+
+  it('句柄三方法都不抛错（含畸形入参）', () => {
+    const body = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    const handle = beginPromptStreamObservation_ACU(body)!;
+    expect(() => handle.onDelta(undefined as any)).not.toThrow();
+    expect(() => handle.onDelta(null as any)).not.toThrow();
+    expect(() => handle.onDelta('')).not.toThrow();
+    expect(() => handle.abort('用户取消')).not.toThrow();
+    expect(() => handle.finish({ text: undefined as any, transport: undefined as any })).not.toThrow();
+    expect(() => handle.finish()).not.toThrow();
+  });
+
+  it('非对象 body 不抛错，恒返回 null', () => {
+    expect(beginPromptStreamObservation_ACU('str')).toBeNull();
+    expect(beginPromptStreamObservation_ACU(null)).toBeNull();
+    expect(beginPromptStreamObservation_ACU(undefined)).toBeNull();
+  });
+
+  it('导出时响应正文同样脱敏', () => {
+    const body = { stream: true };
+    recordPromptAssembly_ACU(makeInput({ linkBody: body }));
+    beginPromptStreamObservation_ACU(body)!.finish({ text: '{"api_key":"sk-ant-abcdefghijklmnopqrstuvwxyz"}' });
+
+    const exported = exportPromptObservations_ACU();
+    expect(exported).not.toContain('sk-ant-abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('getLatestObservationIdForScope_ACU 返回该 scope 最近一条；未知 scope 为 null', () => {
+    recordPromptAssembly_ACU(makeInput({ overrides: { sessionNamespace: 'table-fill' } }));
+    recordPromptAssembly_ACU(makeInput({ overrides: { sessionNamespace: 'table-fill' } }));
+    recordPromptAssembly_ACU(makeInput({ overrides: { sessionNamespace: 'summary' } }));
+
+    const fill = getLatestObservationIdForScope_ACU('table-fill')!;
+    const summary = getLatestObservationIdForScope_ACU('summary')!;
+    expect(fill.id).toBe(2);
+    expect(summary.id).toBe(3);
+    expect(fill.at).toBeGreaterThan(0);
+    expect(getLatestObservationIdForScope_ACU('nope')).toBeNull();
+  });
+
+  it('清空记录后不再提供就近关联', () => {
+    recordPromptAssembly_ACU(makeInput({ overrides: { sessionNamespace: 'table-fill' } }));
+    clearPromptObservations_ACU('test');
+    expect(getLatestObservationIdForScope_ACU('table-fill')).toBeNull();
   });
 });

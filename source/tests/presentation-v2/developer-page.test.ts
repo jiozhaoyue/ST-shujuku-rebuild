@@ -387,3 +387,173 @@ describe('DeveloperPage · 提示词检查器', () => {
     mount.__resetAcuV2MountForTests();
   });
 });
+
+describe('DeveloperPage · 写库流水', () => {
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
+
+  function pipelinePanel(): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+      .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('写库流水'))!;
+  }
+
+  /** 记录级折叠组（限定直接子元素，避免把语句块内的折叠件算进来）。 */
+  function recordGroups(): HTMLElement[] {
+    return Array.from(
+      pipelinePanel().querySelectorAll<HTMLElement>('.acu-v2-write-pipeline__records > .acu-disclosure-group'),
+    );
+  }
+
+  const sampleOperations = [
+    { kind: 'sql_sheet_batch', sheetKey: 'sheet_a', statements: ['INSERT INTO a (b) VALUES (1)'] },
+  ];
+
+  it('面板渲染，默认关闭并给出引导空态', async () => {
+    const { mount } = await mountDeveloperPage();
+
+    const panel = pipelinePanel();
+    expect(panel).toBeTruthy();
+    const text = panel.textContent || '';
+    expect(text).toContain('未开启');
+    expect(text).toContain('还没有记录');
+    expect(panel.querySelector('.acu-toggle')?.getAttribute('aria-checked')).toBe('false');
+    expect(recordGroups()).toHaveLength(0);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('打开「开始记录」会推送写库观察器并持久化到 devOptions 节', async () => {
+    const { mount } = await mountDeveloperPage();
+    const observer = await import('../../src/service/table/write-pipeline-observer');
+    expect(observer.isTableWriteObservationEnabled_ACU()).toBe(false);
+
+    pipelinePanel().querySelector<HTMLButtonElement>('.acu-toggle')!.click();
+    await settle();
+
+    expect(observer.isTableWriteObservationEnabled_ACU()).toBe(true);
+    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    expect(persisted.devOptions.writePipelineEnabled).toBe(true);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('有记录时展开显示三段式：出站提示词 → 响应正文 → 语句', async () => {
+    const { mount } = await mountDeveloperPage({ writePipelineEnabled: true, promptInspectEnabled: true });
+
+    // 第一/二段：先落一条提示词记录并补写响应正文（凭 body 引用配对）
+    const promptObserver = await import('../../src/service/ai/prompt-observer');
+    const body = { messages: [], model: 'm', stream: true } as Record<string, unknown>;
+    promptObserver.recordPromptAssembly_ACU({
+      messages: [{ role: 'user', content: '请更新表格' }],
+      effectiveApiConfig: { model: 'test-model', url: 'https://api.example.com/v1/chat', streamingEnabled: true },
+      overrides: { sessionNamespace: 'table-fill' },
+      linkBody: body,
+    });
+    promptObserver.beginPromptStreamObservation_ACU(body)!.finish({ text: '{"sql":"INSERT"}', transport: 'incremental' });
+
+    // 第三段：写库记录（source 映射到 table-fill ⇒ 自动关联上一条）
+    const writer = await import('../../src/service/table/write-pipeline-observer');
+    writer.recordTableWritePipeline_ACU({
+      source: 'auto_fill',
+      reason: 'applyFill',
+      outcome: 'saved',
+      targetMessageIndex: 3,
+      targetSheetKeys: ['sheet_a'],
+      operations: sampleOperations,
+    });
+    await settle();
+
+    const group = recordGroups()[0];
+    expect(group).toBeTruthy();
+    expect(group.querySelector('.acu-disclosure-group__label')?.textContent).toContain('auto_fill');
+    group.querySelector<HTMLElement>('.acu-disclosure-group__header')!.click();
+    await settle();
+
+    const bodyText = group.textContent || '';
+    expect(bodyText).toContain('已落盘');
+    expect(bodyText).toContain('响应正文');
+    expect(bodyText).toContain('真流式');
+    expect(bodyText).toContain('出站提示词');
+    expect(bodyText).toContain('语句（1）');
+    expect(bodyText).toContain('INSERT INTO a');
+    expect(bodyText).toContain('新增');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('不经 AI 的写入（手动 CRUD）显式说明没有提示词与正文，而不是报错', async () => {
+    const { mount } = await mountDeveloperPage({ writePipelineEnabled: true });
+    const writer = await import('../../src/service/table/write-pipeline-observer');
+    writer.recordTableWritePipeline_ACU({
+      source: 'manual_crud',
+      reason: 'insertRow',
+      outcome: 'saved',
+      targetMessageIndex: 1,
+      targetSheetKeys: ['sheet_a'],
+      operations: sampleOperations,
+    });
+    await settle();
+
+    const group = recordGroups()[0];
+    group.querySelector<HTMLElement>('.acu-disclosure-group__header')!.click();
+    await settle();
+
+    expect(group.textContent).toContain('不经 AI 调用');
+    expect(group.textContent).toContain('INSERT INTO a');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('未提供语句（由持久化层构建）时显式标注，不谎报「写了 0 条」', async () => {
+    const { mount } = await mountDeveloperPage({ writePipelineEnabled: true });
+    const writer = await import('../../src/service/table/write-pipeline-observer');
+    writer.recordTableWritePipeline_ACU({
+      source: 'group_fill',
+      reason: 'applyUnifiedGroupFillResponses',
+      outcome: 'runtime_only',
+      targetMessageIndex: 2,
+      targetSheetKeys: [],
+      operations: [],
+    });
+    await settle();
+
+    const group = recordGroups()[0];
+    group.querySelector<HTMLElement>('.acu-disclosure-group__header')!.click();
+    await settle();
+
+    const text = group.textContent || '';
+    expect(text).toContain('仅运行时');
+    expect(text).toContain('由持久化层自行构建');
+    expect(text).toContain('不是「没有写任何东西」');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('导出按钮触发下载，内容来自写库观察器', async () => {
+    const { mount } = await mountDeveloperPage({ writePipelineEnabled: true });
+    const writer = await import('../../src/service/table/write-pipeline-observer');
+    writer.recordTableWritePipeline_ACU({
+      source: 'import',
+      reason: 'importTable',
+      outcome: 'saved',
+      targetSheetKeys: ['sheet_a'],
+      operations: sampleOperations,
+    });
+    await settle();
+
+    const createObjectURL = vi.fn(() => 'blob:acu-test');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    const exportButton = Array.from(pipelinePanel().querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent?.includes('导出 JSON'))!;
+    exportButton.click();
+    await settle();
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+
+    clickSpy.mockRestore();
+    mount.__resetAcuV2MountForTests();
+  });
+});

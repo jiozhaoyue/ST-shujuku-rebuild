@@ -13,12 +13,16 @@
  * - promptInspectEnabled：提示词检查器是否开始记录出站提示词。默认关闭。
  *   与 warnLogEnabled 同形态：真状态由低层（service/ai/prompt-observer）持有，
  *   store 只负责持久化与推送 —— 关闭时埋点是一次布尔判断即返回，零开销。
+ * - writePipelineEnabled：写库流水是否开始记录（出站提示词 → 响应正文 → 解析出的 SQL）。
+ *   开关只控制**写库流水**这一段的记录；响应正文随提示词检查器一起开关（同属 prompt-observer）。
+ *   默认关闭，同形态零开销。
  *
  * 新 UI 自有持久化，物理隔离于 settings_ACU。
  */
 import { defineStore } from 'pinia';
 import { setWarnLogEnabled as applyWarnLogEnabled } from '../../shared/log-buffer';
 import { setPromptObservationEnabled_ACU as applyPromptObservationEnabled } from '../../service/ai/prompt-observer';
+import { setTableWriteObservationEnabled_ACU as applyTableWriteObservationEnabled } from '../../service/table/write-pipeline-observer';
 import { readSection, writeSection } from './persistence';
 
 const SECTION_KEY = 'devOptions';
@@ -36,6 +40,8 @@ export interface DevOptionsState {
   apiReconfirm: boolean;
   /** 提示词检查器是否记录出站提示词。默认关闭；关闭时零开销。 */
   promptInspectEnabled: boolean;
+  /** 写库流水是否记录（提示词 → 正文 → SQL）。默认关闭；关闭时零开销。 */
+  writePipelineEnabled: boolean;
 }
 
 interface PersistedShape {
@@ -45,6 +51,7 @@ interface PersistedShape {
   warnLogEnabled?: unknown;
   apiReconfirm?: unknown;
   promptInspectEnabled?: unknown;
+  writePipelineEnabled?: unknown;
 }
 
 function loadFromStorage(): DevOptionsState {
@@ -56,6 +63,7 @@ function loadFromStorage(): DevOptionsState {
     warnLogEnabled: raw.warnLogEnabled === true,
     apiReconfirm: raw.apiReconfirm !== false,
     promptInspectEnabled: raw.promptInspectEnabled === true,
+    writePipelineEnabled: raw.writePipelineEnabled === true,
   };
 }
 
@@ -67,6 +75,7 @@ function persist(state: DevOptionsState): void {
     warnLogEnabled: state.warnLogEnabled,
     apiReconfirm: state.apiReconfirm,
     promptInspectEnabled: state.promptInspectEnabled,
+    writePipelineEnabled: state.writePipelineEnabled,
   });
 }
 
@@ -75,6 +84,7 @@ export const useDevOptionsStore = defineStore('acu-v2-dev-options', {
     const state = loadFromStorage();
     applyWarnLogEnabled(state.warnLogEnabled);
     applyPromptObservationEnabled(state.promptInspectEnabled);
+    applyTableWriteObservationEnabled(state.writePipelineEnabled);
     return state;
   },
   actions: {
@@ -104,6 +114,11 @@ export const useDevOptionsStore = defineStore('acu-v2-dev-options', {
       applyPromptObservationEnabled(this.promptInspectEnabled);
       persist(this.$state);
     },
+    setWritePipelineEnabled(enabled: boolean): void {
+      this.writePipelineEnabled = !!enabled;
+      applyTableWriteObservationEnabled(this.writePipelineEnabled);
+      persist(this.$state);
+    },
     refresh(): void {
       const next = loadFromStorage();
       this.developerOptionsEnabled = next.developerOptionsEnabled;
@@ -112,8 +127,10 @@ export const useDevOptionsStore = defineStore('acu-v2-dev-options', {
       this.warnLogEnabled = next.warnLogEnabled;
       this.apiReconfirm = next.apiReconfirm;
       this.promptInspectEnabled = next.promptInspectEnabled;
+      this.writePipelineEnabled = next.writePipelineEnabled;
       applyWarnLogEnabled(this.warnLogEnabled);
       applyPromptObservationEnabled(this.promptInspectEnabled);
+      applyTableWriteObservationEnabled(this.writePipelineEnabled);
     },
   },
 });

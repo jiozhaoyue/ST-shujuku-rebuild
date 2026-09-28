@@ -45,6 +45,11 @@ import {
   readRuntimeOnlyPendingSheets_ACU,
   registerRuntimeOnlyPendingFlusher_ACU,
 } from '../../../src/service/table/runtime-only-pending-state';
+import {
+  __resetTableWriteObservationForTests_ACU,
+  getTableWritePipelineRecords_ACU,
+  setTableWriteObservationEnabled_ACU,
+} from '../../../src/service/table/write-pipeline-observer';
 
 function options(reason: string) {
   return {
@@ -587,5 +592,122 @@ describe('runTableUpdateCommit_ACU stage_only 判别联合（计划 5.3）', () 
     });
     expect(mocks.persist).not.toHaveBeenCalled();
     expect(mocks.setCurrentData).not.toHaveBeenCalled();
+  });
+});
+
+describe('runTableUpdateCommit_ACU 的写库流水埋点（第三段）', () => {
+  const savedData: any = {
+    mate: { type: 'acu', version: 1 },
+    sheet_target: { uid: 'sheet_target', name: '目标表', content: [['row_id'], ['r1']] },
+  };
+  const operations = [
+    { kind: 'sql_sheet_batch', sheetKey: 'sheet_target', statements: ['INSERT INTO target (row_id) VALUES (\'r1\')'] },
+  ];
+
+  function armSuccessPath(): void {
+    mocks.migration.mockReset().mockResolvedValue({ success: true, migrated: false });
+    mocks.reload.mockReset();
+    mocks.transaction.mockReset().mockImplementation(async (_options: any, task: any) => task({
+      runCommit: async (commitTask: any) => commitTask(),
+    }, null));
+    mocks.persist.mockReset().mockResolvedValue({ saved: true, messageIndex: 5 });
+    mocks.ensureProvider.mockReset();
+    mocks.setCurrentData.mockReset();
+    mocks.currentChatKey = 'chat-a';
+    mocks.currentIsolationKey = 'scope-a';
+    clearRuntimeOnlyPendingSheets_ACU();
+  }
+
+  beforeEach(() => {
+    __resetTableWriteObservationForTests_ACU();
+    setTableWriteObservationEnabled_ACU(true);
+    armSuccessPath();
+  });
+
+  it('落盘成功：产出一条 saved 记录，语句与真实提交一致', async () => {
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_pipeline_saved'),
+      targetSheetKeys: ['sheet_target'],
+    }, async () => ({ success: true, tableData: savedData, persist: { operations } as any }));
+
+    expect(result.success).toBe(true);
+    const records = getTableWritePipelineRecords_ACU();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      outcome: 'saved',
+      targetMessageIndex: 5,
+      targetSheetKeys: ['sheet_target'],
+      statementCount: 1,
+    });
+    expect(records[0].statements[0]).toMatchObject({ dialect: 'sql', operation: 'insert', tables: ['target'] });
+  });
+
+  it('skipChatSave：产出一条 runtime_only 记录，且不调用持久化', async () => {
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_pipeline_runtime_only'),
+      source: 'manual_crud',
+      skipChatSave: true,
+      targetSheetKeys: ['sheet_target'],
+    }, async () => ({ success: true, tableData: savedData, persist: { operations } as any }));
+
+    expect(result.success).toBe(true);
+    expect(mocks.persist).not.toHaveBeenCalled();
+    const records = getTableWritePipelineRecords_ACU();
+    expect(records).toHaveLength(1);
+    expect(records[0].outcome).toBe('runtime_only');
+  });
+
+  it('持久化失败：产出一条 failed 记录并带 errorCategory', async () => {
+    // 用真实拒绝标记，使分类走到 'model'（见 storage-frame-v2-replay 的 V2_WRITE_GUARD_MARKER_ACU）
+    mocks.persist.mockResolvedValue({ saved: false, error: '写入时基底与回放基底不一致：boom' });
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_pipeline_failed'),
+      targetSheetKeys: ['sheet_target'],
+    }, async () => ({ success: true, tableData: savedData, persist: { operations } as any }));
+
+    expect(result.success).toBe(false);
+    const records = getTableWritePipelineRecords_ACU();
+    expect(records).toHaveLength(1);
+    expect(records[0].outcome).toBe('failed');
+    expect(records[0].errorCategory).toBe('model');
+  });
+
+  it('门禁失败的提前 return 不产生记录（观测只覆盖已进入提交的尝试）', async () => {
+    // 边界（design §5.3）：迁移未通过等前置门禁是**直接 return**、不经 catch，
+    // 属「提交根本没开始」而非「提交失败」；这类信息仍由既有 warn/error 日志承载。
+    mocks.migration.mockReset().mockResolvedValue({ success: false, error: 'mixed storage evidence insufficient' });
+
+    const result = await runTableUpdateCommit_ACU(options('test_pipeline_gate_failed'), async () => ({ success: true, tableData: savedData }));
+
+    expect(result.success).toBe(false);
+    expect(getTableWritePipelineRecords_ACU()).toHaveLength(0);
+  });
+
+  it('AC1：不同写入来源走同一段代码各产出一条（观测代码不识别来源）', async () => {
+    for (const source of ['auto_fill', 'import', 'merge_summary'] as const) {
+      armSuccessPath();
+      await runTableUpdateCommit_ACU({
+        ...options(`test_pipeline_source_${source}`),
+        source,
+        targetSheetKeys: ['sheet_target'],
+      }, async () => ({ success: true, tableData: savedData, persist: { operations } as any }));
+    }
+
+    const records = getTableWritePipelineRecords_ACU();
+    expect(records.map(record => record.source)).toEqual(['auto_fill', 'import', 'merge_summary']);
+    expect(records.every(record => record.outcome === 'saved')).toBe(true);
+  });
+
+  it('观测关闭：不产出任何记录（零开销），且提交结果不变', async () => {
+    setTableWriteObservationEnabled_ACU(false);
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_pipeline_disabled'),
+      targetSheetKeys: ['sheet_target'],
+    }, async () => ({ success: true, tableData: savedData, persist: { operations } as any }));
+
+    expect(result.success).toBe(true);
+    expect(getTableWritePipelineRecords_ACU()).toHaveLength(0);
   });
 });

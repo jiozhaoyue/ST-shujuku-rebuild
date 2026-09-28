@@ -15,6 +15,7 @@ export function useDevOptions() {
     warnLogEnabled,
     apiReconfirm,
     promptInspectEnabled,
+    writePipelineEnabled,
   } = storeToRefs(store);
   return {
     developerOptionsEnabled,
@@ -29,6 +30,8 @@ export function useDevOptions() {
     setApiReconfirm: (enabled: boolean) => store.setApiReconfirm(enabled),
     promptInspectEnabled,
     setPromptInspectEnabled: (enabled: boolean) => store.setPromptInspectEnabled(enabled),
+    writePipelineEnabled,
+    setWritePipelineEnabled: (enabled: boolean) => store.setWritePipelineEnabled(enabled),
     refresh: () => store.refresh(),
   };
 }
