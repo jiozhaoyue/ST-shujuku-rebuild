@@ -23,6 +23,36 @@
 
 ---
 
+## 只读读取历史帧（列出语句，不重放）
+
+「这一层当时写了什么」的只读视图在 `service/table/historical-frame-replay.ts`，
+面板是 `presentation-v2/components/FrameReplayPanel.vue`（Developer 页）。
+
+**读取通道只有一个**：`data/repositories/chat-message-data-repo.ts:1113` 的
+`readIsolatedTagData_ACU(msg, isolationKey)` → `.storageFrame`。
+**不得**自己去解析 `TavernDB_ACU_IsolatedData` 的 string / object 两种格式（那是仓储的契约）。
+
+**活引用陷阱（最关键）**：`readIsolatedDataContainer_ACU` 返回的是**活引用的同一个对象**，
+其底层 `parseIsolatedDataField`（`:56`）还带**按消息的解析缓存**。因此只读回放**绝不可以**
+原地改写 frame 或其 `operations` —— 那会直接污染运行中的持久化数据。判据：调用前后同一
+`isolationKey` 的 `TavernDB_ACU_IsolatedData` 经 `JSON.stringify` **逐字节相等**；
+且回放模块**不 import 任何写接口**（有静态检查用例固定这一点）。
+
+**形状判定**（`classifyStorageFrame_ACU`，宽容、不抛错）：帧非对象 / `logEntries` 非数组 ⇒ `invalid`；
+`checkpoint.kind === 'full'` 或 `perSheetCheckpoints` 非空 ⇒ `full_checkpoint`；
+否则 `logEntries` 非空 ⇒ `delta`，为空 ⇒ `empty`。
+注意 **checkpoint 与 logEntries 可以共存**（一轮填表后同一帧既有 checkpoint 又有本次 delta）：
+形状按 checkpoint 判，但条目**照常列全** —— 不因「有 checkpoint」就丢掉 delta。
+坏帧降级为诊断态并给出原因，**不静默跳过**。
+
+**与救援脚本的关系**：帧模型口径与 `scripts/rescue/replay-chat.mjs` **逐项对齐**
+（帧位置 / string-object 容忍 / checkpoint 判据 / entries 来源 / 坏帧宽容 / sheetKey→表名的 key 形式
+—— 回放侧的复刻是 `tableNameFromSheetKey_ACU`）。
+**差异**：本模块**不建库、不重放求值、不改写冲突**（那些是救援脚本的**回放期**职责）；
+本模块只**列出**语句。判据：本模块内不出现任何 SQL 执行调用。
+
+---
+
 ## 空表与坏表头
 
 导出空表时若写成只有 `['row_id']` 的表头，会污染后续 checkpoint 与可视化编辑器（`data/sqlite/sync-bridge.ts:403` 有明确注释）。

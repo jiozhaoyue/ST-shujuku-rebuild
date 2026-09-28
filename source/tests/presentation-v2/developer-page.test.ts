@@ -557,3 +557,126 @@ describe('DeveloperPage · 写库流水', () => {
     mount.__resetAcuV2MountForTests();
   });
 });
+
+describe('DeveloperPage · 历史楼层回放', () => {
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
+  /** mount 里把隔离键 mock 成空串，故测试数据用空串作键。 */
+  const ISO = '';
+
+  function replayPanel(): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+      .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('历史楼层回放'))!;
+  }
+
+  function clickButton(panel: HTMLElement, label: string): void {
+    const button = Array.from(panel.querySelectorAll<HTMLButtonElement>('button'))
+      .find(candidate => candidate.textContent?.includes(label))!;
+    button.click();
+  }
+
+  const deltaFrame = {
+    version: 2,
+    logEntries: [{
+      seq: 1,
+      entryId: 'e1',
+      createdAt: 2000,
+      source: 'auto_fill',
+      targetMessageIndex: 3,
+      aiFloor: 1,
+      commitRevision: 'rev-1',
+      operations: [{ kind: 'sql_sheet_batch', sheetKey: 'sheet_a', statements: ['INSERT INTO a (b) VALUES (1)'] }],
+    }],
+  };
+
+  /** 用真实 chat-gateway 通道注入聊天（面板读的是 data/gateways/chat-gateway）。 */
+  async function seedChat(chat: unknown[]): Promise<void> {
+    const hostApi = await import('../../src/shared/host-api');
+    (hostApi as any)._set_SillyTavern_API_ACU({ chat } as any);
+  }
+
+  it('无含帧楼层时给出空态与扫描入口', async () => {
+    const { mount } = await mountDeveloperPage();
+
+    const panel = replayPanel();
+    expect(panel).toBeTruthy();
+    expect(panel.textContent).toContain('无含帧楼层');
+    expect(panel.textContent).toContain('当前聊天没有含存储帧的楼层');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('列出含帧楼层并标出帧形态，点选后列出条目与语句', async () => {
+    const { mount } = await mountDeveloperPage();
+    await seedChat([
+      { is_user: true, mes: 'hi' },
+      { mes: 'ai 楼', TavernDB_ACU_IsolatedData: { [ISO]: { storageFrame: deltaFrame } } },
+    ]);
+
+    clickButton(replayPanel(), '重新扫描');
+    await settle();
+
+    const panel = replayPanel();
+    expect(panel.textContent).toContain('#1 · AI 楼层 1');
+    expect(panel.textContent).toContain('增量');
+
+    const floorButton = Array.from(panel.querySelectorAll<HTMLButtonElement>('button'))
+      .find(candidate => candidate.textContent?.includes('#1 · AI 楼层 1'))!;
+    floorButton.click();
+    await settle();
+
+    const text = replayPanel().textContent || '';
+    expect(text).toContain('帧内容（楼层 #1）');
+    expect(text).toContain('1 条语句');
+    expect(text).toContain('INSERT INTO a');
+    expect(text).toContain('新增');
+    expect(text).toContain('SQL');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('空帧与整帧检查点显式区分，不误报为「无数据」', async () => {
+    const { mount } = await mountDeveloperPage();
+    await seedChat([
+      { is_user: true, mes: 'hi' },
+      { mes: 'cp', TavernDB_ACU_IsolatedData: { [ISO]: { storageFrame: { version: 2, checkpoint: { kind: 'full', createdAt: 100, reason: 'init', data: { sheet_a: { uid: 'sheet_a', name: 'A', content: [] } } }, logEntries: [] } } } },
+      { mes: 'empty', TavernDB_ACU_IsolatedData: { [ISO]: { storageFrame: { version: 2, logEntries: [] } } } },
+    ]);
+
+    clickButton(replayPanel(), '重新扫描');
+    await settle();
+
+    let text = replayPanel().textContent || '';
+    expect(text).toContain('整帧检查点');
+    expect(text).toContain('空帧');
+
+    // 点选检查点楼层 → 详情给出检查点概要（覆盖表）
+    const checkpointFloor = Array.from(replayPanel().querySelectorAll<HTMLButtonElement>('button'))
+      .find(candidate => candidate.textContent?.includes('#1 · AI 楼层 1'))!;
+    checkpointFloor.click();
+    await settle();
+
+    text = replayPanel().textContent || '';
+    expect(text).toContain('覆盖表');
+    expect(text).toContain('sheet_a');
+    expect(text).toContain('检查点原因');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('坏帧降级为「不可解析」并给出原因，而不是静默跳过', async () => {
+    const { mount } = await mountDeveloperPage();
+    await seedChat([
+      { is_user: true, mes: 'hi' },
+      { mes: 'bad', TavernDB_ACU_IsolatedData: { [ISO]: { storageFrame: '{not json' } } },
+    ]);
+
+    clickButton(replayPanel(), '重新扫描');
+    await settle();
+
+    const text = replayPanel().textContent || '';
+    expect(text).toContain('不可解析');
+    expect(text).toContain('JSON');
+
+    mount.__resetAcuV2MountForTests();
+  });
+});

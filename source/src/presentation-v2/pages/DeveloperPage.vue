@@ -37,6 +37,8 @@
 
       <WritePipelinePanel />
 
+      <FrameReplayPanel />
+
       <CapabilityOverviewPanel />
     </AcuPanelGrid>
   </section>
@@ -49,6 +51,7 @@ import AcuInput from "../components/_lib/AcuInput.vue";
 import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
 import CapabilityOverviewPanel from "../components/CapabilityOverviewPanel.vue";
+import FrameReplayPanel from "../components/FrameReplayPanel.vue";
 import PromptInspectionPanel from "../components/PromptInspectionPanel.vue";
 import WritePipelinePanel from "../components/WritePipelinePanel.vue";
 import ToggleRow from "../components/DashboardToggleRow.vue";

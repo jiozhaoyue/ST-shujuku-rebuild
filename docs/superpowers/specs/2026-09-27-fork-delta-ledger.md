@@ -123,6 +123,8 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | `source/src/service/ai/api-call.ts` | 约 +30/−3 | 同上 | 两个 AI 出口（`postChatCompletion_ACU`、`callAIWithResolvedPreset_ACU`）接线响应观测；`resolveStreamTransport_ACU` 与 `parseStreamResponse_ACU` 共用同一能力检测判据 | **否** | **按我方** |
 | `source/src/service/table/table-update-commit.ts` | 约 +45 | 同上 | 写库**单一收口点**三处埋点（`saved` / `runtime_only` / `failed`）；观测代码只透传 `options.source`，**不识别来源**（新增来源无需改观测代码） | **否** | **按我方** |
 | `source/src/presentation-v2/` 的 `WritePipelinePanel.vue`、`useWritePipeline.ts`（新增）+ `dev-options-store.ts`、`useDevOptions.ts`、`DeveloperPage.vue`（增量） | 新增 + 增量 | 同上 | Developer 页三段式面板（出站提示词 → 响应正文 → 语句）；观测默认关闭，关闭时埋点只做一次布尔判断 | **否** | **按我方** |
+| `source/src/service/table/historical-frame-replay.ts`（新，约 300 行） | 新增文件 | 阶段 3 `09-28-historical-frame-replay` | 历史帧**只读**视图：四种形态判定（full_checkpoint / delta / empty / invalid）+ 坏帧诊断 + 列出语句（富化**复用** T3.2 的 `summarizeMutationOperations_ACU`）。**不建库、不重放求值**（与 `scripts/rescue/replay-chat.mjs` 只对齐帧模型口径，不共享其回放期职责） | **否** | **按我方** |
+| `source/src/presentation-v2/` 的 `FrameReplayPanel.vue`、`useFrameReplay.ts`、`write-statement-display.ts`（新增）+ `DeveloperPage.vue`、`WritePipelinePanel.vue`（增量） | 新增 + 增量 | 同上 | 历史回放面板（自动列出含帧楼层供点选）；并把「方言/操作」的文案与徽章配色抽成 `write-statement-display.ts` 作为**两面板共享的单一事实源** | **否** | **按我方** |
 
 > **口径提示（阶段 3）**：上表前两行是 T3.1 的差量，其余为 **T3.2** 新增。三者的**共同前提**是
 > 「本方注册的 AI 出口只有两个」—— 若上游新增/改名 AI 出口，追平时必须同步在**新出口**上接线响应观测，

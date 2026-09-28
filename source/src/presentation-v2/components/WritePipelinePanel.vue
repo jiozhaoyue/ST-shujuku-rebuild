@@ -126,8 +126,8 @@
               class="acu-v2-write-pipeline__statement"
             >
               <div class="acu-v2-write-pipeline__badges">
-                <AcuBadge :variant="dialectVariant(stat.dialect)">{{ dialectLabel(stat.dialect) }}</AcuBadge>
-                <AcuBadge :variant="operationVariant(stat.operation)">{{ operationLabel(stat.operation) }}</AcuBadge>
+                <AcuBadge :variant="dialectVariant_ACU(stat.dialect)">{{ dialectLabel_ACU(stat.dialect) }}</AcuBadge>
+                <AcuBadge :variant="operationVariant_ACU(stat.operation)">{{ operationLabel_ACU(stat.operation) }}</AcuBadge>
                 <span v-if="stat.tables.length" class="acu-v2-write-pipeline__tables">{{ stat.tables.join('、') }}</span>
                 <span class="acu-v2-write-pipeline__chars">{{ formatCount(stat.chars) }} 字符</span>
               </div>
@@ -161,9 +161,13 @@ import {
   type PromptObservationRecord_ACU,
   type TableWritePipelineRecord_ACU,
   type WritePipelineView_ACU,
-  type WriteStatementDialect_ACU,
-  type WriteStatementOperation_ACU,
 } from '../composables/useWritePipeline';
+import {
+  dialectLabel_ACU,
+  dialectVariant_ACU,
+  operationLabel_ACU,
+  operationVariant_ACU,
+} from '../composables/write-statement-display';
 
 const flow = useWritePipeline();
 
@@ -171,21 +175,6 @@ const OUTCOME_LABEL_ACU: Record<TableWritePipelineRecord_ACU['outcome'], string>
   saved: '已落盘',
   runtime_only: '仅运行时',
   failed: '失败',
-};
-
-const DIALECT_LABEL_ACU: Record<WriteStatementDialect_ACU, string> = {
-  sql: 'SQL',
-  dsl: 'DSL',
-  structured: '结构化',
-};
-
-const OPERATION_LABEL_ACU: Record<WriteStatementOperation_ACU, string> = {
-  insert: '新增',
-  update: '更新',
-  delete: '删除',
-  replace: '整表替换',
-  schema: '表结构',
-  other: '其它',
 };
 
 const TRANSPORT_LABEL_ACU: Record<'incremental' | 'buffered' | 'json', string> = {
@@ -241,19 +230,6 @@ function outcomeVariant(outcome: TableWritePipelineRecord_ACU['outcome']): AcuBa
   return 'warning';
 }
 
-function dialectVariant(dialect: WriteStatementDialect_ACU): AcuBadgeVariant {
-  if (dialect === 'sql') return 'accent';
-  if (dialect === 'dsl') return 'warning';
-  return 'neutral';
-}
-
-function operationVariant(operation: WriteStatementOperation_ACU): AcuBadgeVariant {
-  if (operation === 'insert') return 'success';
-  if (operation === 'delete') return 'danger';
-  if (operation === 'update') return 'warning';
-  return 'neutral';
-}
-
 function transportVariant(transport: 'incremental' | 'buffered' | 'json'): AcuBadgeVariant {
   if (transport === 'incremental') return 'success';
   if (transport === 'buffered') return 'warning';
@@ -262,14 +238,6 @@ function transportVariant(transport: 'incremental' | 'buffered' | 'json'): AcuBa
 
 function transportLabel(transport: 'incremental' | 'buffered' | 'json'): string {
   return TRANSPORT_LABEL_ACU[transport] || transport;
-}
-
-function dialectLabel(dialect: WriteStatementDialect_ACU): string {
-  return DIALECT_LABEL_ACU[dialect] || dialect;
-}
-
-function operationLabel(operation: WriteStatementOperation_ACU): string {
-  return OPERATION_LABEL_ACU[operation] || operation;
 }
 </script>
 
