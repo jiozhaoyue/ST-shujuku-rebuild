@@ -122,11 +122,13 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | `source/src/service/ai/prompt-observer.ts` | 在既有我方文件上增量（约 +150 行） | 同上 | 新增 `linkBody`（`WeakMap` 按**请求体对象引用**精确配对响应）、`beginPromptStreamObservation_ACU`、`getLatestObservationIdForScope_ACU`、`PromptResponseStat_ACU`（含 `transport` 三档），响应正文纳入导出脱敏 | **否** | **按我方** |
 | `source/src/service/ai/api-call.ts` | 约 +30/−3 | 同上 | 两个 AI 出口（`postChatCompletion_ACU`、`callAIWithResolvedPreset_ACU`）接线响应观测；`resolveStreamTransport_ACU` 与 `parseStreamResponse_ACU` 共用同一能力检测判据 | **否** | **按我方** |
 | `source/src/service/table/table-update-commit.ts` | 约 +45 | 同上 | 写库**单一收口点**三处埋点（`saved` / `runtime_only` / `failed`）；观测代码只透传 `options.source`，**不识别来源**（新增来源无需改观测代码） | **否** | **按我方** |
-| `source/src/presentation-v2/` 的 `WritePipelinePanel.vue`、`useWritePipeline.ts`（新增）+ `dev-options-store.ts`、`useDevOptions.ts`、`DeveloperPage.vue`（增量） | 新增 + 增量 | 同上 | Developer 页三段式面板（出站提示词 → 响应正文 → 语句）；观测默认关闭，关闭时埋点只做一次布尔判断 | **否** | **按我方** |
+| `source/src/presentation-v2/` 的 `WritePipelinePanel.vue`、`useWritePipeline.ts`（新增）+ `dev-options-store.ts`、`useDevOptions.ts`、`DeveloperPage.vue`（增量） | 新增 + 增量 | 同上 | Developer 页三段式面板（出站提示词 → 响应正文 → 语句）；观测默认关闭；关闭时不产出任何记录（写库侧提前 return；响应侧句柄恒为 null，仅多一次无副作用的 transport 判定） | **否** | **按我方** |
 | `source/src/service/table/historical-frame-replay.ts`（新，约 300 行） | 新增文件 | 阶段 3 `09-28-historical-frame-replay` | 历史帧**只读**视图：四种形态判定（full_checkpoint / delta / empty / invalid）+ 坏帧诊断 + 列出语句（富化**复用** T3.2 的 `summarizeMutationOperations_ACU`）。**不建库、不重放求值**（与 `scripts/rescue/replay-chat.mjs` 只对齐帧模型口径，不共享其回放期职责） | **否** | **按我方** |
 | `source/src/presentation-v2/` 的 `FrameReplayPanel.vue`、`useFrameReplay.ts`、`write-statement-display.ts`（新增）+ `DeveloperPage.vue`、`WritePipelinePanel.vue`（增量） | 新增 + 增量 | 同上 | 历史回放面板（自动列出含帧楼层供点选）；并把「方言/操作」的文案与徽章配色抽成 `write-statement-display.ts` 作为**两面板共享的单一事实源** | **否** | **按我方** |
 
-> **口径提示（阶段 3）**：上表前两行是 T3.1 的差量，其余为 **T3.2** 新增。三者的**共同前提**是
+> **口径提示（阶段 3）**：上表按引入任务分行 —— 第 1 行是**阶段 2** 的差量，第 2 行是 **T3.1**，
+> 第 3–7 行是 **T3.2**，第 8–9 行是 **T3.3**（T3.3 的两行中有一行落在 T3.2 改过的同一批我方文件上，
+> 属增量而非新差量）。三者的**共同前提**是
 > 「本方注册的 AI 出口只有两个」—— 若上游新增/改名 AI 出口，追平时必须同步在**新出口**上接线响应观测，
 > 否则会出现「有出站提示词、无响应正文」的半截记录（面板会如实显示为「未补写」，但不该长期如此）。
 > 判据：`grep -n "handleApiResponse_ACU(" source/src/service/ai/api-call.ts` 的调用点数应等于已接线数。
