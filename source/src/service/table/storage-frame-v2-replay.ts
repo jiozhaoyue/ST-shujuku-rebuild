@@ -12,7 +12,7 @@ import { isV2TagData_ACU } from './storage-strategy-resolver';
 import { writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { ensureStableRowIdsForSeedRows_ACU, getCurrentChatTemplateScopeState_ACU, getEffectiveSeedRowsForSheet_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, getSortedSheetKeys_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
-import { formatCanonicalRowIssues_ACU, isEmptyCanonicalRowId_ACU, normalizeCanonicalTableRows_ACU, restoreLegacyRowIdentity_ACU } from '../../shared/canonical-row-normalizer';
+import { formatCanonicalRowIssues_ACU, isEmptyCanonicalRowId_ACU, normalizeCanonicalTableRows_ACU, repairLegacyOrphanIdentityColumn_ACU, repairOrphanIdentityColumnOnSheet_ACU, restoreLegacyRowIdentity_ACU } from '../../shared/canonical-row-normalizer';
 import { allocateStableRowId_ACU, createStableRowIdReservation_ACU } from '../../shared/stable-row-id-allocator';
 import { applySheetSchemaMigrationOperation_ACU } from './table-schema-migration';
 import { canonicalizeDisplayName_ACU, getPhysicalTableNameFromResolvedMap_ACU, getPhysicalTableNameForSheet_ACU, resolvePhysicalTableNames_ACU } from '../../shared/sheet-identity';
@@ -1226,6 +1226,31 @@ function normalizeReplayState_ACU(state: TableDataObject_ACU, context: string): 
 }
 
 /**
+ * 把历史「孤儿身份列错位」复位到回放状态上（**原地**改写，调用方须确认该状态允许被清洗），
+ * 并按既有口径记可见日志。返回被复位的 sheetKey 列表。
+ *
+ * 为什么必须在**基底构造与每次操作重放之前**做：帧内容可能携带旧版本误插 row_id 后固化的
+ * 畸形表头 `["row_id", 空占位, 业务列…]`（行值相对标签整体左移一格）。一旦它被喂给
+ * `resolveEffectiveDDL` → `generateFallbackDDL`，就抛 `fallback DDL 表头不合法：第 2 列「」empty_column_name`。
+ * 该形态对行标识校验与 upgrade audit **都不可见**（它们不看列名合法性），所以「顺路」复位不可靠
+ * —— 只能在回放状态进入消费前显式复位（见 `repairOrphanIdentityColumnOnSheet_ACU` 的契约）。
+ *
+ * 复位只删可证明为占位的空标签/空格，业务单元格计数不变；歧义表整表放弃并记 warning。
+ * 幂等：复位后不再命中指纹，重复调用无副作用。
+ */
+function repairOrphanIdentityColumnsForReplay_ACU(state: TableDataObject_ACU, context: string): string[] {
+  const repair = repairLegacyOrphanIdentityColumn_ACU(state);
+  if (repair.changedSheetKeys.length > 0) {
+    logWarn_ACU(
+      `[V2 Replay] ${context} 已复位孤儿身份列错位（列对齐已恢复，数据无损）：`
+      + `${repair.changedSheetKeys.join('、')}。原 storage frame 未修改。`,
+    );
+  }
+  repair.warnings.forEach(warning => logWarn_ACU(warning));
+  return repair.changedSheetKeys;
+}
+
+/**
  * Normalizes a candidate built from already-persisted history.
  *
  * Legacy payloads predate the row_id identity contract, so identity is restored
@@ -1239,6 +1264,15 @@ function normalizeReplayState_ACU(state: TableDataObject_ACU, context: string): 
  */
 function normalizeHistoricalReplayState_ACU(state: TableDataObject_ACU, context: string): void {
   const candidate = deepClone_ACU(state);
+
+  // [修复顺序] 与 sync-bridge / helpers-data-merge 同一口径：孤儿身份列错位
+  // （表头 ["row_id", 空占位, 业务列…]）必须在**任何 padding / 结构比较之前**复位。
+  // 这里的 restoreLegacyRowIdentity_ACU 自带 row_tail_padded —— 先 padding 会把错位
+  // 形态进一步固化（helpers-data-merge.ts:501-503 记载的 2025-12 事故成因），
+  // 故复位必须排在它前面。复位只删可证明为占位的空格，业务单元格计数不变，
+  // 因此不会触发下面的守恒断言。
+  repairOrphanIdentityColumnsForReplay_ACU(candidate, context);
+
   const identity = restoreLegacyRowIdentity_ACU(candidate);
 
   // A repair that loses a row or a business cell is an implementation defect,
@@ -1307,6 +1341,18 @@ function summarizeUpgradeIssueLocations_ACU(issues: Array<{ code: string; sheetK
 }
 
 function normalizeLegacyDuplicateCheckpointState_ACU(state: TableDataObject_ACU): void {
+  // [缺陷 ②] 孤儿身份列错位必须在基底构造处就地复位，且**先于**下面的
+  // restoreLegacyRowIdentity_ACU（后者自带 row_tail_padded，先 padding 会固化错位）。
+  //
+  // 为什么放这儿而不是只放在 normalizeHistoricalReplayState_ACU 里：本函数下方的
+  // `audit.status === 'clean'` 分支会**提前返回**，根本不经过 normalizeHistoricalReplayState。
+  // 而畸形表头 `["row_id", 空占位, …]` 对 row_id 校验与 upgrade audit **都不可见**
+  // （它们不看列名合法性）⇒ 真机「无 DDL 旧聊天」恰好走这条提前返回路径，复位形同虚设
+  // （2026-09-29 离线探针实测：严格回放成功返回但输出表头仍为畸形，见
+  // .trellis/tasks/09-29-no-ddl-legacy-chat-write-failure/research/S3.2b-base-repair-gap.md）。
+  // 放函数首则 checkpoint 基底（:2411）与 replacement anchor 基底（:2384）两条构造
+  // 都被覆盖，后续操作重放拿到的就是已对齐的数据。
+  repairOrphanIdentityColumnsForReplay_ACU(state, '回放基底');
   // Restore legacy identity on the live state first: an empty or absent row_id
   // is a legacy format trait, not a duplicate, and leaving it here would send
   // the whole checkpoint down the strict reject path below.
@@ -1608,6 +1654,21 @@ async function applySheetCheckpointsForReplay_ACU(
       // introduction / rebase / reveal：用 checkpoint.data 整表写入 replay state。
       // 表的身份是表名：同名旧 key 的表被本事件接管（不合并行），写入规范 key。
       const sheet = deepClone_ACU(checkpoint.data);
+      // [缺陷 ②] 与基底构造同一口径：checkpoint.data 可能携带畸形的孤儿身份列表头
+      // `["row_id", 空占位, …]`。整表写入回放状态前按单表复位，避免后续操作重放时
+      // 解析 fallback DDL 抛 empty_column_name。复位先于 supersede/同名接管判定，
+      // 保证接管看到的是已对齐的列。
+      const orphanRepair = repairOrphanIdentityColumnOnSheet_ACU(
+        String(checkpoint.sheetKey || ''),
+        sheet,
+      );
+      if (orphanRepair.changed) {
+        logWarn_ACU(
+          `[V2 Replay] sheet checkpoint ${checkpoint.timeline?.kind ?? 'untimed'}@${checkpoint.sheetKey} `
+          + '已复位孤儿身份列错位（列对齐已恢复，数据无损）。原 storage frame 未修改。',
+        );
+      }
+      if (orphanRepair.warning) logWarn_ACU(orphanRepair.warning);
       const targetKey = supersedeSameNameSheetForReplay_ACU(
         candidate,
         redirectReplaySheetKey_ACU(identity, checkpoint.sheetKey),

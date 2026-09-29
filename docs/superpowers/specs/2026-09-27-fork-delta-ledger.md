@@ -81,6 +81,30 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 设计依据：`docs/superpowers/plans/2026-09-05-differential-injection.md`。
 热表带全量行、冷表只带 DDL + 行数，开关默认关闭（关闭时与上游行为一致）。
 
+### C2. 孤儿身份列复位：帧回放路径（缺陷 ② 修复，候选回归上游）（2026-09-29 新增）
+
+**新增我方差量**（`canonical-row-normalizer.ts` 与 `storage-frame-v2-replay.ts` 在本任务前与上游**零差量**，
+本任务首次令其分叉 ⇒ 上游同步时这两处会进冲突面）：
+
+| 文件 | 规模（vs 上游，含既有） | 本任务增量 |
+|---|---|---|
+| `source/src/shared/canonical-row-normalizer.ts` | +67/−40 | 全部：抽出**按单表**复位入口 `repairOrphanIdentityColumnOnSheet_ACU`（数据级函数改为委托，规则永不漂移） |
+| `source/src/service/table/storage-frame-v2-replay.ts` | +62/−1 | 全部：`repairOrphanIdentityColumnsForReplay_ACU` 助手 + 在**回放基底构造**（`normalizeLegacyDuplicateCheckpointState_ACU` 函数首）与 `applySheetCheckpointsForReplay_ACU` 前置复位 |
+| `source/src/service/table/update-orchestrator.ts` | +108/−4 | +78/−1：`preflightManualRefillResolution_ACU`（D-A 破坏性清理前 fail-closed 预演）+ 接线 |
+| `source/tests/service/table/storage-frame-v2-orphan-identity-column.test.ts` | 新增文件 | 5 条：(a) 列身份解析、(b) 真实 persist 写入、基底复位、空表头不掩盖成 `col_N`、有 DDL 零变化 |
+| `source/tests/service/table/canonical-row-normalizer.test.ts` | +70 | 6 条孤儿列复位单测 |
+| `source/tests/service/table/update-orchestrator.test.ts` | +53 | 1 条 D-A 预演用例 |
+
+**根因**（真机 + 离线取证：`.trellis/tasks/09-29-no-ddl-legacy-chat-write-failure/research/S3.2b-base-repair-gap.md`）：
+旧版本误插 `row_id` 后固化的畸形表头 `["row_id", null, 业务列…]`，对行标识校验与 upgrade audit
+**都不可见**，故「顺路」复位不可靠 —— `normalizeLegacyDuplicateCheckpointState_ACU` 在 `audit==='clean'`
+时**提前返回**，而 hydrate 以 `strict:true` 在**克隆**上修复 ⇒ 回放状态本身仍畸形 ⇒
+`sql_sheet_batch` 的列重绑在 `generateFallbackDDL` 抛
+`fallback DDL 表头不合法：第 2 列「」empty_column_name`。
+
+**回归上游建议**：这是不依赖我方任何 fork 特性的通用缺陷修复（上游同样受影响），
+建议单独提 upstream PR；若上游自行修复，本 C2 条目按「我方不再需要」撤除。
+
 ### D. 楼层级调度（我方独有功能，候选回归上游）
 
 | 文件 | 规模 |

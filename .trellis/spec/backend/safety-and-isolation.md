@@ -80,6 +80,33 @@ AI 侧的写操作不得是裸 SQL 字符串：走 `shared/restricted-sql-dml.ts
 
 ---
 
+## 六、破坏性操作前置 fail-closed（D-A）（2026-09-29 新增）
+
+**规则**：凡「先删除、后写入」的破坏性流程（当前唯一实例：手动重填
+`orchestrateManualUpdate_ACU` 的 `clearManualRefillSheetDataInRange_ACU`），
+必须在**删除之前**加一次**只读预演**；预演失败即 `{ success: false, error }` 返回，
+**不调用** `failManualRefillSession`（未清理 ⇒ 无需回滚）。
+
+**为什么**：清理一旦发生，失败只剩「零提交整段回滚」一条兜底 —— 回滚按消息身份指纹**逐条校验**，
+聊天在此期间被改动就只恢复仍匹配的楼层，**不是无损保证**。
+
+**落点**：`service/table/update-orchestrator.ts` 的 `preflightManualRefillResolution_ACU`，置于
+最终复检之后、`clearManualRefillSheetDataInRange_ACU` 之前（与既有 `importOverlap` 门禁同段）。两步：
+
+1. **有界严格回放**：`loadTableStateFromFramesV2Detailed_ACU(maxMessageIndex, updateRuntimeState:false,
+   compatibilityMode:'disabled', backgroundFixation:'skip')`，抛错即中止（无 full 根不算失败，
+   与写时探针口径一致）。
+2. **目标表列/身份解析预演**：在回放基底上 `buildSheetColumnAliasMap_ACU(basis, { targetSheetKeys })`。
+
+**不要按「休眠表」跳过**：休眠判据 `isSqlActiveTemplateSheet_ACU`（`shared/sql-active-template.ts:35`）
+把「非首列空表头」一律视为休眠，而畸形孤儿表头 `["row_id", null, …]` 恰在其中 ⇒ 用它过滤会把要查的表
+**全部排除**，预演形同虚设。用户选中一张注定解析失败的表，本就该在清理前拦住。
+
+**判据（AC2）**：构造解析必失败输入，断言破坏性清理**未被调用**、聊天**字节不变**
+（用例：`tests/service/table/update-orchestrator.test.ts`「D-A 解析预演」）。
+
+---
+
 ## 反模式
 
 - 新增一处直接 `fetch(endpoint)` 而不过 `assertSafeHttpEndpoint_ACU`。

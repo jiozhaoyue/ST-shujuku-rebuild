@@ -23,6 +23,12 @@ export interface LegacyOrphanColumnRepairResult_ACU {
   warnings: string[];
 }
 
+/** 单表版孤儿列复位结果（供「数据即将被使用」的调用点按表前置调用）。 */
+export interface LegacyOrphanColumnSheetRepairResult_ACU {
+  changed: boolean;
+  warning?: string;
+}
+
 export interface LegacyRowIdentityResult_ACU {
   repairs: LegacyRowIdentityRepair_ACU[];
   conservation: {
@@ -117,49 +123,70 @@ export function repairLegacyOrphanIdentityColumn_ACU(data: Record<string, any> |
   if (!data || typeof data !== 'object') return result;
 
   Object.entries(data).forEach(([sheetKey, sheet]) => {
-    if (!sheetKey.startsWith('sheet_') || !sheet || typeof sheet !== 'object') return;
-    const content = (sheet as any).content;
-    if (!Array.isArray(content) || content.length === 0 || !Array.isArray(content[0])) return;
-    const header = content[0] as unknown[];
-    if (header.length < 2 || header[0] !== 'row_id') return;
-    const orphanCell = header[1];
-    const orphanCellIsPlaceholder = orphanCell === null || orphanCell === undefined
-      || (typeof orphanCell === 'string' && orphanCell.trim() === '');
-    if (!orphanCellIsPlaceholder) return;
-
-    const collectRows = (rows: unknown): unknown[][] =>
-      (Array.isArray(rows) ? rows : []).filter((row): row is unknown[] => Array.isArray(row));
-    const dataRows = collectRows(content.slice(1));
-    const seedRows = collectRows((sheet as any).seedRows);
-    const allRows = [...dataRows, ...seedRows];
-
-    const isEmptyCell = (value: unknown): boolean => value === null || value === undefined
-      || (typeof value === 'string' && value.trim() === '');
-    // 只有与（错误）表头等宽的行需要删一格；行宽 = 表头-1 的未 padding 老行在
-    // 删除孤儿列后天然对齐，保持原样。其余宽度是别的缺陷，留给规范校验报告。
-    const fullWidthRows = allRows.filter(row => row.length === header.length);
-    // 判定歧义行：row[1] 与尾格都有值时既不能 pop 也不能 splice，说明这一列
-    // 可能承载了真实数据——整表放弃，宁可保留错位也不冒删业务值的险。
-    const ambiguousRow = fullWidthRows.find(row => !isEmptyCell(row[1]) && !isEmptyCell(row[row.length - 1]));
-    if (ambiguousRow) {
-      result.warnings.push(
-        `[孤儿列复位] 表「${String((sheet as any).name || sheetKey)}」(${sheetKey}) 命中孤儿身份列指纹，`
-        + `但存在第 1 列与尾格均非空的行，无法无损判定，已放弃复位（数据保持原样）。`,
-      );
-      return;
-    }
-
-    fullWidthRows.forEach(row => {
-      if (!isEmptyCell(row[1])) {
-        row.pop();
-      } else {
-        row.splice(1, 1);
-      }
-    });
-    header.splice(1, 1);
-    result.changedSheetKeys.push(sheetKey);
+    if (!sheetKey.startsWith('sheet_')) return;
+    const outcome = repairOrphanIdentityColumnOnSheet_ACU(sheetKey, sheet);
+    if (outcome.changed) result.changedSheetKeys.push(sheetKey);
+    if (outcome.warning) result.warnings.push(outcome.warning);
   });
   return result;
+}
+
+/**
+ * 单表版孤儿列复位（规则与 repairLegacyOrphanIdentityColumn_ACU 同一份，后者委托本函数）。
+ *
+ * 为什么需要按表版本：hydrate（`sync-bridge.ts:134`）与 merge（`helpers-data-merge.ts:509`）
+ * 都成对复位，但**帧回放路径**只做 audit 修复（`table-data-repair.ts` 不覆盖孤儿列），
+ * 于是畸形表头会被喂给 `resolveEffectiveDDL` → `generateFallbackDDL` 抛
+ * `fallback DDL 表头不合法`。回放/守卫路径拿到的是**单张表**而非整份数据对象，
+ * 故需要按表单表入口，避免各处自行重写判据。
+ *
+ * **必须作用于下游真正使用的数据**：复位会删格，只改副本会让 DDL 列数与行宽错配。
+ * 幂等：复位后表头不再命中指纹。歧义（row[1] 与尾格均非空）整表放弃并给出 warning，
+ * 绝不为「修好」而放宽判据（那会删业务值）。
+ */
+export function repairOrphanIdentityColumnOnSheet_ACU(
+  sheetKey: string,
+  sheet: unknown,
+): LegacyOrphanColumnSheetRepairResult_ACU {
+  if (!sheet || typeof sheet !== 'object') return { changed: false };
+  const content = (sheet as any).content;
+  if (!Array.isArray(content) || content.length === 0 || !Array.isArray(content[0])) return { changed: false };
+  const header = content[0] as unknown[];
+  if (header.length < 2 || header[0] !== 'row_id') return { changed: false };
+  const orphanCell = header[1];
+  const orphanCellIsPlaceholder = orphanCell === null || orphanCell === undefined
+    || (typeof orphanCell === 'string' && orphanCell.trim() === '');
+  if (!orphanCellIsPlaceholder) return { changed: false };
+
+  const collectRows = (rows: unknown): unknown[][] =>
+    (Array.isArray(rows) ? rows : []).filter((row): row is unknown[] => Array.isArray(row));
+  const allRows = [...collectRows(content.slice(1)), ...collectRows((sheet as any).seedRows)];
+
+  const isEmptyCell = (value: unknown): boolean => value === null || value === undefined
+    || (typeof value === 'string' && value.trim() === '');
+  // 只有与（错误）表头等宽的行需要删一格；行宽 = 表头-1 的未 padding 老行在
+  // 删除孤儿列后天然对齐，保持原样。其余宽度是别的缺陷，留给规范校验报告。
+  const fullWidthRows = allRows.filter(row => row.length === header.length);
+  // 判定歧义行：row[1] 与尾格都有值时既不能 pop 也不能 splice，说明这一列
+  // 可能承载了真实数据——整表放弃，宁可保留错位也不冒删业务值的险。
+  const ambiguousRow = fullWidthRows.find(row => !isEmptyCell(row[1]) && !isEmptyCell(row[row.length - 1]));
+  if (ambiguousRow) {
+    return {
+      changed: false,
+      warning: `[孤儿列复位] 表「${String((sheet as any).name || sheetKey)}」(${sheetKey}) 命中孤儿身份列指纹，`
+        + `但存在第 1 列与尾格均非空的行，无法无损判定，已放弃复位（数据保持原样）。`,
+    };
+  }
+
+  fullWidthRows.forEach(row => {
+    if (!isEmptyCell(row[1])) {
+      row.pop();
+    } else {
+      row.splice(1, 1);
+    }
+  });
+  header.splice(1, 1);
+  return { changed: true };
 }
 
 function normalizeRows_ACU(

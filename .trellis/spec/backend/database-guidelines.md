@@ -58,6 +58,38 @@
 导出空表时若写成只有 `['row_id']` 的表头，会污染后续 checkpoint 与可视化编辑器（`data/sqlite/sync-bridge.ts:403` 有明确注释）。
 **规则**：表结构校验统一走 `shared/canonical-checkpoint-validator.ts` 的 `validateCanonicalCheckpointSheet_ACU`，不要另写一套判空/判表头逻辑。
 
+### 孤儿身份列错位：必须在**数据即将被使用处**复位，且要覆盖**基底构造**（2026-09-29 实证）
+
+历史畸形形态：旧版本误插 `row_id` 后固化为表头 `["row_id", null, 业务列…]`，
+行 `[id, 值…, null]`（表头多一个空标签孤儿列，**行值相对标签整体左移一格**）。
+复位器：`shared/canonical-row-normalizer.ts` 的 `repairLegacyOrphanIdentityColumn_ACU`（数据级）
+与 `repairOrphanIdentityColumnOnSheet_ACU`（按单表，规则同一份、后者为唯一实现，前者委托）。
+
+三条硬约束（违反就再现 2026-09-29 的真机故障）：
+
+1. **必须作用于下游真正使用的数据**。复位会**删格**，只修副本会让 DDL 列数与行宽错配
+   （`createSheetInsertPlan` 会写错列）。故复位点是**调用点**（数据即将被使用处），
+   不是 `resolveEffectiveDDL` 内部。
+2. **必须早于任何 padding / 行宽比较**。`restoreLegacyRowIdentity_ACU` 自带 `row_tail_padded`，
+   先 padding 会把错位形态**固化**（`service/template/helpers-data-merge.ts:501-503` 记的 2025-12 事故成因）。
+3. **「顺路」复位不可靠，必须显式覆盖每一处「基底构造」**。该形态对行标识校验
+   （`normalizeCanonicalTableRows_ACU`）与 upgrade audit（`auditTableDataForUpgrade_ACU`）**都不可见**
+   ⇒ `storage-frame-v2-replay.ts` 的 `normalizeLegacyDuplicateCheckpointState_ACU` 会在
+   `audit.status === 'clean'` 时**提前返回**，而 `ensureSqlReplayRuntime_ACU` 的 hydrate 是
+   `strict:true`（**在克隆上修**，不回写 state）⇒ 回放状态本身仍是畸形 ⇒
+   `sql_sheet_batch` 的列重绑在 `generateFallbackDDL` 抛
+   `fallback DDL 表头不合法：第 2 列「」empty_column_name`（真机文案逐字吻合）。
+
+**现状落点**（改动时按此对照，别只改一处）：`sync-bridge.ts:130+134`（hydrate，成对）、
+`helpers-data-merge.ts:505/509`（merge，成对）、`storage-frame-v2-replay.ts`
+的**基底构造**（`normalizeLegacyDuplicateCheckpointState_ACU` 函数首，覆盖 full checkpoint 与 replacement anchor）、
+`applySheetCheckpointsForReplay_ACU`（checkpoint.data 整表写入前）与 `normalizeHistoricalReplayState_ACU`
+（operation 级候选及其余支路）。
+
+**禁止**：为「修好」而加入相似度 / 编辑距离 / 列序号兜底，或把空表头掩盖成 `col_N`
+（`generateFallbackDDL` 的既有契约是 `empty_column_name` fail-closed，见 `data/sqlite/schema-mapper.ts:189-201`）。
+歧义行（`row[1]` 与尾格均非空）**整表放弃 + warning**，宁可保留错位也不删可能的业务值。
+
 ---
 
 ## 隔离槽位：空串是合法值

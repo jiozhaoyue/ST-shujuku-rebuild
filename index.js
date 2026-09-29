@@ -36033,48 +36033,70 @@ function repairLegacyOrphanIdentityColumn_ACU(data) {
     if (!data || typeof data !== 'object')
         return result;
     Object.entries(data).forEach(([sheetKey, sheet]) => {
-        if (!sheetKey.startsWith('sheet_') || !sheet || typeof sheet !== 'object')
+        if (!sheetKey.startsWith('sheet_'))
             return;
-        const content = sheet.content;
-        if (!Array.isArray(content) || content.length === 0 || !Array.isArray(content[0]))
-            return;
-        const header = content[0];
-        if (header.length < 2 || header[0] !== 'row_id')
-            return;
-        const orphanCell = header[1];
-        const orphanCellIsPlaceholder = orphanCell === null || orphanCell === undefined
-            || (typeof orphanCell === 'string' && orphanCell.trim() === '');
-        if (!orphanCellIsPlaceholder)
-            return;
-        const collectRows = (rows) => (Array.isArray(rows) ? rows : []).filter((row) => Array.isArray(row));
-        const dataRows = collectRows(content.slice(1));
-        const seedRows = collectRows(sheet.seedRows);
-        const allRows = [...dataRows, ...seedRows];
-        const isEmptyCell = (value) => value === null || value === undefined
-            || (typeof value === 'string' && value.trim() === '');
-        // 只有与（错误）表头等宽的行需要删一格；行宽 = 表头-1 的未 padding 老行在
-        // 删除孤儿列后天然对齐，保持原样。其余宽度是别的缺陷，留给规范校验报告。
-        const fullWidthRows = allRows.filter(row => row.length === header.length);
-        // 判定歧义行：row[1] 与尾格都有值时既不能 pop 也不能 splice，说明这一列
-        // 可能承载了真实数据——整表放弃，宁可保留错位也不冒删业务值的险。
-        const ambiguousRow = fullWidthRows.find(row => !isEmptyCell(row[1]) && !isEmptyCell(row[row.length - 1]));
-        if (ambiguousRow) {
-            result.warnings.push(`[孤儿列复位] 表「${String(sheet.name || sheetKey)}」(${sheetKey}) 命中孤儿身份列指纹，`
-                + `但存在第 1 列与尾格均非空的行，无法无损判定，已放弃复位（数据保持原样）。`);
-            return;
-        }
-        fullWidthRows.forEach(row => {
-            if (!isEmptyCell(row[1])) {
-                row.pop();
-            }
-            else {
-                row.splice(1, 1);
-            }
-        });
-        header.splice(1, 1);
-        result.changedSheetKeys.push(sheetKey);
+        const outcome = repairOrphanIdentityColumnOnSheet_ACU(sheetKey, sheet);
+        if (outcome.changed)
+            result.changedSheetKeys.push(sheetKey);
+        if (outcome.warning)
+            result.warnings.push(outcome.warning);
     });
     return result;
+}
+/**
+ * 单表版孤儿列复位（规则与 repairLegacyOrphanIdentityColumn_ACU 同一份，后者委托本函数）。
+ *
+ * 为什么需要按表版本：hydrate（`sync-bridge.ts:134`）与 merge（`helpers-data-merge.ts:509`）
+ * 都成对复位，但**帧回放路径**只做 audit 修复（`table-data-repair.ts` 不覆盖孤儿列），
+ * 于是畸形表头会被喂给 `resolveEffectiveDDL` → `generateFallbackDDL` 抛
+ * `fallback DDL 表头不合法`。回放/守卫路径拿到的是**单张表**而非整份数据对象，
+ * 故需要按表单表入口，避免各处自行重写判据。
+ *
+ * **必须作用于下游真正使用的数据**：复位会删格，只改副本会让 DDL 列数与行宽错配。
+ * 幂等：复位后表头不再命中指纹。歧义（row[1] 与尾格均非空）整表放弃并给出 warning，
+ * 绝不为「修好」而放宽判据（那会删业务值）。
+ */
+function repairOrphanIdentityColumnOnSheet_ACU(sheetKey, sheet) {
+    if (!sheet || typeof sheet !== 'object')
+        return { changed: false };
+    const content = sheet.content;
+    if (!Array.isArray(content) || content.length === 0 || !Array.isArray(content[0]))
+        return { changed: false };
+    const header = content[0];
+    if (header.length < 2 || header[0] !== 'row_id')
+        return { changed: false };
+    const orphanCell = header[1];
+    const orphanCellIsPlaceholder = orphanCell === null || orphanCell === undefined
+        || (typeof orphanCell === 'string' && orphanCell.trim() === '');
+    if (!orphanCellIsPlaceholder)
+        return { changed: false };
+    const collectRows = (rows) => (Array.isArray(rows) ? rows : []).filter((row) => Array.isArray(row));
+    const allRows = [...collectRows(content.slice(1)), ...collectRows(sheet.seedRows)];
+    const isEmptyCell = (value) => value === null || value === undefined
+        || (typeof value === 'string' && value.trim() === '');
+    // 只有与（错误）表头等宽的行需要删一格；行宽 = 表头-1 的未 padding 老行在
+    // 删除孤儿列后天然对齐，保持原样。其余宽度是别的缺陷，留给规范校验报告。
+    const fullWidthRows = allRows.filter(row => row.length === header.length);
+    // 判定歧义行：row[1] 与尾格都有值时既不能 pop 也不能 splice，说明这一列
+    // 可能承载了真实数据——整表放弃，宁可保留错位也不冒删业务值的险。
+    const ambiguousRow = fullWidthRows.find(row => !isEmptyCell(row[1]) && !isEmptyCell(row[row.length - 1]));
+    if (ambiguousRow) {
+        return {
+            changed: false,
+            warning: `[孤儿列复位] 表「${String(sheet.name || sheetKey)}」(${sheetKey}) 命中孤儿身份列指纹，`
+                + `但存在第 1 列与尾格均非空的行，无法无损判定，已放弃复位（数据保持原样）。`,
+        };
+    }
+    fullWidthRows.forEach(row => {
+        if (!isEmptyCell(row[1])) {
+            row.pop();
+        }
+        else {
+            row.splice(1, 1);
+        }
+    });
+    header.splice(1, 1);
+    return { changed: true };
 }
 function normalizeRows_ACU$2(rows, sheetKey, startIndex, result) {
     const usedRowIds = new Set();
@@ -45234,6 +45256,28 @@ function normalizeReplayState_ACU(state, context) {
     replaceState_ACU(state, candidate);
 }
 /**
+ * 把历史「孤儿身份列错位」复位到回放状态上（**原地**改写，调用方须确认该状态允许被清洗），
+ * 并按既有口径记可见日志。返回被复位的 sheetKey 列表。
+ *
+ * 为什么必须在**基底构造与每次操作重放之前**做：帧内容可能携带旧版本误插 row_id 后固化的
+ * 畸形表头 `["row_id", 空占位, 业务列…]`（行值相对标签整体左移一格）。一旦它被喂给
+ * `resolveEffectiveDDL` → `generateFallbackDDL`，就抛 `fallback DDL 表头不合法：第 2 列「」empty_column_name`。
+ * 该形态对行标识校验与 upgrade audit **都不可见**（它们不看列名合法性），所以「顺路」复位不可靠
+ * —— 只能在回放状态进入消费前显式复位（见 `repairOrphanIdentityColumnOnSheet_ACU` 的契约）。
+ *
+ * 复位只删可证明为占位的空标签/空格，业务单元格计数不变；歧义表整表放弃并记 warning。
+ * 幂等：复位后不再命中指纹，重复调用无副作用。
+ */
+function repairOrphanIdentityColumnsForReplay_ACU(state, context) {
+    const repair = repairLegacyOrphanIdentityColumn_ACU(state);
+    if (repair.changedSheetKeys.length > 0) {
+        logWarn_ACU(`[V2 Replay] ${context} 已复位孤儿身份列错位（列对齐已恢复，数据无损）：`
+            + `${repair.changedSheetKeys.join('、')}。原 storage frame 未修改。`);
+    }
+    repair.warnings.forEach(warning => logWarn_ACU(warning));
+    return repair.changedSheetKeys;
+}
+/**
  * Normalizes a candidate built from already-persisted history.
  *
  * Legacy payloads predate the row_id identity contract, so identity is restored
@@ -45247,6 +45291,13 @@ function normalizeReplayState_ACU(state, context) {
  */
 function normalizeHistoricalReplayState_ACU(state, context) {
     const candidate = deepClone_ACU(state);
+    // [修复顺序] 与 sync-bridge / helpers-data-merge 同一口径：孤儿身份列错位
+    // （表头 ["row_id", 空占位, 业务列…]）必须在**任何 padding / 结构比较之前**复位。
+    // 这里的 restoreLegacyRowIdentity_ACU 自带 row_tail_padded —— 先 padding 会把错位
+    // 形态进一步固化（helpers-data-merge.ts:501-503 记载的 2025-12 事故成因），
+    // 故复位必须排在它前面。复位只删可证明为占位的空格，业务单元格计数不变，
+    // 因此不会触发下面的守恒断言。
+    repairOrphanIdentityColumnsForReplay_ACU(candidate, context);
     const identity = restoreLegacyRowIdentity_ACU(candidate);
     // A repair that loses a row or a business cell is an implementation defect,
     // not a data defect. Fail loudly instead of persisting a lossy candidate.
@@ -45299,6 +45350,18 @@ function summarizeUpgradeIssueLocations_ACU(issues) {
     });
 }
 function normalizeLegacyDuplicateCheckpointState_ACU(state) {
+    // [缺陷 ②] 孤儿身份列错位必须在基底构造处就地复位，且**先于**下面的
+    // restoreLegacyRowIdentity_ACU（后者自带 row_tail_padded，先 padding 会固化错位）。
+    //
+    // 为什么放这儿而不是只放在 normalizeHistoricalReplayState_ACU 里：本函数下方的
+    // `audit.status === 'clean'` 分支会**提前返回**，根本不经过 normalizeHistoricalReplayState。
+    // 而畸形表头 `["row_id", 空占位, …]` 对 row_id 校验与 upgrade audit **都不可见**
+    // （它们不看列名合法性）⇒ 真机「无 DDL 旧聊天」恰好走这条提前返回路径，复位形同虚设
+    // （2026-09-29 离线探针实测：严格回放成功返回但输出表头仍为畸形，见
+    // .trellis/tasks/09-29-no-ddl-legacy-chat-write-failure/research/S3.2b-base-repair-gap.md）。
+    // 放函数首则 checkpoint 基底（:2411）与 replacement anchor 基底（:2384）两条构造
+    // 都被覆盖，后续操作重放拿到的就是已对齐的数据。
+    repairOrphanIdentityColumnsForReplay_ACU(state, '回放基底');
     // Restore legacy identity on the live state first: an empty or absent row_id
     // is a legacy format trait, not a duplicate, and leaving it here would send
     // the whole checkpoint down the strict reject path below.
@@ -45560,6 +45623,17 @@ async function applySheetCheckpointsForReplay_ACU(state, checkpoints, runtime, m
             // introduction / rebase / reveal：用 checkpoint.data 整表写入 replay state。
             // 表的身份是表名：同名旧 key 的表被本事件接管（不合并行），写入规范 key。
             const sheet = deepClone_ACU(checkpoint.data);
+            // [缺陷 ②] 与基底构造同一口径：checkpoint.data 可能携带畸形的孤儿身份列表头
+            // `["row_id", 空占位, …]`。整表写入回放状态前按单表复位，避免后续操作重放时
+            // 解析 fallback DDL 抛 empty_column_name。复位先于 supersede/同名接管判定，
+            // 保证接管看到的是已对齐的列。
+            const orphanRepair = repairOrphanIdentityColumnOnSheet_ACU(String(checkpoint.sheetKey || ''), sheet);
+            if (orphanRepair.changed) {
+                logWarn_ACU(`[V2 Replay] sheet checkpoint ${checkpoint.timeline?.kind ?? 'untimed'}@${checkpoint.sheetKey} `
+                    + '已复位孤儿身份列错位（列对齐已恢复，数据无损）。原 storage frame 未修改。');
+            }
+            if (orphanRepair.warning)
+                logWarn_ACU(orphanRepair.warning);
             const targetKey = supersedeSameNameSheetForReplay_ACU(candidate, redirectReplaySheetKey_ACU(identity, checkpoint.sheetKey), sheet, identity, `sheet checkpoint ${checkpoint.timeline?.kind ?? 'untimed'}@${checkpoint.sheetKey}`, context, metrics);
             candidate[targetKey] = sheet;
         }
@@ -118789,6 +118863,60 @@ async function ensureManualRefillAnchorHealth_ACU(liveChat, isolationKey, option
     return { blockedError: null, healed: true };
 }
 /**
+ * 【D-A 破坏性清理前 fail-closed 预演】（2026-09-29 · 缺陷 ② 加固）
+ *
+ * 手动重填的语义是「先删除范围内旧数据，再写新数据」。一旦「清理已发生但零提交」，
+ * 只能靠 `rollbackManualRefillRangeSnapshotAtomic_ACU` 整段回滚兜底 —— 该句柄存在，
+ * 但它按消息身份指纹逐条校验，聊天在此期间被改动就只恢复仍匹配的楼层，**不是无损保证**。
+ * 所以：凡能提前判定「注定失败」的形态，必须在清理**之前**判掉。
+ *
+ * 本预演**只读**，两步（判据来源与写时严格探针一致）：
+ *  1) 对本次重填范围做**有界严格回放**（`compatibilityMode:'disabled'` +
+ *     `updateRuntimeState:false` + `backgroundFixation:'skip'`）；回放抛错即中止。
+ *  2) 在回放基底上对**本次目标表**做列/身份解析预演（`buildSheetColumnAliasMap_ACU`）。
+ *     这一步专门兜住「基底表头解析不出合法 DDL」一类失败：真机上畸形表头对行标识校验
+ *     与 upgrade audit **都不可见**，回放本身可能**成功返回**（2026-09-29 离线实测，
+ *     见 .trellis/tasks/09-29-no-ddl-legacy-chat-write-failure/research/S3.2b-base-repair-gap.md），
+ *     它在写入侧才表现为 `fallback DDL 表头不合法：… empty_column_name` 的写时拒绝。
+ *
+ *     **不按「休眠表」跳过**：休眠判定（`isSqlActiveTemplateSheet_ACU`）把「非首列空表头」
+ *     一律视为休眠，而畸形孤儿表头（`["row_id", null, …]`）恰在其中 —— 用它过滤会把本预演
+ *     要查的表全部排除，形同虚设。而「用户选中了一张注定解析失败的表」本来就会在写入阶段
+ *     失败，提前到清理之前拦住正是本预演的目的。
+ *
+ * 返回 `null` 表示通过；否则返回面向用户的可操作原因。
+ */
+async function preflightManualRefillResolution_ACU(args) {
+    const { chat, isolationKey, targetSheetKeys, maxMessageIndex } = args;
+    const describe = (error) => (error instanceof Error ? error.message : String(error));
+    let replay;
+    try {
+        replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
+            maxMessageIndex,
+            updateRuntimeState: false,
+            compatibilityMode: 'disabled',
+            backgroundFixation: 'skip',
+        });
+    }
+    catch (error) {
+        return `本次范围的历史无法严格回放（${describe(error)}）`;
+    }
+    // 无 full 根的形态不在本预演职责内（与写时严格探针返回 null 的口径一致）。
+    if (!replay || !replay.data)
+        return null;
+    const basis = replay.data;
+    const presentTargetKeys = new Set(targetSheetKeys.filter(key => (Object.prototype.hasOwnProperty.call(basis, key))));
+    if (presentTargetKeys.size === 0)
+        return null;
+    try {
+        buildSheetColumnAliasMap_ACU(basis, { targetSheetKeys: presentTargetKeys });
+    }
+    catch (error) {
+        return `本次目标表的列/身份解析失败（${describe(error)}）`;
+    }
+    return null;
+}
+/**
  * 手动更新编排（纯业务逻辑）
  * 从 handleManualUpdate_ACU 提取。不驱动 UI，只返回结果。
  * presentation 层负责：收集 manualSelection、设置 manualExtraHint、刷新 UI、显示 toast、弹出确认框。
@@ -119146,6 +119274,22 @@ async function orchestrateManualUpdate_ACU(targetKeys, processBatch, refreshData
                     logWarn_ACU('[Manual Refill] runtime 在清理前一刻变化，已阻止破坏性重填（快照未匹配）。');
                     return { success: false, error: '表格运行时在确认期间发生变化，已取消本次手动填表，请确认后重试。' };
                 }
+            }
+            // 【D-A】破坏性清理前 fail-closed 预演：解析注定失败的形态，绝不允许先清空旧数据。
+            // 放在这一条最终复检之后、清理之前——它与 importOverlap 一样是「删除前的最后一道闸」。
+            const refillResolutionPreflight = await preflightManualRefillResolution_ACU({
+                chat: liveChat,
+                isolationKey: currentIsolationKey,
+                targetSheetKeys: targetKeys,
+                maxMessageIndex: refillTargetIndex,
+            });
+            if (refillResolutionPreflight) {
+                logWarn_ACU(`[手动重填准入] 解析预演失败，已在破坏性清理前中止（本次未删除任何数据）：${refillResolutionPreflight}`);
+                return {
+                    success: false,
+                    error: `手动重填已在删除任何旧数据之前中止：${refillResolutionPreflight}。`
+                        + '本次没有删除或修改任何数据；请按上述原因修正（多数情况可在「数据管理」里修复该聊天的表结构）后重试。',
+                };
             }
             // A方案保护：检测范围内是否存在导入写入的权威数据（reason==='import' 的 checkpoint、
             // reason==='import' 的 perSheetCheckpoints、或 data_replace 带 reason:'import' /
@@ -151868,7 +152012,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260928-16";
+        const stamp = "20260929-13";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180076,7 +180220,7 @@ var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_re
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20260928-16";
+        const stamp = "20260929-13";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {

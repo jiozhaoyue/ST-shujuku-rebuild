@@ -4,6 +4,8 @@ import {
   isEmptyCanonicalRowId_ACU,
   normalizeCanonicalTableRows_ACU,
   repairLegacyAutoMergedRowTails_ACU,
+  repairLegacyOrphanIdentityColumn_ACU,
+  repairOrphanIdentityColumnOnSheet_ACU,
   restoreLegacyRowIdentity_ACU,
 } from '../../../src/shared/canonical-row-normalizer';
 
@@ -121,5 +123,73 @@ describe('canonical-row-normalizer', () => {
     expect(identity.repairs).toContainEqual({ sheetKey: 'sheet_0', rowIndex: 2, code: 'assigned_row_id' });
     expect(normalization.errors).toEqual([]);
     expect(normalization.removedRows).toEqual([]);
+  });
+});
+
+describe('canonical-row-normalizer · 孤儿身份列复位（缺陷 ② 回归）', () => {
+  // 形态取自 Dev ST 聊天 `Branch #206 - 2026-04-11@01h39m54s486ms` 的真实
+  // storageFrame.checkpoint.data：xing 时代首格 undefined 被误插 row_id 后固化为
+  // ["row_id", null, 业务列…]，行尾补 null —— 表头与行值整体错开一格。
+  // 未复位时会喂给 resolveEffectiveDDL → generateFallbackDDL 抛
+  // `fallback DDL 表头不合法：第 2 列「」empty_column_name`（真机实测文案）。
+  const orphanSheet = () => ({
+    name: '背包物品表',
+    content: [
+      ['row_id', null, '物品名称', '数量', '描述/效果', '类别'],
+      ['1', '手机', '1', '通讯与网购工具', '杂物', null],
+    ],
+    seedRows: [] as unknown[][],
+  });
+
+  it('数据级复位：删掉空标签孤儿列，列名与行值重新对齐', () => {
+    const data: any = { sheet_in05z9vz: orphanSheet() };
+    const result = repairLegacyOrphanIdentityColumn_ACU(data);
+
+    expect(result.changedSheetKeys).toEqual(['sheet_in05z9vz']);
+    expect(result.warnings).toEqual([]);
+    expect(data.sheet_in05z9vz.content).toEqual([
+      ['row_id', '物品名称', '数量', '描述/效果', '类别'],
+      ['1', '手机', '1', '通讯与网购工具', '杂物'],
+    ]);
+  });
+
+  it('单表复位与数据级共用同一份规则（changed=true，无 warning）', () => {
+    const sheet: any = orphanSheet();
+    const result = repairOrphanIdentityColumnOnSheet_ACU('sheet_in05z9vz', sheet);
+
+    expect(result).toEqual({ changed: true });
+    expect(sheet.content[0]).toEqual(['row_id', '物品名称', '数量', '描述/效果', '类别']);
+    expect(sheet.content[1]).toEqual(['1', '手机', '1', '通讯与网购工具', '杂物']);
+  });
+
+  it('row[1] 为空的行走 splice 分支，同样只删空格', () => {
+    const sheet: any = { name: '后加表', content: [['row_id', null, '名称'], ['1', null, '甲']], seedRows: [] };
+
+    expect(repairOrphanIdentityColumnOnSheet_ACU('sheet_x', sheet).changed).toBe(true);
+    expect(sheet.content).toEqual([['row_id', '名称'], ['1', '甲']]);
+  });
+
+  it('歧义行（第 1 列与尾格均非空）整表放弃并给 warning，绝不删可能的业务值', () => {
+    const sheet: any = { name: '歧义表', content: [['row_id', null, '名称'], ['1', '甲', '乙']], seedRows: [] };
+    const result = repairOrphanIdentityColumnOnSheet_ACU('sheet_y', sheet);
+
+    expect(result.changed).toBe(false);
+    expect(result.warning).toContain('无法无损判定，已放弃复位');
+    expect(sheet.content).toEqual([['row_id', null, '名称'], ['1', '甲', '乙']]);
+  });
+
+  it('幂等：复位后不再命中指纹', () => {
+    const sheet: any = orphanSheet();
+
+    expect(repairOrphanIdentityColumnOnSheet_ACU('sheet_in05z9vz', sheet).changed).toBe(true);
+    expect(repairOrphanIdentityColumnOnSheet_ACU('sheet_in05z9vz', sheet)).toEqual({ changed: false });
+  });
+
+  it('健康表头不误伤：首列 null 占位与字面 row_id 两种规范形态都不动', () => {
+    const placeholder: any = { content: [[null, '名称'], ['1', '甲']], seedRows: [] };
+    const literal: any = { content: [['row_id', '名称'], ['1', '甲']], seedRows: [] };
+
+    expect(repairOrphanIdentityColumnOnSheet_ACU('sheet_z', placeholder)).toEqual({ changed: false });
+    expect(repairOrphanIdentityColumnOnSheet_ACU('sheet_w', literal)).toEqual({ changed: false });
   });
 });

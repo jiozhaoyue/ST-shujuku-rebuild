@@ -31,7 +31,7 @@ import { planManualCatchUpWaves_ACU, type ManualCatchUpPlan_ACU } from './manual
 import type { ManualRefillProgressV2_ACU } from './storage-frame-v2-types';
 import type { SqlTableApplyScope_ACU } from '../../shared/table-storage-provider';
 import type { TableDataObject_ACU } from '../../shared/models/table-data';
-import { rebindSheetKeysThroughTableAliases_ACU, resolveHistoricalSheetKeyMigrations_ACU, SheetTableAliasResolutionError_ACU } from '../../shared/sql-read-resolver';
+import { buildSheetColumnAliasMap_ACU, rebindSheetKeysThroughTableAliases_ACU, resolveHistoricalSheetKeyMigrations_ACU, SheetTableAliasResolutionError_ACU } from '../../shared/sql-read-resolver';
 import { recoverProvisionalBridgeSession_ACU, hasActiveProvisionalBridgeAnywhere_ACU } from './manual-catch-up-provisional-bridge';
 import {
   assembleBucketWorkingView_ACU,
@@ -4900,6 +4900,66 @@ async function ensureManualRefillAnchorHealth_ACU(
 }
 
 /**
+ * 【D-A 破坏性清理前 fail-closed 预演】（2026-09-29 · 缺陷 ② 加固）
+ *
+ * 手动重填的语义是「先删除范围内旧数据，再写新数据」。一旦「清理已发生但零提交」，
+ * 只能靠 `rollbackManualRefillRangeSnapshotAtomic_ACU` 整段回滚兜底 —— 该句柄存在，
+ * 但它按消息身份指纹逐条校验，聊天在此期间被改动就只恢复仍匹配的楼层，**不是无损保证**。
+ * 所以：凡能提前判定「注定失败」的形态，必须在清理**之前**判掉。
+ *
+ * 本预演**只读**，两步（判据来源与写时严格探针一致）：
+ *  1) 对本次重填范围做**有界严格回放**（`compatibilityMode:'disabled'` +
+ *     `updateRuntimeState:false` + `backgroundFixation:'skip'`）；回放抛错即中止。
+ *  2) 在回放基底上对**本次目标表**做列/身份解析预演（`buildSheetColumnAliasMap_ACU`）。
+ *     这一步专门兜住「基底表头解析不出合法 DDL」一类失败：真机上畸形表头对行标识校验
+ *     与 upgrade audit **都不可见**，回放本身可能**成功返回**（2026-09-29 离线实测，
+ *     见 .trellis/tasks/09-29-no-ddl-legacy-chat-write-failure/research/S3.2b-base-repair-gap.md），
+ *     它在写入侧才表现为 `fallback DDL 表头不合法：… empty_column_name` 的写时拒绝。
+ *
+ *     **不按「休眠表」跳过**：休眠判定（`isSqlActiveTemplateSheet_ACU`）把「非首列空表头」
+ *     一律视为休眠，而畸形孤儿表头（`["row_id", null, …]`）恰在其中 —— 用它过滤会把本预演
+ *     要查的表全部排除，形同虚设。而「用户选中了一张注定解析失败的表」本来就会在写入阶段
+ *     失败，提前到清理之前拦住正是本预演的目的。
+ *
+ * 返回 `null` 表示通过；否则返回面向用户的可操作原因。
+ */
+async function preflightManualRefillResolution_ACU(args: {
+    chat: any[];
+    isolationKey: string;
+    targetSheetKeys: readonly string[];
+    maxMessageIndex: number;
+}): Promise<string | null> {
+    const { chat, isolationKey, targetSheetKeys, maxMessageIndex } = args;
+    const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+    let replay: Awaited<ReturnType<typeof loadTableStateFromFramesV2Detailed_ACU>>;
+    try {
+        replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
+            maxMessageIndex,
+            updateRuntimeState: false,
+            compatibilityMode: 'disabled',
+            backgroundFixation: 'skip',
+        });
+    } catch (error) {
+        return `本次范围的历史无法严格回放（${describe(error)}）`;
+    }
+    // 无 full 根的形态不在本预演职责内（与写时严格探针返回 null 的口径一致）。
+    if (!replay || !replay.data) return null;
+
+    const basis = replay.data as Record<string, any>;
+    const presentTargetKeys = new Set(targetSheetKeys.filter(key => (
+        Object.prototype.hasOwnProperty.call(basis, key)
+    )));
+    if (presentTargetKeys.size === 0) return null;
+    try {
+        buildSheetColumnAliasMap_ACU(basis, { targetSheetKeys: presentTargetKeys });
+    } catch (error) {
+        return `本次目标表的列/身份解析失败（${describe(error)}）`;
+    }
+    return null;
+}
+
+/**
  * 手动更新编排（纯业务逻辑）
  * 从 handleManualUpdate_ACU 提取。不驱动 UI，只返回结果。
  * presentation 层负责：收集 manualSelection、设置 manualExtraHint、刷新 UI、显示 toast、弹出确认框。
@@ -5286,6 +5346,23 @@ export async function orchestrateManualUpdate_ACU(
                     logWarn_ACU('[Manual Refill] runtime 在清理前一刻变化，已阻止破坏性重填（快照未匹配）。');
                     return { success: false, error: '表格运行时在确认期间发生变化，已取消本次手动填表，请确认后重试。' };
                 }
+            }
+
+            // 【D-A】破坏性清理前 fail-closed 预演：解析注定失败的形态，绝不允许先清空旧数据。
+            // 放在这一条最终复检之后、清理之前——它与 importOverlap 一样是「删除前的最后一道闸」。
+            const refillResolutionPreflight = await preflightManualRefillResolution_ACU({
+                chat: liveChat,
+                isolationKey: currentIsolationKey,
+                targetSheetKeys: targetKeys,
+                maxMessageIndex: refillTargetIndex,
+            });
+            if (refillResolutionPreflight) {
+                logWarn_ACU(`[手动重填准入] 解析预演失败，已在破坏性清理前中止（本次未删除任何数据）：${refillResolutionPreflight}`);
+                return {
+                    success: false,
+                    error: `手动重填已在删除任何旧数据之前中止：${refillResolutionPreflight}。`
+                        + '本次没有删除或修改任何数据；请按上述原因修正（多数情况可在「数据管理」里修复该聊天的表结构）后重试。',
+                };
             }
 
             // A方案保护：检测范围内是否存在导入写入的权威数据（reason==='import' 的 checkpoint、

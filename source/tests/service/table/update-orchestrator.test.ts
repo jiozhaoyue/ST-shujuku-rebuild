@@ -3220,6 +3220,59 @@ describe('orchestrateManualUpdate_ACU', () => {
     expect(mockClearManualRefillIncrementalDataInRange).not.toHaveBeenCalled();
   });
 
+  // D-A：破坏性清理前 fail-closed 预演（2026-09-29 缺陷 ② 加固）。
+  // 目标表基底解析不出合法 DDL 时，必须在 clearManualRefillSheetDataInRange 之前中止，
+  // 绝不能走「先清空旧数据 → 写入失败 → 回滚」这条路（回滚按消息指纹逐条校验，非无损保证）。
+  it('D-A 解析预演：目标表基底表头非法时，清理之前即中止且聊天字节不变', async () => {
+    const { getChatArray_ACU } = await import('../../../src/service/chat/chat-service');
+    const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+      mate: { type: 'acu' },
+      sheet_0: { name: '测试表A', updateConfig: { groupId: 0 }, content: [['row_id', '值A']] },
+    });
+    // 基底：无 DDL + **中间列**空表头 —— 孤儿列复位（只认首列紧随其后的空占位）覆盖不到它，
+    // 故 fallback DDL 生成必然抛 `第 3 列「」empty_column_name`（与真机同族的解析失败）。
+    const malformedSheet = {
+      uid: 'sheet0', name: '测试表A',
+      content: [['row_id', '值A', null, '值C'], ['1', 'a', 'b', 'c']],
+      sourceData: {}, updateConfig: {}, exportConfig: {}, orderNo: 0,
+    };
+    const chat = [
+      {
+        is_user: false,
+        mes: 'AI回复1',
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              logEntries: [],
+              checkpoint: { kind: 'full', reason: 'init', createdAt: 1, data: { mate: { type: 'acu' }, sheet_0: malformedSheet } },
+            },
+          },
+        },
+      },
+      { is_user: true, mes: '用户2' },
+      { is_user: false, mes: 'AI回复3' },
+    ];
+    vi.mocked(getChatArray_ACU).mockReturnValue(chat as any);
+    const before = JSON.stringify(chat);
+    mockSettings.manualUpdateContextDepth = 0;
+    mockSettings.manualUpdateBatchSize = 1;
+    mockCurrentJsonTableData = {
+      sheet_0: { name: '测试表A', updateConfig: {}, content: [['row_id', '值A', null, '值C'], ['1', 'a', 'b', 'c']] },
+    };
+
+    const result = await orchestrateManualUpdate_ACU(['sheet_0'], vi.fn().mockResolvedValue({ success: true }), mockRefreshData, { clearBeforeUpdate: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('已在删除任何旧数据之前中止');
+    expect(result.error).toContain('empty_column_name');
+    // 关键判据（AC2）：破坏性清理未发生，持久化字段逐字节不变。
+    expect(mockClearManualRefillSheetDataInRange).not.toHaveBeenCalled();
+    expect(JSON.stringify(chat)).toBe(before);
+  });
+
   // 上游 issue #18 第四条：先清后填 + AI 首次调用失败 ⇒ 旧数据已删、无恢复手段。
   // 零提交（没有任何 bucket 提交过）必须整段回滚清理，且不能删掉外置向量文件。
   it('零提交失败时回滚清理、保留外置向量文件并如实提示用户', async () => {
