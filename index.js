@@ -152012,7 +152012,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261025-18";
+        const stamp = "20261025-19";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180220,7 +180220,7 @@ var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_re
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261025-18";
+        const stamp = "20261025-19";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -200356,15 +200356,15 @@ function formatDiagnosticBundleText_ACU(bundle) {
 }
 
 /**
- * useDiagnosticBundle — Developer 页「一键诊断包」的数据接缝
+ * download — 「下载 JSON 文件」的共享出口（presentation 层 DOM 助手）
  *
- * 本仓 v2 分层：components / pages 不直接 import service，一律走 composable
- * （与 usePromptInspection / useWritePipeline 同形）。下载与剪贴板在这里做，
- * service 层（service/diagnostics/diagnostic-bundle）保持纯数据、可单测。
+ * 之前这份实现逐字复制在 usePromptInspection / useWritePipeline / useDiagnosticBundle
+ * 三处（2026-10-26 抽取）。行为契约：
+ * - 用宿主文档（getAcuHostDocument）而非裸 document，兼容 TT/嵌入 iframe 场景；
+ * - **延迟 revoke**（1s）：WebView2/部分内核在 click 后立即 revoke 会取消下载 —— 别「优化」掉。
  */
-const EXPORT_FILENAME_PREFIX_ACU$2 = 'acu-diagnostic-bundle';
-function downloadTextFile_ACU$2(filename, text) {
-    const blob = new Blob([text], { type: 'application/json' });
+function downloadTextFile_ACU(filename, text, mime = 'application/json') {
+    const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
     const doc = getAcuHostDocument();
     const anchor = doc.createElement('a');
@@ -200373,9 +200373,17 @@ function downloadTextFile_ACU$2(filename, text) {
     doc.body.appendChild(anchor);
     anchor.click();
     doc.body.removeChild(anchor);
-    // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * useDiagnosticBundle — Developer 页「一键诊断包」的数据接缝
+ *
+ * 本仓 v2 分层：components / pages 不直接 import service，一律走 composable
+ * （与 usePromptInspection / useWritePipeline 同形）。下载与剪贴板在这里做，
+ * service 层（service/diagnostics/diagnostic-bundle）保持纯数据、可单测。
+ */
+const EXPORT_FILENAME_PREFIX_ACU$2 = 'acu-diagnostic-bundle';
 function fileStamp_ACU() {
     return new Date().toISOString().replace(/[:.]/g, '-');
 }
@@ -200384,7 +200392,7 @@ function useDiagnosticBundle() {
     /** 导出诊断包 JSON（整体过一次脱敏兜底，与「复制总览给 AI」同路）。 */
     function exportJson() {
         const json = maskSensitiveText_ACU(JSON.stringify(buildDiagnosticBundle_ACU(), null, 2));
-        downloadTextFile_ACU$2(`${EXPORT_FILENAME_PREFIX_ACU$2}-${fileStamp_ACU()}.json`, json);
+        downloadTextFile_ACU(`${EXPORT_FILENAME_PREFIX_ACU$2}-${fileStamp_ACU()}.json`, json);
         toast.success('已导出诊断包 JSON（已脱敏）。');
     }
     /** 复制诊断包文本（Markdown 分节、脱敏），可直接贴进酒馆给 AI。 */
@@ -201049,19 +201057,6 @@ var FrameReplayPanel = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc
  */
 /** 触发下载的文件名前缀（导出内容由观察器脱敏后给出）。 */
 const EXPORT_FILENAME_PREFIX_ACU$1 = 'acu-prompt-observations';
-function downloadTextFile_ACU$1(filename, text) {
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const doc = getAcuHostDocument();
-    const anchor = doc.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    doc.body.appendChild(anchor);
-    anchor.click();
-    doc.body.removeChild(anchor);
-    // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 function usePromptInspection() {
     const toast = useToastStore();
     const devOptions = useDevOptions();
@@ -201101,7 +201096,7 @@ function usePromptInspection() {
             return;
         }
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        downloadTextFile_ACU$1(`${EXPORT_FILENAME_PREFIX_ACU$1}-${stamp}.json`, exportPromptObservations_ACU());
+        downloadTextFile_ACU(`${EXPORT_FILENAME_PREFIX_ACU$1}-${stamp}.json`, exportPromptObservations_ACU());
         toast.success(`已导出 ${records.value.length} 条记录（导出内容已脱敏）。`);
     }
     /**
@@ -201476,19 +201471,6 @@ var PromptInspectionPanel = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["render",
  */
 /** 触发下载的文件名前缀（导出内容由观测器脱敏后给出）。 */
 const EXPORT_FILENAME_PREFIX_ACU = 'acu-write-pipeline';
-function downloadTextFile_ACU(filename, text) {
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const doc = getAcuHostDocument();
-    const anchor = doc.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    doc.body.appendChild(anchor);
-    anchor.click();
-    doc.body.removeChild(anchor);
-    // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 function useWritePipeline() {
     const toast = useToastStore();
     const devOptions = useDevOptions();

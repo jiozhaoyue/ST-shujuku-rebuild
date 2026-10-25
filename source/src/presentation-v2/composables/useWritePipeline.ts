@@ -30,7 +30,7 @@ import {
   subscribePromptObservations_ACU,
   type PromptObservationRecord_ACU,
 } from '../../service/ai/prompt-observer';
-import { getAcuHostDocument } from '../bootstrap/host-document';
+import { downloadTextFile_ACU } from './download';
 import { useDevOptions } from './useDevOptions';
 import { useToastStore } from '../stores/toast-store';
 
@@ -48,20 +48,6 @@ export type { PromptObservationRecord_ACU, PromptResponseStat_ACU } from '../../
 
 /** 触发下载的文件名前缀（导出内容由观测器脱敏后给出）。 */
 const EXPORT_FILENAME_PREFIX_ACU = 'acu-write-pipeline';
-
-function downloadTextFile_ACU(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const doc = getAcuHostDocument();
-  const anchor = doc.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  doc.body.appendChild(anchor);
-  anchor.click();
-  doc.body.removeChild(anchor);
-  // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 /** 一条写库记录 + 它配对到的出站提示词记录（三段式视图单元）。 */
 export interface WritePipelineView_ACU {
