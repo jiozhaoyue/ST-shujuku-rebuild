@@ -25,7 +25,7 @@ npm run smoke                       # 用 jsdom 加载根 index.js 验产物可�
 2. **别名**：`@shared` / `@data` / `@service` / `@presentation` / `@presentation-v2`（注意：**rollup 未注册别名**，源码一律相对路径）。
 3. **并行度**：`maxWorkers` 默认 8，可用环境变量 `ACU_VITEST_WORKERS` 覆盖。
 4. **超时余量**：`testTimeout: 15000`、`hookTimeout: 20000`。
-5. **`setupFiles: ['./tests/setup/warm-app-graph.ts']`**：重型套件的**一次性冷转译预热**，见下节。
+5. **`setupFiles: ['./tests/setup/warm-app-graph.ts']`**：重型套件的**一次性冷转译预热**（2026-10-26 起在 setup 文件**顶层**执行），见下节。
 
 ## 冷启动预热（`tests/setup/warm-app-graph.ts`）—— 别把它的失败误判成超时
 
@@ -38,23 +38,34 @@ npm run smoke                       # 用 jsdom 加载根 index.js 验产物可�
 表现为「各重文件的前 1~3 条用例超时」且**失败集合每次跑都不同**（取决于机器负载与 worker 的文件分配）。
 
 对策：`setupFiles` 对 `presentation-v2` / `presentation` / `service/continuation` 三个目录，
-在 `beforeAll` 里预热一次 app 图，把冷开销移出单用例预算；`ACU_VITEST_SKIP_WARM=1` 可关。
+在 **setup 文件顶层**（TLA，先于测试文件的 `vi.mock`）预热一次 app 图，把冷开销移出单用例预算；
+`ACU_VITEST_SKIP_WARM=1` 可关，`ACU_VITEST_WARM_DEBUG=1` 可观测预热路径与耗时。
 
 **判断口径**：「某重型套件首条用例超时」先看是不是冷转译（用 `--testTimeout=120000` 复跑一次：
 若首条 20~70s 通过、其余 1~2s，就是冷转译，**不是**逻辑挂死）。真正永不 settle 的 await 见规则 L1-MR-7。
 
-**已知脆弱性（未根治，2026-09-28 记录）**：预热是一次 `import('presentation-v2/bootstrap/mount')`，
-所以它对**本文件里对 app 图依赖模块做的窄 mock** 很敏感 —— 实测 3 个文件（对 `shared/constants`
-缺 `SCRIPT_ID_PREFIX_ACU` / `TABLE_ORDER_FIELD_ACU`、对 `agent-conversation-store` 缺
-`readAgentConversation_ACU`）会让预热抛错。预热失败被吞掉只留一条 `console.warn`，
-后果是**该文件失去保护**，在高负载下表现为 17 条「莫名其妙的超时」+ 连带断言失败。
+**已根治（2026-10-26，B1）**：预热对**本文件里对 app 图依赖模块做的窄 mock** 的脆弱性已消除。
+原脆弱形态（2026-09-28 记录）：预热原在 `beforeAll` 里执行，而 `vi.mock` 在 beforeAll 之前已生效，
+实测 3 个文件（对 `shared/constants` 缺 `SCRIPT_ID_PREFIX_ACU` / `TABLE_ORDER_FIELD_ACU`、
+对 `agent-conversation-store` 缺 `readAgentConversation_ACU`）会让预热抛错；预热失败被吞掉只留一条
+`console.warn`，后果是该文件失去保护，高负载下表现为 17 条「莫名其妙的超时」+ 连带断言失败。
 
-- **判据**：这些文件**单跑全绿**、且同一提交在负载低的轮次全量全绿 ⇒ 就是这条，不是回归。
-- **两处诱因都是「让 app 图变大」**：① UI import 副作用模块（见 frontend 规范）；
-  ② 契约常量放错层（见 `database-guidelines.md` 的持久化面一节）。
-- **根治方向**（未做）：让那 3 个文件的 mock 补全导出；或把预热挪到 **setup 文件顶层**执行
-  （setup 文件在测试文件的 `vi.mock` 生效之前求值，理论上能免疫窄 mock —— 但需先确认
-  `expect.getState().testPath` 在那个时点可读，否则目录白名单会失效）。
+- **根治手段**：把预热从 `beforeAll` 挪到 setup 文件**顶层** —— setup 求值先于测试文件的
+  `vi.mock` 注册，顶层 `import()` 拿到的是真实模块图，窄 mock 从此污染不到预热。
+  实测探针（故意缺导出的 constants mock + 顶层预热）输出「顶层预热完成 13813ms」且无失败警告。
+- **关键配套：预热后立即 `vi.resetModules()`（否则会把窄 mock 文件集体打红）**：预热会把真实模块
+  **实例化进本测试文件的模块注册表**；不清掉的话，测试文件随后声明的 `vi.mock` 对「已实例化的
+  真模块绑定」无效。实测症状：16 个 mock 了 `toast-store` 等模块的文件集体
+  `getActivePinia() was called but there was no active Pinia`（真 store 泄漏进用例）。
+  resetModules 清注册表但不清 worker 级转译缓存 ⇒ 预热收益完整保留。
+- **实测确认**：`expect.getState().testPath` 在 setup 顶层已可读（vitest 3.x），目录白名单照常生效；
+  「已预热」标记挂 `globalThis`（模块级变量会被 resetModules 一并清掉）。若未来某版本顶层读不到
+  testPath，脚本自动退回旧 `beforeAll` 形态（保留旧语义，不 resetModules）。
+- **附带收益**：旧实现里预热跑在该文件自己的 mock 环境下，窄 mock 文件的预热**必然失败**
+  （静默）⇒ 它们一直没被保护；顶层预热必中，三目录复跑总时长 196s → 126s。
+- **仍然成立的纪律**：① UI 不要 import 副作用模块；② 契约常量放 shared/（见 `database-guidelines.md`
+  的持久化面一节）—— 这两条治的是「app 图被拽大」本身，预热根治治的是「拽大后窄 mock 打挂预热」；
+  两者叠加才稳。
 
 ## 测试本身的纪律
 
