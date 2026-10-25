@@ -151,6 +151,8 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | `source/src/presentation-v2/` 的 `FrameReplayPanel.vue`、`useFrameReplay.ts`、`write-statement-display.ts`（新增）+ `DeveloperPage.vue`、`WritePipelinePanel.vue`（增量） | 新增 + 增量 | 同上 | 历史回放面板（自动列出含帧楼层供点选）；并把「方言/操作」的文案与徽章配色抽成 `write-statement-display.ts` 作为**两面板共享的单一事实源** | **否** | **按我方** |
 | `source/src/service/diagnostics/diagnostic-bundle.ts`（新）+ `useDiagnosticBundle.ts`、`DiagnosticBundlePanel.vue`（新）+ `DeveloperPage.vue`、`developer-copy.ts`（增量） | 新增为主 | 2026-10-26「一键诊断包」 | 四观测面聚合导出（环境/API/自检/提示词/写库/帧回放），纯聚合不新增事实源，各节失败隔离，下载与复制双出口 | **否** | **按我方** |
 | `source/tests/setup/warm-app-graph.ts`（重写） | 增量改写 | 2026-10-26 B1 预热根治 | beforeAll 预热 → setup 顶层 TLA + resetModules 清实例；窄 mock 免疫（判据与 Pinia 泄漏教训见 quality-guidelines「冷启动预热」节） | **否**（上游无此 setup 文件则新增即我方；有则按我方） | **按我方** |
+| `source/src/presentation-v2/composables/download.ts`（新）+ 三个 composable 增量 | 新增 + 增量 | 2026-10-26 B5 下载助手去重 | downloadTextFile_ACU 三处逐字副本收敛为单一事实源（行为契约：宿主文档取 DOM、延迟 revoke） | **否** | **按我方** |
+| `source/tests/service/ai/api-call-response-observation-wiring.test.ts`（新） | 新增 | 2026-10-26 B7 接线守卫 | 「出口数 == handleApiResponse_ACU 接线点数」判据固化为结构守卫，防上游新增 AI 出口后半截记录 | **否** | **按我方** |
 
 > **口径提示（阶段 3）**：上表按引入任务分行 —— 第 1 行是**阶段 2** 的差量，第 2 行是 **T3.1**，
 > 第 3–7 行是 **T3.2**，第 8–9 行是 **T3.3**（T3.3 的两行中有一行落在 T3.2 改过的同一批我方文件上，
