@@ -51,6 +51,7 @@
 | 组件库 | `AcuXxx.vue` | `AcuButton.vue`、`AcuDisclosureGroup.vue` |
 | 业务组件 | `Xxx.vue`（PascalCase） | `WorldbookEntryPickerBody.vue` |
 | composable | `useXxx.ts` | `useChatChangedListener.ts` |
+| DOM 助手（非响应式） | `xxx.ts` 直陈函数并放 `composables/` | `composables/download.ts` 的 `downloadTextFile_ACU`（三处逐字副本于 2026-10-26 收敛为单一事实源；新下载出口一律复用，勿再复制） |
 | store | `xxx-store.ts` | `router-store.ts` |
 
 ---
