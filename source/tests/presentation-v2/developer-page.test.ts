@@ -680,3 +680,75 @@ describe('DeveloperPage · 历史楼层回放', () => {
     mount.__resetAcuV2MountForTests();
   });
 });
+
+describe('DeveloperPage · 一键诊断包', () => {
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
+
+  function bundlePanel(): HTMLElement {
+    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+      .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('一键诊断包'))!;
+  }
+
+  function clickButton(panel: HTMLElement, label: string): void {
+    const button = Array.from(panel.querySelectorAll<HTMLButtonElement>('button'))
+      .find(candidate => candidate.textContent?.includes(label))!;
+    button.click();
+  }
+
+  it('面板渲染：标题、两个入口按钮与引导文案', async () => {
+    const { mount } = await mountDeveloperPage();
+
+    const panel = bundlePanel();
+    expect(panel).toBeTruthy();
+    const text = panel.textContent || '';
+    expect(text).toContain('导出诊断包 JSON');
+    expect(text).toContain('复制诊断包文本');
+    expect(text).toContain('聚合导出');
+    expect(text).toContain('历史楼层回放摘要');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('「导出诊断包 JSON」触发下载，内容是合法 JSON 且带 schema', async () => {
+    const { mount } = await mountDeveloperPage();
+
+    const createObjectURL = vi.fn(() => 'blob:acu-test');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    clickButton(bundlePanel(), '导出诊断包 JSON');
+    await settle();
+    await settle();
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const blobArg = createObjectURL.mock.calls[0][0] as Blob;
+    expect(blobArg).toBeInstanceOf(Blob);
+    const text = await blobArg.text();
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    expect(parsed.schema).toBe('acu-diagnostic-bundle-v1');
+    expect(Array.isArray(parsed.environment)).toBe(true);
+
+    clickSpy.mockRestore();
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('「复制诊断包文本」把脱敏 Markdown 写进剪贴板', async () => {
+    const { mount } = await mountDeveloperPage();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(globalThis.navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    clickButton(bundlePanel(), '复制诊断包文本');
+    await settle();
+    await settle();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const payload = String(writeText.mock.calls[0][0]);
+    expect(payload).toContain('# 数据库插件一键诊断包');
+    expect(payload).toContain('acu-diagnostic-bundle-v1');
+    expect(payload).toContain('## 环境');
+    expect(payload).toContain('## 历史楼层回放');
+
+    mount.__resetAcuV2MountForTests();
+  });
+});

@@ -152012,7 +152012,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20260929-13";
+        const stamp = "20261025-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -168145,7 +168145,7 @@ const useDialogStore = defineStore("acu-v2-dialog", {
     },
 });
 
-var _sfc_main$1g = /*@__PURE__*/ defineComponent({
+var _sfc_main$1h = /*@__PURE__*/ defineComponent({
     __name: 'AcuBadge',
     props: {
         variant: { default: 'neutral' }
@@ -168171,7 +168171,7 @@ var _export_sfc = (sfc, props) => {
   return target;
 };
 
-function _sfc_render$1g(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1h(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["acu-badge", $setup.variantClass]) },
@@ -168180,9 +168180,9 @@ function _sfc_render$1g(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuBadge = /* @__PURE__ */ _export_sfc(_sfc_main$1g, [["render", _sfc_render$1g], ["__scopeId", "data-v-925544ff"]]);
+var AcuBadge = /* @__PURE__ */ _export_sfc(_sfc_main$1h, [["render", _sfc_render$1h], ["__scopeId", "data-v-925544ff"]]);
 
-var _sfc_main$1f = /*@__PURE__*/ defineComponent({
+var _sfc_main$1g = /*@__PURE__*/ defineComponent({
     __name: 'AcuButton',
     props: {
         variant: { default: 'default' },
@@ -168208,7 +168208,7 @@ var _sfc_main$1f = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-btn[data-v-0ac61136] {\r\n  font: inherit;\r\n  border: 0;\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-1);\r\n  border-radius: var(--acu-radius-sm);\r\n  cursor: pointer;\r\n  display: inline-flex; align-items: center; justify-content: center; gap: var(--acu-space-150, 6px);\r\n  min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere;\r\n  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;\n}\n.acu-btn--md[data-v-0ac61136] { min-height: var(--acu-button-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px); font-size: var(--acu-font-size-body-lg, 13px);\n}\n.acu-btn--sm[data-v-0ac61136] { min-height: var(--acu-button-height-sm, 28px); padding: var(--acu-space-1, 4px) var(--acu-space-250, 10px); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-btn--block[data-v-0ac61136] { width: 100%; min-width: 0;\n}\n.acu-btn--icon-only[data-v-0ac61136] { min-width: var(--acu-button-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-space-2, 8px);\n}\n.acu-btn--icon-only.acu-btn--sm[data-v-0ac61136] { min-width: var(--acu-button-height-sm, 28px); padding: var(--acu-space-1, 4px) var(--acu-space-2, 8px);\n}\n.acu-btn[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2);\n}\n.acu-btn[data-v-0ac61136]:disabled { opacity: 0.5; cursor: not-allowed;\n}\n.acu-btn--primary[data-v-0ac61136] {\r\n  background: var(--acu-accent);\r\n  color: var(--acu-on-accent);\r\n  font-weight: 500;\r\n  box-shadow: none;\n}\n.acu-btn--primary[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: var(--acu-accent-2);\r\n  box-shadow: none;\n}\n.acu-btn--danger[data-v-0ac61136] {\r\n  background: color-mix(in srgb, var(--acu-danger) 10%, transparent);\r\n  color: var(--acu-danger);\n}\n.acu-btn--danger[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: color-mix(in srgb, var(--acu-danger) 18%, transparent);\n}\n.acu-btn[data-v-0ac61136]:focus-visible {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-btn--loading[data-v-0ac61136] { cursor: wait;\n}\n.acu-btn__spinner[data-v-0ac61136] { font-size: 0.85em;\n}\r\n", "src/presentation-v2/components/_lib/AcuButton.vue#style-0-0ac61136");
 var AcuButton_vue_vue_type_style_index_0_scoped_0ac61136_lang = null;
 
-const _hoisted_1$1b = [
+const _hoisted_1$1c = [
 	"type",
 	"disabled",
 	"title"
@@ -168217,7 +168217,7 @@ const _hoisted_2$11 = {
 	key: 0,
 	class: "fa-solid fa-spinner fa-spin acu-btn__spinner"
 };
-function _sfc_render$1f(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1g(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", {
 		type: $props.nativeType,
 		disabled: $props.disabled || $props.loading,
@@ -168232,11 +168232,11 @@ function _sfc_render$1f(_ctx, _cache, $props, $setup, $data, $options) {
 			}
 		]]),
 		onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("click", $event))
-	}, [$props.loading ? (openBlock(), createElementBlock("i", _hoisted_2$11)) : createCommentVNode("v-if", true), !$props.loading ? renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true) : renderSlot(_ctx.$slots, "loading-text", { key: 2 }, undefined, true)], 10, _hoisted_1$1b);
+	}, [$props.loading ? (openBlock(), createElementBlock("i", _hoisted_2$11)) : createCommentVNode("v-if", true), !$props.loading ? renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true) : renderSlot(_ctx.$slots, "loading-text", { key: 2 }, undefined, true)], 10, _hoisted_1$1c);
 }
-var AcuButton = /* @__PURE__ */ _export_sfc(_sfc_main$1f, [["render", _sfc_render$1f], ["__scopeId", "data-v-0ac61136"]]);
+var AcuButton = /* @__PURE__ */ _export_sfc(_sfc_main$1g, [["render", _sfc_render$1g], ["__scopeId", "data-v-0ac61136"]]);
 
-var _sfc_main$1e = /*@__PURE__*/ defineComponent({
+var _sfc_main$1f = /*@__PURE__*/ defineComponent({
     ...{ inheritAttrs: false },
     __name: 'AcuCheckbox',
     props: {
@@ -168263,12 +168263,12 @@ var _sfc_main$1e = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-checkbox[data-v-8a9ddddb] {\r\n  display: inline-flex; align-items: flex-start; gap: var(--acu-space-175, 7px);\r\n  padding: 0; border: 0; background: transparent;\r\n  font: inherit; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-2);\r\n  cursor: pointer; user-select: none;\r\n  line-height: 1.5; text-align: left;\n}\n.acu-checkbox--disabled[data-v-8a9ddddb] { opacity: 0.5; cursor: not-allowed;\n}\n.acu-checkbox__box[data-v-8a9ddddb] {\r\n  flex-shrink: 0;\r\n  width: var(--acu-checkbox-size, 16px); height: var(--acu-checkbox-size, 16px); margin-top: var(--acu-space-025, 1px);\r\n  display: flex; align-items: center; justify-content: center;\r\n  border: 0;\r\n  border-radius: var(--acu-space-075, 3px);\r\n  background: var(--acu-bg-2);\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-checkbox--checked .acu-checkbox__box[data-v-8a9ddddb] {\r\n  background: var(--acu-accent);\n}\n.acu-checkbox__icon[data-v-8a9ddddb] {\r\n  display: block;\r\n  width: var(--acu-checkbox-icon-size, 12px); height: var(--acu-checkbox-icon-size, 12px);\r\n  color: #fff;\r\n  fill: none;\r\n  stroke: currentColor;\r\n  stroke-width: 2.15;\r\n  stroke-linecap: round;\r\n  stroke-linejoin: round;\r\n  opacity: 0;\r\n  transform: scale(0.82);\r\n  transition: opacity 0.15s ease, transform 0.15s ease;\n}\n.acu-checkbox--checked .acu-checkbox__icon[data-v-8a9ddddb] {\r\n  opacity: 1;\r\n  transform: scale(1);\n}\n.acu-checkbox__label[data-v-8a9ddddb] { min-width: 0;\n}\n.acu-checkbox:hover:not(:disabled) .acu-checkbox__box[data-v-8a9ddddb] {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2);\n}\n.acu-checkbox--checked:hover:not(:disabled) .acu-checkbox__box[data-v-8a9ddddb] {\r\n  background: var(--acu-accent-2);\n}\n.acu-checkbox[data-v-8a9ddddb]:focus-visible {\r\n  outline: none;\n}\n.acu-checkbox:focus-visible .acu-checkbox__box[data-v-8a9ddddb] {\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\r\n", "src/presentation-v2/components/_lib/AcuCheckbox.vue#style-0-8a9ddddb");
 var AcuCheckbox_vue_vue_type_style_index_0_scoped_8a9ddddb_lang = null;
 
-const _hoisted_1$1a = ["aria-checked", "disabled"];
+const _hoisted_1$1b = ["aria-checked", "disabled"];
 const _hoisted_2$10 = {
 	key: 0,
 	class: "acu-checkbox__label"
 };
-function _sfc_render$1e(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1f(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", mergeProps({
 		type: "button",
 		class: ["acu-checkbox", {
@@ -168297,11 +168297,11 @@ function _sfc_render$1e(_ctx, _cache, $props, $setup, $data, $options) {
 		toDisplayString($props.label),
 		1
 		/* TEXT */
-	)) : renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true)], 16, _hoisted_1$1a);
+	)) : renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true)], 16, _hoisted_1$1b);
 }
-var AcuCheckbox = /* @__PURE__ */ _export_sfc(_sfc_main$1e, [["render", _sfc_render$1e], ["__scopeId", "data-v-8a9ddddb"]]);
+var AcuCheckbox = /* @__PURE__ */ _export_sfc(_sfc_main$1f, [["render", _sfc_render$1f], ["__scopeId", "data-v-8a9ddddb"]]);
 
-var _sfc_main$1d = /*@__PURE__*/ defineComponent({
+var _sfc_main$1e = /*@__PURE__*/ defineComponent({
     __name: 'AcuInput',
     props: {
         modelValue: {},
@@ -168355,7 +168355,7 @@ var _sfc_main$1d = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-input-shell[data-v-41a82ceb] {\r\n  position: relative;\r\n  display: block;\r\n  width: 100%;\r\n  min-width: 0;\n}\n.acu-input[data-v-41a82ceb] {\r\n  width: 100%; box-sizing: border-box;\r\n  border: 0 !important;\r\n  border-radius: var(--acu-radius-sm) !important;\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\r\n  font: inherit !important;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-input--md[data-v-41a82ceb] { min-height: var(--acu-control-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px) !important; font-size: var(--acu-font-size-body, 12px) !important;\n}\n.acu-input--sm[data-v-41a82ceb] { min-height: var(--acu-control-height-sm, 26px); padding: var(--acu-control-padding-y-sm, 3px) var(--acu-control-padding-x-sm, 7px) !important; font-size: var(--acu-font-size-caption, 11px) !important;\n}\n.acu-input-shell--number .acu-input--md[data-v-41a82ceb] { padding-right: calc(var(--acu-control-padding-x-md, 9px) + var(--acu-space-5, 20px)) !important;\n}\n.acu-input-shell--number .acu-input--sm[data-v-41a82ceb] { padding-right: calc(var(--acu-control-padding-x-sm, 7px) + var(--acu-space-450, 18px)) !important;\n}\n.acu-input[data-v-41a82ceb]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\n}\n.acu-input[data-v-41a82ceb]:focus {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow) !important;\n}\n.acu-input[data-v-41a82ceb]:disabled,\r\n.acu-input--disabled[data-v-41a82ceb] { opacity: 0.5; cursor: not-allowed;\n}\n.acu-input[type=\"number\"][data-v-41a82ceb] {\r\n  -moz-appearance: textfield;\r\n  font-variant-numeric: tabular-nums;\n}\n.acu-input[type=\"number\"][data-v-41a82ceb]::-webkit-inner-spin-button,\r\n.acu-input[type=\"number\"][data-v-41a82ceb]::-webkit-outer-spin-button {\r\n  -webkit-appearance: none; margin: 0;\n}\n.acu-input__number-indicator[data-v-41a82ceb] {\r\n  position: absolute;\r\n  top: 50%;\r\n  right: var(--acu-control-padding-x-md, 9px);\r\n  width: var(--acu-icon-inline-sm, 10px);\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--acu-space-050, 2px);\r\n  color: var(--acu-text-3);\r\n  pointer-events: none;\r\n  transform: translateY(-50%);\r\n  opacity: 0.8;\n}\n.acu-input-shell--sm .acu-input__number-indicator[data-v-41a82ceb] {\r\n  right: var(--acu-control-padding-x-sm, 7px);\r\n  width: var(--acu-space-2, 8px);\r\n  gap: var(--acu-space-025, 1px);\n}\n.acu-input__number-caret[data-v-41a82ceb] {\r\n  width: 0;\r\n  height: 0;\r\n  border-left: var(--acu-space-1, 4px) solid transparent;\r\n  border-right: var(--acu-space-1, 4px) solid transparent;\n}\n.acu-input__number-caret--up[data-v-41a82ceb] { border-bottom: var(--acu-space-1, 4px) solid currentColor;\n}\n.acu-input__number-caret--down[data-v-41a82ceb] { border-top: var(--acu-space-1, 4px) solid currentColor;\n}\n.acu-input-shell--sm .acu-input__number-caret[data-v-41a82ceb] {\r\n  border-left-width: var(--acu-space-075, 3px);\r\n  border-right-width: var(--acu-space-075, 3px);\n}\n.acu-input-shell--sm .acu-input__number-caret--up[data-v-41a82ceb] { border-bottom-width: var(--acu-space-075, 3px);\n}\n.acu-input-shell--sm .acu-input__number-caret--down[data-v-41a82ceb] { border-top-width: var(--acu-space-075, 3px);\n}\r\n", "src/presentation-v2/components/_lib/AcuInput.vue#style-0-41a82ceb");
 var AcuInput_vue_vue_type_style_index_0_scoped_41a82ceb_lang = null;
 
-const _hoisted_1$19 = [
+const _hoisted_1$1a = [
 	"type",
 	"value",
 	"placeholder",
@@ -168370,7 +168370,7 @@ const _hoisted_2$$ = {
 	class: "acu-input__number-indicator",
 	"aria-hidden": "true"
 };
-function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1e(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["acu-input-shell", [
@@ -168391,7 +168391,7 @@ function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
 			onInput: $setup.onInput,
 			onChange: $setup.onChangeEvent,
 			onWheel: $setup.onWheel
-		}, null, 42, _hoisted_1$19), $props.type === "number" ? (openBlock(), createElementBlock("span", _hoisted_2$$, [..._cache[0] || (_cache[0] = [createBaseVNode(
+		}, null, 42, _hoisted_1$1a), $props.type === "number" ? (openBlock(), createElementBlock("span", _hoisted_2$$, [..._cache[0] || (_cache[0] = [createBaseVNode(
 			"span",
 			{ class: "acu-input__number-caret acu-input__number-caret--up" },
 			null,
@@ -168408,11 +168408,11 @@ function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuInput = /* @__PURE__ */ _export_sfc(_sfc_main$1d, [["render", _sfc_render$1d], ["__scopeId", "data-v-41a82ceb"]]);
+var AcuInput = /* @__PURE__ */ _export_sfc(_sfc_main$1e, [["render", _sfc_render$1e], ["__scopeId", "data-v-41a82ceb"]]);
 
 const DIALOG_LEAVE_MS = 160;
 const titleId = "acu-dialog-title";
-var _sfc_main$1c = /*@__PURE__*/ defineComponent({
+var _sfc_main$1d = /*@__PURE__*/ defineComponent({
     __name: 'AcuDialogHost',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -168455,7 +168455,7 @@ var _sfc_main$1c = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-dialog-layer[data-v-87804e78] {\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9600;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  width: 100vw;\r\n  width: 100dvw;\r\n  height: 100vh;\r\n  height: 100dvh;\r\n  padding:\r\n    calc(var(--acu-dialog-edge-gap, 18px) + var(--acu-safe-top, 0px))\r\n    calc(var(--acu-dialog-edge-gap, 18px) + var(--acu-safe-right, 0px))\r\n    calc(var(--acu-dialog-edge-gap, 18px) + var(--acu-safe-bottom, 0px))\r\n    calc(var(--acu-dialog-edge-gap, 18px) + var(--acu-safe-left, 0px));\r\n  background: rgba(0, 0, 0, 0.52);\r\n  pointer-events: auto;\r\n  animation: acu-dialog-layer-in-87804e78 0.16s ease-out both;\n}\n.acu-dialog-layer.is-closing[data-v-87804e78] {\r\n  pointer-events: none;\r\n  animation: acu-dialog-layer-out-87804e78 0.16s ease-in both;\n}\n.acu-dialog[data-v-87804e78] {\r\n  width: min(var(--acu-dialog-width, 440px), 100%);\r\n  max-height: min(var(--acu-dialog-max-height, 560px), calc(100vh - var(--acu-dialog-edge-gap, 18px) - var(--acu-dialog-edge-gap, 18px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px)));\r\n  max-height: min(var(--acu-dialog-max-height, 560px), calc(100dvh - var(--acu-dialog-edge-gap, 18px) - var(--acu-dialog-edge-gap, 18px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px)));\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--acu-page-gap, 14px);\r\n  padding: var(--acu-panel-padding, 16px);\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md);\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  box-shadow: var(--acu-shadow);\r\n  overflow: auto;\r\n  animation: acu-dialog-panel-in-87804e78 0.16s ease-out both;\n}\n.acu-dialog__header[data-v-87804e78] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--acu-panel-gap, 12px);\n}\n.acu-dialog__header h2[data-v-87804e78] {\r\n  min-width: 0;\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-panel-title, 15px);\r\n  line-height: 1.35;\r\n  font-weight: 700;\n}\n.acu-dialog__message[data-v-87804e78] {\r\n  margin: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  white-space: pre-wrap;\n}\n.acu-dialog__danger-message[data-v-87804e78] {\r\n  margin: 0;\r\n  padding: var(--acu-space-2, 8px) var(--acu-space-250, 10px);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 10%, transparent);\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 700;\r\n  line-height: 1.55;\r\n  white-space: pre-wrap;\n}\n.acu-dialog__field[data-v-87804e78] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--acu-space-150, 6px);\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.4;\n}\n.acu-dialog__checklist[data-v-87804e78] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--acu-space-250, 10px);\r\n  min-width: 0;\r\n  padding: var(--acu-space-250, 10px);\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 74%, transparent);\n}\n.acu-dialog__checklist[data-v-87804e78] .acu-checkbox {\r\n  width: 100%;\n}\n.acu-dialog__check-option[data-v-87804e78] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--acu-space-050, 2px);\r\n  min-width: 0;\n}\n.acu-dialog__check-label[data-v-87804e78] {\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-dialog__check-description[data-v-87804e78] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.45;\n}\n.acu-dialog__actions[data-v-87804e78] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--acu-space-2, 8px);\r\n  flex-wrap: wrap;\r\n  padding-top: var(--acu-space-050, 2px);\n}\n.acu-dialog__actions--stacked[data-v-87804e78] .acu-btn {\r\n  flex: 1 1 var(--acu-dialog-choice-min-width, 128px);\n}\n.acu-dialog-layer.is-closing .acu-dialog[data-v-87804e78] {\r\n  animation: acu-dialog-panel-out-87804e78 0.16s ease-in both;\n}\n@keyframes acu-dialog-layer-in-87804e78 {\nfrom { opacity: 0;\n}\nto { opacity: 1;\n}\n}\n@keyframes acu-dialog-layer-out-87804e78 {\nfrom { opacity: 1;\n}\nto { opacity: 0;\n}\n}\n@keyframes acu-dialog-panel-in-87804e78 {\nfrom {\r\n    opacity: 0;\r\n    transform: translateY(6px);\n}\nto {\r\n    opacity: 1;\r\n    transform: translateY(0);\n}\n}\n@keyframes acu-dialog-panel-out-87804e78 {\nfrom {\r\n    opacity: 1;\r\n    transform: translateY(0);\n}\nto {\r\n    opacity: 0;\r\n    transform: translateY(6px);\n}\n}\n@media (max-width: 520px) {\n.acu-dialog-layer[data-v-87804e78] {\r\n    align-items: flex-end;\r\n    padding:\r\n      calc(var(--acu-dialog-edge-gap-compact, 12px) + var(--acu-safe-top, 0px))\r\n      calc(var(--acu-dialog-edge-gap-compact, 12px) + var(--acu-safe-right, 0px))\r\n      calc(var(--acu-dialog-edge-gap-compact, 12px) + var(--acu-safe-bottom, 0px))\r\n      calc(var(--acu-dialog-edge-gap-compact, 12px) + var(--acu-safe-left, 0px));\n}\n.acu-dialog[data-v-87804e78] {\r\n    width: 100%;\r\n    max-height: calc(100vh - var(--acu-dialog-edge-gap-compact, 12px) - var(--acu-dialog-edge-gap-compact, 12px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));\r\n    max-height: calc(100dvh - var(--acu-dialog-edge-gap-compact, 12px) - var(--acu-dialog-edge-gap-compact, 12px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));\n}\n.acu-dialog__actions[data-v-87804e78],\r\n  .acu-dialog__actions--stacked[data-v-87804e78] {\r\n    display: grid;\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuDialogHost.vue#style-0-87804e78");
 var AcuDialogHost_vue_vue_type_style_index_0_scoped_87804e78_lang = null;
 
-const _hoisted_1$18 = { class: "acu-dialog__header" };
+const _hoisted_1$19 = { class: "acu-dialog__header" };
 const _hoisted_2$_ = { class: "acu-dialog__message" };
 const _hoisted_3$R = {
 	key: 0,
@@ -168475,7 +168475,7 @@ const _hoisted_8$s = {
 	key: 0,
 	class: "acu-dialog__check-description"
 };
-function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
 	return $setup.portalTarget ? (openBlock(), createBlock(Teleport, {
 		key: 0,
 		to: $setup.portalTarget
@@ -168495,7 +168495,7 @@ function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 			"aria-labelledby": $setup.titleId,
 			onClick: _cache[3] || (_cache[3] = withModifiers(() => {}, ["stop"]))
 		}, [
-			createBaseVNode("header", _hoisted_1$18, [createBaseVNode(
+			createBaseVNode("header", _hoisted_1$19, [createBaseVNode(
 				"h2",
 				{ id: $setup.titleId },
 				toDisplayString($setup.renderedDialog.title),
@@ -168640,9 +168640,9 @@ function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	)) : createCommentVNode("v-if", true)], 8, ["to"])) : createCommentVNode("v-if", true);
 }
-var AcuDialogHost = /* @__PURE__ */ _export_sfc(_sfc_main$1c, [["render", _sfc_render$1c], ["__scopeId", "data-v-87804e78"]]);
+var AcuDialogHost = /* @__PURE__ */ _export_sfc(_sfc_main$1d, [["render", _sfc_render$1d], ["__scopeId", "data-v-87804e78"]]);
 
-var _sfc_main$1b = /*@__PURE__*/ defineComponent({
+var _sfc_main$1c = /*@__PURE__*/ defineComponent({
     __name: 'AcuFileButton',
     props: {
         accept: { default: undefined },
@@ -168690,8 +168690,8 @@ var _sfc_main$1b = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-file-button[data-v-7b70c7ef] { display: inline-flex;\n}\n.acu-file-button--block[data-v-7b70c7ef] { width: 100%; min-width: 0;\n}\n.acu-file-button__input[data-v-7b70c7ef] { display: none;\n}\n.acu-file-button__button--icon-only-default[data-v-7b70c7ef] {\r\n  background: transparent;\r\n  color: var(--acu-text-2);\n}\n.acu-file-button__button--icon-only-default[data-v-7b70c7ef]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2);\r\n  color: var(--acu-text-1);\n}\n.acu-file-button__button--icon-only-default.acu-file-button__button--md[data-v-7b70c7ef] {\r\n  width: var(--acu-icon-button-size-md, 32px);\r\n  min-width: var(--acu-icon-button-size-md, 32px);\n}\n.acu-file-button__button--icon-only-default.acu-file-button__button--sm[data-v-7b70c7ef] {\r\n  width: var(--acu-icon-button-size-sm, 22px);\r\n  min-width: var(--acu-icon-button-size-sm, 22px);\r\n  min-height: var(--acu-icon-button-size-sm, 22px);\r\n  padding: var(--acu-space-1, 4px);\r\n  font-size: var(--acu-font-size-micro, 10px);\n}\r\n", "src/presentation-v2/components/_lib/AcuFileButton.vue#style-0-7b70c7ef");
 var AcuFileButton_vue_vue_type_style_index_0_scoped_7b70c7ef_lang = null;
 
-const _hoisted_1$17 = ["accept"];
-function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$18 = ["accept"];
+function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["acu-file-button", { "acu-file-button--block": $props.block }]) },
@@ -168707,14 +168707,14 @@ function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
 			accept: $props.accept,
 			class: "acu-file-button__input",
 			onChange: $setup.onChange
-		}, null, 40, _hoisted_1$17)],
+		}, null, 40, _hoisted_1$18)],
 		2
 		/* CLASS */
 	);
 }
-var AcuFileButton = /* @__PURE__ */ _export_sfc(_sfc_main$1b, [["render", _sfc_render$1b], ["__scopeId", "data-v-7b70c7ef"]]);
+var AcuFileButton = /* @__PURE__ */ _export_sfc(_sfc_main$1c, [["render", _sfc_render$1c], ["__scopeId", "data-v-7b70c7ef"]]);
 
-var _sfc_main$1a = /*@__PURE__*/ defineComponent({
+var _sfc_main$1b = /*@__PURE__*/ defineComponent({
     __name: 'AcuIconButton',
     props: {
         icon: {},
@@ -168736,12 +168736,12 @@ var _sfc_main$1a = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-icon-btn[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\r\n  appearance: none !important;\r\n  -webkit-appearance: none !important;\r\n  flex: 0 0 auto;\r\n  display: inline-flex !important;\r\n  align-items: center !important;\r\n  justify-content: center !important;\r\n  width: var(--acu-icon-btn-size) !important;\r\n  min-width: var(--acu-icon-btn-size) !important;\r\n  max-width: var(--acu-icon-btn-size) !important;\r\n  height: var(--acu-icon-btn-size) !important;\r\n  min-height: var(--acu-icon-btn-size) !important;\r\n  max-height: var(--acu-icon-btn-size) !important;\r\n  box-sizing: border-box !important;\r\n  margin: 0 !important;\r\n  padding: 0 !important;\r\n  border: 0 !important;\r\n  background: transparent !important;\r\n  color: var(--acu-text-2) !important;\r\n  border-radius: var(--acu-radius-sm) !important;\r\n  cursor: pointer;\r\n  font: inherit !important;\r\n  font-size: var(--acu-icon-btn-font-size) !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: middle !important;\r\n  box-shadow: none !important;\r\n  outline: none !important;\r\n  -webkit-tap-highlight-color: transparent;\r\n  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;\n}\n.acu-icon-btn > i[data-v-70b36214] {\r\n  flex: 0 0 auto !important;\r\n  display: inline-block !important;\r\n  width: 1em !important;\r\n  min-width: 1em !important;\r\n  height: 1em !important;\r\n  min-height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: -0.125em !important;\n}\n.acu-icon-btn > i[data-v-70b36214]::before {\r\n  display: block !important;\r\n  width: 1em !important;\r\n  height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\n}\n.acu-icon-btn--md[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\n}\n.acu-icon-btn--sm[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-sm, 22px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-sm, 10px);\r\n  background: var(--acu-bg-2) !important;\n}\n.acu-icon-btn--default[data-v-70b36214]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--danger[data-v-70b36214]:hover:not(:disabled) {\r\n  color: var(--acu-danger) !important;\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214] {\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214]:hover:not(:disabled) {\r\n  background: var(--acu-accent-glow) !important; color: var(--acu-accent) !important;\n}\n.acu-icon-btn[data-v-70b36214]:focus-visible {\r\n  outline: none !important;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow) !important;\n}\n.acu-icon-btn[data-v-70b36214]:disabled { opacity: 0.4; cursor: not-allowed;\n}\r\n", "src/presentation-v2/components/_lib/AcuIconButton.vue#style-0-70b36214");
 var AcuIconButton_vue_vue_type_style_index_0_scoped_70b36214_lang = null;
 
-const _hoisted_1$16 = [
+const _hoisted_1$17 = [
 	"disabled",
 	"title",
 	"aria-label"
 ];
-function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", {
 		type: "button",
 		disabled: $props.disabled,
@@ -168755,11 +168755,11 @@ function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		2
 		/* CLASS */
-	)], 10, _hoisted_1$16);
+	)], 10, _hoisted_1$17);
 }
-var AcuIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$1a, [["render", _sfc_render$1a], ["__scopeId", "data-v-70b36214"]]);
+var AcuIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$1b, [["render", _sfc_render$1b], ["__scopeId", "data-v-70b36214"]]);
 
-var _sfc_main$19 = /*@__PURE__*/ defineComponent({
+var _sfc_main$1a = /*@__PURE__*/ defineComponent({
     __name: 'AcuSegmentedControl',
     props: {
         options: {},
@@ -168807,14 +168807,14 @@ var _sfc_main$19 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-segmented[data-v-e3d985dd] {\r\n  position: relative;\r\n  display: grid;\r\n  grid-auto-flow: column;\r\n  grid-auto-columns: minmax(0, 1fr);\r\n  min-width: 0;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  padding: var(--acu-space-075, 3px);\r\n  overflow: hidden;\n}\n.acu-segmented--disabled[data-v-e3d985dd] {\r\n  opacity: 0.55;\n}\n.acu-segmented__thumb[data-v-e3d985dd] {\r\n  position: absolute;\r\n  inset: var(--acu-space-075, 3px) auto var(--acu-space-075, 3px) var(--acu-space-075, 3px);\r\n  width: calc((100% - var(--acu-space-150, 6px)) / var(--acu-segment-count));\r\n  border-radius: calc(var(--acu-radius-sm) - var(--acu-space-050, 2px));\r\n  background: var(--acu-accent);\r\n  transform: translateX(calc(var(--acu-segment-index) * 100%));\r\n  transition: transform 0.16s ease, background 0.16s ease;\r\n  pointer-events: none;\n}\n.acu-segmented__item[data-v-e3d985dd] {\r\n  position: relative;\r\n  min-width: 0;\r\n  margin: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  cursor: pointer;\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--acu-space-150, 6px);\r\n  transition: background 0.15s ease, color 0.15s ease;\r\n  z-index: 1;\n}\n.acu-segmented__item[data-v-e3d985dd]:not(.acu-segmented__item--active):hover:not(:disabled) {\r\n  background: var(--acu-hover-overlay);\r\n  color: var(--acu-text-1);\n}\n.acu-segmented__item[data-v-e3d985dd]:disabled {\r\n  cursor: not-allowed;\r\n  color: var(--acu-text-3);\n}\n.acu-segmented__item--active[data-v-e3d985dd] {\r\n  color: var(--acu-on-accent);\n}\n.acu-segmented__item[data-v-e3d985dd]:focus-visible {\r\n  outline: none;\n}\n.acu-segmented__item[data-v-e3d985dd]:focus-visible::before {\r\n  content: '';\r\n  position: absolute;\r\n  inset: var(--acu-space-050, 2px);\r\n  border-radius: var(--acu-radius-sm);\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\r\n  pointer-events: none;\r\n  z-index: 2;\n}\n.acu-segmented--md .acu-segmented__item[data-v-e3d985dd] {\r\n  min-height: var(--acu-segment-height-md, 30px);\r\n  padding: 0 var(--acu-space-2, 8px);\r\n  border-radius: calc(var(--acu-radius-sm) - var(--acu-space-050, 2px));\n}\n.acu-segmented--sm .acu-segmented__item[data-v-e3d985dd] {\r\n  min-height: var(--acu-segment-height-sm, 24px);\r\n  padding: 0 var(--acu-space-175, 7px);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  border-radius: calc(var(--acu-radius-sm) - var(--acu-space-050, 2px));\n}\n.acu-segmented__label[data-v-e3d985dd] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\r\n", "src/presentation-v2/components/_lib/AcuSegmentedControl.vue#style-0-e3d985dd");
 var AcuSegmentedControl_vue_vue_type_style_index_0_scoped_e3d985dd_lang = null;
 
-const _hoisted_1$15 = ["aria-label"];
+const _hoisted_1$16 = ["aria-label"];
 const _hoisted_2$Z = [
 	"aria-checked",
 	"disabled",
 	"onClick"
 ];
 const _hoisted_3$Q = { class: "acu-segmented__label" };
-function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("div", {
 		class: normalizeClass(["acu-segmented", [`acu-segmented--${$props.size}`, { "acu-segmented--disabled": $props.disabled }]]),
 		role: "radiogroup",
@@ -168857,9 +168857,9 @@ function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
 		}),
 		128
 		/* KEYED_FRAGMENT */
-	))], 14, _hoisted_1$15);
+	))], 14, _hoisted_1$16);
 }
-var AcuSegmentedControl = /* @__PURE__ */ _export_sfc(_sfc_main$19, [["render", _sfc_render$19], ["__scopeId", "data-v-e3d985dd"]]);
+var AcuSegmentedControl = /* @__PURE__ */ _export_sfc(_sfc_main$1a, [["render", _sfc_render$1a], ["__scopeId", "data-v-e3d985dd"]]);
 
 const DEFAULT_DURATION_BY_KIND = {
     info: 2600,
@@ -168994,7 +168994,7 @@ function __resetToastStoreForTests() {
 
 const TOAST_LEAVE_MS = 160;
 const DEFAULT_VISIBLE_TOAST_LIMIT = 4;
-var _sfc_main$18 = /*@__PURE__*/ defineComponent({
+var _sfc_main$19 = /*@__PURE__*/ defineComponent({
     __name: 'AcuToastViewport',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -169091,7 +169091,7 @@ var _sfc_main$18 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-toast-viewport[data-v-8a90e872] {\r\n  position: fixed;\r\n  top: 0;\r\n  right: 0;\r\n  bottom: 0;\r\n  left: 0;\r\n  inset: 0;\r\n  z-index: 9410;\r\n  box-sizing: border-box;\r\n  width: 100%;\r\n  width: 100vw;\r\n  width: 100dvw;\r\n  min-height: 100%;\r\n  min-height: 100vh;\r\n  min-height: 100dvh;\r\n  overflow: hidden;\r\n  color: var(--acu-text-1);\r\n  font-family: var(--acu-font-ui);\r\n  font-size: var(--acu-font-size-body);\r\n  pointer-events: none;\n}\n.acu-toast-viewport[data-v-8a90e872],\r\n.acu-toast-viewport[data-v-8a90e872] * {\r\n  box-sizing: border-box;\n}\n.acu-toast-viewport__list[data-v-8a90e872] {\r\n  position: absolute;\r\n  top: calc(var(--acu-toast-top, 62px) + var(--acu-safe-top, 0px));\r\n  right: calc(var(--acu-toast-edge-gap, 18px) + var(--acu-safe-right, 0px));\r\n  bottom: auto;\r\n  width: min(var(--acu-toast-width, 360px), calc(100% - var(--acu-toast-edge-gap, 18px) - var(--acu-toast-edge-gap, 18px) - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));\r\n  max-height: calc(100% - var(--acu-toast-top, 62px) - var(--acu-toast-edge-gap, 18px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--acu-space-2, 8px);\r\n  margin: 0;\r\n  padding: 0;\r\n  overflow: visible;\r\n  list-style: none;\n}\n.acu-v2-toast[data-v-8a90e872] {\r\n  --acu-toast-tone: var(--acu-accent);\r\n  position: relative;\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: var(--acu-control-height-sm, 26px) minmax(0, 1fr) auto auto;\r\n  align-items: center;\r\n  gap: var(--acu-space-2, 8px);\r\n  padding: var(--acu-space-250, 10px) var(--acu-space-3, 12px);\r\n  overflow: hidden;\r\n  border: 1px solid color-mix(in srgb, var(--acu-toast-tone) 22%, var(--acu-border-2));\r\n  border-radius: var(--acu-radius-md);\r\n  background:\r\n    linear-gradient(\r\n      90deg,\r\n      color-mix(in srgb, var(--acu-toast-tone) 7%, transparent),\r\n      transparent 48%\r\n    ),\r\n    color-mix(in srgb, var(--acu-bg-1) 97%, var(--acu-text-1) 3%);\r\n  box-shadow:\r\n    0 18px 46px rgba(0, 0, 0, 0.18),\r\n    0 4px 16px rgba(0, 0, 0, 0.12),\r\n    inset 0 1px 0 color-mix(in srgb, var(--acu-text-1) 8%, transparent);\r\n  color: var(--acu-text-1);\r\n  pointer-events: auto;\r\n  animation: acu-toast-in-8a90e872 0.16s ease-out both;\n}\n.acu-v2-toast--success[data-v-8a90e872] {\r\n  --acu-toast-tone: var(--acu-success);\n}\n.acu-v2-toast--warning[data-v-8a90e872] {\r\n  --acu-toast-tone: var(--acu-warning);\n}\n.acu-v2-toast--error[data-v-8a90e872] {\r\n  --acu-toast-tone: var(--acu-danger);\n}\n.acu-v2-toast.is-closing[data-v-8a90e872] {\r\n  pointer-events: none;\r\n  animation: acu-toast-out-8a90e872 0.16s ease-in both;\n}\n.acu-v2-toast__icon[data-v-8a90e872] {\r\n  --acu-icon-color: var(--acu-toast-tone);\r\n  min-width: 0;\r\n  width: var(--acu-control-height-sm, 26px);\r\n  height: var(--acu-control-height-sm, 26px);\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-toast-tone) 13%, transparent);\r\n  color: var(--acu-toast-tone);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1;\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-toast-tone) 18%, transparent);\n}\n.acu-v2-toast__text[data-v-8a90e872] {\r\n  min-width: 0;\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.45;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-toast__action[data-v-8a90e872] {\r\n  white-space: nowrap;\n}\n.acu-v2-toast__dismiss[data-v-8a90e872] {\r\n  flex: 0 0 auto;\n}\n@keyframes acu-toast-in-8a90e872 {\nfrom {\r\n    opacity: 0;\r\n    transform: translateY(-6px);\n}\nto {\r\n    opacity: 1;\r\n    transform: translateY(0);\n}\n}\n@keyframes acu-toast-out-8a90e872 {\nfrom {\r\n    opacity: 1;\r\n    transform: translateY(0);\n}\nto {\r\n    opacity: 0;\r\n    transform: translateY(-6px);\n}\n}\n@media (max-width: 640px) {\n.acu-toast-viewport__list[data-v-8a90e872] {\r\n    top: calc(var(--acu-toast-top-compact, 58px) + var(--acu-safe-top, 0px));\r\n    right: auto;\r\n    bottom: auto;\r\n    left: calc(50% + (var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)) / 2);\r\n    width: clamp(var(--acu-menu-min-width, 240px), 70vw, calc(100% - var(--acu-toast-edge-gap-compact, 12px) - var(--acu-toast-edge-gap-compact, 12px) - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));\r\n    max-height: calc(100% - var(--acu-toast-top-compact, 58px) - var(--acu-toast-edge-gap-compact, 12px) - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));\r\n    transform: translateX(-50%);\n}\n.acu-v2-toast[data-v-8a90e872] {\r\n    grid-template-columns: var(--acu-icon-button-size-sm, 22px) minmax(0, 1fr) auto;\r\n    gap: var(--acu-space-175, 7px);\r\n    padding: var(--acu-space-2, 8px) var(--acu-space-225, 9px);\n}\n.acu-v2-toast__icon[data-v-8a90e872] {\r\n    width: var(--acu-icon-button-size-sm, 22px);\r\n    height: var(--acu-icon-button-size-sm, 22px);\r\n    font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-toast__text[data-v-8a90e872] {\r\n    font-size: var(--acu-font-size-caption, 11px);\r\n    line-height: 1.4;\n}\n.acu-v2-toast__action[data-v-8a90e872] {\r\n    grid-column: 2 / 4;\r\n    justify-self: start;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuToastViewport.vue#style-0-8a90e872");
 var AcuToastViewport_vue_vue_type_style_index_0_scoped_8a90e872_lang = null;
 
-const _hoisted_1$14 = {
+const _hoisted_1$15 = {
 	key: 0,
 	class: "acu-toast-viewport",
 	"data-tt-mobile-surface": "backdrop",
@@ -169106,11 +169106,11 @@ const _hoisted_4$J = {
 	"aria-hidden": "true"
 };
 const _hoisted_5$B = { class: "acu-v2-toast__text" };
-function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
 	return $setup.portalTarget ? (openBlock(), createBlock(Teleport, {
 		key: 0,
 		to: $setup.portalTarget
-	}, [$setup.renderedItems.length ? (openBlock(), createElementBlock("div", _hoisted_1$14, [createBaseVNode("ol", _hoisted_2$Y, [(openBlock(true), createElementBlock(
+	}, [$setup.renderedItems.length ? (openBlock(), createElementBlock("div", _hoisted_1$15, [createBaseVNode("ol", _hoisted_2$Y, [(openBlock(true), createElementBlock(
 		Fragment,
 		null,
 		renderList($setup.renderedItems, (entry) => {
@@ -169165,9 +169165,9 @@ function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
 		/* KEYED_FRAGMENT */
 	))])])) : createCommentVNode("v-if", true)], 8, ["to"])) : createCommentVNode("v-if", true);
 }
-var AcuToastViewport = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$18], ["__scopeId", "data-v-8a90e872"]]);
+var AcuToastViewport = /* @__PURE__ */ _export_sfc(_sfc_main$19, [["render", _sfc_render$19], ["__scopeId", "data-v-8a90e872"]]);
 
-var _sfc_main$17 = /*@__PURE__*/ defineComponent({
+var _sfc_main$18 = /*@__PURE__*/ defineComponent({
     __name: 'AcuMobilePanelNav',
     props: {
         items: {}
@@ -169348,7 +169348,7 @@ var _sfc_main$17 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-mobile-panel-nav[data-v-614843e5] {\r\n  display: none;\n}\n@media (max-width: 860px) {\n.acu-mobile-panel-nav[data-v-614843e5] {\r\n    position: sticky;\r\n    top: 0;\r\n    z-index: 30;\r\n    display: block;\r\n    margin: -20px -20px 4px;\r\n    padding: 0;\r\n    border-top: 0;\r\n    border-bottom: 1px solid var(--acu-border-2);\r\n    background: color-mix(in srgb, var(--acu-bg-0) 94%, transparent);\r\n    backdrop-filter: blur(10px);\r\n    -webkit-backdrop-filter: blur(10px);\n}\n.acu-mobile-panel-nav[data-v-614843e5]::before,\r\n  .acu-mobile-panel-nav[data-v-614843e5]::after {\r\n    content: \"\";\r\n    position: absolute;\r\n    top: 0;\r\n    bottom: 1px;\r\n    z-index: 2;\r\n    width: 22px;\r\n    pointer-events: none;\n}\n.acu-mobile-panel-nav[data-v-614843e5]::before {\r\n    left: 0;\r\n    background: linear-gradient(to right, var(--acu-bg-0), transparent);\n}\n.acu-mobile-panel-nav[data-v-614843e5]::after {\r\n    right: 0;\r\n    background: linear-gradient(to left, var(--acu-bg-0), transparent);\n}\n.acu-mobile-panel-nav__track[data-v-614843e5] {\r\n    min-width: 0;\r\n    display: flex;\r\n    gap: 0;\r\n    overflow-x: auto;\r\n    overscroll-behavior-x: contain;\r\n    scroll-padding-inline: 18px;\r\n    scrollbar-width: none;\r\n    padding: 0 18px;\r\n    border: 0;\r\n    border-radius: 0;\r\n    background: transparent;\n}\n.acu-mobile-panel-nav__track[data-v-614843e5]::-webkit-scrollbar {\r\n    display: none;\n}\n.acu-mobile-panel-nav__item[data-v-614843e5] {\r\n    flex: 0 0 auto;\r\n    position: relative;\r\n    min-width: 84px;\r\n    min-height: 44px;\r\n    max-width: none;\r\n    padding: 0 12px;\r\n    border: 0;\r\n    border-radius: 0;\r\n    background: transparent;\r\n    color: var(--acu-text-3);\r\n    font: inherit;\r\n    font-size: var(--acu-font-size-body, 12px);\r\n    font-weight: 650;\r\n    line-height: 1.2;\r\n    white-space: nowrap;\r\n    overflow: hidden;\r\n    text-overflow: ellipsis;\r\n    cursor: pointer;\r\n    transition:\r\n      background 0.15s ease,\r\n      border-color 0.15s ease,\r\n      color 0.15s ease,\r\n      box-shadow 0.15s ease;\n}\n.acu-mobile-panel-nav__item[data-v-614843e5]:hover {\r\n    background: var(--acu-hover-overlay);\r\n    color: var(--acu-text-1);\n}\n.acu-mobile-panel-nav__item[data-v-614843e5]::after {\r\n    content: \"\";\r\n    position: absolute;\r\n    right: 12px;\r\n    bottom: 0;\r\n    left: 12px;\r\n    height: 2px;\r\n    border-radius: 2px 2px 0 0;\r\n    background: transparent;\r\n    transition: background 0.15s ease, opacity 0.15s ease;\n}\n.acu-mobile-panel-nav__item.is-active[data-v-614843e5] {\r\n    background: transparent;\r\n    color: var(--acu-text-1);\r\n    box-shadow: none;\n}\n.acu-mobile-panel-nav__item.is-active[data-v-614843e5]::after {\r\n    background: var(--acu-accent);\n}\n.acu-mobile-panel-nav__item[data-v-614843e5]:focus-visible {\r\n    outline: none;\r\n    box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-mobile-panel-nav__item.is-active[data-v-614843e5]:focus-visible {\r\n    box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n}\n@media (max-width: 720px) {\n.acu-mobile-panel-nav[data-v-614843e5] {\r\n    margin: -14px -14px 4px;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuMobilePanelNav.vue#style-0-614843e5");
 var AcuMobilePanelNav_vue_vue_type_style_index_0_scoped_614843e5_lang = null;
 
-const _hoisted_1$13 = {
+const _hoisted_1$14 = {
 	ref: "rootRef",
 	class: "acu-mobile-panel-nav",
 	"aria-label": "页面板块"
@@ -169359,10 +169359,10 @@ const _hoisted_2$X = {
 	role: "list"
 };
 const _hoisted_3$O = ["aria-current", "onClick"];
-function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"nav",
-		_hoisted_1$13,
+		_hoisted_1$14,
 		[createBaseVNode(
 			"div",
 			_hoisted_2$X,
@@ -169388,9 +169388,9 @@ function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_PATCH */
 	);
 }
-var AcuMobilePanelNav = /* @__PURE__ */ _export_sfc(_sfc_main$17, [["render", _sfc_render$17], ["__scopeId", "data-v-614843e5"]]);
+var AcuMobilePanelNav = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$18], ["__scopeId", "data-v-614843e5"]]);
 
-var _sfc_main$16 = /*@__PURE__*/ defineComponent({
+var _sfc_main$17 = /*@__PURE__*/ defineComponent({
     __name: 'AcuPanelGrid',
     props: {
         columns: { default: 2 },
@@ -169411,7 +169411,7 @@ var _sfc_main$16 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-panel-grid[data-v-b00ea74c] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: repeat(var(--acu-panel-grid-columns), minmax(0, 1fr));\r\n  gap: var(--acu-panel-grid-gap, 16px);\r\n  align-items: stretch;\n}\n.acu-panel-grid[data-v-b00ea74c] >  * {\r\n  min-width: 0;\n}\n@media (max-width: 860px) {\n.acu-panel-grid--collapse-md[data-v-b00ea74c] {\r\n    grid-template-columns: 1fr;\n}\n}\n@media (max-width: 1080px) {\n.acu-panel-grid--collapse-lg[data-v-b00ea74c] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuPanelGrid.vue#style-0-b00ea74c");
 var AcuPanelGrid_vue_vue_type_style_index_0_scoped_b00ea74c_lang = null;
 
-function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -169423,7 +169423,7 @@ function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS, STYLE */
 	);
 }
-var AcuPanelGrid = /* @__PURE__ */ _export_sfc(_sfc_main$16, [["render", _sfc_render$16], ["__scopeId", "data-v-b00ea74c"]]);
+var AcuPanelGrid = /* @__PURE__ */ _export_sfc(_sfc_main$17, [["render", _sfc_render$17], ["__scopeId", "data-v-b00ea74c"]]);
 
 function createEmptyApiPresetDraft() {
     return {
@@ -169663,7 +169663,7 @@ const useApiPresetStore = defineStore('acu-v2-api-presets', {
     },
 });
 
-var _sfc_main$15 = /*@__PURE__*/ defineComponent({
+var _sfc_main$16 = /*@__PURE__*/ defineComponent({
     __name: 'AcuFormRow',
     props: {
         label: {},
@@ -169680,7 +169680,7 @@ var _sfc_main$15 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-form-row[data-v-63b7226c] {\r\n  display: flex; flex-direction: column; gap: var(--acu-space-125, 5px);\r\n  color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\r\n  min-width: 0;\n}\n.acu-form-row__label[data-v-63b7226c] { font-weight: 500;\n}\n.acu-form-row__hint[data-v-63b7226c] { color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px); line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-form-row[data-v-63b7226c] input[type=\"text\"],\r\n.acu-form-row[data-v-63b7226c] input[type=\"password\"],\r\n.acu-form-row[data-v-63b7226c] input[type=\"number\"],\r\n.acu-form-row[data-v-63b7226c] select,\r\n.acu-form-row[data-v-63b7226c] textarea {\r\n  min-width: 0; min-height: var(--acu-control-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px);\r\n  border: 0 !important;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\r\n  font: inherit;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-form-row[data-v-63b7226c] textarea {\r\n  min-height: unset;\r\n  resize: none;\n}\n.acu-form-row[data-v-63b7226c] select {\r\n  appearance: none;\r\n  -webkit-appearance: none;\r\n  padding-right: var(--acu-space-7, 28px);\r\n  background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") !important;\r\n  background-repeat: no-repeat !important;\r\n  background-position: right var(--acu-control-padding-x-md, 9px) center !important;\r\n  background-size: var(--acu-space-250, 10px) var(--acu-space-150, 6px) !important;\r\n  cursor: pointer;\n}\n.acu-form-row[data-v-63b7226c] input:focus,\r\n.acu-form-row[data-v-63b7226c] select:focus,\r\n.acu-form-row[data-v-63b7226c] textarea:focus {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\r\n", "src/presentation-v2/components/_lib/AcuFormRow.vue#style-0-63b7226c");
 var AcuFormRow_vue_vue_type_style_index_0_scoped_63b7226c_lang = null;
 
-const _hoisted_1$12 = { class: "acu-form-row" };
+const _hoisted_1$13 = { class: "acu-form-row" };
 const _hoisted_2$W = {
 	key: 0,
 	class: "acu-form-row__label"
@@ -169689,8 +169689,8 @@ const _hoisted_3$N = {
 	key: 0,
 	class: "acu-form-row__hint"
 };
-function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$12, [
+function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$13, [
 		$props.label ? (openBlock(), createElementBlock(
 			"span",
 			_hoisted_2$W,
@@ -169708,9 +169708,9 @@ function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
 		)) : createCommentVNode("v-if", true)], true)
 	]);
 }
-var AcuFormRow = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$15], ["__scopeId", "data-v-63b7226c"]]);
+var AcuFormRow = /* @__PURE__ */ _export_sfc(_sfc_main$16, [["render", _sfc_render$16], ["__scopeId", "data-v-63b7226c"]]);
 
-var _sfc_main$14 = /*@__PURE__*/ defineComponent({
+var _sfc_main$15 = /*@__PURE__*/ defineComponent({
     __name: 'AcuMessage',
     props: {
         kind: { default: 'info' },
@@ -169729,7 +169729,7 @@ var _sfc_main$14 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-message[data-v-9bfe58b8] {\r\n  padding: 8px 0 8px 10px;\r\n  border-radius: 0;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  border: 0;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-text-3) 28%, transparent);\r\n  line-height: 1.5;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\n}\n.acu-message--info[data-v-9bfe58b8] {\r\n  border-left-color: color-mix(in srgb, var(--acu-text-3) 28%, transparent);\n}\n.acu-message--success[data-v-9bfe58b8] {\r\n  border-left-color: var(--acu-success);\n}\n.acu-message--warning[data-v-9bfe58b8] {\r\n  border-left-color: var(--acu-warning);\n}\n.acu-message--error[data-v-9bfe58b8] {\r\n  border-left-color: var(--acu-danger);\n}\r\n", "src/presentation-v2/components/_lib/AcuMessage.vue#style-0-9bfe58b8");
 var AcuMessage_vue_vue_type_style_index_0_scoped_9bfe58b8_lang = null;
 
-function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
 	return $setup.visible ? (openBlock(), createElementBlock(
 		"div",
 		{
@@ -169742,9 +169742,9 @@ function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	)) : createCommentVNode("v-if", true);
 }
-var AcuMessage = /* @__PURE__ */ _export_sfc(_sfc_main$14, [["render", _sfc_render$14], ["__scopeId", "data-v-9bfe58b8"]]);
+var AcuMessage = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$15], ["__scopeId", "data-v-9bfe58b8"]]);
 
-var _sfc_main$13 = /*@__PURE__*/ defineComponent({
+var _sfc_main$14 = /*@__PURE__*/ defineComponent({
     __name: 'AcuInfoBanner',
     props: {
         text: { default: '' },
@@ -169768,8 +169768,8 @@ var _sfc_main$13 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-info-banner[data-v-5b9a5d77] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--acu-space-250, 10px);\r\n  padding: var(--acu-space-225, 9px) var(--acu-space-250, 10px);\r\n  border-radius: var(--acu-radius-sm);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  color: var(--acu-text-2);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  min-width: 0;\n}\n.acu-info-banner__icon[data-v-5b9a5d77] {\r\n  flex-shrink: 0;\r\n  margin-top: var(--acu-space-050, 2px);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\n}\n.acu-info-banner__content[data-v-5b9a5d77] {\r\n  min-width: 0;\r\n  width: 100%;\r\n  word-wrap: break-word;\r\n  overflow-wrap: anywhere;\n}\n.acu-info-banner--info[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\n}\n.acu-info-banner--info .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\n}\n.acu-info-banner--tip[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-accent) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-accent) 18%, transparent);\n}\n.acu-info-banner--tip .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-accent);\r\n  color: var(--acu-accent);\n}\n.acu-info-banner--warning[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-warning) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-warning) 20%, transparent);\n}\n.acu-info-banner--warning .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-warning);\r\n  color: var(--acu-warning);\n}\r\n", "src/presentation-v2/components/_lib/AcuInfoBanner.vue#style-0-5b9a5d77");
 var AcuInfoBanner_vue_vue_type_style_index_0_scoped_5b9a5d77_lang = null;
 
-const _hoisted_1$11 = { class: "acu-info-banner__content" };
-function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$12 = { class: "acu-info-banner__content" };
+function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -169786,7 +169786,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 			null,
 			2
 			/* CLASS */
-		)) : createCommentVNode("v-if", true), createBaseVNode("div", _hoisted_1$11, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
+		)) : createCommentVNode("v-if", true), createBaseVNode("div", _hoisted_1$12, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
 			toDisplayString($props.text),
 			1
 			/* TEXT */
@@ -169795,7 +169795,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuInfoBanner = /* @__PURE__ */ _export_sfc(_sfc_main$13, [["render", _sfc_render$13], ["__scopeId", "data-v-5b9a5d77"]]);
+var AcuInfoBanner = /* @__PURE__ */ _export_sfc(_sfc_main$14, [["render", _sfc_render$14], ["__scopeId", "data-v-5b9a5d77"]]);
 
 const MIN_DURATION_MS = 100;
 const MAX_DURATION_MS = 200;
@@ -169924,7 +169924,7 @@ function useAcuHeightTransition(options = {}) {
     };
 }
 
-var _sfc_main$12 = /*@__PURE__*/ defineComponent({
+var _sfc_main$13 = /*@__PURE__*/ defineComponent({
     __name: 'AcuPanel',
     props: {
         title: { default: undefined },
@@ -169979,7 +169979,7 @@ var _sfc_main$12 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-panel[data-v-c4139d23] {\r\n  min-width: 0; padding: var(--acu-panel-padding, 16px);\r\n  background: var(--acu-bg-1);\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md);\r\n  display: flex; flex-direction: column; gap: 0;\r\n  height: 100%;\n}\n.acu-panel__header[data-v-c4139d23] {\r\n  display: flex; align-items: center; justify-content: space-between;\r\n  gap: var(--acu-panel-gap, 12px); margin-bottom: var(--acu-panel-gap, 12px);\r\n  min-height: var(--acu-control-height-md, 32px);\r\n  transition: margin-bottom 0.15s ease;\n}\n.acu-panel__header--description-open[data-v-c4139d23] {\r\n  margin-bottom: var(--acu-space-2, 8px);\n}\n.acu-panel__title[data-v-c4139d23] {\r\n  margin: 0;\r\n  min-width: 0;\r\n  flex: 1 1 auto;\r\n  font-size: var(--acu-font-size-panel-title, 15px);\r\n  line-height: 1.3;\r\n  color: var(--acu-text-1);\n}\n.acu-panel__header-right[data-v-c4139d23] {\r\n  margin-left: auto;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--acu-space-2, 8px);\r\n  flex-shrink: 0;\n}\n.acu-panel__actions[data-v-c4139d23] { display: flex; align-items: center; gap: var(--acu-space-2, 8px); flex-shrink: 0;\n}\n.acu-panel__description-button[data-v-c4139d23] {\r\n  width: var(--acu-button-height-sm, 28px);\r\n  height: var(--acu-button-height-sm, 28px);\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\r\n  color: var(--acu-text-3);\r\n  cursor: pointer;\r\n  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;\n}\n.acu-panel__description-button[data-v-c4139d23]:hover {\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-1);\n}\n.acu-panel__description-button--open[data-v-c4139d23] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  color: var(--acu-text-1);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\n}\n.acu-panel__description-button[data-v-c4139d23]:focus-visible {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-panel__body[data-v-c4139d23] { display: flex; flex-direction: column; gap: var(--acu-panel-gap, 12px); min-width: 0; flex: 1 1 auto;\n}\n.acu-panel__description-region[data-v-c4139d23] {\r\n  min-width: 0;\r\n  overflow: hidden;\n}\n.acu-panel__description-region-inner[data-v-c4139d23] {\r\n  padding-bottom: var(--acu-panel-gap, 12px);\r\n  overflow: hidden;\n}\r\n", "src/presentation-v2/components/_lib/AcuPanel.vue#style-0-c4139d23");
 var AcuPanel_vue_vue_type_style_index_0_scoped_c4139d23_lang = null;
 
-const _hoisted_1$10 = { class: "acu-panel" };
+const _hoisted_1$11 = { class: "acu-panel" };
 const _hoisted_2$V = {
 	key: 0,
 	class: "acu-panel__title"
@@ -169995,8 +169995,8 @@ const _hoisted_4$I = {
 const _hoisted_5$A = ["id", "aria-hidden"];
 const _hoisted_6$y = { class: "acu-panel__description-region-inner" };
 const _hoisted_7$v = { class: "acu-panel__body" };
-function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$10, [
+function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$11, [
 		$props.title || _ctx.$slots.title || _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock(
 			"header",
 			{
@@ -170058,9 +170058,9 @@ function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
 		createBaseVNode("div", _hoisted_7$v, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])
 	]);
 }
-var AcuPanel = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$12], ["__scopeId", "data-v-c4139d23"]]);
+var AcuPanel = /* @__PURE__ */ _export_sfc(_sfc_main$13, [["render", _sfc_render$13], ["__scopeId", "data-v-c4139d23"]]);
 
-var _sfc_main$11 = /*@__PURE__*/ defineComponent({
+var _sfc_main$12 = /*@__PURE__*/ defineComponent({
     __name: 'AcuTextarea',
     props: {
         modelValue: {},
@@ -170199,13 +170199,13 @@ var _sfc_main$11 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-textarea[data-v-cbb35e09] {\r\n  appearance: none !important;\r\n  -webkit-appearance: none !important;\r\n  display: block !important;\r\n  width: 100% !important;\r\n  min-width: 0 !important;\r\n  box-sizing: border-box !important;\r\n  margin: 0 !important;\r\n  padding: var(--acu-space-2, 8px) var(--acu-space-250, 10px) !important;\r\n  border: 0 !important;\r\n  border-radius: var(--acu-radius-sm) !important;\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\r\n  font: inherit !important;\r\n  font-size: var(--acu-font-size-body, 12px) !important;\r\n  line-height: 1.45 !important;\r\n  letter-spacing: 0 !important;\r\n  text-align: start !important;\r\n  resize: none !important;\r\n  outline: none !important;\r\n  box-shadow: none !important;\r\n  caret-color: var(--acu-text-1);\r\n  -webkit-tap-highlight-color: transparent;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-textarea--auto-resize[data-v-cbb35e09] {\r\n  overflow-x: hidden !important;\r\n  overflow-y: auto;\n}\n.acu-textarea[data-v-cbb35e09]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\n}\n.acu-textarea[data-v-cbb35e09]:focus {\r\n  outline: none !important;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow) !important;\n}\n.acu-textarea[data-v-cbb35e09]:disabled {\r\n  opacity: 0.5; cursor: not-allowed;\n}\r\n", "src/presentation-v2/components/_lib/AcuTextarea.vue#style-0-cbb35e09");
 var AcuTextarea_vue_vue_type_style_index_0_scoped_cbb35e09_lang = null;
 
-const _hoisted_1$$ = [
+const _hoisted_1$10 = [
 	"value",
 	"placeholder",
 	"rows",
 	"disabled"
 ];
-function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("textarea", {
 		ref: "textareaRef",
 		class: normalizeClass(["acu-textarea", { "acu-textarea--auto-resize": $props.autoResize }]),
@@ -170216,11 +170216,11 @@ function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 		onInput: $setup.onInput,
 		onFocus: $setup.onFocus,
 		onBlur: $setup.onBlur
-	}, null, 42, _hoisted_1$$);
+	}, null, 42, _hoisted_1$10);
 }
-var AcuTextarea = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$11], ["__scopeId", "data-v-cbb35e09"]]);
+var AcuTextarea = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$12], ["__scopeId", "data-v-cbb35e09"]]);
 
-var _sfc_main$10 = /*@__PURE__*/ defineComponent({
+var _sfc_main$11 = /*@__PURE__*/ defineComponent({
     __name: 'AcuPresetDropdown',
     props: {
         items: {},
@@ -170281,7 +170281,7 @@ var _sfc_main$10 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-preset-dd[data-v-da92b393] { position: relative; flex: 1; min-width: 0;\n}\n.acu-preset-dd__trigger[data-v-da92b393] {\r\n  display: flex; align-items: center; gap: var(--acu-space-2, 8px); width: 100%;\r\n  min-height: var(--acu-control-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px);\r\n  background: var(--acu-bg-2); border: 0;\r\n  border-radius: var(--acu-radius-sm); color: var(--acu-text-1);\r\n  font: inherit; font-size: var(--acu-font-size-body, 12px); cursor: pointer;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-preset-dd__trigger[data-v-da92b393]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2);\n}\n.acu-preset-dd__trigger[data-v-da92b393]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-preset-dd__trigger[data-v-da92b393]:disabled { opacity: 0.5; cursor: not-allowed;\n}\n.acu-preset-dd--disabled[data-v-da92b393] { pointer-events: none; opacity: 0.5;\n}\n.acu-preset-dd__label[data-v-da92b393] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;\n}\n.acu-preset-dd__caret[data-v-da92b393] { font-size: var(--acu-font-size-micro, 10px); --acu-icon-color: var(--acu-text-3); color: var(--acu-text-3); transition: transform 0.15s ease;\n}\n.acu-preset-dd__caret--open[data-v-da92b393] { transform: rotate(180deg);\n}\n.acu-preset-dd__menu[data-v-da92b393] {\r\n  position: absolute; top: calc(100% + var(--acu-space-1, 4px)); left: 0; right: 0; z-index: 100;\r\n  margin: 0; padding: var(--acu-space-1, 4px) 0; list-style: none;\r\n  background: var(--acu-bg-1); border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm); box-shadow: var(--acu-shadow);\r\n  max-height: var(--acu-menu-max-height, 240px); overflow-y: auto;\n}\n.acu-preset-dd__item[data-v-da92b393] {\r\n  display: flex; align-items: center; gap: var(--acu-space-2, 8px);\r\n  padding: var(--acu-space-2, 8px) var(--acu-space-3, 12px); cursor: pointer; font-size: var(--acu-font-size-body-lg, 13px);\r\n  color: var(--acu-text-2); transition: background 0.1s ease;\n}\n.acu-preset-dd__item[data-v-da92b393]:hover { background: var(--acu-hover-overlay); color: var(--acu-text-1);\n}\n.acu-preset-dd__item--active[data-v-da92b393] { color: var(--acu-on-accent); background: var(--acu-accent);\n}\n.acu-preset-dd__item-name[data-v-da92b393] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500;\n}\n.acu-preset-dd__item-meta[data-v-da92b393] { font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3); white-space: nowrap;\n}\n.acu-preset-dd__star[data-v-da92b393] {\r\n  width: var(--acu-menu-action-size, 24px); height: var(--acu-menu-action-size, 24px); display: flex; align-items: center; justify-content: center;\r\n  border: 0; background: transparent; color: var(--acu-text-3); cursor: pointer;\r\n  border-radius: var(--acu-radius-sm); font-size: var(--acu-font-size-body, 12px); transition: color 0.15s ease;\n}\n.acu-preset-dd__star[data-v-da92b393]:hover { color: var(--acu-text-1); background: var(--acu-hover-overlay);\n}\n.acu-preset-dd__star--active[data-v-da92b393] { color: var(--acu-text-1);\n}\n.acu-preset-dd__item--active .acu-preset-dd__item-meta[data-v-da92b393],\r\n.acu-preset-dd__item--active .acu-preset-dd__star[data-v-da92b393],\r\n.acu-preset-dd__item--active .acu-preset-dd__check[data-v-da92b393] { --acu-icon-color: var(--acu-on-accent); color: var(--acu-on-accent);\n}\n.acu-preset-dd__check[data-v-da92b393] { font-size: var(--acu-font-size-caption, 11px); --acu-icon-color: var(--acu-text-1); color: var(--acu-text-1);\n}\n.acu-preset-dd__empty[data-v-da92b393] { padding: var(--acu-space-3, 12px); text-align: center; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\n}\r\n", "src/presentation-v2/components/_lib/AcuPresetDropdown.vue#style-0-da92b393");
 var AcuPresetDropdown_vue_vue_type_style_index_0_scoped_da92b393_lang = null;
 
-const _hoisted_1$_ = ["disabled"];
+const _hoisted_1$$ = ["disabled"];
 const _hoisted_2$U = { class: "acu-preset-dd__label" };
 const _hoisted_3$L = {
 	key: 0,
@@ -170302,7 +170302,7 @@ const _hoisted_9$o = {
 	key: 0,
 	class: "acu-preset-dd__empty"
 };
-function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -170326,7 +170326,7 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 			null,
 			2
 			/* CLASS */
-		)], 8, _hoisted_1$_), $setup.open ? (openBlock(), createElementBlock("ul", _hoisted_3$L, [(openBlock(true), createElementBlock(
+		)], 8, _hoisted_1$$), $setup.open ? (openBlock(), createElementBlock("ul", _hoisted_3$L, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($props.items, (item) => {
@@ -170378,9 +170378,9 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuPresetDropdown = /* @__PURE__ */ _export_sfc(_sfc_main$10, [["render", _sfc_render$10], ["__scopeId", "data-v-da92b393"]]);
+var AcuPresetDropdown = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$11], ["__scopeId", "data-v-da92b393"]]);
 
-var _sfc_main$$ = /*@__PURE__*/ defineComponent({
+var _sfc_main$10 = /*@__PURE__*/ defineComponent({
     __name: 'AcuSelect',
     props: {
         options: {},
@@ -170445,7 +170445,7 @@ var _sfc_main$$ = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-select[data-v-980fa3ca] {\r\n  position: relative;\r\n  display: block;\r\n  width: 100%;\r\n  min-width: 0;\r\n  max-width: 100%;\r\n  box-sizing: border-box;\r\n  margin: 0 !important;\r\n  padding: 0 !important;\r\n  border: 0 !important;\r\n  outline: 0 !important;\r\n  background: transparent !important;\r\n  box-shadow: none !important;\n}\n.acu-select__trigger[data-v-980fa3ca] {\r\n  display: flex; align-items: center; gap: var(--acu-space-2, 8px); width: 100%;\r\n  min-width: 0; max-width: 100%; box-sizing: border-box;\r\n  min-height: var(--acu-control-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px);\r\n  margin: 0 !important;\r\n  background: var(--acu-bg-2) !important; border: 0 !important;\r\n  border-radius: var(--acu-radius-sm); color: var(--acu-text-1);\r\n  font: inherit; font-size: var(--acu-font-size-body, 12px); cursor: pointer;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\r\n  box-shadow: none;\n}\n.acu-select__trigger[data-v-980fa3ca]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\n}\n.acu-select__trigger[data-v-980fa3ca]:focus { outline: none !important;\n}\n.acu-select__trigger[data-v-980fa3ca]:focus:not(:focus-visible) { box-shadow: none !important;\n}\n.acu-select__trigger[data-v-980fa3ca]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-select__trigger[data-v-980fa3ca]:disabled { opacity: 0.5; cursor: not-allowed;\n}\n.acu-select__label[data-v-980fa3ca] {\r\n  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;\n}\n.acu-select__label--placeholder[data-v-980fa3ca] { color: var(--acu-text-3);\n}\n.acu-select__caret[data-v-980fa3ca] { font-size: var(--acu-font-size-micro, 10px); --acu-icon-color: var(--acu-text-3); color: var(--acu-text-3); transition: transform 0.15s ease; flex-shrink: 0;\n}\n.acu-select__caret--open[data-v-980fa3ca] { transform: rotate(180deg);\n}\n.acu-select__menu[data-v-980fa3ca] {\r\n  position: absolute; top: calc(100% + var(--acu-space-1, 4px)); left: 0; right: 0; z-index: 100;\r\n  margin: 0; padding: var(--acu-space-1, 4px) 0; list-style: none;\r\n  background: var(--acu-bg-1); border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm); box-shadow: var(--acu-shadow);\r\n  min-width: 0; max-width: 100%; box-sizing: border-box;\r\n  max-height: var(--acu-menu-max-height, 240px); overflow-y: auto;\n}\n.acu-select__item[data-v-980fa3ca] {\r\n  padding: var(--acu-space-2, 8px) var(--acu-space-3, 12px); cursor: pointer; font-size: var(--acu-font-size-body-lg, 13px);\r\n  color: var(--acu-text-2); transition: background 0.1s ease;\r\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n}\n.acu-select__item[data-v-980fa3ca]:hover { background: var(--acu-hover-overlay); color: var(--acu-text-1);\n}\n.acu-select__item--active[data-v-980fa3ca] { color: var(--acu-on-accent); background: var(--acu-accent);\n}\n.acu-select__group[data-v-980fa3ca] {\r\n  padding: var(--acu-space-2, 8px) var(--acu-space-3, 12px) var(--acu-space-1, 4px);\r\n  font-size: var(--acu-font-size-micro, 10px);\r\n  font-weight: 600;\r\n  letter-spacing: 0.04em;\r\n  color: var(--acu-text-3);\r\n  user-select: none;\r\n  pointer-events: none;\n}\n.acu-select__empty[data-v-980fa3ca] { padding: var(--acu-space-3, 12px); text-align: center; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\n}\r\n\r\n/* ── sm variant ── */\n.acu-select--sm .acu-select__trigger[data-v-980fa3ca] { min-height: var(--acu-control-height-sm, 26px); padding: var(--acu-control-padding-y-sm, 3px) var(--acu-control-padding-x-sm, 7px); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-select--sm .acu-select__item[data-v-980fa3ca] { padding: var(--acu-space-150, 6px) var(--acu-space-250, 10px); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-select--disabled[data-v-980fa3ca] { pointer-events: none; opacity: 0.5;\n}\r\n", "src/presentation-v2/components/_lib/AcuSelect.vue#style-0-980fa3ca");
 var AcuSelect_vue_vue_type_style_index_0_scoped_980fa3ca_lang = null;
 
-const _hoisted_1$Z = ["disabled"];
+const _hoisted_1$_ = ["disabled"];
 const _hoisted_2$T = {
 	key: 0,
 	class: "acu-select__menu"
@@ -170459,7 +170459,7 @@ const _hoisted_5$y = {
 	key: 0,
 	class: "acu-select__empty"
 };
-function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -170483,7 +170483,7 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 			null,
 			2
 			/* CLASS */
-		)], 8, _hoisted_1$Z), $setup.open ? (openBlock(), createElementBlock("ul", _hoisted_2$T, [(openBlock(true), createElementBlock(
+		)], 8, _hoisted_1$_), $setup.open ? (openBlock(), createElementBlock("ul", _hoisted_2$T, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($setup.groupedOptions, (entry) => {
@@ -170511,9 +170511,9 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuSelect = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$$], ["__scopeId", "data-v-980fa3ca"]]);
+var AcuSelect = /* @__PURE__ */ _export_sfc(_sfc_main$10, [["render", _sfc_render$10], ["__scopeId", "data-v-980fa3ca"]]);
 
-var _sfc_main$_ = /*@__PURE__*/ defineComponent({
+var _sfc_main$$ = /*@__PURE__*/ defineComponent({
     ...{ inheritAttrs: false },
     __name: 'AcuToggle',
     props: {
@@ -170540,12 +170540,12 @@ var _sfc_main$_ = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-toggle[data-v-61c4c790] {\r\n  display: inline-flex; align-items: center; gap: var(--acu-space-2, 8px);\r\n  flex: 0 0 auto;\r\n  padding: 0; border: 0; background: transparent;\r\n  font: inherit; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-2);\r\n  cursor: pointer; user-select: none;\n}\n.acu-toggle--disabled[data-v-61c4c790] { opacity: 0.5; cursor: not-allowed;\n}\n.acu-toggle__track[data-v-61c4c790] {\r\n  position: relative; flex-shrink: 0;\r\n  width: var(--acu-toggle-width, 36px); height: var(--acu-toggle-height, 20px);\r\n  background: var(--acu-bg-2);\r\n  border: 0;\r\n  border-radius: var(--acu-toggle-radius, 10px);\r\n  transition: background 0.2s ease, box-shadow 0.2s ease;\n}\n.acu-toggle--on .acu-toggle__track[data-v-61c4c790] {\r\n  background: var(--acu-accent);\n}\n.acu-toggle__thumb[data-v-61c4c790] {\r\n  position: absolute; top: var(--acu-space-050, 2px); left: var(--acu-space-050, 2px);\r\n  width: var(--acu-toggle-thumb-size, 16px); height: var(--acu-toggle-thumb-size, 16px);\r\n  background: #fff;\r\n  border-radius: 50%;\r\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);\r\n  transition: transform 0.2s ease;\n}\n.acu-toggle--on .acu-toggle__thumb[data-v-61c4c790] {\r\n  transform: translateX(var(--acu-toggle-thumb-shift, 16px));\n}\n.acu-toggle__label[data-v-61c4c790] { white-space: nowrap;\n}\n.acu-toggle:hover:not(.acu-toggle--disabled) .acu-toggle__track[data-v-61c4c790] {\r\n  box-shadow: inset 0 0 0 1px var(--acu-border-2);\n}\n.acu-toggle:focus-visible .acu-toggle__track[data-v-61c4c790] {\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\r\n", "src/presentation-v2/components/_lib/AcuToggle.vue#style-0-61c4c790");
 var AcuToggle_vue_vue_type_style_index_0_scoped_61c4c790_lang = null;
 
-const _hoisted_1$Y = ["aria-checked", "disabled"];
+const _hoisted_1$Z = ["aria-checked", "disabled"];
 const _hoisted_2$S = {
 	key: 0,
 	class: "acu-toggle__label"
 };
-function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", mergeProps({
 		type: "button",
 		class: ["acu-toggle", {
@@ -170570,9 +170570,9 @@ function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 		toDisplayString($props.label),
 		1
 		/* TEXT */
-	)) : renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true)], 16, _hoisted_1$Y);
+	)) : renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true)], 16, _hoisted_1$Z);
 }
-var AcuToggle = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$_], ["__scopeId", "data-v-61c4c790"]]);
+var AcuToggle = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$$], ["__scopeId", "data-v-61c4c790"]]);
 
 // presentation-v2/composables/client-header-presets.ts — API 预设「客户端伪装」可选预设
 // 把常见模型 CLI/GUI 客户端的身份请求头（User-Agent / HTTP-Referer / X-Title / x-app /
@@ -170800,7 +170800,7 @@ function hasManagedClientKeys_ACU(currentHeaders) {
 }
 
 // ─── 思考强度选项（每个 API 预设独立；Auto 档不传输 reasoning_effort 参数） ───
-var _sfc_main$Z = /*@__PURE__*/ defineComponent({
+var _sfc_main$_ = /*@__PURE__*/ defineComponent({
     __name: 'ApiConfigPanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -171012,7 +171012,7 @@ var _sfc_main$Z = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-api-config-panel__hint[data-v-68c73bf0] {\r\n  color: var(--acu-text-3, #9e978e);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-api-config-panel__hint-danger[data-v-68c73bf0] {\r\n  color: var(--acu-danger, #e5484d);\n}\n.acu-api-config-panel__select-row[data-v-68c73bf0] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) max-content max-content;\r\n  gap: 6px;\r\n  align-items: stretch;\n}\n.acu-api-config-panel__behavior[data-v-68c73bf0] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  margin-top: 14px;\r\n  padding-top: 12px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\n}\n.acu-api-config-panel__editor[data-v-68c73bf0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-api-config-panel__editor-section[data-v-68c73bf0] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-api-config-panel__inline-action[data-v-68c73bf0] {\r\n  display: flex;\r\n  align-items: center;\r\n  flex-wrap: wrap;\r\n  gap: 10px;\n}\n.acu-api-config-panel__two-col[data-v-68c73bf0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-api-config-panel__muted[data-v-68c73bf0] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__danger[data-v-68c73bf0] {\r\n  color: var(--acu-danger);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-api-config-panel__actions[data-v-68c73bf0] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\n}\r\n", "src/presentation-v2/components/ApiConfigPanel.vue#style-0-68c73bf0");
 var ApiConfigPanel_vue_vue_type_style_index_0_scoped_68c73bf0_lang = null;
 
-const _hoisted_1$X = { class: "acu-api-config-panel__select-row" };
+const _hoisted_1$Y = { class: "acu-api-config-panel__select-row" };
 const _hoisted_2$R = { class: "acu-api-config-panel__editor-section" };
 const _hoisted_3$J = { class: "acu-api-config-panel__inline-action" };
 const _hoisted_4$F = {
@@ -171027,7 +171027,7 @@ const _hoisted_6$w = { class: "acu-api-config-panel__two-col" };
 const _hoisted_7$t = { class: "acu-api-config-panel__two-col" };
 const _hoisted_8$q = { class: "acu-api-config-panel__editor-section" };
 const _hoisted_9$n = { class: "acu-api-config-panel__actions" };
-function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.apiCopy.panels.preset.title,
 		description: $setup.apiCopy.panels.preset.description
@@ -171048,7 +171048,7 @@ function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 				label: "当前 API 预设",
 				hint: "星标表示新聊天默认使用的预设。"
 			}, {
-				default: withCtx(() => [createBaseVNode("div", _hoisted_1$X, [
+				default: withCtx(() => [createBaseVNode("div", _hoisted_1$Y, [
 					createVNode($setup["AcuPresetDropdown"], {
 						items: $setup.presetDropdownItems,
 						"model-value": $setup.store.activePresetName,
@@ -171340,7 +171340,7 @@ function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$Z, [["render", _sfc_render$Z], ["__scopeId", "data-v-68c73bf0"]]);
+var ApiConfigPanel = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$_], ["__scopeId", "data-v-68c73bf0"]]);
 
 // ═══════════════════════════════════════════════════════════
 // service/settings/feature-preset-reference-service.ts — 功能级 API 预设引用
@@ -172643,7 +172643,7 @@ const formFillCopy = {
     },
 };
 
-var _sfc_main$Y = /*@__PURE__*/ defineComponent({
+var _sfc_main$Z = /*@__PURE__*/ defineComponent({
     __name: 'AcuDisclosureGroup',
     props: {
         label: { default: '' },
@@ -172714,13 +172714,13 @@ var _sfc_main$Y = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-disclosure-group[data-v-73a020fe] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 0;\r\n  /* 根节点不裁切：折叠动画的裁切由 body 的内联 overflow 承担，静止时下拉菜单等浮层需要溢出到组外。 */\r\n  overflow: visible;\r\n  border-radius: var(--acu-radius-md);\r\n  background: transparent;\n}\n.acu-disclosure-group__header[data-v-73a020fe] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  width: 100%;\r\n  min-height: 34px;\r\n  appearance: none;\r\n  border: 0;\r\n  /* 头部自己收圆角：根节点已不再用 overflow: hidden 帮它裁掉悬停底色。 */\r\n  border-radius: var(--acu-radius-md);\r\n  padding: 7px 10px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.35;\r\n  text-align: left;\r\n  cursor: pointer;\r\n  user-select: none;\r\n  transition: background-color 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-disclosure-group--expanded .acu-disclosure-group__header[data-v-73a020fe] {\r\n  border-bottom-left-radius: 0;\r\n  border-bottom-right-radius: 0;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-disclosure-group__chevron[data-v-73a020fe] {\r\n  flex: 0 0 10px;\r\n  width: 10px;\r\n  font-size: var(--acu-font-size-micro, 10px);\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\r\n  transition: transform 0.15s ease;\n}\n.acu-disclosure-group__chevron--open[data-v-73a020fe] {\r\n  transform: rotate(90deg);\n}\n.acu-disclosure-group__label[data-v-73a020fe] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-weight: 500;\r\n  color: var(--acu-text-2);\n}\n.acu-disclosure-group__meta[data-v-73a020fe] {\r\n  flex-shrink: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-3);\r\n  font-variant-numeric: tabular-nums;\r\n  white-space: nowrap;\n}\n.acu-disclosure-group__body[data-v-73a020fe] {\r\n  box-sizing: border-box;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  padding: 8px;\r\n  opacity: 1;\r\n  transform: translateY(0);\n}\r\n", "src/presentation-v2/components/_lib/AcuDisclosureGroup.vue#style-0-73a020fe");
 var AcuDisclosureGroup_vue_vue_type_style_index_0_scoped_73a020fe_lang = null;
 
-const _hoisted_1$W = ["aria-expanded", "aria-controls"];
+const _hoisted_1$X = ["aria-expanded", "aria-controls"];
 const _hoisted_2$Q = [
 	"id",
 	"aria-hidden",
 	"inert"
 ];
-function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{ class: normalizeClass(["acu-disclosure-group", [$props.rootClass, { "acu-disclosure-group--expanded": $props.expanded }]]) },
@@ -172769,7 +172769,7 @@ function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 				2
 				/* CLASS */
 			)) : createCommentVNode("v-if", true)
-		], 10, _hoisted_1$W), createVNode(Transition, {
+		], 10, _hoisted_1$X), createVNode(Transition, {
 			css: false,
 			onBeforeEnter: $setup.beforeEnter,
 			onEnter: $setup.enter,
@@ -172794,9 +172794,9 @@ function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuDisclosureGroup = /* @__PURE__ */ _export_sfc(_sfc_main$Y, [["render", _sfc_render$Y], ["__scopeId", "data-v-73a020fe"]]);
+var AcuDisclosureGroup = /* @__PURE__ */ _export_sfc(_sfc_main$Z, [["render", _sfc_render$Z], ["__scopeId", "data-v-73a020fe"]]);
 
-var _sfc_main$X = /*@__PURE__*/ defineComponent({
+var _sfc_main$Y = /*@__PURE__*/ defineComponent({
     __name: 'FormFillUpdateSettingsPanel',
     props: {
         showAdvanced: { type: Boolean, default: true }
@@ -172884,16 +172884,16 @@ var _sfc_main$X = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-form-fill-update-settings-panel__settings-groups[data-v-6663db20] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-form-fill-update-settings-panel__setting-group[data-v-6663db20] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-form-fill-update-settings-panel__setting-group\r\n  + .acu-form-fill-update-settings-panel__setting-group[data-v-6663db20] {\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border-2);\n}\n.acu-form-fill-update-settings-panel__advanced[data-v-6663db20] {\r\n  border: 0;\r\n  background: transparent;\n}\n.acu-form-fill-update-settings-panel__number-grid[data-v-6663db20] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n@media (max-width: 560px) {\n.acu-form-fill-update-settings-panel__number-grid[data-v-6663db20] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/FormFillUpdateSettingsPanel.vue#style-0-6663db20");
 var FormFillUpdateSettingsPanel_vue_vue_type_style_index_0_scoped_6663db20_lang = null;
 
-const _hoisted_1$V = { class: "acu-form-fill-update-settings-panel__settings-groups" };
+const _hoisted_1$W = { class: "acu-form-fill-update-settings-panel__settings-groups" };
 const _hoisted_2$P = { class: "acu-form-fill-update-settings-panel__setting-group" };
 const _hoisted_3$I = { class: "acu-form-fill-update-settings-panel__number-grid" };
 const _hoisted_4$E = { class: "acu-form-fill-update-settings-panel__number-grid" };
-function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.formFillCopy.panels.update.title,
 		description: $setup.formFillCopy.panels.update.description
 	}, {
-		default: withCtx(() => [createBaseVNode("div", _hoisted_1$V, [createBaseVNode("section", _hoisted_2$P, [
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$W, [createBaseVNode("section", _hoisted_2$P, [
 			createVNode($setup["AcuFormRow"], {
 				label: "填表 API 预设",
 				hint: "默认使用当前 API，选择后仅影响填表功能。",
@@ -173015,7 +173015,7 @@ function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var FormFillUpdateSettingsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$X, [["render", _sfc_render$X], ["__scopeId", "data-v-6663db20"]]);
+var FormFillUpdateSettingsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$Y, [["render", _sfc_render$Y], ["__scopeId", "data-v-6663db20"]]);
 
 /**
  * useDevOptions — 仪表盘 / 剧情推进页 / 未来开发者一级页共享的开发者选项读写入口
@@ -173807,7 +173807,7 @@ const plotCopy = {
     },
 };
 
-var _sfc_main$W = /*@__PURE__*/ defineComponent({
+var _sfc_main$X = /*@__PURE__*/ defineComponent({
     __name: 'AcuText',
     props: {
         as: { default: 'p' },
@@ -173826,16 +173826,16 @@ var _sfc_main$W = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-text[data-v-7abe2621] {\r\n  margin: 0;\r\n  min-width: 0;\n}\n.acu-text--caption[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  color: var(--acu-text-3);\n}\n.acu-text--meta[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  color: var(--acu-text-3);\n}\n.acu-text--hint[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-readable, 1.55);\r\n  color: var(--acu-text-3);\n}\n.acu-text--status-line[data-v-7abe2621] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\r\n  min-height: 22px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  color: var(--acu-text-3);\n}\n.acu-text--empty[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: var(--acu-line-height-readable, 1.55);\r\n  color: var(--acu-text-3);\r\n  text-align: center;\n}\n.acu-text--error[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  color: var(--acu-danger);\n}\n.acu-text--section-label[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-section-title, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  font-weight: 600;\r\n  color: var(--acu-text-2);\n}\n.acu-text--list-title[data-v-7abe2621] {\r\n  font-size: var(--acu-font-size-list-title, 13px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  font-weight: 500;\r\n  color: var(--acu-text-1);\n}\n[data-v-7abe2621] .acu-text__value {\r\n  color: var(--acu-text-1);\r\n  font-weight: 500;\n}\r\n", "src/presentation-v2/components/_lib/AcuText.vue#style-0-7abe2621");
 var AcuText_vue_vue_type_style_index_0_scoped_7abe2621_lang = null;
 
-function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock(resolveDynamicComponent($props.as), { class: normalizeClass(["acu-text", $setup.variantClass]) }, {
 		default: withCtx(() => [renderSlot(_ctx.$slots, "default", {}, undefined, true)]),
 		_: 3
 	}, 8, ["class"]);
 }
-var AcuText = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$W], ["__scopeId", "data-v-7abe2621"]]);
+var AcuText = /* @__PURE__ */ _export_sfc(_sfc_main$X, [["render", _sfc_render$X], ["__scopeId", "data-v-7abe2621"]]);
 
 const DRAWER_LEAVE_MS = 150;
-var _sfc_main$V = /*@__PURE__*/ defineComponent({
+var _sfc_main$W = /*@__PURE__*/ defineComponent({
     __name: 'AcuDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -173922,10 +173922,10 @@ var _sfc_main$V = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-drawer-layer[data-v-802430da] {\r\n  position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; z-index: 9200;\r\n  width: 100%; width: 100vw; width: 100dvw;\r\n  height: 100%; height: 100vh; height: 100dvh;\r\n  display: flex; justify-content: flex-end;\r\n  padding: var(--acu-safe-top, 0px) var(--acu-safe-right, 0px) var(--acu-safe-bottom, 0px) var(--acu-safe-left, 0px);\r\n  background: rgba(0, 0, 0, 0.38);\r\n  overflow: hidden;\r\n  animation: acu-drawer-layer-in-802430da 0.18s ease-out both;\n}\n.acu-v2-drawer-layer.is-closing[data-v-802430da] {\r\n  pointer-events: none;\r\n  animation: acu-drawer-layer-out-802430da 0.15s ease-in both;\n}\n.acu-v2-drawer[data-v-802430da] {\r\n  max-width: 100%;\r\n  height: 100%; max-height: 100%;\r\n  display: flex; flex-direction: column;\r\n  background: var(--acu-bg-1);\r\n  border-left: 0;\r\n  box-shadow: var(--acu-shadow);\r\n  min-width: 0; min-height: 0;\r\n  overflow: hidden;\r\n  animation: acu-drawer-panel-in-802430da 0.18s ease-out both;\n}\n.acu-v2-drawer-layer.is-closing .acu-v2-drawer[data-v-802430da] {\r\n  animation: acu-drawer-panel-out-802430da 0.15s ease-in both;\n}\n@supports (max-height: 100dvh) {\n.acu-v2-drawer[data-v-802430da] { max-height: 100%;\n}\n}\n.acu-v2-drawer__header[data-v-802430da] {\r\n  flex: 0 0 auto;\r\n  display: flex; align-items: center; justify-content: space-between;\r\n  min-width: 0;\r\n  gap: var(--acu-panel-gap, 12px); padding: var(--acu-page-gap, 14px) var(--acu-panel-padding, 16px);\r\n  border-bottom: 0;\n}\n.acu-v2-drawer__header-left[data-v-802430da] { display: flex; align-items: center; gap: var(--acu-space-250, 10px); min-width: 0;\n}\n.acu-v2-drawer__header h3[data-v-802430da] { margin: 0; min-width: 0; font-size: var(--acu-font-size-panel-title, 15px); overflow-wrap: anywhere;\n}\n.acu-v2-drawer__body[data-v-802430da] {\r\n  flex: 1; min-height: 0;\r\n  min-width: 0; overflow-y: auto; overflow-x: hidden; padding: var(--acu-panel-padding, 16px);\r\n  display: flex; flex-direction: column; gap: var(--acu-page-gap, 14px);\n}\n@keyframes acu-drawer-layer-in-802430da {\nfrom { opacity: 0;\n}\nto { opacity: 1;\n}\n}\n@keyframes acu-drawer-panel-in-802430da {\nfrom { transform: translateX(100%);\n}\nto { transform: translateX(0);\n}\n}\n@keyframes acu-drawer-layer-out-802430da {\nfrom { opacity: 1;\n}\nto { opacity: 0;\n}\n}\n@keyframes acu-drawer-panel-out-802430da {\nfrom { transform: translateX(0);\n}\nto { transform: translateX(100%);\n}\n}\n@media (max-width: 860px) {\n.acu-v2-drawer[data-v-802430da] { width: 100vw !important; max-width: 100vw; border-left: 0;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuDrawer.vue#style-0-802430da");
 var AcuDrawer_vue_vue_type_style_index_0_scoped_802430da_lang = null;
 
-const _hoisted_1$U = { class: "acu-v2-drawer__header" };
+const _hoisted_1$V = { class: "acu-v2-drawer__header" };
 const _hoisted_2$O = { class: "acu-v2-drawer__header-left" };
 const _hoisted_3$H = { class: "acu-v2-drawer__body" };
-function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 	return $setup.isRendered ? (openBlock(), createElementBlock(
 		"div",
 		{
@@ -173945,7 +173945,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 				role: "dialog",
 				onClick: _cache[0] || (_cache[0] = withModifiers(() => {}, ["stop"]))
 			},
-			[createBaseVNode("header", _hoisted_1$U, [createBaseVNode("div", _hoisted_2$O, [$props.showBack ? (openBlock(), createBlock($setup["AcuIconButton"], {
+			[createBaseVNode("header", _hoisted_1$V, [createBaseVNode("div", _hoisted_2$O, [$props.showBack ? (openBlock(), createBlock($setup["AcuIconButton"], {
 				key: 0,
 				icon: "fa-solid fa-arrow-left",
 				title: "返回",
@@ -173969,9 +173969,9 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS, NEED_HYDRATION */
 	)) : createCommentVNode("v-if", true);
 }
-var AcuDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$V], ["__scopeId", "data-v-802430da"]]);
+var AcuDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$W], ["__scopeId", "data-v-802430da"]]);
 
-var _sfc_main$U = /*@__PURE__*/ defineComponent({
+var _sfc_main$V = /*@__PURE__*/ defineComponent({
     __name: 'AcuRulePairList',
     props: {
         modelValue: {},
@@ -174022,7 +174022,7 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-rule-pair-list--standalone[data-v-c9426b22] {\r\n  display: flex; flex-direction: column; gap: 6px;\n}\n.acu-rule-pair-list__body[data-v-c9426b22] {\r\n  display: flex; flex-direction: column; gap: 6px;\n}\n.acu-rule-pair-list--standalone .acu-rule-pair-list__body[data-v-c9426b22] {\r\n  /* 老接口：未提供 label 时直接展示，无外层 padding */\r\n  border-top: 0;\r\n  padding: 0;\n}\n.acu-rule-pair-list__row[data-v-c9426b22] {\r\n  display: flex; align-items: center; gap: 6px;\n}\n.acu-rule-pair-list__field[data-v-c9426b22] { flex: 1; min-width: 0;\n}\n.acu-rule-pair-list__sep[data-v-c9426b22] {\r\n  flex-shrink: 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\n}\n.acu-rule-pair-list__empty[data-v-c9426b22] {\r\n  padding: 8px; text-align: center;\r\n  color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-rule-pair-list__add[data-v-c9426b22] {\r\n  align-self: flex-start;\n}\r\n", "src/presentation-v2/components/_lib/AcuRulePairList.vue#style-0-c9426b22");
 var AcuRulePairList_vue_vue_type_style_index_0_scoped_c9426b22_lang = null;
 
-const _hoisted_1$T = {
+const _hoisted_1$U = {
 	key: 0,
 	class: "acu-rule-pair-list__empty"
 };
@@ -174035,7 +174035,7 @@ const _hoisted_4$D = {
 	key: 0,
 	class: "acu-rule-pair-list__empty"
 };
-function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 	return $props.label ? (openBlock(), createBlock($setup["AcuDisclosureGroup"], {
 		key: 0,
 		"root-class": "acu-rule-pair-list",
@@ -174101,7 +174101,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 				128
 				/* KEYED_FRAGMENT */
 			)),
-			!$props.modelValue.length ? (openBlock(), createElementBlock("div", _hoisted_1$T, " 暂无规则，点击下方按钮添加。 ")) : createCommentVNode("v-if", true),
+			!$props.modelValue.length ? (openBlock(), createElementBlock("div", _hoisted_1$U, " 暂无规则，点击下方按钮添加。 ")) : createCommentVNode("v-if", true),
 			createVNode($setup["AcuButton"], {
 				size: "sm",
 				class: "acu-rule-pair-list__add",
@@ -174197,9 +174197,9 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	])]));
 }
-var AcuRulePairList = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-c9426b22"]]);
+var AcuRulePairList = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$V], ["__scopeId", "data-v-c9426b22"]]);
 
-var _sfc_main$T = /*@__PURE__*/ defineComponent({
+var _sfc_main$U = /*@__PURE__*/ defineComponent({
     __name: 'PlotMatchReplaceFields',
     props: {
         rateMain: {},
@@ -174224,10 +174224,10 @@ var _sfc_main$T = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-plot-match-fields[data-v-8649d835] {\r\n  margin: 0;\r\n  padding: 0 0 14px;\r\n  border: 0;\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-plot-match-fields legend[data-v-8649d835] {\r\n  padding: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-section-title, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-plot-match-fields__grid[data-v-8649d835] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));\r\n  gap: 10px;\n}\r\n", "src/presentation-v2/components/PlotMatchReplaceFields.vue#style-0-8649d835");
 var PlotMatchReplaceFields_vue_vue_type_style_index_0_scoped_8649d835_lang = null;
 
-const _hoisted_1$S = { class: "acu-v2-plot-match-fields" };
+const _hoisted_1$T = { class: "acu-v2-plot-match-fields" };
 const _hoisted_2$M = { class: "acu-v2-plot-match-fields__grid" };
-function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("fieldset", _hoisted_1$S, [
+function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("fieldset", _hoisted_1$T, [
 		_cache[6] || (_cache[6] = createBaseVNode(
 			"legend",
 			null,
@@ -174296,7 +174296,7 @@ function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var PlotMatchReplaceFields = /* @__PURE__ */ _export_sfc(_sfc_main$T, [["render", _sfc_render$T], ["__scopeId", "data-v-8649d835"]]);
+var PlotMatchReplaceFields = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$U], ["__scopeId", "data-v-8649d835"]]);
 
 const DEFAULT_ROLE_OPTIONS = [
     { value: 'SYSTEM', label: 'SYSTEM' },
@@ -174308,7 +174308,7 @@ const DEFAULT_SLOT_OPTIONS = [
     { value: 'A', label: '主插槽 A' },
     { value: 'B', label: '主插槽 B' },
 ];
-var _sfc_main$S = /*@__PURE__*/ defineComponent({
+var _sfc_main$T = /*@__PURE__*/ defineComponent({
     __name: 'AcuPromptSegments',
     props: {
         segments: {},
@@ -174352,7 +174352,7 @@ var _sfc_main$S = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-prompt-segs[data-v-f2de588c] { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__guide[data-v-f2de588c] { min-width: 0;\n}\n.acu-prompt-segs__guide-text[data-v-f2de588c] { margin-bottom: var(--acu-space-150, 6px);\n}\n.acu-prompt-segs__tokens[data-v-f2de588c] { margin: 0; display: flex; flex-direction: column; gap: var(--acu-space-100, 4px); min-width: 0;\n}\n.acu-prompt-segs__token[data-v-f2de588c] { display: flex; gap: var(--acu-space-2, 8px); align-items: baseline; min-width: 0;\n}\n.acu-prompt-segs__token dt[data-v-f2de588c] { flex: 0 0 auto; margin: 0;\n}\n.acu-prompt-segs__token dd[data-v-f2de588c] {\r\n  margin: 0; min-width: 0; flex: 1 1 auto;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  word-break: break-word;\n}\n.acu-prompt-segs__token code[data-v-f2de588c] {\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-1);\r\n  background: var(--acu-bg-2);\r\n  padding: 1px var(--acu-space-100, 4px);\r\n  border-radius: var(--acu-radius-sm);\r\n  white-space: nowrap;\n}\n.acu-prompt-segs__add[data-v-f2de588c] { display: flex; justify-content: center; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__add-btn[data-v-f2de588c] { max-width: 100%; white-space: normal;\n}\n.acu-prompt-segs__list[data-v-f2de588c] {\r\n  list-style: none; margin: 0; padding: 0;\r\n  display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-f2de588c] {\r\n  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent; padding: 0 0 12px;\r\n  display: flex; flex-direction: column; gap: 8px;\r\n  min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__item[data-v-f2de588c]:last-child {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-prompt-segs__item-head[data-v-f2de588c] {\r\n  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%;\n}\n.acu-prompt-segs__index[data-v-f2de588c] {\r\n  font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\r\n  min-width: 26px;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-prompt-segs__role[data-v-f2de588c] { flex: 1 1 110px; min-width: 0; max-width: 180px;\n}\n.acu-prompt-segs__slot[data-v-f2de588c] { flex: 1 1 120px; min-width: 0; max-width: 200px;\n}\n.acu-prompt-segs__actions[data-v-f2de588c] {\r\n  margin-left: auto;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  min-width: 0;\n}\n.acu-prompt-segs[data-v-f2de588c] .acu-textarea,\r\n.acu-prompt-segs[data-v-f2de588c] textarea {\r\n  width: 100%;\r\n  min-width: 0;\r\n  max-width: 100%;\r\n  box-sizing: border-box;\n}\n.acu-prompt-segs__empty[data-v-f2de588c] {\r\n  padding: 10px 0; text-align: center;\r\n  color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 480px) {\n.acu-prompt-segs__item-head[data-v-f2de588c] { align-items: stretch;\n}\n.acu-prompt-segs__index[data-v-f2de588c] { flex: 0 0 100%;\n}\n.acu-prompt-segs__role[data-v-f2de588c],\r\n  .acu-prompt-segs__slot[data-v-f2de588c] { flex-basis: 100%; max-width: 100%;\n}\n.acu-prompt-segs__actions[data-v-f2de588c] { width: 100%; margin-left: 0; justify-content: flex-end;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuPromptSegments.vue#style-0-f2de588c");
 var AcuPromptSegments_vue_vue_type_style_index_0_scoped_f2de588c_lang = null;
 
-const _hoisted_1$R = { class: "acu-prompt-segs" };
+const _hoisted_1$S = { class: "acu-prompt-segs" };
 const _hoisted_2$L = {
 	key: 0,
 	class: "acu-prompt-segs__tokens"
@@ -174367,8 +174367,8 @@ const _hoisted_8$p = {
 	class: "acu-prompt-segs__empty"
 };
 const _hoisted_9$m = { class: "acu-prompt-segs__add" };
-function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$R, [
+function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$S, [
 		createCommentVNode(" 填写指南：默认收起，避免在有限屏幕里挤掉正文；展开后给出段/role/槽语义与占位符速查。 "),
 		createVNode($setup["AcuDisclosureGroup"], {
 			class: "acu-prompt-segs__guide",
@@ -174548,9 +174548,9 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 		})])
 	]);
 }
-var AcuPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$S], ["__scopeId", "data-v-f2de588c"]]);
+var AcuPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$T, [["render", _sfc_render$T], ["__scopeId", "data-v-f2de588c"]]);
 
-var _sfc_main$R = /*@__PURE__*/ defineComponent({
+var _sfc_main$S = /*@__PURE__*/ defineComponent({
     __name: 'PlotPromptSegments',
     props: {
         segments: {}
@@ -174564,7 +174564,7 @@ var _sfc_main$R = /*@__PURE__*/ defineComponent({
     }
 });
 
-function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPromptSegments"], {
 		segments: $props.segments,
 		"show-slot": true,
@@ -174577,9 +174577,9 @@ function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
 		onUpdate: _cache[3] || (_cache[3] = (i, p) => _ctx.$emit("update", i, p))
 	}, null, 8, ["segments"]);
 }
-var PlotPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$R]]);
+var PlotPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$S]]);
 
-var _sfc_main$Q = /*@__PURE__*/ defineComponent({
+var _sfc_main$R = /*@__PURE__*/ defineComponent({
     __name: 'PlotTaskEditor',
     props: {
         task: {},
@@ -174644,7 +174644,7 @@ var _sfc_main$Q = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-plot-task-editor[data-v-7b343fef] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-plot-task-editor__section[data-v-7b343fef] {\r\n  margin: 0;\r\n  padding: 0 0 14px;\r\n  border: 0;\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-plot-task-editor__section[data-v-7b343fef]:last-of-type {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-v2-plot-task-editor__section legend[data-v-7b343fef] {\r\n  padding: 0;\r\n  font-size: var(--acu-font-size-section-title, 12px);\r\n  font-weight: 600;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-plot-task-editor__grid[data-v-7b343fef] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-plot-task-editor__grid--wide[data-v-7b343fef] {\r\n  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));\n}\n.acu-v2-plot-task-editor__toggles[data-v-7b343fef] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));\r\n  gap: 8px 12px;\r\n  padding: 8px 0;\r\n  min-width: 0;\n}\n.acu-v2-plot-task-editor__toggles[data-v-7b343fef] .acu-toggle {\r\n  align-items: flex-start;\r\n  width: 100%;\r\n  min-width: 0;\r\n  min-height: var(--acu-control-height-sm, 26px);\n}\n.acu-v2-plot-task-editor__toggles[data-v-7b343fef] .acu-toggle__label {\r\n  min-width: 0;\r\n  white-space: normal;\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-plot-task-editor__hint[data-v-7b343fef] {\r\n  margin: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-3);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-plot-task-editor__empty[data-v-7b343fef] {\r\n  padding: 18px 0;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  text-align: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\r\n", "src/presentation-v2/components/PlotTaskEditor.vue#style-0-7b343fef");
 var PlotTaskEditor_vue_vue_type_style_index_0_scoped_7b343fef_lang = null;
 
-const _hoisted_1$Q = {
+const _hoisted_1$R = {
 	key: 0,
 	class: "acu-v2-plot-task-editor"
 };
@@ -174662,8 +174662,8 @@ const _hoisted_12$h = {
 	key: 1,
 	class: "acu-v2-plot-task-editor__empty"
 };
-function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
-	return $props.task ? (openBlock(), createElementBlock("div", _hoisted_1$Q, [
+function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
+	return $props.task ? (openBlock(), createElementBlock("div", _hoisted_1$R, [
 		createBaseVNode("fieldset", _hoisted_2$K, [
 			_cache[23] || (_cache[23] = createBaseVNode(
 				"legend",
@@ -174903,9 +174903,9 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 		}, null, 8, ["segments"])])
 	])) : (openBlock(), createElementBlock("div", _hoisted_12$h, " 请在上方选择一个任务进行编辑。 "));
 }
-var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$Q], ["__scopeId", "data-v-7b343fef"]]);
+var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$R], ["__scopeId", "data-v-7b343fef"]]);
 
-var _sfc_main$P = /*@__PURE__*/ defineComponent({
+var _sfc_main$Q = /*@__PURE__*/ defineComponent({
     __name: 'PlotTaskList',
     props: {
         tasks: {},
@@ -174931,7 +174931,7 @@ var _sfc_main$P = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-plot-tasks[data-v-ee3c6f4c] {\r\n  margin: 0; padding: 0 0 14px;\r\n  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  display: flex; flex-direction: column; gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-plot-tasks > legend[data-v-ee3c6f4c] {\r\n  padding: 0;\r\n  font-size: var(--acu-font-size-section-title, 12px); font-weight: 600; color: var(--acu-text-2);\r\n  display: flex; align-items: center; gap: 10px;\n}\n.acu-v2-plot-tasks__toolbar[data-v-ee3c6f4c] { display: inline-flex; gap: 4px;\n}\n.acu-v2-plot-tasks__cards[data-v-ee3c6f4c] {\r\n  display: flex; gap: 8px;\r\n  min-width: 0;\r\n  overflow-x: auto;\n}\n.acu-v2-plot-tasks__card[data-v-ee3c6f4c] {\r\n  flex: 0 0 140px;\r\n  min-height: 100px;\r\n  display: flex; flex-direction: column; gap: 6px;\r\n  padding: 10px 12px;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  border: 0;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: box-shadow 0.15s ease, color 0.15s ease, opacity 0.15s ease;\n}\n.acu-v2-plot-tasks__card[data-v-ee3c6f4c]:hover,\r\n.acu-v2-plot-tasks__card[data-v-ee3c6f4c]:focus-visible {\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-plot-tasks__card--active[data-v-ee3c6f4c] {\r\n  background: var(--acu-accent);\r\n  color: var(--acu-on-accent);\n}\n.acu-v2-plot-tasks__card--disabled[data-v-ee3c6f4c] {\r\n  opacity: 0.5;\n}\n.acu-v2-plot-tasks__card--disabled.acu-v2-plot-tasks__card--active[data-v-ee3c6f4c] {\r\n  opacity: 0.7;\n}\n.acu-v2-plot-tasks__card--disabled .acu-v2-plot-tasks__name[data-v-ee3c6f4c] {\r\n  text-decoration: line-through;\n}\n.acu-v2-plot-tasks__name[data-v-ee3c6f4c] {\r\n  font-size: var(--acu-font-size-list-title, 13px); color: var(--acu-text-1); font-weight: 500;\r\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n}\n.acu-v2-plot-tasks__card--active .acu-v2-plot-tasks__name[data-v-ee3c6f4c],\r\n.acu-v2-plot-tasks__card--active .acu-v2-plot-tasks__stage[data-v-ee3c6f4c],\r\n.acu-v2-plot-tasks__card--active .acu-v2-plot-tasks__seg-count[data-v-ee3c6f4c],\r\n.acu-v2-plot-tasks__card--active .acu-v2-plot-tasks__disabled-label[data-v-ee3c6f4c] {\r\n  color: var(--acu-on-accent);\n}\n.acu-v2-plot-tasks__stage[data-v-ee3c6f4c] {\r\n  font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-plot-tasks__seg-count[data-v-ee3c6f4c] {\r\n  font-size: var(--acu-font-size-micro, 10px); color: var(--acu-text-3);\r\n  margin-top: auto;\n}\n.acu-v2-plot-tasks__disabled-label[data-v-ee3c6f4c] {\r\n  font-size: var(--acu-font-size-micro, 10px); color: var(--acu-warning);\r\n  font-weight: 500;\n}\n.acu-v2-plot-tasks__empty[data-v-ee3c6f4c] {\r\n  padding: 16px 12px; text-align: center;\r\n  color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\r\n  flex: 1;\n}\r\n", "src/presentation-v2/components/PlotTaskList.vue#style-0-ee3c6f4c");
 var PlotTaskList_vue_vue_type_style_index_0_scoped_ee3c6f4c_lang = null;
 
-const _hoisted_1$P = { class: "acu-v2-plot-tasks" };
+const _hoisted_1$Q = { class: "acu-v2-plot-tasks" };
 const _hoisted_2$J = { class: "acu-v2-plot-tasks__toolbar" };
 const _hoisted_3$D = { class: "acu-v2-plot-tasks__cards" };
 const _hoisted_4$A = ["onClick"];
@@ -174949,8 +174949,8 @@ const _hoisted_9$k = {
 	key: 0,
 	class: "acu-v2-plot-tasks__empty"
 };
-function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("fieldset", _hoisted_1$P, [createBaseVNode("legend", null, [_cache[4] || (_cache[4] = createBaseVNode(
+function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("fieldset", _hoisted_1$Q, [createBaseVNode("legend", null, [_cache[4] || (_cache[4] = createBaseVNode(
 		"span",
 		null,
 		"剧情任务列表",
@@ -175027,9 +175027,9 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 		/* KEYED_FRAGMENT */
 	)), !$props.tasks.length ? (openBlock(), createElementBlock("div", _hoisted_9$k, "暂无任务，点击右上 + 新增。")) : createCommentVNode("v-if", true)])]);
 }
-var PlotTaskList = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$P], ["__scopeId", "data-v-ee3c6f4c"]]);
+var PlotTaskList = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$Q], ["__scopeId", "data-v-ee3c6f4c"]]);
 
-var _sfc_main$O = /*@__PURE__*/ defineComponent({
+var _sfc_main$P = /*@__PURE__*/ defineComponent({
     __name: 'PlotPresetDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -175064,7 +175064,7 @@ var _sfc_main$O = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-plot-drawer__create-btn[data-v-47605d60] {\r\n  width: 100%;\n}\n.acu-v2-plot-drawer__empty[data-v-47605d60] {\r\n  margin-top: 20px;\n}\n.acu-v2-plot-drawer__actions[data-v-47605d60] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\r\n  padding-top: 12px;\r\n  margin-top: 12px;\n}\r\n\r\n/* manage list */\n.acu-v2-manage-list[data-v-47605d60] {\r\n  list-style: none;\r\n  margin: 0;\r\n  padding: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-manage-item[data-v-47605d60] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 10px;\r\n  padding: 10px 12px;\r\n  border: 0;\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-manage-item[data-v-47605d60]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-manage-item__info[data-v-47605d60] {\r\n  flex: 1;\r\n  min-width: 0;\n}\n.acu-v2-manage-item__name[data-v-47605d60] {\r\n  display: block;\r\n  font-size: var(--acu-font-size-list-title, 13px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  font-weight: 500;\r\n  color: var(--acu-text-1);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-manage-item__meta[data-v-47605d60] {\r\n  display: block;\r\n  margin-top: 2px;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  color: var(--acu-text-3);\n}\n.acu-v2-manage-item__actions[data-v-47605d60] {\r\n  display: flex;\r\n  gap: 4px;\n}\r\n\r\n/* form */\n.acu-v2-form[data-v-47605d60] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-v2-form__section[data-v-47605d60] {\r\n  min-width: 0;\r\n  margin: 0;\r\n  padding: 0 0 14px;\r\n  border: 0;\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-form__section[data-v-47605d60]:last-of-type {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-v2-form__section legend[data-v-47605d60] {\r\n  padding: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-section-title, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-plot-drawer__rules[data-v-47605d60] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-error[data-v-47605d60] {\r\n  padding: 8px 10px;\r\n  background: color-mix(in srgb, var(--acu-danger) 10%, transparent);\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\n}\r\n", "src/presentation-v2/components/PlotPresetDrawer.vue#style-0-47605d60");
 var PlotPresetDrawer_vue_vue_type_style_index_0_scoped_47605d60_lang = null;
 
-const _hoisted_1$O = {
+const _hoisted_1$P = {
 	key: 0,
 	class: "acu-v2-manage-list"
 };
@@ -175075,7 +175075,7 @@ const _hoisted_5$t = { class: "acu-v2-form__section" };
 const _hoisted_6$s = { class: "acu-v2-plot-drawer__rules" };
 const _hoisted_7$p = { class: "acu-v2-form__section" };
 const _hoisted_8$m = { class: "acu-v2-plot-drawer__actions" };
-function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: $props.title,
@@ -175105,7 +175105,7 @@ function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
 					/* CACHED */
 				)])]),
 				_: 1
-			}), $props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$O, [(openBlock(true), createElementBlock(
+			}), $props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$P, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($props.presetMeta, (meta) => {
@@ -175358,9 +175358,9 @@ function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
 		"before-close"
 	]);
 }
-var PlotPresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$O], ["__scopeId", "data-v-47605d60"]]);
+var PlotPresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$P], ["__scopeId", "data-v-47605d60"]]);
 
-var _sfc_main$N = /*@__PURE__*/ defineComponent({
+var _sfc_main$O = /*@__PURE__*/ defineComponent({
     __name: 'PlotPresetPanel',
     props: {
         showEdit: { type: Boolean, default: true },
@@ -175461,10 +175461,10 @@ var _sfc_main$N = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-plot-preset-panel__status-line[data-v-80cce1b8] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-plot-preset-panel__select-row[data-v-80cce1b8] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);\r\n  gap: 6px;\r\n  align-items: stretch;\r\n  margin-bottom: 12px;\r\n  min-width: 0;\n}\r\n", "src/presentation-v2/components/PlotPresetPanel.vue#style-0-80cce1b8");
 var PlotPresetPanel_vue_vue_type_style_index_0_scoped_80cce1b8_lang = null;
 
-const _hoisted_1$N = { class: "acu-text__value" };
+const _hoisted_1$O = { class: "acu-text__value" };
 const _hoisted_2$H = { class: "acu-text__value" };
 const _hoisted_3$B = { class: "acu-plot-preset-panel__select-row" };
-function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.plotCopy.panels.preset.title,
 		description: $setup.plotCopy.panels.preset.description
@@ -175493,7 +175493,7 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					)),
 					createBaseVNode(
 						"strong",
-						_hoisted_1$N,
+						_hoisted_1$O,
 						toDisplayString($setup.store.activePresetName || "默认预设"),
 						1
 						/* TEXT */
@@ -175661,9 +175661,9 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var PlotPresetPanel = /* @__PURE__ */ _export_sfc(_sfc_main$N, [["render", _sfc_render$N], ["__scopeId", "data-v-80cce1b8"]]);
+var PlotPresetPanel = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$O], ["__scopeId", "data-v-80cce1b8"]]);
 
-var _sfc_main$M = /*@__PURE__*/ defineComponent({
+var _sfc_main$N = /*@__PURE__*/ defineComponent({
     __name: 'TablePresetDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -175685,14 +175685,14 @@ var _sfc_main$M = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-table-drawer__top-actions[data-v-c3883113] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-v2-manage-list[data-v-c3883113] {\r\n  list-style: none;\r\n  margin: 0;\r\n  padding: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-manage-item[data-v-c3883113] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 10px;\r\n  padding: 10px 12px;\r\n  border: 0;\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-manage-item[data-v-c3883113]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-manage-item__info[data-v-c3883113] {\r\n  flex: 1;\r\n  min-width: 0;\n}\n.acu-v2-manage-item__name[data-v-c3883113] {\r\n  display: block;\r\n  font-size: var(--acu-font-size-list-title, 13px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  font-weight: 500;\r\n  color: var(--acu-text-1);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-manage-item__meta[data-v-c3883113] {\r\n  display: block;\r\n  margin-top: 2px;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  color: var(--acu-text-3);\n}\n.acu-v2-manage-item__actions[data-v-c3883113] {\r\n  display: flex;\r\n  gap: 4px;\n}\n.acu-v2-table-drawer__empty[data-v-c3883113] {\r\n  margin: 12px 0;\n}\r\n\r\n", "src/presentation-v2/components/TablePresetDrawer.vue#style-0-c3883113");
 var TablePresetDrawer_vue_vue_type_style_index_0_scoped_c3883113_lang = null;
 
-const _hoisted_1$M = { class: "acu-v2-table-drawer__top-actions" };
+const _hoisted_1$N = { class: "acu-v2-table-drawer__top-actions" };
 const _hoisted_2$G = {
 	key: 1,
 	class: "acu-v2-manage-list"
 };
 const _hoisted_3$A = { class: "acu-v2-manage-item__info" };
 const _hoisted_4$y = { class: "acu-v2-manage-item__actions" };
-function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: $props.title,
@@ -175711,7 +175711,7 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$M, [createVNode($setup["AcuButton"], {
+			createBaseVNode("div", _hoisted_1$N, [createVNode($setup["AcuButton"], {
 				variant: "primary",
 				disabled: $props.busy,
 				onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("create-blank"))
@@ -175874,7 +175874,7 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open", "title"]);
 }
-var TablePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$M, [["render", _sfc_render$M], ["__scopeId", "data-v-c3883113"]]);
+var TablePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$N, [["render", _sfc_render$N], ["__scopeId", "data-v-c3883113"]]);
 
 /**
  * root-shell-store — 顶层外壳状态（开关、挂载次数）
@@ -178141,7 +178141,7 @@ const tableCopy = {
     worldbook: worldbookEntriesCopy,
 };
 
-var _sfc_main$L = /*@__PURE__*/ defineComponent({
+var _sfc_main$M = /*@__PURE__*/ defineComponent({
     __name: 'TableTemplatePresetPanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -178163,11 +178163,11 @@ var _sfc_main$L = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-table-template-panel__status-line[data-v-391b2c79] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-table-template-panel__preset-row[data-v-391b2c79] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) repeat(4, max-content);\r\n  gap: 6px;\r\n  align-items: stretch;\r\n  min-width: 0;\n}\n.acu-table-template-panel__action-area[data-v-391b2c79] {\r\n  margin-top: 10px;\n}\n.acu-table-template-panel__visualizer-button[data-v-391b2c79] {\r\n  width: 100%;\n}\r\n\r\n", "src/presentation-v2/components/TableTemplatePresetPanel.vue#style-0-391b2c79");
 var TableTemplatePresetPanel_vue_vue_type_style_index_0_scoped_391b2c79_lang = null;
 
-const _hoisted_1$L = { class: "acu-text__value" };
+const _hoisted_1$M = { class: "acu-text__value" };
 const _hoisted_2$F = { class: "acu-text__value" };
 const _hoisted_3$z = { class: "acu-table-template-panel__preset-row" };
 const _hoisted_4$x = { class: "acu-table-template-panel__action-area" };
-function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: $setup.tableCopy.panels.templatePreset.title,
 		description: $setup.tableCopy.panels.templatePreset.description
@@ -178207,7 +178207,7 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 					)),
 					createBaseVNode(
 						"strong",
-						_hoisted_1$L,
+						_hoisted_1$M,
 						toDisplayString($setup.templates.selectedChatPresetLabel.value),
 						1
 						/* TEXT */
@@ -178361,7 +178361,7 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var TableTemplatePresetPanel = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$L], ["__scopeId", "data-v-391b2c79"]]);
+var TableTemplatePresetPanel = /* @__PURE__ */ _export_sfc(_sfc_main$M, [["render", _sfc_render$M], ["__scopeId", "data-v-391b2c79"]]);
 
 const basicConfigCopy = {
     nav: {
@@ -178372,7 +178372,7 @@ const basicConfigCopy = {
     },
 };
 
-var _sfc_main$K = /*@__PURE__*/ defineComponent({
+var _sfc_main$L = /*@__PURE__*/ defineComponent({
     __name: 'BasicConfigPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -178391,9 +178391,9 @@ var _sfc_main$K = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-basic-config-page[data-v-f7cbbc38] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-basic-config-page__grid[data-v-f7cbbc38] {\r\n  grid-template-areas:\r\n    \"api update\"\r\n    \"api table\"\r\n    \"api plot\";\n}\n.acu-v2-basic-config-page__api[data-v-f7cbbc38] {\r\n  grid-area: api;\n}\n.acu-v2-basic-config-page__update[data-v-f7cbbc38] {\r\n  grid-area: update;\n}\n.acu-v2-basic-config-page__table[data-v-f7cbbc38] {\r\n  grid-area: table;\n}\n.acu-v2-basic-config-page__plot[data-v-f7cbbc38] {\r\n  grid-area: plot;\n}\n@media (max-width: 860px) {\n.acu-v2-basic-config-page[data-v-f7cbbc38] {\r\n    padding: 14px;\n}\n.acu-v2-basic-config-page__grid[data-v-f7cbbc38] {\r\n    grid-template-areas:\r\n      \"api\"\r\n      \"update\"\r\n      \"table\"\r\n      \"plot\";\n}\n}\r\n", "src/presentation-v2/pages/BasicConfigPage.vue#style-0-f7cbbc38");
 var BasicConfigPage_vue_vue_type_style_index_0_scoped_f7cbbc38_lang = null;
 
-const _hoisted_1$K = { class: "acu-v2-basic-config-page" };
-function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$K, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-basic-config-page__grid" }, {
+const _hoisted_1$L = { class: "acu-v2-basic-config-page" };
+function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$L, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-basic-config-page__grid" }, {
 		default: withCtx(() => [
 			createVNode($setup["ApiConfigPanel"], {
 				id: "basic-config-api-panel",
@@ -178416,9 +178416,9 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$K, [["render", _sfc_render$K], ["__scopeId", "data-v-f7cbbc38"]]);
+var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$L], ["__scopeId", "data-v-f7cbbc38"]]);
 
-var _sfc_main$J = /*@__PURE__*/ defineComponent({
+var _sfc_main$K = /*@__PURE__*/ defineComponent({
     __name: 'DashboardToggleRow',
     props: {
         item: {}
@@ -178442,15 +178442,15 @@ var _sfc_main$J = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-dashboard-toggle-row[data-v-b8c9bc26] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 4px;\n}\n.acu-dashboard-toggle-row__head[data-v-b8c9bc26] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 12px;\n}\n.acu-dashboard-toggle-row__label[data-v-b8c9bc26] {\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 500;\r\n  color: var(--acu-text-1);\r\n  min-width: 0;\n}\n.acu-dashboard-toggle-row__desc[data-v-b8c9bc26] {\r\n  margin: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\r\n  color: var(--acu-text-3);\n}\r\n", "src/presentation-v2/components/DashboardToggleRow.vue#style-0-b8c9bc26");
 var DashboardToggleRow_vue_vue_type_style_index_0_scoped_b8c9bc26_lang = null;
 
-const _hoisted_1$J = { class: "acu-dashboard-toggle-row" };
+const _hoisted_1$K = { class: "acu-dashboard-toggle-row" };
 const _hoisted_2$E = { class: "acu-dashboard-toggle-row__head" };
 const _hoisted_3$y = { class: "acu-dashboard-toggle-row__label" };
 const _hoisted_4$w = {
 	key: 0,
 	class: "acu-dashboard-toggle-row__desc"
 };
-function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$J, [createBaseVNode("div", _hoisted_2$E, [createBaseVNode(
+function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$K, [createBaseVNode("div", _hoisted_2$E, [createBaseVNode(
 		"span",
 		_hoisted_3$y,
 		toDisplayString($props.item.label),
@@ -178475,7 +178475,7 @@ function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
 		/* TEXT */
 	)) : createCommentVNode("v-if", true)]);
 }
-var ToggleRow = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$J], ["__scopeId", "data-v-b8c9bc26"]]);
+var ToggleRow = /* @__PURE__ */ _export_sfc(_sfc_main$K, [["render", _sfc_render$K], ["__scopeId", "data-v-b8c9bc26"]]);
 
 const FLIGHT_MODE_BIG_SUMMARY_ENTRY_PLACEMENT_ACU = {
     position: 'at_depth_as_system',
@@ -179854,7 +179854,7 @@ function useDashboardPage() {
     };
 }
 
-var _sfc_main$I = /*@__PURE__*/ defineComponent({
+var _sfc_main$J = /*@__PURE__*/ defineComponent({
     __name: 'DashboardPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -179960,7 +179960,7 @@ var _sfc_main$I = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-dashboard-page[data-v-e585c9c7] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-dashboard-page__toggle-list[data-v-e585c9c7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\r\n  margin-top: 14px;\n}\n.acu-v2-dashboard-page__health-list[data-v-e585c9c7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-item[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: 30px minmax(0, 1fr) max-content;\r\n  column-gap: 10px;\r\n  row-gap: 8px;\r\n  align-items: center;\r\n  padding: 10px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md);\r\n  background: var(--acu-bg-1);\r\n  transition:\r\n    border-color 0.15s ease,\r\n    background 0.15s ease;\n}\n.acu-v2-dashboard-page__health-item--error[data-v-e585c9c7] {\r\n  border-color: color-mix(in srgb, var(--acu-danger) 38%, var(--acu-border));\n}\n.acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  width: 30px;\r\n  height: 30px;\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\n}\n.acu-v2-dashboard-page__health-item--ok .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-success);\r\n  background: color-mix(in srgb, var(--acu-success) 10%, transparent);\n}\n.acu-v2-dashboard-page__health-item--warning\r\n  .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-warning);\r\n  background: color-mix(in srgb, var(--acu-warning) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-item--error .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-danger);\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-body[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 4px;\n}\n.acu-v2-dashboard-page__health-heading[data-v-e585c9c7] {\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-heading strong[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 650;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-dashboard-page__health-body p[data-v-e585c9c7] {\r\n  margin: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-dashboard-page__health-side[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-end;\r\n  gap: 8px;\r\n  justify-self: end;\n}\n.acu-v2-dashboard-page__health-action[data-v-e585c9c7] {\r\n  white-space: nowrap;\n}\n@media (max-width: 860px) {\n.acu-v2-dashboard-page[data-v-e585c9c7] {\r\n    padding: 14px;\n}\n.acu-v2-dashboard-page__health-item[data-v-e585c9c7] {\r\n    grid-template-columns: 30px minmax(0, 1fr);\r\n    align-items: center;\n}\n.acu-v2-dashboard-page__health-side[data-v-e585c9c7] {\r\n    grid-column: 2;\r\n    align-items: flex-start;\r\n    justify-self: start;\r\n    flex-direction: row;\r\n    flex-wrap: wrap;\n}\n.acu-v2-dashboard-page__health-action[data-v-e585c9c7] {\r\n    justify-self: start;\n}\n}\r\n", "src/presentation-v2/pages/DashboardPage.vue#style-0-e585c9c7");
 var DashboardPage_vue_vue_type_style_index_0_scoped_e585c9c7_lang = null;
 
-const _hoisted_1$I = { class: "acu-v2-dashboard-page" };
+const _hoisted_1$J = { class: "acu-v2-dashboard-page" };
 const _hoisted_2$D = { class: "acu-v2-dashboard-page__health-list" };
 const _hoisted_3$x = {
 	class: "acu-v2-dashboard-page__health-icon",
@@ -179970,8 +179970,8 @@ const _hoisted_4$v = { class: "acu-v2-dashboard-page__health-body" };
 const _hoisted_5$s = { class: "acu-v2-dashboard-page__health-heading" };
 const _hoisted_6$r = { class: "acu-v2-dashboard-page__health-side" };
 const _hoisted_7$o = ["data-acu-toggle-group"];
-function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$I, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-dashboard-page__grid" }, {
+function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$J, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-dashboard-page__grid" }, {
 		default: withCtx(() => [createVNode($setup["AcuPanel"], {
 			title: $setup.dashboardCopy.panels.healthTitle,
 			description: $setup.dashboardCopy.panels.healthDescription
@@ -180085,9 +180085,9 @@ function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_render$I], ["__scopeId", "data-v-e585c9c7"]]);
+var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$J], ["__scopeId", "data-v-e585c9c7"]]);
 
-var _sfc_main$H = /*@__PURE__*/ defineComponent({
+var _sfc_main$I = /*@__PURE__*/ defineComponent({
     __name: 'TableSelector',
     props: {
         sheetKeys: {},
@@ -180125,7 +180125,7 @@ var _sfc_main$H = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-table-selector[data-v-d188b9fa] { display: flex; flex-direction: column; gap: 8px; min-width: 0;\n}\n.acu-v2-table-selector__empty[data-v-d188b9fa] {\r\n  padding: 10px 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-table-selector__actions[data-v-d188b9fa] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;\n}\n.acu-v2-table-selector__count[data-v-d188b9fa] { color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-table-selector__grid[data-v-d188b9fa] {\r\n  display: grid; gap: 6px;\r\n  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));\r\n  max-height: 240px; overflow: auto;\r\n  padding: 0;\r\n  border: 0; border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-table-selector__item[data-v-d188b9fa] {\r\n  padding: 8px 10px;\r\n  border: 0; border-radius: var(--acu-radius-sm);\r\n  background: transparent; min-width: 0;\n}\r\n", "src/presentation-v2/components/TableSelector.vue#style-0-d188b9fa");
 var TableSelector_vue_vue_type_style_index_0_scoped_d188b9fa_lang = null;
 
-const _hoisted_1$H = { class: "acu-v2-table-selector" };
+const _hoisted_1$I = { class: "acu-v2-table-selector" };
 const _hoisted_2$C = {
 	key: 0,
 	class: "acu-v2-table-selector__empty"
@@ -180137,8 +180137,8 @@ const _hoisted_5$r = {
 	class: "acu-v2-table-selector__readonly-hint"
 };
 const _hoisted_6$q = { class: "acu-v2-table-selector__grid" };
-function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$H, [!$props.sheetKeys.length ? (openBlock(), createElementBlock(
+function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$I, [!$props.sheetKeys.length ? (openBlock(), createElementBlock(
 		"div",
 		_hoisted_2$C,
 		toDisplayString($setup.emptyText),
@@ -180206,7 +180206,7 @@ function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
 		/* STABLE_FRAGMENT */
 	))]);
 }
-var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$H], ["__scopeId", "data-v-d188b9fa"]]);
+var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_render$I], ["__scopeId", "data-v-d188b9fa"]]);
 
 /**
  * shared/plugin-identity.ts — 插件自身的身份事实（构建戳 / 版本号）
@@ -180220,7 +180220,7 @@ var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_re
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20260929-13";
+        const stamp = "20261025-18";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -181038,7 +181038,7 @@ function useManualUpdate() {
     };
 }
 
-var _sfc_main$G = /*@__PURE__*/ defineComponent({
+var _sfc_main$H = /*@__PURE__*/ defineComponent({
     __name: 'FormFillPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -181078,7 +181078,7 @@ var _sfc_main$G = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-form-fill-page[data-v-25f22afa] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-form-fill-page__grid[data-v-25f22afa] {\r\n  grid-template-areas:\r\n    \"status update\"\r\n    \"manual template\"\r\n    \"manual template\";\n}\n.acu-v2-form-fill-page__panel--status[data-v-25f22afa] {\r\n  grid-area: status;\n}\n.acu-v2-form-fill-page__panel--update[data-v-25f22afa] {\r\n  grid-area: update;\n}\n.acu-v2-form-fill-page__panel--template[data-v-25f22afa] {\r\n  grid-area: template;\n}\n.acu-v2-form-fill-page__panel--manual[data-v-25f22afa] {\r\n  grid-area: manual;\n}\n.acu-v2-form-fill-page__manual-failure[data-v-25f22afa] {\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head[data-v-25f22afa] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  justify-content: space-between;\r\n  gap: var(--acu-space-2, 8px);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__manual-failure-head span[data-v-25f22afa] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-form-fill-page__manual-failure-text[data-v-25f22afa] {\r\n  margin: var(--acu-space-100, 4px) 0 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.6);\r\n  word-break: break-word;\n}\n.acu-v2-form-fill-page__manual-failure-hint[data-v-25f22afa] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-2, 8px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-form-fill-page__manual-failure-actions[data-v-25f22afa] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-25f22afa] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-form-fill-page__status-line[data-v-25f22afa] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: var(--acu-line-height-body, 1.45);\n}\n.acu-v2-form-fill-page__status-chat[data-v-25f22afa] {\r\n  max-width: min(42ch, 100%);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-form-fill-page__checkpoint-label[data-v-25f22afa] {\r\n  color: var(--acu-accent);\n}\n.acu-v2-form-fill-page__manual-extra[data-v-25f22afa] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\n}\n.acu-v2-form-fill-page__checkpoint-risk[data-v-25f22afa] {\r\n  color: var(--acu-danger);\r\n  font-weight: 700;\n}\n.acu-v2-form-fill-page__table-wrap[data-v-25f22afa] {\r\n  min-width: 0;\r\n  overflow: auto;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-0);\n}\n.acu-v2-form-fill-page__status-table[data-v-25f22afa] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  min-width: 560px;\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-form-fill-page__status-table th[data-v-25f22afa],\r\n.acu-v2-form-fill-page__status-table td[data-v-25f22afa] {\r\n  padding: 8px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\n}\n.acu-v2-form-fill-page__status-table th[data-v-25f22afa] {\r\n  color: var(--acu-text-3);\r\n  font-weight: 600;\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-form-fill-page__status-table td[data-v-25f22afa] {\r\n  color: var(--acu-text-2);\n}\n.acu-v2-form-fill-page__status-table tr:last-child td[data-v-25f22afa] {\r\n  border-bottom: 0;\n}\n.acu-v2-form-fill-page__status-row--ready td[data-v-25f22afa] {\r\n  color: var(--acu-text-1);\n}\n.acu-v2-form-fill-page__empty[data-v-25f22afa] {\r\n  text-align: center !important;\r\n  color: var(--acu-text-3) !important;\n}\n.acu-v2-form-fill-page__actions[data-v-25f22afa] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-form-fill-page[data-v-25f22afa] {\r\n    padding: 14px;\n}\n.acu-v2-form-fill-page__grid[data-v-25f22afa] {\r\n    grid-template-areas:\r\n      \"status\"\r\n      \"update\"\r\n      \"manual\"\r\n      \"template\";\n}\n.acu-v2-form-fill-page__manual-number-grid[data-v-25f22afa] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/FormFillPage.vue#style-0-25f22afa");
 var FormFillPage_vue_vue_type_style_index_0_scoped_25f22afa_lang = null;
 
-const _hoisted_1$G = { class: "acu-v2-form-fill-page" };
+const _hoisted_1$H = { class: "acu-v2-form-fill-page" };
 const _hoisted_2$B = ["title"];
 const _hoisted_3$v = { class: "acu-text__value" };
 const _hoisted_4$t = { class: "acu-text__value acu-v2-form-fill-page__checkpoint-label" };
@@ -181093,8 +181093,8 @@ const _hoisted_12$g = { class: "acu-v2-form-fill-page__manual-failure-actions" }
 const _hoisted_13$e = { class: "acu-v2-form-fill-page__manual-number-grid" };
 const _hoisted_14$d = { class: "acu-v2-form-fill-page__manual-extra" };
 const _hoisted_15$d = { class: "acu-v2-form-fill-page__actions" };
-function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$G, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-form-fill-page__grid" }, {
+function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$H, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], { class: "acu-v2-form-fill-page__grid" }, {
 		default: withCtx(() => [
 			createVNode($setup["AcuPanel"], {
 				id: "form-fill-status-panel",
@@ -181443,7 +181443,7 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$G, [["render", _sfc_render$G], ["__scopeId", "data-v-25f22afa"]]);
+var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$H], ["__scopeId", "data-v-25f22afa"]]);
 
 /**
  * 填表提示词填写指南（说明文案）。
@@ -181455,7 +181455,7 @@ var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$G, [["render", _sfc_ren
 const FORM_FILL_PROMPT_TUTORIAL = '这里是每次填表时真正发给 AI 的提示词。每「段」= 一条消息，段右侧的 role 决定它作为 SYSTEM / USER / ASSISTANT 发出。'
     + 'AI 的回复必须含 <tableEdit>…</tableEdit>，其中的 SQL 会被执行并写回表格——所以提示词里要明确告诉 AI「输出什么格式」。'
     + '下面这些占位符会在发送前被替换成真实内容；直接写字面量不会被替换。';
-var _sfc_main$F = /*@__PURE__*/ defineComponent({
+var _sfc_main$G = /*@__PURE__*/ defineComponent({
     __name: 'FormFillPromptDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -181496,9 +181496,9 @@ var _sfc_main$F = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-form-fill-prompt-drawer__toolbar[data-v-6dca3003] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-form-fill-prompt-drawer__actions[data-v-6dca3003] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/FormFillPromptDrawer.vue#style-0-6dca3003");
 var FormFillPromptDrawer_vue_vue_type_style_index_0_scoped_6dca3003_lang = null;
 
-const _hoisted_1$F = { class: "acu-form-fill-prompt-drawer__toolbar" };
+const _hoisted_1$G = { class: "acu-form-fill-prompt-drawer__toolbar" };
 const _hoisted_2$A = { class: "acu-form-fill-prompt-drawer__actions" };
-function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: "编辑填表提示词",
@@ -181518,7 +181518,7 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$F, [
+			createBaseVNode("div", _hoisted_1$G, [
 				createVNode($setup["AcuFileButton"], {
 					size: "sm",
 					accept: "application/json,.json",
@@ -181598,9 +181598,9 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var FormFillPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$F, [["render", _sfc_render$F], ["__scopeId", "data-v-6dca3003"]]);
+var FormFillPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$G, [["render", _sfc_render$G], ["__scopeId", "data-v-6dca3003"]]);
 
-var _sfc_main$E = /*@__PURE__*/ defineComponent({
+var _sfc_main$F = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookSelector',
     props: {
         modelValue: {},
@@ -181646,9 +181646,9 @@ var _sfc_main$E = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-wb-selector[data-v-3ed3b837] { display: flex; flex-direction: column; gap: 10px; min-width: 0;\n}\r\n", "src/presentation-v2/components/WorldbookSelector.vue#style-0-3ed3b837");
 var WorldbookSelector_vue_vue_type_style_index_0_scoped_3ed3b837_lang = null;
 
-const _hoisted_1$E = { class: "acu-v2-wb-selector" };
-function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$E, [
+const _hoisted_1$F = { class: "acu-v2-wb-selector" };
+function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$F, [
 		$props.filterable ? (openBlock(), createBlock($setup["AcuFormRow"], {
 			key: 0,
 			label: "筛选"
@@ -181689,9 +181689,9 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 		})) : createCommentVNode("v-if", true)
 	]);
 }
-var WorldbookSelector = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$E], ["__scopeId", "data-v-3ed3b837"]]);
+var WorldbookSelector = /* @__PURE__ */ _export_sfc(_sfc_main$F, [["render", _sfc_render$F], ["__scopeId", "data-v-3ed3b837"]]);
 
-var _sfc_main$D = /*@__PURE__*/ defineComponent({
+var _sfc_main$E = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookSourcePicker',
     props: {
         source: {},
@@ -181740,7 +181740,7 @@ var _sfc_main$D = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-wb-source-picker[data-v-4580f5af] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-wb-source-picker__list[data-v-4580f5af] {\r\n  min-width: 0;\r\n  max-height: 180px;\r\n  overflow-y: auto;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  padding: 8px;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\n}\n.acu-v2-wb-source-picker__list--disabled[data-v-4580f5af] {\r\n  opacity: 0.65;\n}\n.acu-v2-wb-source-picker__item[data-v-4580f5af] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  min-height: 32px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 10px;\r\n  margin: 0;\r\n  padding: 7px 9px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.4;\r\n  text-align: left;\r\n  cursor: pointer;\r\n  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-wb-source-picker__item[data-v-4580f5af]:hover:not(:disabled) {\r\n  background: var(--acu-hover-overlay);\r\n  color: var(--acu-text-1);\n}\n.acu-v2-wb-source-picker__item[data-v-4580f5af]:disabled {\r\n  cursor: not-allowed;\n}\n.acu-v2-wb-source-picker__item[data-v-4580f5af]:focus-visible {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-wb-source-picker__item--selected[data-v-4580f5af] {\r\n  background: color-mix(in srgb, var(--acu-accent) 14%, transparent);\r\n  color: var(--acu-text-1);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-accent) 42%, transparent);\n}\n.acu-v2-wb-source-picker__item--selected[data-v-4580f5af]:hover:not(:disabled) {\r\n  background: color-mix(in srgb, var(--acu-accent) 20%, transparent);\r\n  color: var(--acu-text-1);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-accent) 54%, transparent);\n}\n.acu-v2-wb-source-picker__item-label[data-v-4580f5af] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-wb-source-picker__item-check[data-v-4580f5af] {\r\n  flex-shrink: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-accent);\r\n  opacity: 0;\r\n  transform: scale(0.86);\r\n  transition: opacity 0.15s ease, transform 0.15s ease;\n}\n.acu-v2-wb-source-picker__item--selected .acu-v2-wb-source-picker__item-check[data-v-4580f5af] {\r\n  opacity: 1;\r\n  transform: scale(1);\n}\n.acu-v2-wb-source-picker__empty[data-v-4580f5af] {\r\n  padding: 8px 2px;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\n}\n.acu-v2-wb-source-picker__error[data-v-4580f5af] {\r\n  margin: 0;\n}\r\n", "src/presentation-v2/components/WorldbookSourcePicker.vue#style-0-4580f5af");
 var WorldbookSourcePicker_vue_vue_type_style_index_0_scoped_4580f5af_lang = null;
 
-const _hoisted_1$D = { class: "acu-v2-wb-source-picker" };
+const _hoisted_1$E = { class: "acu-v2-wb-source-picker" };
 const _hoisted_2$z = [
 	"aria-checked",
 	"disabled",
@@ -181751,8 +181751,8 @@ const _hoisted_4$s = {
 	key: 0,
 	class: "acu-v2-wb-source-picker__empty"
 };
-function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$D, [
+function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$E, [
 		createVNode($setup["AcuFormRow"], { label: "来源" }, {
 			default: withCtx(() => [createVNode($setup["AcuSegmentedControl"], {
 				"model-value": $props.source,
@@ -181837,10 +181837,10 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 		})) : createCommentVNode("v-if", true)
 	]);
 }
-var WorldbookSourcePicker = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$D], ["__scopeId", "data-v-4580f5af"]]);
+var WorldbookSourcePicker = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$E], ["__scopeId", "data-v-4580f5af"]]);
 
 const ENTRY_PAGE_SIZE_ACU = 200;
-var _sfc_main$C = /*@__PURE__*/ defineComponent({
+var _sfc_main$D = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookEntryList',
     props: {
         groups: {},
@@ -181979,7 +181979,7 @@ var _sfc_main$C = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-wb-entries[data-v-db02b974] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-wb-entries__status[data-v-db02b974] {\r\n  padding: 8px 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-wb-entries__status--error[data-v-db02b974] { color: var(--acu-danger);\n}\n.acu-v2-wb-entry-item[data-v-db02b974] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 6px 8px;\r\n  align-items: center;\r\n  padding: 3px 10px;\r\n  transition: background 0.08s ease;\n}\n.acu-v2-wb-entry-item[data-v-db02b974]:hover { background: var(--acu-hover-overlay);\n}\n.acu-v2-wb-entry-item--disabled[data-v-db02b974] {\r\n  opacity: 0.5;\n}\n.acu-v2-wb-entry-item__actions[data-v-db02b974] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 6px;\n}\n.acu-v2-wb-entry-item__label[data-v-db02b974] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\r\n\r\n/* 剧情页 / 填表页走 AcuCheckbox 分支；:deep 把夹断锁在本列表内，避免改动全局组件 */\n.acu-v2-wb-entry-item[data-v-db02b974] .acu-checkbox__label {\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\r\n  display: -webkit-box;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\r\n  overflow: hidden;\n}\n.acu-v2-wb-entry-item__skill-badge[data-v-db02b974] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-accent) 14%, transparent);\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-item__state-badge[data-v-db02b974] {\r\n  border-radius: 999px;\r\n  padding: 1px 6px;\r\n  background: color-mix(in srgb, var(--acu-warning) 14%, transparent);\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-wb-entry-skill[data-v-db02b974] {\r\n  grid-column: 1 / -1;\r\n  display: grid;\r\n  gap: 8px;\r\n  margin: 4px 0 6px 24px;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border-1);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-wb-entry-skill__actions[data-v-db02b974] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\n}\n@media (max-width: 640px) {\n.acu-v2-wb-entry-item[data-v-db02b974] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-wb-entry-item__actions[data-v-db02b974] {\r\n    justify-content: flex-start;\r\n    padding-left: 24px;\n}\n.acu-v2-wb-entry-skill[data-v-db02b974] {\r\n    margin-left: 0;\n}\n}\r\n", "src/presentation-v2/components/WorldbookEntryList.vue#style-0-db02b974");
 var WorldbookEntryList_vue_vue_type_style_index_0_scoped_db02b974_lang = null;
 
-const _hoisted_1$C = { class: "acu-v2-wb-entries" };
+const _hoisted_1$D = { class: "acu-v2-wb-entries" };
 const _hoisted_2$y = {
 	key: 0,
 	class: "acu-v2-wb-entries__status"
@@ -182015,8 +182015,8 @@ const _hoisted_10$i = {
 	class: "acu-v2-wb-entry-skill"
 };
 const _hoisted_11$h = { class: "acu-v2-wb-entry-skill__actions" };
-function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$C, [$props.loading ? (openBlock(), createElementBlock("div", _hoisted_2$y, "正在加载条目...")) : $props.status === "error" ? (openBlock(), createElementBlock(
+function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$D, [$props.loading ? (openBlock(), createElementBlock("div", _hoisted_2$y, "正在加载条目...")) : $props.status === "error" ? (openBlock(), createElementBlock(
 		"div",
 		_hoisted_3$t,
 		toDisplayString($props.error || "加载条目失败"),
@@ -182186,9 +182186,9 @@ function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 		/* KEYED_FRAGMENT */
 	))]);
 }
-var WorldbookEntryList = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$C], ["__scopeId", "data-v-db02b974"]]);
+var WorldbookEntryList = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$D], ["__scopeId", "data-v-db02b974"]]);
 
-var _sfc_main$B = /*@__PURE__*/ defineComponent({
+var _sfc_main$C = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookEntryToolbar',
     props: {
         filter: {},
@@ -182207,9 +182207,9 @@ var _sfc_main$B = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-wb-entry-toolbar[data-v-7cc3dea8] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  margin-top: 10px;\r\n  padding-top: 10px;\r\n  flex-wrap: wrap;\n}\n.acu-v2-wb-entry-toolbar__filter[data-v-7cc3dea8] {\r\n  flex: 1;\r\n  min-width: 160px;\n}\r\n", "src/presentation-v2/components/WorldbookEntryToolbar.vue#style-0-7cc3dea8");
 var WorldbookEntryToolbar_vue_vue_type_style_index_0_scoped_7cc3dea8_lang = null;
 
-const _hoisted_1$B = { class: "acu-v2-wb-entry-toolbar" };
-function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$B, [
+const _hoisted_1$C = { class: "acu-v2-wb-entry-toolbar" };
+function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$C, [
 		$props.showEntrySelectionControls ? (openBlock(), createElementBlock(
 			Fragment,
 			{ key: 0 },
@@ -182277,9 +182277,9 @@ function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	]);
 }
-var WorldbookEntryToolbar = /* @__PURE__ */ _export_sfc(_sfc_main$B, [["render", _sfc_render$B], ["__scopeId", "data-v-7cc3dea8"]]);
+var WorldbookEntryToolbar = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$C], ["__scopeId", "data-v-7cc3dea8"]]);
 
-var _sfc_main$A = /*@__PURE__*/ defineComponent({
+var _sfc_main$B = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookEntryPickerBody',
     props: {
         source: {},
@@ -182309,10 +182309,10 @@ var _sfc_main$A = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-wb-entry-picker[data-v-d0e4bc34] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-wb-entry-picker__hint[data-v-d0e4bc34] {\r\n  margin: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-3);\n}\n.acu-v2-wb-entry-picker__hint strong[data-v-d0e4bc34] {\r\n  color: var(--acu-text-1);\r\n  font-weight: 500;\n}\r\n\r\n\r\n", "src/presentation-v2/components/WorldbookEntryPickerBody.vue#style-0-d0e4bc34");
 var WorldbookEntryPickerBody_vue_vue_type_style_index_0_scoped_d0e4bc34_lang = null;
 
-const _hoisted_1$A = { class: "acu-v2-wb-entry-picker" };
+const _hoisted_1$B = { class: "acu-v2-wb-entry-picker" };
 const _hoisted_2$x = { class: "acu-v2-wb-entry-picker__hint" };
-function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$A, [
+function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$B, [
 		createVNode($setup["WorldbookSourcePicker"], {
 			source: $props.source,
 			"selected-names": $props.selectedNames,
@@ -182372,7 +182372,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var WorldbookEntryPickerBody = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$A], ["__scopeId", "data-v-d0e4bc34"]]);
+var WorldbookEntryPickerBody = /* @__PURE__ */ _export_sfc(_sfc_main$B, [["render", _sfc_render$B], ["__scopeId", "data-v-d0e4bc34"]]);
 
 /**
  * useFormFillInjectionTarget — 填表"注入目标世界书"（Component A，§4.2）
@@ -182845,7 +182845,7 @@ function useWorldbookSelector() {
     return { names, charPrimary, status, error, refresh };
 }
 
-var _sfc_main$z = /*@__PURE__*/ defineComponent({
+var _sfc_main$A = /*@__PURE__*/ defineComponent({
     __name: 'TablePage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -182965,7 +182965,7 @@ var _sfc_main$z = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-table-page[data-v-53037f4c] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-table-page__col[data-v-53037f4c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 16px;\r\n  min-width: 0;\n}\n.acu-v2-table-page__filter[data-v-53037f4c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-v2-table-page__toggle-row[data-v-53037f4c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 4px;\n}\n.acu-v2-table-page__toggle-head[data-v-53037f4c] {\r\n  min-width: 0;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 12px;\n}\n.acu-v2-table-page__toggle-label[data-v-53037f4c] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 500;\r\n  line-height: 1.35;\n}\n.acu-v2-table-page__toggle-desc[data-v-53037f4c] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-table-page__actions[data-v-53037f4c] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-table-page__status-line[data-v-53037f4c] {\r\n  margin: 0 0 10px;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  color: var(--acu-text-3);\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\n}\n.acu-v2-table-page__status-line strong[data-v-53037f4c] {\r\n  color: var(--acu-text-1);\r\n  font-weight: 500;\n}\n.acu-v2-table-page__preset-row[data-v-53037f4c] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);\r\n  gap: 6px;\r\n  align-items: stretch;\r\n  min-width: 0;\n}\n.acu-v2-table-page__badge[data-v-53037f4c] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  padding: 2px 8px;\r\n  border-radius: var(--acu-radius-sm);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  font-weight: 500;\n}\n.acu-v2-table-page__badge--inherit[data-v-53037f4c] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  color: var(--acu-text-2);\n}\n.acu-v2-table-page__badge--override[data-v-53037f4c] {\r\n  background: var(--acu-accent);\r\n  color: var(--acu-on-accent);\n}\n.acu-v2-table-page__hint[data-v-53037f4c] {\r\n  margin: 0;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  color: var(--acu-text-3);\n}\n.acu-v2-table-page__hint strong[data-v-53037f4c] {\r\n  color: var(--acu-text-1);\r\n  font-weight: 500;\n}\n@media (max-width: 860px) {\n.acu-v2-table-page[data-v-53037f4c] {\r\n    padding: 14px;\n}\n}\r\n", "src/presentation-v2/pages/TablePage.vue#style-0-53037f4c");
 var TablePage_vue_vue_type_style_index_0_scoped_53037f4c_lang = null;
 
-const _hoisted_1$z = { class: "acu-v2-table-page" };
+const _hoisted_1$A = { class: "acu-v2-table-page" };
 const _hoisted_2$w = { class: "acu-v2-table-page__col" };
 const _hoisted_3$s = { class: "acu-v2-table-page__actions" };
 const _hoisted_4$q = { class: "acu-v2-table-page__col" };
@@ -182975,8 +182975,8 @@ const _hoisted_7$l = { class: "acu-v2-table-page__toggle-head" };
 const _hoisted_8$j = { class: "acu-v2-table-page__toggle-row" };
 const _hoisted_9$h = { class: "acu-v2-table-page__toggle-head" };
 const _hoisted_10$h = { class: "acu-v2-table-page__hint" };
-function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$z, [
+function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$A, [
 		createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }),
 		createVNode($setup["AcuPanelGrid"], { class: "acu-v2-table-page__grid" }, {
 			default: withCtx(() => [createBaseVNode("div", _hoisted_2$w, [createVNode($setup["AcuPanel"], {
@@ -183171,7 +183171,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var TablePage = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$z], ["__scopeId", "data-v-53037f4c"]]);
+var TablePage = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$A], ["__scopeId", "data-v-53037f4c"]]);
 
 /**
  * useApiEndpointSecuritySettings — 「允许不安全端点」全局开关的读写。
@@ -183200,7 +183200,7 @@ function useApiEndpointSecuritySettings() {
     return { allowUnsafeApiEndpoints, setAllowUnsafeApiEndpoints };
 }
 
-var _sfc_main$y = /*@__PURE__*/ defineComponent({
+var _sfc_main$z = /*@__PURE__*/ defineComponent({
     __name: 'ApiPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -183214,10 +183214,10 @@ var _sfc_main$y = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-api-page[data-v-1f46170c] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-api-page__security[data-v-1f46170c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-api-page__spacer[data-v-1f46170c] {\r\n  min-width: 0;\n}\n@media (max-width: 860px) {\n.acu-v2-api-page[data-v-1f46170c] {\r\n    padding: 14px;\n}\n.acu-v2-api-page__spacer[data-v-1f46170c] {\r\n    display: none;\n}\n}\r\n", "src/presentation-v2/pages/ApiPage.vue#style-0-1f46170c");
 var ApiPage_vue_vue_type_style_index_0_scoped_1f46170c_lang = null;
 
-const _hoisted_1$y = { class: "acu-v2-api-page" };
+const _hoisted_1$z = { class: "acu-v2-api-page" };
 const _hoisted_2$v = { class: "acu-v2-api-page__security" };
-function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$y, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-api-page__grid" }, {
+function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$z, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-api-page__grid" }, {
 		default: withCtx(() => [
 			createVNode($setup["ApiConfigPanel"]),
 			createVNode($setup["AcuPanel"], {
@@ -183250,7 +183250,7 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var ApiPage = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$y], ["__scopeId", "data-v-1f46170c"]]);
+var ApiPage = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$z], ["__scopeId", "data-v-1f46170c"]]);
 
 /**
  * usePlotWorldbookConfig — 剧情推进世界书配置（D23.1）
@@ -183514,7 +183514,7 @@ function usePlotWorldbookEntries() {
     };
 }
 
-var _sfc_main$x = /*@__PURE__*/ defineComponent({
+var _sfc_main$y = /*@__PURE__*/ defineComponent({
     __name: 'PlotPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -183577,9 +183577,9 @@ var _sfc_main$x = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-plot-page[data-v-572160f5] { min-height: 100%; min-width: 0; padding: 20px; display: flex; flex-direction: column; gap: 18px;\n}\n@media (max-width: 860px) {\n.acu-v2-plot-page[data-v-572160f5] { padding: 14px;\n}\n}\r\n", "src/presentation-v2/pages/PlotPage.vue#style-0-572160f5");
 var PlotPage_vue_vue_type_style_index_0_scoped_572160f5_lang = null;
 
-const _hoisted_1$x = { class: "acu-v2-plot-page" };
-function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$x, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-plot-page__grid" }, {
+const _hoisted_1$y = { class: "acu-v2-plot-page" };
+function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$y, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-plot-page__grid" }, {
 		default: withCtx(() => [
 			createVNode($setup["PlotPresetPanel"]),
 			createCommentVNode(" 世界书选择 "),
@@ -183627,9 +183627,9 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var PlotPage = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$x], ["__scopeId", "data-v-572160f5"]]);
+var PlotPage = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$y], ["__scopeId", "data-v-572160f5"]]);
 
-var _sfc_main$w = /*@__PURE__*/ defineComponent({
+var _sfc_main$x = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookAgentAdvancedPanel',
     props: {
         open: { type: Boolean },
@@ -183819,7 +183819,7 @@ var _sfc_main$w = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-agent-advanced[data-v-8770567d] { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section[data-v-8770567d] { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 100%; padding: 12px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2);\n}\n.acu-agent-advanced__section-head[data-v-8770567d] { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__section-head > div[data-v-8770567d] { min-width: 0;\n}\n.acu-agent-advanced__section-head h4[data-v-8770567d],\r\n.acu-agent-advanced__prompt-head h5[data-v-8770567d] { margin: 0; min-width: 0; color: var(--acu-text-1); overflow-wrap: anywhere;\n}\n.acu-agent-advanced__section-head p[data-v-8770567d] { margin: 4px 0 0; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px); line-height: 1.5; overflow-wrap: anywhere;\n}\n.acu-agent-advanced__grid[data-v-8770567d] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; max-width: 100%;\n}\n.acu-agent-advanced__prompt-head[data-v-8770567d] { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; max-width: 100%; margin-top: 4px;\n}\n.acu-agent-advanced[data-v-8770567d] .acu-form-row,\r\n.acu-agent-advanced[data-v-8770567d] .acu-form-row__control,\r\n.acu-agent-advanced[data-v-8770567d] .acu-input,\r\n.acu-agent-advanced[data-v-8770567d] .acu-segmented,\r\n.acu-agent-advanced[data-v-8770567d] .acu-prompt-segs {\r\n  min-width: 0;\r\n  max-width: 100%;\n}\n@media (max-width: 720px) {\n.acu-agent-advanced[data-v-8770567d] { gap: 12px;\n}\n.acu-agent-advanced__section[data-v-8770567d] { gap: 10px; padding: 10px;\n}\n.acu-agent-advanced__grid[data-v-8770567d] { grid-template-columns: minmax(0, 1fr);\n}\n.acu-agent-advanced__section-head[data-v-8770567d],\r\n  .acu-agent-advanced__prompt-head[data-v-8770567d] { flex-direction: column; align-items: stretch;\n}\n}\n@media (max-width: 420px) {\n.acu-agent-advanced__section[data-v-8770567d] { padding: 8px;\n}\n}\r\n", "src/presentation-v2/components/WorldbookAgentAdvancedPanel.vue#style-0-8770567d");
 var WorldbookAgentAdvancedPanel_vue_vue_type_style_index_0_scoped_8770567d_lang = null;
 
-const _hoisted_1$w = { class: "acu-agent-advanced" };
+const _hoisted_1$x = { class: "acu-agent-advanced" };
 const _hoisted_2$u = { class: "acu-agent-advanced__section" };
 const _hoisted_3$r = { class: "acu-agent-advanced__section-head" };
 const _hoisted_4$p = { class: "acu-agent-advanced__section" };
@@ -183837,7 +183837,7 @@ const _hoisted_15$c = { class: "acu-agent-advanced__prompt-scope" };
 const _hoisted_16$b = { class: "acu-agent-advanced__prompt-actions" };
 const _hoisted_17$a = { class: "acu-agent-advanced__prompt-head" };
 const _hoisted_18$a = { class: "acu-agent-advanced__prompt-head" };
-function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.open,
 		title: $setup.plotCopy.agentControl.advanced.title,
@@ -183845,7 +183845,7 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 		"before-close": $setup.confirmClose,
 		onClose: _cache[10] || (_cache[10] = ($event) => _ctx.$emit("close"))
 	}, {
-		default: withCtx(() => [createBaseVNode("div", _hoisted_1$w, [
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$x, [
 			createVNode($setup["AcuMessage"], { kind: "info" }, {
 				default: withCtx(() => [createTextVNode(
 					toDisplayString($setup.plotCopy.agentControl.advanced.description),
@@ -184154,9 +184154,9 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open", "title"]);
 }
-var WorldbookAgentAdvancedPanel = /* @__PURE__ */ _export_sfc(_sfc_main$w, [["render", _sfc_render$w], ["__scopeId", "data-v-8770567d"]]);
+var WorldbookAgentAdvancedPanel = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$x], ["__scopeId", "data-v-8770567d"]]);
 
-var _sfc_main$v = /*@__PURE__*/ defineComponent({
+var _sfc_main$w = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookAgentControlBar',
     props: {
         agentControl: {}
@@ -184204,7 +184204,7 @@ var _sfc_main$v = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-agent-wb-control[data-v-93ce9dd1] { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%; box-sizing: border-box; padding: 10px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2);\n}\n.acu-v2-agent-wb-control__head[data-v-93ce9dd1] { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; min-width: 0; max-width: 100%;\n}\n.acu-v2-agent-wb-control__title[data-v-93ce9dd1] { font-size: var(--acu-font-size-body-lg, 13px); font-weight: 600; color: var(--acu-text-1);\n}\n.acu-v2-agent-wb-control__desc[data-v-93ce9dd1] { margin: 3px 0 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3); line-height: 1.5;\n}\n.acu-v2-agent-wb-control__body[data-v-93ce9dd1] { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%;\n}\n.acu-v2-agent-wb-control__config-source[data-v-93ce9dd1] { flex: 1 1 100%; min-width: 0; margin: 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3); line-height: 1.5; overflow-wrap: anywhere;\n}\n.acu-v2-agent-wb-control__api-selects[data-v-93ce9dd1] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 1 1 380px; min-width: 0; max-width: 100%;\n}\n.acu-v2-agent-wb-control__actions[data-v-93ce9dd1] { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%;\n}\n@media (max-width: 720px) {\n.acu-v2-agent-wb-control__api-selects[data-v-93ce9dd1] { flex-basis: 100%; grid-template-columns: minmax(0, 1fr);\n}\n}\n@media (max-width: 480px) {\n.acu-v2-agent-wb-control__actions[data-v-93ce9dd1] { width: 100%;\n}\n.acu-v2-agent-wb-control__actions[data-v-93ce9dd1] .acu-btn { flex: 1 1 100%;\n}\n}\r\n", "src/presentation-v2/components/WorldbookAgentControlBar.vue#style-0-93ce9dd1");
 var WorldbookAgentControlBar_vue_vue_type_style_index_0_scoped_93ce9dd1_lang = null;
 
-const _hoisted_1$v = { class: "acu-v2-agent-wb-control" };
+const _hoisted_1$w = { class: "acu-v2-agent-wb-control" };
 const _hoisted_2$t = { class: "acu-v2-agent-wb-control__head" };
 const _hoisted_3$q = { class: "acu-v2-agent-wb-control__title" };
 const _hoisted_4$o = { class: "acu-v2-agent-wb-control__desc" };
@@ -184212,8 +184212,8 @@ const _hoisted_5$m = { class: "acu-v2-agent-wb-control__body" };
 const _hoisted_6$l = { class: "acu-v2-agent-wb-control__config-source" };
 const _hoisted_7$j = { class: "acu-v2-agent-wb-control__api-selects" };
 const _hoisted_8$h = { class: "acu-v2-agent-wb-control__actions" };
-function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$v, [
+function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$w, [
 		createBaseVNode("div", _hoisted_2$t, [createBaseVNode("div", null, [createBaseVNode(
 			"div",
 			_hoisted_3$q,
@@ -184370,7 +184370,7 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 		}, null, 8, ["open", "agent-control"])
 	]);
 }
-var WorldbookAgentControlBar = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$v], ["__scopeId", "data-v-93ce9dd1"]]);
+var WorldbookAgentControlBar = /* @__PURE__ */ _export_sfc(_sfc_main$w, [["render", _sfc_render$w], ["__scopeId", "data-v-93ce9dd1"]]);
 
 function getEntryLabel_ACU(entry) {
     return buildWorldbookEntryDisplayLabel_ACU(String(entry?.comment || entry?.name || ''), entry?.uid);
@@ -185416,7 +185416,7 @@ function usePlotWorldbookAgentControl() {
     };
 }
 
-var _sfc_main$u = /*@__PURE__*/ defineComponent({
+var _sfc_main$v = /*@__PURE__*/ defineComponent({
     __name: 'AgentPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -185569,7 +185569,7 @@ var _sfc_main$u = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-agent-page[data-v-91d51439] { min-height: 100%; min-width: 0; padding: 20px; display: flex; flex-direction: column; gap: 18px;\n}\n.acu-v2-agent-page__hint[data-v-91d51439] { margin: 12px 0 0; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-agent-page__hint strong[data-v-91d51439] { color: var(--acu-text-1); font-weight: 500;\n}\n.acu-v2-agent-page__editing[data-v-91d51439] {\r\n  margin-top: 16px;\r\n  padding-top: 14px;\r\n  border-top: 1px solid rgba(128, 128, 128, 0.25);\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-agent-page__editing-title[data-v-91d51439] { margin: 0; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-1);\n}\n.acu-v2-agent-page__editing-hint[data-v-91d51439] { margin: 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\n}\n.acu-v2-agent-page__editing-actions[data-v-91d51439] { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;\n}\n.acu-v2-agent-page__editing-count[data-v-91d51439] {\r\n  margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 10px;\r\n  background: color-mix(in srgb, var(--acu-accent) 18%, transparent);\r\n  color: var(--acu-accent);\n}\n@media (max-width: 860px) {\n.acu-v2-agent-page[data-v-91d51439] { padding: 14px;\n}\n}\r\n", "src/presentation-v2/pages/AgentPage.vue#style-0-91d51439");
 var AgentPage_vue_vue_type_style_index_0_scoped_91d51439_lang = null;
 
-const _hoisted_1$u = { class: "acu-v2-agent-page" };
+const _hoisted_1$v = { class: "acu-v2-agent-page" };
 const _hoisted_2$s = { class: "acu-v2-agent-page__hint" };
 const _hoisted_3$p = { class: "acu-v2-agent-page__editing" };
 const _hoisted_4$n = { class: "acu-v2-agent-page__editing-actions" };
@@ -185585,8 +185585,8 @@ const _hoisted_7$i = {
 	key: 0,
 	class: "acu-v2-agent-page__editing-count"
 };
-function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$u, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-agent-page__grid" }, {
+function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$v, [createVNode($setup["AcuPanelGrid"], { class: "acu-v2-agent-page__grid" }, {
 		default: withCtx(() => [createVNode($setup["AcuPanel"], {
 			title: "Agent 世界书",
 			description: "独立管理 Agent 的世界书范围、Skill 元数据和接管状态。"
@@ -185756,10 +185756,10 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$u], ["__scopeId", "data-v-91d51439"]]);
+var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$v], ["__scopeId", "data-v-91d51439"]]);
 
 const FOLD_VISIBLE_STEP_ACU = 40;
-var _sfc_main$t = /*@__PURE__*/ defineComponent({
+var _sfc_main$u = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationSessionFeed',
     props: {
         entries: {},
@@ -185843,7 +185843,7 @@ var _sfc_main$t = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\r\n/* 纵向列表必须用 flex 列而不是 grid：容器带 max-height 时 grid 会把行压缩到最小贡献，\r\n   而卡片（overflow: hidden）的最小贡献是 0——条目会被纵向压扁成一条条细线。\r\n   flex 列 + 子项 flex: none 保证每个条目始终保持内容高度，超出部分滚动。 */\n.acu-v2-session-feed[data-v-bd74315f] { display: flex; flex-direction: column; gap: 6px; max-height: 460px; overflow-y: auto; padding: 12px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 20%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--acu-bg-2) 60%, transparent);\n}\n.acu-v2-session-feed[data-v-bd74315f] > * { flex: 0 0 auto;\n}\n.acu-v2-session-feed__empty[data-v-bd74315f] { margin: 0; padding: 18px 8px; color: var(--acu-text-3); text-align: center; font-size: var(--acu-font-size-body, 12px);\n}\r\n\r\n/* 折叠横幅：置于列表顶部，提示还有多少更早消息被折叠 */\n.acu-v2-session-feed__fold[data-v-bd74315f] { padding: 6px 10px; border: 1px dashed color-mix(in srgb, var(--acu-text-3) 40%, transparent); border-radius: 8px; background: transparent; color: var(--acu-text-3); font: inherit; font-size: var(--acu-font-size-caption, 11px); cursor: pointer; text-align: center;\n}\n.acu-v2-session-feed__fold[data-v-bd74315f]:hover { color: var(--acu-text-2); border-color: color-mix(in srgb, var(--acu-text-3) 60%, transparent);\n}\r\n\r\n/* 运行分隔条 */\n.acu-v2-session-feed__run-divider[data-v-bd74315f] { display: flex; align-items: center; gap: 8px; padding: 4px 2px; margin-top: 4px;\n}\n.acu-v2-session-feed__run-divider[data-v-bd74315f]::after { content: ''; flex: 1; height: 1px; background: color-mix(in srgb, var(--acu-text-3) 24%, transparent);\n}\n.acu-v2-session-feed__run-divider-badge[data-v-bd74315f] { flex: none; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--acu-primary, #5b8def) 18%, transparent); color: var(--acu-primary, #5b8def); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-session-feed__run-divider-title[data-v-bd74315f] { color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\r\n\r\n/* 用户消息气泡 */\n.acu-v2-session-feed__user[data-v-bd74315f] { display: flex; justify-content: flex-end; padding: 4px 2px;\n}\n.acu-v2-session-feed__user-bubble[data-v-bd74315f] { max-width: 82%; padding: 7px 11px; border-radius: 10px 10px 2px 10px; background: color-mix(in srgb, var(--acu-primary, #5b8def) 16%, var(--acu-bg-2)); border: 1px solid color-mix(in srgb, var(--acu-primary, #5b8def) 28%, transparent);\n}\n.acu-v2-session-feed__user-text[data-v-bd74315f] { margin: 0; color: var(--acu-text-1); font-size: var(--acu-font-size-body-lg, 13px); white-space: pre-wrap; word-break: break-word;\n}\n.acu-v2-session-feed__user-bubble .acu-v2-session-feed__time[data-v-bd74315f] { display: block; margin: 3px 0 0; text-align: right;\n}\r\n\r\n/* 思考条目 */\n.acu-v2-session-feed__thought[data-v-bd74315f] { padding: 2px 4px 2px 10px; border-left: 2px solid color-mix(in srgb, var(--acu-text-3) 30%, transparent);\n}\n.acu-v2-session-feed__thought-label[data-v-bd74315f] { color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-session-feed__thought-text[data-v-bd74315f] { margin: 2px 0 0; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px); font-style: italic; white-space: pre-wrap; word-break: break-word;\n}\r\n\r\n/* 工具调用卡片 */\n.acu-v2-session-feed__card[data-v-bd74315f] { border: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent); border-radius: 8px; background: var(--acu-bg-2); animation: acu-v2-session-feed-in-bd74315f 0.18s ease-out; overflow: hidden;\n}\n.acu-v2-session-feed__card--delegation[data-v-bd74315f], .acu-v2-session-feed__card--outline_op[data-v-bd74315f], .acu-v2-session-feed__card--protocol_retry[data-v-bd74315f] { margin-left: 16px;\n}\n.acu-v2-session-feed__card--finalize[data-v-bd74315f], .acu-v2-session-feed__card--run_completed[data-v-bd74315f] { border-left: 3px solid color-mix(in srgb, var(--acu-success, #4fa36c) 75%, transparent); background: color-mix(in srgb, var(--acu-success, #4fa36c) 7%, var(--acu-bg-2));\n}\n.acu-v2-session-feed__card--failed[data-v-bd74315f] { border-left: 3px solid color-mix(in srgb, var(--acu-danger, #d65b5b) 75%, transparent); background: color-mix(in srgb, var(--acu-danger, #d65b5b) 6%, var(--acu-bg-2));\n}\n.acu-v2-session-feed__card--running[data-v-bd74315f] { border-left: 3px solid color-mix(in srgb, var(--acu-primary, #5b8def) 60%, transparent);\n}\r\n/* 交接报告：琥珀色标出「AI 可见性边界」，与成功/失败/进行中的语义色区分 */\n.acu-v2-session-feed__card--handoff[data-v-bd74315f] { border-left: 3px solid color-mix(in srgb, #c9963e 75%, transparent); background: color-mix(in srgb, #c9963e 7%, var(--acu-bg-2));\n}\n.acu-v2-session-feed__card-head[data-v-bd74315f] { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: none; background: transparent; cursor: pointer; text-align: left; font: inherit; color: inherit;\n}\n.acu-v2-session-feed__status[data-v-bd74315f] { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px;\n}\n.acu-v2-session-feed__status--done[data-v-bd74315f] { background: color-mix(in srgb, var(--acu-success, #4fa36c) 20%, transparent); color: var(--acu-success, #4fa36c);\n}\n.acu-v2-session-feed__status--failed[data-v-bd74315f] { background: color-mix(in srgb, var(--acu-danger, #d65b5b) 20%, transparent); color: var(--acu-danger, #d65b5b);\n}\n.acu-v2-session-feed__status--running[data-v-bd74315f] { background: transparent;\n}\n.acu-v2-session-feed__spinner[data-v-bd74315f] { width: 12px; height: 12px; border: 2px solid color-mix(in srgb, var(--acu-primary, #5b8def) 30%, transparent); border-top-color: var(--acu-primary, #5b8def); border-radius: 50%; animation: acu-v2-session-feed-spin-bd74315f 0.8s linear infinite;\n}\n.acu-v2-session-feed__badge[data-v-bd74315f] { flex: none; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--acu-text-3) 18%, transparent); color: var(--acu-text-2); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-session-feed__title[data-v-bd74315f] { color: var(--acu-text-1); font-size: var(--acu-font-size-body-lg, 13px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n}\n.acu-v2-session-feed__time[data-v-bd74315f] { margin-left: auto; flex: none; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-session-feed__chevron[data-v-bd74315f] { flex: none; color: var(--acu-text-3); font-size: 10px; transition: transform 0.15s ease;\n}\n.acu-v2-session-feed__chevron--open[data-v-bd74315f] { transform: rotate(180deg);\n}\n.acu-v2-session-feed__preview[data-v-bd74315f] { margin: 0; padding: 0 10px 7px 34px; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;\n}\n.acu-v2-session-feed__detail[data-v-bd74315f] { margin: 0; padding: 0 10px 8px 34px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap; word-break: break-word;\n}\n.acu-v2-session-feed__running[data-v-bd74315f] { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-session-feed__pulse[data-v-bd74315f] { width: 8px; height: 8px; border-radius: 50%; background: var(--acu-primary, #5b8def); animation: acu-v2-session-feed-pulse-bd74315f 1.1s ease-in-out infinite;\n}\r\n/* 手机窄屏：高度跟随视口而不是固定 460px；层级缩进与详情缩进收窄，\r\n   横向空间留给正文；用户气泡放宽到近整行。 */\n@media (max-width: 640px) {\n.acu-v2-session-feed[data-v-bd74315f] { max-height: 62vh; padding: 8px;\n}\n.acu-v2-session-feed__card--delegation[data-v-bd74315f], .acu-v2-session-feed__card--outline_op[data-v-bd74315f], .acu-v2-session-feed__card--protocol_retry[data-v-bd74315f] { margin-left: 8px;\n}\n.acu-v2-session-feed__card-head[data-v-bd74315f] { padding: 7px 8px; gap: 6px;\n}\n.acu-v2-session-feed__preview[data-v-bd74315f] { padding: 0 8px 7px 12px;\n}\n.acu-v2-session-feed__detail[data-v-bd74315f] { padding: 0 8px 8px 12px;\n}\n.acu-v2-session-feed__user-bubble[data-v-bd74315f] { max-width: 94%;\n}\n}\n@keyframes acu-v2-session-feed-in-bd74315f {\nfrom { opacity: 0; transform: translateY(4px);\n}\nto { opacity: 1; transform: none;\n}\n}\n@keyframes acu-v2-session-feed-pulse-bd74315f {\n0%, 100% { opacity: 0.35;\n}\n50% { opacity: 1;\n}\n}\n@keyframes acu-v2-session-feed-spin-bd74315f {\nto { transform: rotate(360deg);\n}\n}\r\n", "src/presentation-v2/components/ContinuationSessionFeed.vue#style-0-bd74315f");
 var ContinuationSessionFeed_vue_vue_type_style_index_0_scoped_bd74315f_lang = null;
 
-const _hoisted_1$t = {
+const _hoisted_1$u = {
 	ref: "feedElement",
 	class: "acu-v2-session-feed"
 };
@@ -185885,10 +185885,10 @@ const _hoisted_21$7 = {
 	key: 2,
 	class: "acu-v2-session-feed__running"
 };
-function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
-		_hoisted_1$t,
+		_hoisted_1$u,
 		[
 			!$props.entries.length ? (openBlock(), createElementBlock("p", _hoisted_2$r, " 还没有运行记录。发送一条指令后，主 Agent 的思考、派工、大纲操作与交付过程会实时显示在这里。 ")) : createCommentVNode("v-if", true),
 			$setup.hiddenCount > 0 ? (openBlock(), createElementBlock(
@@ -186073,9 +186073,9 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_PATCH */
 	);
 }
-var ContinuationSessionFeed = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$t], ["__scopeId", "data-v-bd74315f"]]);
+var ContinuationSessionFeed = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$u], ["__scopeId", "data-v-bd74315f"]]);
 
-var _sfc_main$s = /*@__PURE__*/ defineComponent({
+var _sfc_main$t = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationChat',
     props: {
         task: {},
@@ -186158,7 +186158,7 @@ var _sfc_main$s = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-continuation-chat[data-v-e97ab1a7] { display: grid; gap: 10px;\n}\n.acu-v2-continuation-chat__status[data-v-e97ab1a7] { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-continuation-chat__badge[data-v-e97ab1a7] { padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--acu-text-3) 18%, transparent); color: var(--acu-text-2);\n}\n.acu-v2-continuation-chat__badge--running[data-v-e97ab1a7] { background: color-mix(in srgb, var(--acu-primary, #5b8def) 20%, transparent); color: var(--acu-primary, #5b8def);\n}\n.acu-v2-continuation-chat__badge--failed[data-v-e97ab1a7] { background: color-mix(in srgb, var(--acu-danger, #d65b5b) 18%, transparent); color: var(--acu-danger, #d65b5b);\n}\n.acu-v2-continuation-chat__status-item[data-v-e97ab1a7] { color: var(--acu-text-3);\n}\n.acu-v2-continuation-chat__notice[data-v-e97ab1a7] { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap;\n}\n.acu-v2-continuation-chat__composer[data-v-e97ab1a7] { display: grid; gap: 8px; padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 22%, transparent); border-radius: 8px; background: var(--acu-bg-2);\n}\n.acu-v2-continuation-chat__input[data-v-e97ab1a7] { width: 100%; box-sizing: border-box; resize: vertical; min-height: 62px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 24%, transparent); border-radius: 6px; background: var(--acu-bg-1, var(--acu-bg-2)); color: var(--acu-text-1); font: inherit; font-size: var(--acu-font-size-body-lg, 13px);\n}\n.acu-v2-continuation-chat__input[data-v-e97ab1a7]:focus { outline: none; border-color: color-mix(in srgb, var(--acu-primary, #5b8def) 60%, transparent);\n}\n.acu-v2-continuation-chat__composer-actions[data-v-e97ab1a7] { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;\n}\n.acu-v2-continuation-chat__hint[data-v-e97ab1a7] { margin-right: auto; color: var(--acu-text-3); font-size: var(--acu-font-size-caption, 11px);\n}\r\n\r\n/* 手机窄屏：快捷键提示没有意义直接隐藏；按钮均分整行方便点按；\r\n   输入框字号提到 16px，避免 iOS Safari 聚焦时自动放大页面。 */\n@media (max-width: 640px) {\n.acu-v2-continuation-chat__hint[data-v-e97ab1a7] { display: none;\n}\n.acu-v2-continuation-chat__composer-actions[data-v-e97ab1a7] > * { flex: 1 1 auto;\n}\n.acu-v2-continuation-chat__input[data-v-e97ab1a7] { font-size: 16px; min-height: 56px;\n}\n.acu-v2-continuation-chat__composer[data-v-e97ab1a7] { padding: 8px;\n}\n}\r\n", "src/presentation-v2/components/ContinuationChat.vue#style-0-e97ab1a7");
 var ContinuationChat_vue_vue_type_style_index_0_scoped_e97ab1a7_lang = null;
 
-const _hoisted_1$s = { class: "acu-v2-continuation-chat" };
+const _hoisted_1$t = { class: "acu-v2-continuation-chat" };
 const _hoisted_2$q = { class: "acu-v2-continuation-chat__status" };
 const _hoisted_3$n = { class: "acu-v2-continuation-chat__status-item" };
 const _hoisted_4$l = { class: "acu-v2-continuation-chat__status-item" };
@@ -186175,8 +186175,8 @@ const _hoisted_8$f = { class: "acu-v2-continuation-chat__composer" };
 const _hoisted_9$e = ["value", "placeholder"];
 const _hoisted_10$e = { class: "acu-v2-continuation-chat__composer-actions" };
 const _hoisted_11$e = { class: "acu-v2-continuation-chat__hint" };
-function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$s, [
+function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$t, [
 		createBaseVNode("div", _hoisted_2$q, [
 			createBaseVNode(
 				"span",
@@ -186264,9 +186264,9 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 		}, 8, ["disabled"]))])])
 	]);
 }
-var ContinuationChat = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["render", _sfc_render$s], ["__scopeId", "data-v-e97ab1a7"]]);
+var ContinuationChat = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$t], ["__scopeId", "data-v-e97ab1a7"]]);
 
-var _sfc_main$r = /*@__PURE__*/ defineComponent({
+var _sfc_main$s = /*@__PURE__*/ defineComponent({
     __name: 'UserRequirementsEditor',
     props: {
         items: {},
@@ -186298,7 +186298,7 @@ var _sfc_main$r = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-requirements-editor[data-v-d1e1d49a] { display: grid; gap: 10px;\n}\n.acu-requirements-editor__hint[data-v-d1e1d49a] { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-requirements-editor__row[data-v-d1e1d49a] { display: grid; gap: 6px; padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 20%, transparent); border-radius: 7px;\n}\n.acu-requirements-editor__row label[data-v-d1e1d49a] { color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-requirements-editor__row button[data-v-d1e1d49a] { justify-self: end;\n}\n.acu-requirements-editor__actions[data-v-d1e1d49a] { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;\n}\n.acu-requirements-editor__spacer[data-v-d1e1d49a] { flex: 1;\n}\n.acu-requirements-editor__error[data-v-d1e1d49a] { margin: 0; color: var(--acu-danger, #d65b5b); font-size: var(--acu-font-size-body, 12px);\n}\r\n", "src/presentation-v2/components/UserRequirementsEditor.vue#style-0-d1e1d49a");
 var UserRequirementsEditor_vue_vue_type_style_index_0_scoped_d1e1d49a_lang = null;
 
-const _hoisted_1$r = {
+const _hoisted_1$s = {
 	class: "acu-requirements-editor",
 	"aria-label": "用户要求编辑"
 };
@@ -186309,8 +186309,8 @@ const _hoisted_4$k = {
 	role: "alert",
 	class: "acu-requirements-editor__error"
 };
-function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$r, [
+function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$s, [
 		_cache[8] || (_cache[8] = createBaseVNode(
 			"p",
 			{ class: "acu-requirements-editor__hint" },
@@ -186411,7 +186411,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 		)) : createCommentVNode("v-if", true)
 	]);
 }
-var UserRequirementsEditor = /* @__PURE__ */ _export_sfc(_sfc_main$r, [["render", _sfc_render$r], ["__scopeId", "data-v-d1e1d49a"]]);
+var UserRequirementsEditor = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["render", _sfc_render$s], ["__scopeId", "data-v-d1e1d49a"]]);
 
 /** 用户可分模块编辑的资料。schemaVersion / settledThroughIndex 等运行时字段不进草稿。 */
 const CONTINUATION_MATERIAL_MODULES_ACU = ['hooks', 'infoGap', 'constraints', 'storyArc', 'chronology', 'webRefs', 'userRequirements'];
@@ -186617,7 +186617,7 @@ function buildMaterialCompletionCards_ACU(input) {
     });
 }
 
-var _sfc_main$q = /*@__PURE__*/ defineComponent({
+var _sfc_main$r = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationMaterialsPanel',
     props: {
         task: {},
@@ -186862,7 +186862,7 @@ var _sfc_main$q = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-continuation-materials[data-v-3eeb1326] { display: grid; gap: 12px;\n}\n.acu-v2-continuation-materials__tabs[data-v-3eeb1326] { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;\n}\n.acu-v2-continuation-materials__tab[data-v-3eeb1326] { padding: 5px 12px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 22%, transparent); border-radius: 999px; background: transparent; color: var(--acu-text-2); cursor: pointer; font: inherit; font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__tab--active[data-v-3eeb1326] { border-color: color-mix(in srgb, var(--acu-primary, #5b8def) 55%, transparent); background: color-mix(in srgb, var(--acu-primary, #5b8def) 14%, transparent); color: var(--acu-text-1);\n}\n.acu-v2-continuation-materials__tab-actions[data-v-3eeb1326] { display: flex; gap: 6px; margin-left: auto;\n}\n.acu-v2-continuation-materials__confirm[data-v-3eeb1326] { margin: 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-danger, #d65b5b) 40%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--acu-danger, #d65b5b) 7%, transparent); color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__confirm-actions[data-v-3eeb1326] { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle;\n}\n.acu-v2-continuation-materials__outline[data-v-3eeb1326] { display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__empty[data-v-3eeb1326] { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__meta[data-v-3eeb1326] { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap;\n}\n.acu-v2-continuation-materials__error[data-v-3eeb1326] { margin: 0; color: var(--acu-danger, #d65b5b); white-space: pre-wrap; font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__actions[data-v-3eeb1326] { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;\n}\n.acu-v2-continuation-materials__repair-options[data-v-3eeb1326] { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__repair-options label[data-v-3eeb1326] { display: inline-flex; align-items: center; gap: 5px; cursor: pointer;\n}\n.acu-v2-continuation-materials__block[data-v-3eeb1326] { padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 20%, transparent); border-radius: 6px; display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__block > summary[data-v-3eeb1326] { cursor: pointer; color: var(--acu-text-1);\n}\n.acu-v2-continuation-materials__block--current[data-v-3eeb1326] { border-color: color-mix(in srgb, var(--acu-primary, #5b8def) 45%, transparent);\n}\n.acu-v2-continuation-materials__list[data-v-3eeb1326] { display: flex; flex-direction: column; gap: 6px; padding-left: 22px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__outline-summary[data-v-3eeb1326], .acu-v2-continuation-materials__outline-node[data-v-3eeb1326] { padding: 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent); border-radius: 6px; display: grid; gap: 5px;\n}\n.acu-v2-continuation-materials__outline-heading[data-v-3eeb1326] { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--acu-text-1); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__outline-nodes[data-v-3eeb1326] { display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__turns[data-v-3eeb1326] { display: grid; gap: 5px; margin: 0; padding-left: 22px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__turns > li[data-v-3eeb1326] { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;\n}\n.acu-v2-continuation-materials__turn--done[data-v-3eeb1326] { color: var(--acu-text-3);\n}\n.acu-v2-continuation-materials__turn--current[data-v-3eeb1326] { padding: 5px 7px; margin-left: -7px; border-radius: 4px; background: color-mix(in srgb, var(--acu-primary, #5b8def) 14%, transparent); color: var(--acu-text-1);\n}\n.acu-v2-continuation-materials__turn--planned[data-v-3eeb1326] { color: var(--acu-text-2);\n}\n.acu-v2-continuation-materials__cards[data-v-3eeb1326] { display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__card[data-v-3eeb1326] { padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 16%, transparent); border-radius: 6px; display: grid; gap: 4px;\n}\n.acu-v2-continuation-materials__card--failed[data-v-3eeb1326] { border-left: 3px solid color-mix(in srgb, var(--acu-danger, #d65b5b) 75%, transparent);\n}\n.acu-v2-continuation-materials__card--retired[data-v-3eeb1326] { opacity: 0.55;\n}\n.acu-v2-continuation-materials__card > summary.acu-v2-continuation-materials__card-head[data-v-3eeb1326] { cursor: pointer; list-style: none;\n}\n.acu-v2-continuation-materials__card-meta a[data-v-3eeb1326] { color: inherit; word-break: break-all;\n}\n.acu-v2-continuation-materials__card-head[data-v-3eeb1326] { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--acu-text-1); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__card-body[data-v-3eeb1326] { margin: 0; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap;\n}\n.acu-v2-continuation-materials__card-meta[data-v-3eeb1326] { margin: 0; color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap;\n}\n.acu-v2-continuation-materials__badge[data-v-3eeb1326] { padding: 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 30%, transparent); color: var(--acu-text-2); font-size: 11px;\n}\n.acu-v2-continuation-materials__badge--primary[data-v-3eeb1326] { border-color: color-mix(in srgb, var(--acu-primary, #5b8def) 55%, transparent); color: var(--acu-text-1); background: color-mix(in srgb, var(--acu-primary, #5b8def) 12%, transparent);\n}\n.acu-v2-continuation-materials__badge--muted[data-v-3eeb1326] { opacity: 0.8;\n}\n.acu-v2-continuation-materials__json[data-v-3eeb1326] { display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__json > summary[data-v-3eeb1326] { cursor: pointer; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-materials__history[data-v-3eeb1326] { display: grid; gap: 8px;\n}\n.acu-v2-continuation-materials__history-revision[data-v-3eeb1326] { padding: 8px; border-left: 2px solid color-mix(in srgb, var(--acu-text-3) 28%, transparent);\n}\r\n\r\n/* 手机窄屏：刷新/清空按钮换到独立一行靠右，避免和页签挤成两行半。 */\n@media (max-width: 640px) {\n.acu-v2-continuation-materials__tab-actions[data-v-3eeb1326] { margin-left: 0; width: 100%; justify-content: flex-end;\n}\n.acu-v2-continuation-materials__confirm-actions[data-v-3eeb1326] { display: flex; margin: 8px 0 0;\n}\n}\r\n", "src/presentation-v2/components/ContinuationMaterialsPanel.vue#style-0-3eeb1326");
 var ContinuationMaterialsPanel_vue_vue_type_style_index_0_scoped_3eeb1326_lang = null;
 
-const _hoisted_1$q = { class: "acu-v2-continuation-materials" };
+const _hoisted_1$r = { class: "acu-v2-continuation-materials" };
 const _hoisted_2$o = { class: "acu-v2-continuation-materials__tabs" };
 const _hoisted_3$l = ["onClick"];
 const _hoisted_4$j = { class: "acu-v2-continuation-materials__tab-actions" };
@@ -187197,8 +187197,8 @@ const _hoisted_149 = {
 	class: "acu-v2-continuation-materials__error"
 };
 const _hoisted_150 = { class: "acu-v2-continuation-materials__actions" };
-function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$q, [
+function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$r, [
 		createBaseVNode("div", _hoisted_2$o, [(openBlock(), createElementBlock(
 			Fragment,
 			null,
@@ -188852,7 +188852,7 @@ function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
 		)) : createCommentVNode("v-if", true)
 	]);
 }
-var ContinuationMaterialsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$q, [["render", _sfc_render$q], ["__scopeId", "data-v-3eeb1326"]]);
+var ContinuationMaterialsPanel = /* @__PURE__ */ _export_sfc(_sfc_main$r, [["render", _sfc_render$r], ["__scopeId", "data-v-3eeb1326"]]);
 
 /** 连续高压轮上限的可配置上界。页面是 .vue，不能直接 import 服务层常量，由本组合式函数中转。 */
 const CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_UI_ACU = CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU;
@@ -189478,7 +189478,7 @@ function useContinuationSession() {
 }
 
 const INHERIT_CHANNEL_VALUE = '__inherit__';
-var _sfc_main$p = /*@__PURE__*/ defineComponent({
+var _sfc_main$q = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -190140,7 +190140,7 @@ var _sfc_main$p = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-continuation-page[data-v-dde556d6] { min-height: 100%; padding: 20px; display: grid; gap: 18px;\n}\n.acu-v2-continuation-page__layout[data-v-dde556d6] { align-items: start;\n}\n.acu-v2-continuation-page__actions[data-v-dde556d6] { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px;\n}\n.acu-v2-continuation-page__actions--start[data-v-dde556d6] { justify-content: flex-start; margin-top: 0; margin-bottom: 12px;\n}\n.acu-v2-continuation-page__file-input[data-v-dde556d6] { display: none;\n}\n.acu-v2-continuation-page__error[data-v-dde556d6] { color: var(--acu-danger, #d65b5b); white-space: pre-wrap;\n}\n.acu-v2-continuation-page__meta[data-v-dde556d6] { color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px); white-space: pre-wrap;\n}\n.acu-v2-continuation-page__settings-grid[data-v-dde556d6] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start;\n}\n.acu-v2-continuation-page__settings-grid label[data-v-dde556d6] { display: grid; gap: 5px; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-continuation-page__settings-grid select[data-v-dde556d6] { min-height: 30px; border: 1px solid color-mix(in srgb, var(--acu-text-3) 30%, transparent); border-radius: 4px; background: var(--acu-bg-2); color: var(--acu-text-1);\n}\n.acu-v2-continuation-page__toggles[data-v-dde556d6] { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0;\n}\n.acu-v2-continuation-page__groups[data-v-dde556d6] { display: flex; flex-direction: column; gap: 8px; margin-top: 4px;\n}\n.acu-v2-continuation-page__group[data-v-dde556d6] {\r\n  border: 1px solid var(--acu-border, color-mix(in srgb, var(--acu-text-3) 18%, transparent));\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-continuation-page__group[data-v-dde556d6] .acu-disclosure-group__header { border-radius: var(--acu-radius-sm);\n}\n.acu-v2-continuation-page__group[data-v-dde556d6] .acu-disclosure-group__body { gap: 12px; padding: 12px;\n}\n.acu-v2-continuation-page__group[data-v-dde556d6] .acu-disclosure-group__meta { max-width: 55%; overflow: hidden; text-overflow: ellipsis;\n}\n.acu-v2-continuation-page__group .acu-v2-continuation-page__actions[data-v-dde556d6] { margin-top: 0;\n}\n.acu-v2-continuation-page__subheading[data-v-dde556d6] { margin: 4px 0 0; color: var(--acu-text-2); font-size: var(--acu-font-size-body, 12px); font-weight: 600;\n}\n.acu-v2-continuation-page__subheading[data-v-dde556d6]:first-child { margin-top: 0;\n}\n@media (max-width: 860px) {\n.acu-v2-continuation-page[data-v-dde556d6] { padding: 14px;\n}\n}\n@media (max-width: 640px) {\n.acu-v2-continuation-page[data-v-dde556d6] { padding: 10px; gap: 12px;\n}\n.acu-v2-continuation-page__settings-grid[data-v-dde556d6] { grid-template-columns: 1fr;\n}\n.acu-v2-continuation-page__actions[data-v-dde556d6] > * { flex: 1 1 auto;\n}\n.acu-v2-continuation-page__group[data-v-dde556d6] .acu-disclosure-group__meta { display: none;\n}\n}\r\n", "src/presentation-v2/pages/ContinuationPage.vue#style-0-dde556d6");
 var ContinuationPage_vue_vue_type_style_index_0_scoped_dde556d6_lang = null;
 
-const _hoisted_1$p = { class: "acu-v2-continuation-page" };
+const _hoisted_1$q = { class: "acu-v2-continuation-page" };
 const _hoisted_2$n = {
 	key: 0,
 	class: "acu-v2-continuation-page__error"
@@ -190184,8 +190184,8 @@ const _hoisted_23$4 = {
 	key: 2,
 	class: "acu-v2-continuation-page__error"
 };
-function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$p, [
+function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$q, [
 		createVNode($setup["AcuPanel"], {
 			title: "Agent 会话",
 			description: "像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字；更早的持久记录仍保存在聊天中。"
@@ -191212,9 +191212,9 @@ function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
 		})) : createCommentVNode("v-if", true)
 	]);
 }
-var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$p, [["render", _sfc_render$p], ["__scopeId", "data-v-dde556d6"]]);
+var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$q, [["render", _sfc_render$q], ["__scopeId", "data-v-dde556d6"]]);
 
-var _sfc_main$o = /*@__PURE__*/ defineComponent({
+var _sfc_main$p = /*@__PURE__*/ defineComponent({
     __name: 'AcuStatsList',
     props: {
         items: {},
@@ -191231,8 +191231,8 @@ var _sfc_main$o = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-stats[data-v-249ee71c] {\r\n  margin: 0;\r\n  padding: 2px 0 0;\r\n  background: transparent;\r\n  border-radius: 0;\r\n  display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 16px;\n}\n.acu-stats__item[data-v-249ee71c] {\r\n  min-width: 0;\r\n  padding: 8px 0;\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-stats dt[data-v-249ee71c] {\r\n  margin: 0 0 2px; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\n}\n.acu-stats dd[data-v-249ee71c] {\r\n  margin: 0; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-1); word-break: break-all;\n}\n.acu-stats--mono code[data-v-249ee71c] {\r\n  display: inline-block; max-width: 100%;\r\n  font-family: var(--acu-font-mono); font-size: var(--acu-font-size-body, 12px);\r\n  background: transparent; color: var(--acu-text-1);\r\n  padding: 0; border-radius: 0;\n}\n@media (max-width: 720px) {\n.acu-stats[data-v-249ee71c] { grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuStatsList.vue#style-0-249ee71c");
 var AcuStatsList_vue_vue_type_style_index_0_scoped_249ee71c_lang = null;
 
-const _hoisted_1$o = { key: 0 };
-function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$p = { key: 0 };
+function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"dl",
 		{ class: normalizeClass(["acu-stats", { "acu-stats--mono": $props.mono }]) },
@@ -191251,7 +191251,7 @@ function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
 					/* TEXT */
 				), createBaseVNode("dd", null, [renderSlot(_ctx.$slots, item.key ?? item.label, { item }, () => [$props.mono ? (openBlock(), createElementBlock(
 					"code",
-					_hoisted_1$o,
+					_hoisted_1$p,
 					toDisplayString(item.value ?? "—"),
 					1
 					/* TEXT */
@@ -191274,7 +191274,7 @@ function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["render", _sfc_render$o], ["__scopeId", "data-v-249ee71c"]]);
+var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$p, [["render", _sfc_render$p], ["__scopeId", "data-v-249ee71c"]]);
 
 /**
  * 关键词生成提示词填写指南（说明文案）。
@@ -191289,7 +191289,7 @@ const KEYWORD_PROMPT_TUTORIAL = '这里编辑的是「为交火模式生成检�
     + '读不到才回退到「关键词：」前缀；关键词之间用逗号、顿号、分号或换行分隔。'
     + '所以最稳的写法是明确要求 AI「只用 <keywords> 标签输出关键词、不要解释」——'
     + '写成散文会导致关键词被整段当成一个词，检索命中率下降。';
-var _sfc_main$n = /*@__PURE__*/ defineComponent({
+var _sfc_main$o = /*@__PURE__*/ defineComponent({
     __name: 'VectorIndexPromptDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -191327,9 +191327,9 @@ var _sfc_main$n = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-vector-prompt-drawer__toolbar[data-v-37f943f7] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-vector-prompt-drawer__actions[data-v-37f943f7] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/VectorIndexPromptDrawer.vue#style-0-37f943f7");
 var VectorIndexPromptDrawer_vue_vue_type_style_index_0_scoped_37f943f7_lang = null;
 
-const _hoisted_1$n = { class: "acu-vector-prompt-drawer__toolbar" };
+const _hoisted_1$o = { class: "acu-vector-prompt-drawer__toolbar" };
 const _hoisted_2$m = { class: "acu-vector-prompt-drawer__actions" };
-function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: "编辑关键词生成提示词",
@@ -191349,7 +191349,7 @@ function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$n, [createVNode($setup["AcuButton"], {
+			createBaseVNode("div", _hoisted_1$o, [createVNode($setup["AcuButton"], {
 				size: "sm",
 				onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("reset"))
 			}, {
@@ -191394,7 +191394,7 @@ function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var VectorIndexPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["render", _sfc_render$n], ["__scopeId", "data-v-37f943f7"]]);
+var VectorIndexPromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["render", _sfc_render$o], ["__scopeId", "data-v-37f943f7"]]);
 
 const RERANK_BATCH_SIZE_LIMITS = {
     min: VECTOR_RERANK_MIN_BATCH_SIZE_ACU,
@@ -192074,7 +192074,7 @@ const vectorIndexCopy = {
  * 与保留策略不变。
  */
 const SHOW_LEGACY_VECTOR_MAINTENANCE_UI = false;
-var _sfc_main$m = /*@__PURE__*/ defineComponent({
+var _sfc_main$n = /*@__PURE__*/ defineComponent({
     __name: 'VectorIndexPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -192165,7 +192165,7 @@ var _sfc_main$m = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-vector-index-page[data-v-a713618f] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-vector-index-page__panel-stack[data-v-a713618f] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 16px;\n}\n.acu-v2-vector-index-page__number-grid[data-v-a713618f] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));\r\n  gap: 10px;\n}\n.acu-v2-vector-api-form[data-v-a713618f] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n.acu-v2-vector-api-form__section[data-v-a713618f] {\r\n  min-width: 0;\r\n  margin: 0;\r\n  padding: 0 0 18px;\r\n  border: 0;\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\n}\n.acu-v2-vector-api-form__section[data-v-a713618f]:last-of-type {\r\n  padding-bottom: 0;\r\n  border-bottom: 0;\n}\n.acu-v2-vector-api-form__section + .acu-v2-vector-api-form__section[data-v-a713618f] {\r\n  padding-top: 2px;\n}\n.acu-v2-vector-api-form__section legend[data-v-a713618f] {\r\n  width: 100%;\r\n  margin: 0 0 2px;\r\n  padding: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 700;\r\n  line-height: 1.35;\n}\n.acu-v2-vector-api-form__actions[data-v-a713618f] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-vector-index-page__hint[data-v-a713618f] {\r\n  margin: 0;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  color: var(--acu-text-3);\r\n  line-height: 1.55;\n}\n.acu-v2-vector-index-page__maintenance-spacer[data-v-a713618f] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\n}\n.acu-v2-vector-index-page__actions[data-v-a713618f] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-vector-index-page__prompt-actions[data-v-a713618f] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n@media (max-width: 860px) {\n.acu-v2-vector-index-page[data-v-a713618f] {\r\n    padding: 14px;\n}\n}\n.acu-v2-vector-api-form__instruction-textarea[data-v-a713618f] {\r\n  width: 100%;\r\n  min-height: 60px;\r\n  padding: 6px 8px;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 24%, transparent);\r\n  border-radius: 4px;\r\n  background: var(--acu-bg-2, transparent);\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\r\n  resize: vertical;\n}\n.acu-v2-vector-index-page__scope-allowlist[data-v-a713618f] {\r\n  width: 100%;\r\n  min-height: 72px;\r\n  padding: 6px 8px;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 24%, transparent);\r\n  border-radius: 4px;\r\n  background: var(--acu-bg-2, transparent);\r\n  color: var(--acu-text-1);\r\n  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\r\n  font-size: var(--acu-font-size-small, 11px);\r\n  line-height: 1.5;\r\n  resize: vertical;\n}\r\n", "src/presentation-v2/pages/VectorIndexPage.vue#style-0-a713618f");
 var VectorIndexPage_vue_vue_type_style_index_0_scoped_a713618f_lang = null;
 
-const _hoisted_1$m = { class: "acu-v2-vector-index-page" };
+const _hoisted_1$n = { class: "acu-v2-vector-index-page" };
 const _hoisted_2$l = { class: "acu-v2-vector-index-page__panel-stack" };
 const _hoisted_3$j = { class: "acu-v2-vector-index-page__actions" };
 const _hoisted_4$h = { class: "acu-v2-vector-index-page__number-grid" };
@@ -192177,8 +192177,8 @@ const _hoisted_9$b = { class: "acu-v2-vector-index-page__prompt-actions" };
 const _hoisted_10$b = { class: "acu-v2-vector-index-page__number-grid" };
 const _hoisted_11$b = { class: "acu-v2-vector-index-page__number-grid" };
 const _hoisted_12$b = ["value"];
-function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$m, [
+function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$n, [
 		createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }, null, 8, ["items"]),
 		createVNode($setup["AcuPanelGrid"], { class: "acu-v2-vector-index-page__main-grid" }, {
 			default: withCtx(() => [createBaseVNode("div", _hoisted_2$l, [createVNode($setup["AcuPanel"], {
@@ -192772,7 +192772,7 @@ function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_render$m], ["__scopeId", "data-v-a713618f"]]);
+var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["render", _sfc_render$n], ["__scopeId", "data-v-a713618f"]]);
 
 /**
  * useDormantData — 休眠数据可见性与唤醒（S3-4）的 UI 编排。
@@ -192886,7 +192886,7 @@ function useDormantData() {
     };
 }
 
-var _sfc_main$l = /*@__PURE__*/ defineComponent({
+var _sfc_main$m = /*@__PURE__*/ defineComponent({
     __name: 'DormantDataPanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -192916,7 +192916,7 @@ var _sfc_main$l = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-dormant-panel__integrity-title[data-v-7320c0cb] {\r\n  margin: 0 0 4px;\n}\n.acu-v2-dormant-panel__integrity-list[data-v-7320c0cb] {\r\n  margin: 0;\r\n  padding-left: 18px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\n}\n.acu-v2-dormant-panel__empty[data-v-7320c0cb] {\r\n  margin: 0;\r\n  color: var(--acu-color-text-secondary, #8a8f98);\r\n  font-size: 0.9em;\n}\n.acu-v2-dormant-panel__section[data-v-7320c0cb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  margin-bottom: 12px;\n}\n.acu-v2-dormant-panel__section-title[data-v-7320c0cb] {\r\n  margin: 0;\r\n  font-size: 0.95em;\n}\n.acu-v2-dormant-panel__item[data-v-7320c0cb] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 12px;\r\n  padding: 8px 10px;\r\n  border: 1px solid var(--acu-color-border, rgba(128, 128, 128, 0.3));\r\n  border-radius: 6px;\n}\n.acu-v2-dormant-panel__item-main[data-v-7320c0cb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  min-width: 0;\n}\n.acu-v2-dormant-panel__item-name[data-v-7320c0cb] {\r\n  font-size: 0.95em;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-dormant-panel__item-meta[data-v-7320c0cb] {\r\n  font-size: 0.82em;\r\n  color: var(--acu-color-text-secondary, #8a8f98);\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-dormant-panel__item-blocked[data-v-7320c0cb] {\r\n  font-size: 0.82em;\r\n  color: var(--acu-color-warning, #c98a2b);\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-dormant-panel__actions[data-v-7320c0cb] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  margin-top: 4px;\n}\r\n", "src/presentation-v2/components/DormantDataPanel.vue#style-0-7320c0cb");
 var DormantDataPanel_vue_vue_type_style_index_0_scoped_7320c0cb_lang = null;
 
-const _hoisted_1$l = { class: "acu-v2-dormant-panel__integrity-title" };
+const _hoisted_1$m = { class: "acu-v2-dormant-panel__integrity-title" };
 const _hoisted_2$k = { class: "acu-v2-dormant-panel__integrity-list" };
 const _hoisted_3$i = {
 	key: 2,
@@ -192951,7 +192951,7 @@ const _hoisted_12$a = { class: "acu-v2-dormant-panel__item-main" };
 const _hoisted_13$9 = { class: "acu-v2-dormant-panel__item-name" };
 const _hoisted_14$8 = { class: "acu-v2-dormant-panel__item-meta" };
 const _hoisted_15$8 = { class: "acu-v2-dormant-panel__actions" };
-function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		title: "休眠数据",
 		description: "切换模板时未被新模板包含的表和列会进入休眠：数据保留在聊天历史中并跟随 checkpoint 迁移，不参与填表。在这里可以查看并唤醒它们。"
@@ -192974,7 +192974,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 			}, {
 				default: withCtx(() => [createBaseVNode(
 					"p",
-					_hoisted_1$l,
+					_hoisted_1$m,
 					" 休眠完整性自检发现 " + toDisplayString($setup.dormant.integrityIssues.value.length) + " 项问题： ",
 					1
 					/* TEXT */
@@ -193115,7 +193115,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var DormantDataPanel = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$l], ["__scopeId", "data-v-7320c0cb"]]);
+var DormantDataPanel = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_render$m], ["__scopeId", "data-v-7320c0cb"]]);
 
 const dataMgmtCopy = {
     panels: {
@@ -194733,7 +194733,7 @@ function useDataManagement() {
  * 的隔离逻辑不受影响。
  */
 const SHOW_LEGACY_DATA_MGMT_UI = false;
-var _sfc_main$k = /*@__PURE__*/ defineComponent({
+var _sfc_main$l = /*@__PURE__*/ defineComponent({
     __name: 'DataMgmtPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -195049,7 +195049,7 @@ ${floorNote}确认继续？`,
 injectSfcStyle("\n.acu-v2-data-mgmt-page[data-v-57b974e0] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-data-mgmt-page__panel-stack[data-v-57b974e0] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 16px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__form-stack[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__meta[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-data-mgmt-page__cleanup-section[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-data-mgmt-page__sheet-filter[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  padding: 10px 12px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md, 8px);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-data-mgmt-page__sheet-filter-head[data-v-57b974e0] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__sheet-filter-title[data-v-57b974e0] {\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-57b974e0] {\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--acu-accent);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  cursor: pointer;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-57b974e0]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.acu-v2-data-mgmt-page__sheet-filter-list[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));\r\n  gap: 6px 12px;\n}\n.acu-v2-data-mgmt-page__cleanup-section\r\n  + .acu-v2-data-mgmt-page__cleanup-section[data-v-57b974e0] {\r\n  margin-top: 4px;\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border);\n}\n.acu-v2-data-mgmt-page__section-title[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-data-mgmt-page__history[data-v-57b974e0] {\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__history[data-v-57b974e0] .acu-disclosure-group__header {\r\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-data-mgmt-page__history-list[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-data-mgmt-page__history-item[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-data-mgmt-page__history-fill[data-v-57b974e0] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  justify-content: flex-start;\n}\n.acu-v2-data-mgmt-page__history-code[data-v-57b974e0] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-align: left;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__history-current[data-v-57b974e0] {\r\n  flex-shrink: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__history-empty[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-data-mgmt-page__actions[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  justify-content: flex-end;\n}\n.acu-v2-data-mgmt-page__actions[data-v-57b974e0],\r\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__command-grid--cleanup[data-v-57b974e0] {\r\n  margin-top: 12px;\n}\n.acu-v2-data-mgmt-page__checkpoint-section[data-v-57b974e0] {\r\n  margin-top: 16px;\r\n  padding-top: 16px;\r\n  border-top: 1px solid var(--acu-border, rgba(255, 255, 255, 0.12));\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin: 12px 0 0;\n}\n.acu-v2-data-mgmt-page__runtime-health > div[data-v-57b974e0] {\r\n  min-width: 0;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__runtime-health dt[data-v-57b974e0] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__runtime-health dd[data-v-57b974e0] {\r\n  margin: 4px 0 0;\r\n  overflow-wrap: anywhere;\r\n  color: var(--acu-text-1);\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin-top: 10px;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] .acu-file-button,\r\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] .acu-btn { width: 100%; min-width: 0;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] .acu-file-button,\r\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] .acu-btn {\r\n  width: 100%;\r\n  min-width: 0;\n}\n@media (max-width: 860px) {\n.acu-v2-data-mgmt-page[data-v-57b974e0] {\r\n    padding: 14px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n}\n@media (max-width: 560px) {\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/DataMgmtPage.vue#style-0-57b974e0");
 var DataMgmtPage_vue_vue_type_style_index_0_scoped_57b974e0_lang = null;
 
-const _hoisted_1$k = { class: "acu-v2-data-mgmt-page" };
+const _hoisted_1$l = { class: "acu-v2-data-mgmt-page" };
 const _hoisted_2$j = { class: "acu-v2-data-mgmt-page__panel-stack" };
 const _hoisted_3$h = { class: "acu-v2-data-mgmt-page__form-stack" };
 const _hoisted_4$f = {
@@ -195142,8 +195142,8 @@ const _hoisted_36 = ["disabled"];
 const _hoisted_37 = { class: "acu-v2-data-mgmt-page__sheet-filter-list" };
 const _hoisted_38 = { class: "acu-v2-data-mgmt-page__meta" };
 const _hoisted_39 = { class: "acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup" };
-function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$k, [$setup.flow.message.value ? (openBlock(), createBlock($setup["AcuMessage"], {
+function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$l, [$setup.flow.message.value ? (openBlock(), createBlock($setup["AcuMessage"], {
 		key: 0,
 		kind: $setup.flow.message.value.kind
 	}, {
@@ -195881,9 +195881,9 @@ function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$k], ["__scopeId", "data-v-57b974e0"]]);
+var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$l], ["__scopeId", "data-v-57b974e0"]]);
 
-var _sfc_main$j = /*@__PURE__*/ defineComponent({
+var _sfc_main$k = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePresetDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -195902,14 +195902,14 @@ var _sfc_main$j = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-content-replace-preset-drawer__top-actions[data-v-6492496d] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-content-replace-preset-drawer__empty[data-v-6492496d] {\r\n  margin: 12px 0;\n}\n.acu-v2-manage-list[data-v-6492496d] {\r\n  list-style: none;\r\n  margin: 0;\r\n  padding: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-manage-item[data-v-6492496d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 10px;\r\n  padding: 10px 12px;\r\n  border: 0;\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-manage-item[data-v-6492496d]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-manage-item__info[data-v-6492496d] {\r\n  flex: 1;\r\n  min-width: 0;\n}\n.acu-v2-manage-item__name[data-v-6492496d] {\r\n  display: block;\r\n  font-size: var(--acu-font-size-list-title, 13px);\r\n  line-height: var(--acu-line-height-body, 1.45);\r\n  font-weight: 500;\r\n  color: var(--acu-text-1);\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-manage-item__meta[data-v-6492496d] {\r\n  display: block;\r\n  margin-top: 2px;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\r\n  color: var(--acu-text-3);\n}\n.acu-v2-manage-item__actions[data-v-6492496d] {\r\n  display: flex;\r\n  gap: 4px;\n}\r\n", "src/presentation-v2/components/ContentReplacePresetDrawer.vue#style-0-6492496d");
 var ContentReplacePresetDrawer_vue_vue_type_style_index_0_scoped_6492496d_lang = null;
 
-const _hoisted_1$j = { class: "acu-content-replace-preset-drawer__top-actions" };
+const _hoisted_1$k = { class: "acu-content-replace-preset-drawer__top-actions" };
 const _hoisted_2$i = {
 	key: 1,
 	class: "acu-v2-manage-list"
 };
 const _hoisted_3$g = { class: "acu-v2-manage-item__info" };
 const _hoisted_4$e = { class: "acu-v2-manage-item__actions" };
-function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: "管理正文替换预设",
@@ -195928,7 +195928,7 @@ function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$j, [createVNode($setup["AcuButton"], {
+			createBaseVNode("div", _hoisted_1$k, [createVNode($setup["AcuButton"], {
 				variant: "primary",
 				class: "acu-content-replace-preset-drawer__create-btn",
 				onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("create-from-default"))
@@ -196040,7 +196040,7 @@ function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var ContentReplacePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["render", _sfc_render$j], ["__scopeId", "data-v-6492496d"]]);
+var ContentReplacePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$k], ["__scopeId", "data-v-6492496d"]]);
 
 /**
  * 正文替换提示词填写指南（说明文案）。
@@ -196053,7 +196053,7 @@ var ContentReplacePresetDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["ren
 const CONTENT_REPLACE_PROMPT_TUTORIAL = '这里编辑的是「改写当前楼层正文」时发给 AI 的提示词。AI 的回复会被当作改写结果写回楼层，'
     + '所以提示词里要写清改写口径（保留什么、可改什么、输出格式）。'
     + '$CONTENT 是待改写正文本身——它被删掉后运行时不知道该改哪一段，务必保留。';
-var _sfc_main$i = /*@__PURE__*/ defineComponent({
+var _sfc_main$j = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePromptDrawer',
     props: {
         isOpen: { type: Boolean },
@@ -196094,10 +196094,10 @@ var _sfc_main$i = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-content-replace-prompt-drawer__meta[data-v-6567b059] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 6px;\r\n  flex-wrap: wrap;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-content-replace-prompt-drawer__meta code[data-v-6567b059] {\r\n  padding: 2px 5px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-content-replace-prompt-drawer__toolbar[data-v-6567b059] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\n}\n.acu-content-replace-prompt-drawer__actions[data-v-6567b059] {\r\n  position: sticky;\r\n  bottom: -16px;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: 8px;\r\n  padding: 12px 0 0;\r\n  background: var(--acu-bg-1);\n}\r\n", "src/presentation-v2/components/ContentReplacePromptDrawer.vue#style-0-6567b059");
 var ContentReplacePromptDrawer_vue_vue_type_style_index_0_scoped_6567b059_lang = null;
 
-const _hoisted_1$i = { class: "acu-content-replace-prompt-drawer__meta" };
+const _hoisted_1$j = { class: "acu-content-replace-prompt-drawer__meta" };
 const _hoisted_2$h = { class: "acu-content-replace-prompt-drawer__toolbar" };
 const _hoisted_3$f = { class: "acu-content-replace-prompt-drawer__actions" };
-function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuDrawer"], {
 		"is-open": $props.isOpen,
 		title: "编辑正文替换提示词",
@@ -196117,7 +196117,7 @@ function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_1$i, [createBaseVNode(
+			createBaseVNode("div", _hoisted_1$j, [createBaseVNode(
 				"span",
 				null,
 				toDisplayString($props.segments.length) + " 段提示词",
@@ -196170,7 +196170,7 @@ function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open"]);
 }
-var ContentReplacePromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$i, [["render", _sfc_render$i], ["__scopeId", "data-v-6567b059"]]);
+var ContentReplacePromptDrawer = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["render", _sfc_render$j], ["__scopeId", "data-v-6567b059"]]);
 
 const contentReplaceCopy = {
     nav: {
@@ -196811,7 +196811,7 @@ const useContentReplaceStore = defineStore('acu-v2-content-replace', {
     },
 });
 
-var _sfc_main$h = /*@__PURE__*/ defineComponent({
+var _sfc_main$i = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -196959,7 +196959,7 @@ var _sfc_main$h = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-content-replace-page[data-v-c5b64f44] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-content-replace-page__mini-status span[data-v-c5b64f44] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-content-replace-page__number-grid[data-v-c5b64f44],\r\n.acu-v2-content-replace-page__form-grid[data-v-c5b64f44] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\n}\n.acu-v2-content-replace-page__choice-list[data-v-c5b64f44],\r\n.acu-v2-content-replace-page__rule-stack[data-v-c5b64f44] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-content-replace-page__mini-status[data-v-c5b64f44] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 10px;\r\n  padding: 8px 0;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-content-replace-page__mini-status strong[data-v-c5b64f44] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__status-line[data-v-c5b64f44] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  flex-wrap: wrap;\r\n  margin: 0 0 10px;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-content-replace-page__status-line strong[data-v-c5b64f44] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-content-replace-page__badge[data-v-c5b64f44] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  padding: 1px 8px;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  font-weight: 500;\n}\n.acu-v2-content-replace-page__select-row[data-v-c5b64f44] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);\r\n  gap: 6px;\r\n  align-items: stretch;\r\n  min-width: 0;\n}\n.acu-v2-content-replace-page__actions[data-v-c5b64f44] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-content-replace-page__test-output[data-v-c5b64f44] {\r\n  margin: 0;\r\n  max-height: 280px;\r\n  overflow: auto;\r\n  padding: 10px 0;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid\r\n    color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.55;\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n@media (max-width: 860px) {\n.acu-v2-content-replace-page[data-v-c5b64f44] {\r\n    padding: 14px;\n}\n.acu-v2-content-replace-page__number-grid[data-v-c5b64f44],\r\n  .acu-v2-content-replace-page__form-grid[data-v-c5b64f44] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/ContentReplacePage.vue#style-0-c5b64f44");
 var ContentReplacePage_vue_vue_type_style_index_0_scoped_c5b64f44_lang = null;
 
-const _hoisted_1$h = { class: "acu-v2-content-replace-page" };
+const _hoisted_1$i = { class: "acu-v2-content-replace-page" };
 const _hoisted_2$g = { class: "acu-v2-content-replace-page__number-grid" };
 const _hoisted_3$e = { class: "acu-v2-content-replace-page__choice-list" };
 const _hoisted_4$d = { class: "acu-v2-content-replace-page__mini-status" };
@@ -196974,8 +196974,8 @@ const _hoisted_12$8 = {
 	key: 0,
 	class: "acu-v2-content-replace-page__test-output"
 };
-function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$h, [
+function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$i, [
 		createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }),
 		$setup.store.message ? (openBlock(), createBlock($setup["AcuMessage"], {
 			key: 0,
@@ -197357,7 +197357,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 		])
 	]);
 }
-var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-c5b64f44"]]);
+var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$i, [["render", _sfc_render$i], ["__scopeId", "data-v-c5b64f44"]]);
 
 /**
  * useSqlConsole — SQL 控制台业务流编排
@@ -198819,7 +198819,7 @@ const advancedToolsCopy = {
     },
 };
 
-var _sfc_main$g = /*@__PURE__*/ defineComponent({
+var _sfc_main$h = /*@__PURE__*/ defineComponent({
     __name: 'AdvancedToolsPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -198902,7 +198902,7 @@ var _sfc_main$g = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-0ccbee42] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-0ccbee42] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-0ccbee42] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-0ccbee42] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-0ccbee42] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-0ccbee42] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-0ccbee42] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-0ccbee42] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-0ccbee42] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-0ccbee42] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-0ccbee42] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-0ccbee42] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-0ccbee42] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-0ccbee42] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-0ccbee42] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-0ccbee42] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-0ccbee42]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-0ccbee42] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-0ccbee42] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-0ccbee42] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-0ccbee42] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-0ccbee42] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-0ccbee42] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-0ccbee42] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-0ccbee42] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-0ccbee42] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-list[data-v-0ccbee42] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-0ccbee42] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__log-list[data-v-0ccbee42] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-row[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-0ccbee42] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-0ccbee42] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-0ccbee42]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-0ccbee42]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-0ccbee42] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-0ccbee42] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-0ccbee42]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-0ccbee42]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-0ccbee42],\r\n.acu-v2-advanced-tools-page__log-message[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-0ccbee42] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-0ccbee42] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-0ccbee42] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-0ccbee42] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-0ccbee42] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-0ccbee42] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-0ccbee42]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-0ccbee42]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-0ccbee42]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-0ccbee42] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-0ccbee42] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-0ccbee42] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-0ccbee42]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-0ccbee42]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-0ccbee42] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-0ccbee42] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-0ccbee42] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-0ccbee42] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-0ccbee42] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-0ccbee42] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-0ccbee42] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-0ccbee42] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-0ccbee42],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-0ccbee42] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-0ccbee42");
 var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_0ccbee42_lang = null;
 
-const _hoisted_1$g = { class: "acu-v2-advanced-tools-page" };
+const _hoisted_1$h = { class: "acu-v2-advanced-tools-page" };
 const _hoisted_2$f = {
 	class: "acu-v2-advanced-tools-page__quick-actions",
 	"aria-label": "SQL 快捷操作"
@@ -198965,8 +198965,8 @@ const _hoisted_31 = { class: "acu-v2-advanced-tools-page__log-hint-summary" };
 const _hoisted_32 = { class: "acu-v2-advanced-tools-page__log-hint-text" };
 const _hoisted_33 = { class: "acu-v2-advanced-tools-page__log-hint-steps" };
 const _hoisted_34 = { class: "acu-v2-advanced-tools-page__debug-actions" };
-function _sfc_render$g(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("section", _hoisted_1$g, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], {
+function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("section", _hoisted_1$h, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], {
 		class: "acu-v2-advanced-tools-page__tools-grid",
 		"collapse-at": "lg"
 	}, {
@@ -199492,7 +199492,7 @@ function _sfc_render$g(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["render", _sfc_render$g], ["__scopeId", "data-v-0ccbee42"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-0ccbee42"]]);
 
 /**
  * useCapabilityOverview — Developer 页「环境与能力总览」的数据接缝
@@ -199655,7 +199655,7 @@ function useCapabilityOverview() {
     };
 }
 
-var _sfc_main$f = /*@__PURE__*/ defineComponent({
+var _sfc_main$g = /*@__PURE__*/ defineComponent({
     __name: 'CapabilityOverviewPanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -199692,14 +199692,14 @@ var _sfc_main$f = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-capability-overview__actions[data-v-f39848ee] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-2, 8px);\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-capability-overview__section[data-v-f39848ee] {\r\n  margin-top: var(--acu-space-3, 12px);\r\n  min-width: 0;\n}\n.acu-v2-capability-overview__section-title[data-v-f39848ee] {\r\n  margin: 0 0 var(--acu-space-150, 6px);\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-capability-overview__note[data-v-f39848ee] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-150, 6px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-capability-overview__chips[data-v-f39848ee] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-100, 4px);\r\n  margin-bottom: var(--acu-space-150, 6px);\n}\n.acu-v2-capability-overview__chip[data-v-f39848ee] {\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-1);\r\n  background: var(--acu-bg-2);\r\n  padding: 1px var(--acu-space-100, 4px);\r\n  border-radius: var(--acu-radius-sm);\r\n  word-break: break-all;\n}\r\n", "src/presentation-v2/components/CapabilityOverviewPanel.vue#style-0-f39848ee");
 var CapabilityOverviewPanel_vue_vue_type_style_index_0_scoped_f39848ee_lang = null;
 
-const _hoisted_1$f = { class: "acu-v2-capability-overview__actions" };
+const _hoisted_1$g = { class: "acu-v2-capability-overview__actions" };
 const _hoisted_2$e = { class: "acu-v2-capability-overview__section" };
 const _hoisted_3$c = { class: "acu-v2-capability-overview__section" };
 const _hoisted_4$b = { class: "acu-v2-capability-overview__chips" };
 const _hoisted_5$b = { class: "acu-v2-capability-overview__section" };
 const _hoisted_6$a = { class: "acu-v2-capability-overview__note" };
 const _hoisted_7$8 = { class: "acu-v2-capability-overview__chips" };
-function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$g(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		id: "developer-capability-overview-panel",
 		class: "acu-v2-capability-overview",
@@ -199736,7 +199736,7 @@ function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
 			}, 8, ["variant"])
 		]),
 		default: withCtx(() => [
-			createBaseVNode("div", _hoisted_1$f, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.flow.copyOverview()) }, {
+			createBaseVNode("div", _hoisted_1$g, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.flow.copyOverview()) }, {
 				default: withCtx(() => [..._cache[1] || (_cache[1] = [createBaseVNode(
 					"i",
 					{ class: "fa-solid fa-clipboard" },
@@ -199872,157 +199872,28 @@ function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var CapabilityOverviewPanel = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["render", _sfc_render$f], ["__scopeId", "data-v-f39848ee"]]);
+var CapabilityOverviewPanel = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["render", _sfc_render$g], ["__scopeId", "data-v-f39848ee"]]);
 
-/**
- * prompt-inspection-report — 把提示词观测记录渲染成「可直接贴进酒馆让 AI 排查」的文本报告
- *
- * 为什么单独成模块：这是纯函数（无 Vue、无 DOM），既能被面板调用，也能被单测直接钉住格式。
- *
- * 两条纪律：
- * 1. **脱敏**：报告与导出同一条口径 —— 每个字符串字段先过 `maskSensitiveText_ACU`
- *    （复用 shared/log-buffer 的既有通道），绝不新开未脱敏出口。
- * 2. **有界**：单条消息正文在报告里按上限截断并显式标注，避免把 12 万字符塞进一次聊天；
- *    完整正文仍在「导出 JSON」里。上限具名导出，便于按需调整。
- */
-/** 报告里单条消息正文的截断上限（字符）。 */
-const REPORT_MESSAGE_PREVIEW_CHARS = 8000;
-const PLACEHOLDER_ACU = '—';
-function mask(value) {
-    return maskSensitiveText_ACU(String(value ?? ''));
-}
-/** 千分位：长提示词的字符量级只看数量级，加分隔更好读。 */
-function formatCount(value) {
-    if (value === undefined || value === null || !Number.isFinite(value))
-        return PLACEHOLDER_ACU;
-    return Math.round(value).toLocaleString('en-US');
-}
-function formatTime(at) {
-    try {
-        const d = new Date(at);
-        const pad = (n) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    }
-    catch {
-        return PLACEHOLDER_ACU;
-    }
-}
-/** 一条记录的人读标题（面板折叠头与报告小节标题共用）。 */
-function formatRecordTitle(record) {
-    return `#${record.id} · ${record.scope}`;
-}
-/** 一条记录的人读副标题：时间 · 消息数 · 字符量。 */
-function formatRecordMeta(record) {
-    const time = formatTime(record.at).slice(11);
-    return `${time} · ${record.messageCount} 条 · ${formatCount(record.totalChars)} 字符`;
-}
-/**
- * 渲染单条记录为报告小节（Markdown 形，AI 与人共读）。
- * @param record 待渲染记录
- * @param index 小节序号（1 起）
- */
-function renderRecord(record, index) {
-    const lines = [];
-    lines.push(`## 记录 ${index} · ${mask(record.scope)}`);
-    lines.push(`- 时间：${formatTime(record.at)}`);
-    lines.push(`- 模型：${record.model ? mask(record.model) : PLACEHOLDER_ACU}`);
-    lines.push(`- 端点主机：${record.endpointHost ? mask(record.endpointHost) : PLACEHOLDER_ACU}`);
-    lines.push(`- 流式：${record.stream ? '是' : '否'}`);
-    lines.push(`- 消息：${record.messageCount} 条 / ${formatCount(record.totalChars)} 字符 / 约 ${formatCount(record.totalTokens)} token${record.totalTokens === undefined ? '（估算中）' : ''}`);
-    if (record.truncated)
-        lines.push('- ⚠️ 内容超上限已截断，完整长度见 JSON 导出的 chars 字段');
-    lines.push(`- 与同 scope 上次调用：${mask(record.driftText)}`);
-    if (record.segments && record.segments.length) {
-        const segmented = record.segments.reduce((sum, segment) => sum + segment.chars, 0);
-        lines.push(`- 分段（各段合计 ${formatCount(segmented)} 字符）：`);
-        for (const segment of record.segments) {
-            const share = record.totalChars > 0 ? (segment.chars / record.totalChars) * 100 : 0;
-            lines.push(`  - ${mask(segment.name)}：${formatCount(segment.chars)} 字符（占总量 ${share.toFixed(1)}%）`);
-        }
-        if (record.unsegmentedChars) {
-            const sign = record.unsegmentedChars > 0 ? '+' : '';
-            lines.push(`  - 未归类差额：${sign}${formatCount(record.unsegmentedChars)} 字符（宿主侧 role 归一 / 非预填充改写等）`);
-        }
-    }
-    else {
-        lines.push(`- 分段：未分段（该功能域不提供段级拆解，只有填表链做分段统计）`);
-    }
-    lines.push('');
-    lines.push('### 消息明细');
-    record.messages.forEach((message, messageIndex) => {
-        const role = message.role || '(无 role)';
-        // 与面板一致用 1 起编号：人读时「第几条」不该从 0 开始。
-        const tokens = message.tokens === undefined ? 'token 计算中' : `约 ${formatCount(message.tokens)} token`;
-        lines.push(`${messageIndex + 1}. [${mask(role)}] ${formatCount(message.chars)} 字符 / ${tokens}`);
-        const content = mask(message.content);
-        const preview = content.length > REPORT_MESSAGE_PREVIEW_CHARS
-            ? `${content.slice(0, REPORT_MESSAGE_PREVIEW_CHARS)}\n…（本条正文共 ${formatCount(message.chars)} 字符，此处截断，完整内容见「导出 JSON」）`
-            : content;
-        lines.push('```text');
-        lines.push(preview);
-        lines.push('```');
-    });
-    return lines.join('\n');
-}
-/**
- * 渲染整份报告。
- * @param records 记录（按缓冲顺序，最旧在前）；报告按**最新在前**呈现，与面板一致
- * @returns 已脱敏的 Markdown 文本
- */
-function buildPromptInspectionReport(records) {
-    if (!records.length)
-        return '提示词观测报告：当前没有记录。';
-    const head = [
-        '# 提示词观测报告',
-        `导出时间：${new Date().toISOString()}`,
-        `记录数：${records.length}`,
-        '',
-        '> 说明：本报告由酒馆插件「提示词检查器」生成，用于排查「AI 实际收到的提示词长什么样」。',
-        '> 端点只保留主机，密钥与请求头从未被采集；导出内容已过脱敏。',
-    ].join('\n');
-    const body = records
-        .slice()
-        .reverse()
-        .map((record, index) => renderRecord(record, index + 1))
-        .join('\n\n---\n\n');
-    return `${head}\n\n---\n\n${body}\n`;
-}
-
-const DIALECT_LABEL_ACU = Object.freeze({
-    sql: 'SQL',
-    dsl: 'DSL',
-    structured: '结构化',
-});
-const OPERATION_LABEL_ACU = Object.freeze({
-    insert: '新增',
-    update: '更新',
-    delete: '删除',
-    replace: '整表替换',
-    schema: '表结构',
-    other: '其它',
-});
-function dialectLabel_ACU(dialect) {
-    return DIALECT_LABEL_ACU[dialect] || String(dialect);
-}
-function operationLabel_ACU(operation) {
-    return OPERATION_LABEL_ACU[operation] || String(operation);
-}
-function dialectVariant_ACU(dialect) {
-    if (dialect === 'sql')
-        return 'accent';
-    if (dialect === 'dsl')
-        return 'warning';
-    return 'neutral';
-}
-function operationVariant_ACU(operation) {
-    if (operation === 'insert')
-        return 'success';
-    if (operation === 'delete')
-        return 'danger';
-    if (operation === 'update')
-        return 'warning';
-    return 'neutral';
-}
+const developerCopy = {
+    panels: {
+        gatedFields: {
+            title: "开发者 gated 字段",
+            description: "集中管理各功能的开发者专属功能。默认关闭，且建议无经验用户不开启使用。",
+        },
+        formFillRuntime: {
+            title: "填表执行参数",
+            description: "最大并发更新组数会影响多个表格分组同时填表的数量,不建议普通用户修改。",
+        },
+    },
+    diagnosticBundle: {
+        title: "一键诊断包",
+        description: "排查问题时不用再逐个面板导出：这里把 环境与能力总览、公开 API、启动自检、出站提示词观测、写库流水、历史楼层回放摘要 聚合成一份产物，一次带走。",
+        badge: "聚合导出",
+        exportJson: "导出诊断包 JSON",
+        copyText: "复制诊断包文本",
+        howto: "「复制诊断包文本」生成已脱敏的 Markdown，直接贴进酒馆聊天发给 AI；「导出诊断包 JSON」下载同内容的结构化文件（给脚本/离线分析用）。未开启观测时对应节为零记录空态，不会报错。",
+    },
+};
 
 /**
  * service/table/historical-frame-replay.ts — 历史楼层只读回放（父子任务 T3.3）
@@ -200265,6 +200136,489 @@ function buildFrameReplayView_ACU(messageIndex) {
         catch { /* ignore */ }
         return emptyView_ACU(messageIndex, `读取失败：${error instanceof Error ? error.message : String(error)}`);
     }
+}
+
+/**
+ * service/diagnostics/diagnostic-bundle.ts — 一键诊断包（聚合既有脱敏出口）
+ *
+ * 目的：排查问题时用户不必在四个面板（环境与能力总览 / 提示词检查器 / 写库流水 /
+ * 历史楼层回放）里逐个导出再手工拼装 —— 一个入口把**全部观测面**收进一份产物，
+ * 可下载为 JSON、可复制为文本，直接贴给 AI。
+ *
+ * 设计约束：
+ * - **纯聚合，不新增事实源**：每一节都转调既有单一事实源（观察器导出、自检快照、
+ *   帧回放只读视图、能力总览同路的环境读数）。这里不复制任何清单或阈值。
+ * - **脱敏靠复用，不靠重写**：提示词观测与写库流水的导出函数自带脱敏与上限；
+ *   环境节只含标签值（宿主/版本/存储模式等，与「复制总览给 AI」同路）；
+ *   文本格式化出口整体再过一次 `maskSensitiveText_ACU` 兜底。
+ * - **任何一节失败都不拖垮整包**：各节独立 try/catch，失败在原位记 `{ error }`。
+ * - **本模块不碰 DOM**（下载/剪贴板由 presentation 层做），保持可单测。
+ */
+/** 诊断包结构版本。消费方（AI / 排障脚本）按此识别字段。 */
+const DIAGNOSTIC_BUNDLE_SCHEMA_ACU = 'acu-diagnostic-bundle-v1';
+/** 帧回放摘要默认收录的楼层上限（全列表在「历史楼层回放」面板里看）。 */
+const DIAGNOSTIC_BUNDLE_FRAME_FLOOR_LIMIT_ACU = 20;
+/** 与 useCapabilityOverview 的环境节同一组事实源；这里是非响应式版本（service 层不依赖 vue）。 */
+function collectDiagnosticEnvironmentFacts_ACU() {
+    const read = (fn, fallback = '—') => {
+        try {
+            const v = fn();
+            return v === undefined || v === null || v === '' ? fallback : String(v);
+        }
+        catch {
+            return fallback;
+        }
+    };
+    return [
+        { label: '宿主', value: read(() => getAcuHostKind()) },
+        { label: '插件版本', value: read(() => getPluginVersion_ACU()) },
+        { label: '构建戳', value: read(() => getBuildStamp_ACU()) },
+        { label: '存储模式', value: read(() => (isSqliteMode() ? 'SQLite' : 'JSON（原生）')) },
+        { label: '当前聊天标识', value: read(() => currentChatFileIdentifier_ACU) },
+        {
+            label: '数据隔离',
+            value: (() => {
+                try {
+                    if (settings_ACU?.dataIsolationEnabled !== true)
+                        return '未启用';
+                    const code = read(() => getCurrentIsolationKey_ACU(), '');
+                    return code ? '已启用' : '已启用（标记为空）';
+                }
+                catch {
+                    return '—';
+                }
+            })(),
+        },
+    ];
+}
+function collectCapabilitiesSection_ACU() {
+    let groupIndex = {};
+    try {
+        const raw = topLevelWindow_ACU?.__ACU_API_GROUP_INDEX__;
+        if (raw && typeof raw === 'object')
+            groupIndex = raw;
+    }
+    catch { /* 拿不到就是空 */ }
+    const apiGroups = Object.entries(groupIndex)
+        .map(([name, methods]) => ({ name, methods: [...methods].sort() }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const apiDefinedTotal = apiGroups.reduce((sum, group) => sum + group.methods.length, 0);
+    let apiLiveTotal = apiDefinedTotal;
+    try {
+        const api = topLevelWindow_ACU?.AutoCardUpdaterAPI;
+        if (api && typeof api === 'object') {
+            const count = Object.keys(api).length;
+            if (count > 0)
+                apiLiveTotal = count;
+        }
+    }
+    catch { /* 退回定义数 */ }
+    return {
+        apiGroups,
+        apiDefinedTotal,
+        apiLiveTotal,
+        apiGatedCount: Math.max(0, apiDefinedTotal - apiLiveTotal),
+    };
+}
+function collectFrameReplaySection_ACU(limit) {
+    const floors = listFrameBearingFloors_ACU();
+    const summarized = floors.slice(0, limit).map(floor => ({
+        messageIndex: floor.messageIndex,
+        aiFloor: floor.aiFloor,
+        shape: floor.shape,
+        entryCount: floor.entryCount,
+        operationCount: floor.operationCount,
+    }));
+    let latest = null;
+    const newest = floors.reduce((max, floor) => (max === null || floor.messageIndex > max ? floor.messageIndex : max), null);
+    if (newest !== null) {
+        const view = buildFrameReplayView_ACU(newest);
+        latest = {
+            messageIndex: view.messageIndex,
+            shape: view.shape,
+            statementCount: view.statementCount,
+            ...(view.truncated ? { truncated: true } : {}),
+            ...(view.legacyPatchesOnly ? { legacyPatchesOnly: true } : {}),
+            ...(view.checkpoint
+                ? { checkpointReason: view.checkpoint.reason, checkpointSheetKeyCount: view.checkpoint.sheetKeys.length }
+                : {}),
+        };
+    }
+    return { floorCount: floors.length, floors: summarized, latest };
+}
+function parseExportedJson_ACU(raw) {
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : { value: parsed };
+    }
+    catch {
+        return { parseError: true };
+    }
+}
+/** 单节安全采集：一节失败记 `{ error }`，不拖垮整包。 */
+function safeCollect_ACU(fn, label) {
+    try {
+        return fn();
+    }
+    catch (error) {
+        return { error: `${label}: ${error?.message || String(error)}` };
+    }
+}
+function buildDiagnosticBundle_ACU(options) {
+    const frameFloorLimit = Math.max(1, Math.floor(options?.frameFloorLimit ?? DIAGNOSTIC_BUNDLE_FRAME_FLOOR_LIMIT_ACU));
+    return {
+        schema: DIAGNOSTIC_BUNDLE_SCHEMA_ACU,
+        generatedAt: new Date().toISOString(),
+        environment: collectDiagnosticEnvironmentFacts_ACU(),
+        capabilities: safeCollect_ACU(collectCapabilitiesSection_ACU, 'capabilities'),
+        selfCheck: safeCollect_ACU(collectSelfCheckSnapshot_ACU, 'selfCheck'),
+        promptObservations: parseExportedJson_ACU(safeCollect_ACU(exportPromptObservations_ACU, 'promptObservations')),
+        writePipeline: parseExportedJson_ACU(safeCollect_ACU(exportTableWritePipeline_ACU, 'writePipeline')),
+        frameReplay: safeCollect_ACU(() => collectFrameReplaySection_ACU(frameFloorLimit), 'frameReplay'),
+    };
+}
+/**
+ * 组装「可贴给 AI」的脱敏文本。与「复制总览给 AI」同风格（Markdown 分节），
+ * 出口整体过一次 `maskSensitiveText_ACU` 兜底。
+ */
+function formatDiagnosticBundleText_ACU(bundle) {
+    const lines = [];
+    lines.push('# 数据库插件一键诊断包');
+    lines.push(`schema：${bundle.schema}`);
+    lines.push(`导出时间：${bundle.generatedAt}`);
+    lines.push('');
+    lines.push('## 环境');
+    for (const row of bundle.environment)
+        lines.push(`- ${row.label}：${row.value}`);
+    lines.push('');
+    lines.push('## 公开 API（挂在 window.AutoCardUpdaterAPI）');
+    if ('error' in bundle.capabilities) {
+        lines.push(`- 采集失败：${bundle.capabilities.error}`);
+    }
+    else {
+        const gatedNote = bundle.capabilities.apiGatedCount > 0
+            ? `（其中 ${bundle.capabilities.apiGatedCount} 个当前被运行时门禁隐藏）`
+            : '';
+        lines.push(`当前可调用 ${bundle.capabilities.apiLiveTotal} 个；静态定义 ${bundle.capabilities.apiDefinedTotal} 个${gatedNote}`);
+        for (const group of bundle.capabilities.apiGroups) {
+            lines.push(`### ${group.name}（${group.methods.length}）`);
+            lines.push(group.methods.join('、'));
+        }
+    }
+    lines.push('');
+    lines.push('## 启动/运行自检');
+    for (const [name, probe] of Object.entries(bundle.selfCheck)) {
+        if (probe && typeof probe === 'object' && 'ok' in probe) {
+            lines.push(`- ${name}: ${probe.ok ? 'ok' : `失败（${probe.error}）`}`);
+        }
+        else {
+            lines.push(`- ${name}: ${JSON.stringify(probe)}`);
+        }
+    }
+    lines.push('');
+    lines.push('## 出站提示词观测');
+    if (bundle.promptObservations.parseError) {
+        lines.push('- 导出内容无法解析（见 JSON 包内原始串）');
+    }
+    else {
+        lines.push(`- 记录数：${String(bundle.promptObservations.recordCount ?? 0)}`);
+    }
+    lines.push('');
+    lines.push('## 写库流水');
+    if (bundle.writePipeline.parseError) {
+        lines.push('- 导出内容无法解析（见 JSON 包内原始串）');
+    }
+    else {
+        lines.push(`- 记录数：${String(bundle.writePipeline.recordCount ?? 0)}`);
+    }
+    lines.push('');
+    lines.push('## 历史楼层回放');
+    if ('error' in bundle.frameReplay) {
+        lines.push(`- 采集失败：${bundle.frameReplay.error}`);
+    }
+    else {
+        lines.push(`- 含帧楼层数：${bundle.frameReplay.floorCount}（摘要收录前 ${bundle.frameReplay.floors.length} 个）`);
+        if (bundle.frameReplay.latest) {
+            const latest = bundle.frameReplay.latest;
+            const parts = [`形态 ${latest.shape}`, `语句 ${latest.statementCount} 条`];
+            if (latest.checkpointReason)
+                parts.push(`检查点原因 ${latest.checkpointReason}`);
+            if (latest.truncated)
+                parts.push('语句被截断');
+            if (latest.legacyPatchesOnly)
+                parts.push('仅旧版 patches');
+            lines.push(`- 最新一楼 #${latest.messageIndex}：${parts.join('，')}`);
+        }
+    }
+    lines.push('');
+    lines.push('> 本诊断包由插件自身生成：提示词/写库节自带脱敏与上限，全文再过一次脱敏兜底（不含密钥/请求头）。');
+    return maskSensitiveText_ACU(lines.join('\n'));
+}
+
+/**
+ * useDiagnosticBundle — Developer 页「一键诊断包」的数据接缝
+ *
+ * 本仓 v2 分层：components / pages 不直接 import service，一律走 composable
+ * （与 usePromptInspection / useWritePipeline 同形）。下载与剪贴板在这里做，
+ * service 层（service/diagnostics/diagnostic-bundle）保持纯数据、可单测。
+ */
+const EXPORT_FILENAME_PREFIX_ACU$2 = 'acu-diagnostic-bundle';
+function downloadTextFile_ACU$2(filename, text) {
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const doc = getAcuHostDocument();
+    const anchor = doc.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    doc.body.appendChild(anchor);
+    anchor.click();
+    doc.body.removeChild(anchor);
+    // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function fileStamp_ACU() {
+    return new Date().toISOString().replace(/[:.]/g, '-');
+}
+function useDiagnosticBundle() {
+    const toast = useToastStore();
+    /** 导出诊断包 JSON（整体过一次脱敏兜底，与「复制总览给 AI」同路）。 */
+    function exportJson() {
+        const json = maskSensitiveText_ACU(JSON.stringify(buildDiagnosticBundle_ACU(), null, 2));
+        downloadTextFile_ACU$2(`${EXPORT_FILENAME_PREFIX_ACU$2}-${fileStamp_ACU()}.json`, json);
+        toast.success('已导出诊断包 JSON（已脱敏）。');
+    }
+    /** 复制诊断包文本（Markdown 分节、脱敏），可直接贴进酒馆给 AI。 */
+    async function copyText() {
+        const ok = await copyTextToClipboard_ACU(formatDiagnosticBundleText_ACU(buildDiagnosticBundle_ACU()));
+        if (ok)
+            toast.success('已复制诊断包文本（已脱敏），可直接贴进聊天让 AI 排查。');
+        else
+            toast.warning('复制失败（宿主未开放剪贴板）。可改用「导出诊断包 JSON」。');
+    }
+    return { exportJson, copyText };
+}
+
+var _sfc_main$f = /*@__PURE__*/ defineComponent({
+    __name: 'DiagnosticBundlePanel',
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const copy = developerCopy.diagnosticBundle;
+        const bundle = useDiagnosticBundle();
+        const __returned__ = { copy, bundle, AcuBadge, AcuButton, AcuInfoBanner, AcuPanel };
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-v2-diagnostic-bundle__actions[data-v-15ff48ca] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 10px;\n  margin-bottom: 12px;\n}\n", "src/presentation-v2/components/DiagnosticBundlePanel.vue#style-0-15ff48ca");
+var DiagnosticBundlePanel_vue_vue_type_style_index_0_scoped_15ff48ca_lang = null;
+
+const _hoisted_1$f = { class: "acu-v2-diagnostic-bundle__actions" };
+function _sfc_render$f(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createBlock($setup["AcuPanel"], {
+		id: "developer-diagnostic-bundle-panel",
+		class: "acu-v2-diagnostic-bundle",
+		title: $setup.copy.title,
+		description: $setup.copy.description
+	}, {
+		actions: withCtx(() => [createVNode($setup["AcuBadge"], { variant: "neutral" }, {
+			default: withCtx(() => [createTextVNode(
+				toDisplayString($setup.copy.badge),
+				1
+				/* TEXT */
+			)]),
+			_: 1
+		})]),
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$f, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.bundle.exportJson()) }, {
+			default: withCtx(() => [_cache[2] || (_cache[2] = createBaseVNode(
+				"i",
+				{ class: "fa-solid fa-download" },
+				null,
+				-1
+				/* CACHED */
+			)), createTextVNode(
+				" " + toDisplayString($setup.copy.exportJson),
+				1
+				/* TEXT */
+			)]),
+			_: 1
+		}), createVNode($setup["AcuButton"], { onClick: _cache[1] || (_cache[1] = ($event) => $setup.bundle.copyText()) }, {
+			default: withCtx(() => [_cache[3] || (_cache[3] = createBaseVNode(
+				"i",
+				{ class: "fa-solid fa-clipboard" },
+				null,
+				-1
+				/* CACHED */
+			)), createTextVNode(
+				" " + toDisplayString($setup.copy.copyText),
+				1
+				/* TEXT */
+			)]),
+			_: 1
+		})]), createVNode($setup["AcuInfoBanner"], {
+			tone: "tip",
+			class: "acu-v2-diagnostic-bundle__howto"
+		}, {
+			default: withCtx(() => [createTextVNode(
+				toDisplayString($setup.copy.howto),
+				1
+				/* TEXT */
+			)]),
+			_: 1
+		})]),
+		_: 1
+	}, 8, ["title", "description"]);
+}
+var DiagnosticBundlePanel = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["render", _sfc_render$f], ["__scopeId", "data-v-15ff48ca"]]);
+
+/**
+ * prompt-inspection-report — 把提示词观测记录渲染成「可直接贴进酒馆让 AI 排查」的文本报告
+ *
+ * 为什么单独成模块：这是纯函数（无 Vue、无 DOM），既能被面板调用，也能被单测直接钉住格式。
+ *
+ * 两条纪律：
+ * 1. **脱敏**：报告与导出同一条口径 —— 每个字符串字段先过 `maskSensitiveText_ACU`
+ *    （复用 shared/log-buffer 的既有通道），绝不新开未脱敏出口。
+ * 2. **有界**：单条消息正文在报告里按上限截断并显式标注，避免把 12 万字符塞进一次聊天；
+ *    完整正文仍在「导出 JSON」里。上限具名导出，便于按需调整。
+ */
+/** 报告里单条消息正文的截断上限（字符）。 */
+const REPORT_MESSAGE_PREVIEW_CHARS = 8000;
+const PLACEHOLDER_ACU = '—';
+function mask(value) {
+    return maskSensitiveText_ACU(String(value ?? ''));
+}
+/** 千分位：长提示词的字符量级只看数量级，加分隔更好读。 */
+function formatCount(value) {
+    if (value === undefined || value === null || !Number.isFinite(value))
+        return PLACEHOLDER_ACU;
+    return Math.round(value).toLocaleString('en-US');
+}
+function formatTime(at) {
+    try {
+        const d = new Date(at);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    catch {
+        return PLACEHOLDER_ACU;
+    }
+}
+/** 一条记录的人读标题（面板折叠头与报告小节标题共用）。 */
+function formatRecordTitle(record) {
+    return `#${record.id} · ${record.scope}`;
+}
+/** 一条记录的人读副标题：时间 · 消息数 · 字符量。 */
+function formatRecordMeta(record) {
+    const time = formatTime(record.at).slice(11);
+    return `${time} · ${record.messageCount} 条 · ${formatCount(record.totalChars)} 字符`;
+}
+/**
+ * 渲染单条记录为报告小节（Markdown 形，AI 与人共读）。
+ * @param record 待渲染记录
+ * @param index 小节序号（1 起）
+ */
+function renderRecord(record, index) {
+    const lines = [];
+    lines.push(`## 记录 ${index} · ${mask(record.scope)}`);
+    lines.push(`- 时间：${formatTime(record.at)}`);
+    lines.push(`- 模型：${record.model ? mask(record.model) : PLACEHOLDER_ACU}`);
+    lines.push(`- 端点主机：${record.endpointHost ? mask(record.endpointHost) : PLACEHOLDER_ACU}`);
+    lines.push(`- 流式：${record.stream ? '是' : '否'}`);
+    lines.push(`- 消息：${record.messageCount} 条 / ${formatCount(record.totalChars)} 字符 / 约 ${formatCount(record.totalTokens)} token${record.totalTokens === undefined ? '（估算中）' : ''}`);
+    if (record.truncated)
+        lines.push('- ⚠️ 内容超上限已截断，完整长度见 JSON 导出的 chars 字段');
+    lines.push(`- 与同 scope 上次调用：${mask(record.driftText)}`);
+    if (record.segments && record.segments.length) {
+        const segmented = record.segments.reduce((sum, segment) => sum + segment.chars, 0);
+        lines.push(`- 分段（各段合计 ${formatCount(segmented)} 字符）：`);
+        for (const segment of record.segments) {
+            const share = record.totalChars > 0 ? (segment.chars / record.totalChars) * 100 : 0;
+            lines.push(`  - ${mask(segment.name)}：${formatCount(segment.chars)} 字符（占总量 ${share.toFixed(1)}%）`);
+        }
+        if (record.unsegmentedChars) {
+            const sign = record.unsegmentedChars > 0 ? '+' : '';
+            lines.push(`  - 未归类差额：${sign}${formatCount(record.unsegmentedChars)} 字符（宿主侧 role 归一 / 非预填充改写等）`);
+        }
+    }
+    else {
+        lines.push(`- 分段：未分段（该功能域不提供段级拆解，只有填表链做分段统计）`);
+    }
+    lines.push('');
+    lines.push('### 消息明细');
+    record.messages.forEach((message, messageIndex) => {
+        const role = message.role || '(无 role)';
+        // 与面板一致用 1 起编号：人读时「第几条」不该从 0 开始。
+        const tokens = message.tokens === undefined ? 'token 计算中' : `约 ${formatCount(message.tokens)} token`;
+        lines.push(`${messageIndex + 1}. [${mask(role)}] ${formatCount(message.chars)} 字符 / ${tokens}`);
+        const content = mask(message.content);
+        const preview = content.length > REPORT_MESSAGE_PREVIEW_CHARS
+            ? `${content.slice(0, REPORT_MESSAGE_PREVIEW_CHARS)}\n…（本条正文共 ${formatCount(message.chars)} 字符，此处截断，完整内容见「导出 JSON」）`
+            : content;
+        lines.push('```text');
+        lines.push(preview);
+        lines.push('```');
+    });
+    return lines.join('\n');
+}
+/**
+ * 渲染整份报告。
+ * @param records 记录（按缓冲顺序，最旧在前）；报告按**最新在前**呈现，与面板一致
+ * @returns 已脱敏的 Markdown 文本
+ */
+function buildPromptInspectionReport(records) {
+    if (!records.length)
+        return '提示词观测报告：当前没有记录。';
+    const head = [
+        '# 提示词观测报告',
+        `导出时间：${new Date().toISOString()}`,
+        `记录数：${records.length}`,
+        '',
+        '> 说明：本报告由酒馆插件「提示词检查器」生成，用于排查「AI 实际收到的提示词长什么样」。',
+        '> 端点只保留主机，密钥与请求头从未被采集；导出内容已过脱敏。',
+    ].join('\n');
+    const body = records
+        .slice()
+        .reverse()
+        .map((record, index) => renderRecord(record, index + 1))
+        .join('\n\n---\n\n');
+    return `${head}\n\n---\n\n${body}\n`;
+}
+
+const DIALECT_LABEL_ACU = Object.freeze({
+    sql: 'SQL',
+    dsl: 'DSL',
+    structured: '结构化',
+});
+const OPERATION_LABEL_ACU = Object.freeze({
+    insert: '新增',
+    update: '更新',
+    delete: '删除',
+    replace: '整表替换',
+    schema: '表结构',
+    other: '其它',
+});
+function dialectLabel_ACU(dialect) {
+    return DIALECT_LABEL_ACU[dialect] || String(dialect);
+}
+function operationLabel_ACU(operation) {
+    return OPERATION_LABEL_ACU[operation] || String(operation);
+}
+function dialectVariant_ACU(dialect) {
+    if (dialect === 'sql')
+        return 'accent';
+    if (dialect === 'dsl')
+        return 'warning';
+    return 'neutral';
+}
+function operationVariant_ACU(operation) {
+    if (operation === 'insert')
+        return 'success';
+    if (operation === 'delete')
+        return 'danger';
+    if (operation === 'update')
+        return 'warning';
+    return 'neutral';
 }
 
 /**
@@ -201727,19 +202081,6 @@ function _sfc_render$c(_ctx, _cache, $props, $setup, $data, $options) {
 }
 var WritePipelinePanel = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$c], ["__scopeId", "data-v-0d95cd7f"]]);
 
-const developerCopy = {
-    panels: {
-        gatedFields: {
-            title: "开发者 gated 字段",
-            description: "集中管理各功能的开发者专属功能。默认关闭，且建议无经验用户不开启使用。",
-        },
-        formFillRuntime: {
-            title: "填表执行参数",
-            description: "最大并发更新组数会影响多个表格分组同时填表的数量,不建议普通用户修改。",
-        },
-    },
-};
-
 var _sfc_main$b = /*@__PURE__*/ defineComponent({
     __name: 'DeveloperPage',
     setup(__props, { expose: __expose }) {
@@ -201780,14 +202121,14 @@ var _sfc_main$b = /*@__PURE__*/ defineComponent({
                 devOptions.setApiReconfirm(value);
             }
         }
-        const __returned__ = { devOptions, settings, toggles, maxConcurrentGroups, handleToggleChange, AcuFormRow, AcuInput, AcuPanel, AcuPanelGrid, CapabilityOverviewPanel, FrameReplayPanel, PromptInspectionPanel, WritePipelinePanel, ToggleRow, get developerCopy() { return developerCopy; } };
+        const __returned__ = { devOptions, settings, toggles, maxConcurrentGroups, handleToggleChange, AcuFormRow, AcuInput, AcuPanel, AcuPanelGrid, CapabilityOverviewPanel, DiagnosticBundlePanel, FrameReplayPanel, PromptInspectionPanel, WritePipelinePanel, ToggleRow, get developerCopy() { return developerCopy; } };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-v2-developer-page[data-v-56f9bb47] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-developer-page__toggle-list[data-v-56f9bb47] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n@media (max-width: 860px) {\n.acu-v2-developer-page[data-v-56f9bb47] {\r\n    padding: 14px;\n}\n}\r\n", "src/presentation-v2/pages/DeveloperPage.vue#style-0-56f9bb47");
-var DeveloperPage_vue_vue_type_style_index_0_scoped_56f9bb47_lang = null;
+injectSfcStyle("\n.acu-v2-developer-page[data-v-01a53e7a] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-developer-page__toggle-list[data-v-01a53e7a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\n}\n@media (max-width: 860px) {\n.acu-v2-developer-page[data-v-01a53e7a] {\r\n    padding: 14px;\n}\n}\r\n", "src/presentation-v2/pages/DeveloperPage.vue#style-0-01a53e7a");
+var DeveloperPage_vue_vue_type_style_index_0_scoped_01a53e7a_lang = null;
 
 const _hoisted_1$b = { class: "acu-v2-developer-page" };
 const _hoisted_2$a = { class: "acu-v2-developer-page__toggle-list" };
@@ -201835,12 +202176,13 @@ function _sfc_render$b(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["PromptInspectionPanel"]),
 			createVNode($setup["WritePipelinePanel"]),
 			createVNode($setup["FrameReplayPanel"]),
-			createVNode($setup["CapabilityOverviewPanel"])
+			createVNode($setup["CapabilityOverviewPanel"]),
+			createVNode($setup["DiagnosticBundlePanel"])
 		]),
 		_: 1
 	})]);
 }
-var DeveloperPage = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["render", _sfc_render$b], ["__scopeId", "data-v-56f9bb47"]]);
+var DeveloperPage = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["render", _sfc_render$b], ["__scopeId", "data-v-01a53e7a"]]);
 
 /**
  * page-registry — 一级页静态注册表（plan §4.1 + §D24）
