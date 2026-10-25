@@ -9,9 +9,13 @@
 > cd source
 > NODE_PATH="C:/nvm4w/nodejs/node_modules" npm run compat:probe        # 四个目标全跑
 > NODE_PATH="C:/nvm4w/nodejs/node_modules" npm run compat:probe -- --only=st,luker
+> NODE_PATH="C:/nvm4w/nodejs/node_modules" npm run e2e:shots           # 四目标 V2 界面截图巡游（留证）
 > ```
 > 四个目标：`st`(8001) / `luker`(8003) / `puretavern`(8899) / `ttavern`（TT 是桌面壳起不动，
 > 改为在真机 ST 页注入 `__TAURITAVERN__` ABI 走通其分支）。
+> `e2e:shots`（2026-10-26 新增）对每个目标巡游 仪表盘/填表规则/高级工具/开发者页 四页截图，
+> 落 `test-results/e2e-shots/`（gitignore 管理）；只连 Dev 白名单端口（8001/8003/8899），
+> 启动断言失败即退出 —— 见 `scripts/e2e-screenshot-tour.mjs` 头注释。
 > **判据口径**：报 `SKIP` 表示该实例没装本插件（不是兼容结论）；「不可归因的 `Script error.`」
 > 不计失败（跨源错误浏览器不给堆栈，把无从修的东西判成失败只会让探测器恒红）。
 > **注意**：自动化只覆盖「起得来」；下面各节的手工步骤仍是发版前必须过的。

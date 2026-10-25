@@ -54,3 +54,6 @@ desktop.ini
 # session_auto_commit: false 配套。口径同 ST-Delegation-of-authority（公开仓防泄露）。
 .trellis/tasks/
 .trellis/workspace/
+
+# E2E 截图巡游产物（留证用，本地不入库；报告只引用路径）
+source/test-results/
