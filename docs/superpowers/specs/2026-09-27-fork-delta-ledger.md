@@ -149,6 +149,8 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | `source/src/presentation-v2/` 的 `WritePipelinePanel.vue`、`useWritePipeline.ts`（新增）+ `dev-options-store.ts`、`useDevOptions.ts`、`DeveloperPage.vue`（增量） | 新增 + 增量 | 同上 | Developer 页三段式面板（出站提示词 → 响应正文 → 语句）；观测默认关闭；关闭时不产出任何记录（写库侧提前 return；响应侧句柄恒为 null，仅多一次无副作用的 transport 判定） | **否** | **按我方** |
 | `source/src/service/table/historical-frame-replay.ts`（新，约 300 行） | 新增文件 | 阶段 3 `09-28-historical-frame-replay` | 历史帧**只读**视图：四种形态判定（full_checkpoint / delta / empty / invalid）+ 坏帧诊断 + 列出语句（富化**复用** T3.2 的 `summarizeMutationOperations_ACU`）。**不建库、不重放求值**（与 `scripts/rescue/replay-chat.mjs` 只对齐帧模型口径，不共享其回放期职责） | **否** | **按我方** |
 | `source/src/presentation-v2/` 的 `FrameReplayPanel.vue`、`useFrameReplay.ts`、`write-statement-display.ts`（新增）+ `DeveloperPage.vue`、`WritePipelinePanel.vue`（增量） | 新增 + 增量 | 同上 | 历史回放面板（自动列出含帧楼层供点选）；并把「方言/操作」的文案与徽章配色抽成 `write-statement-display.ts` 作为**两面板共享的单一事实源** | **否** | **按我方** |
+| `source/src/service/diagnostics/diagnostic-bundle.ts`（新）+ `useDiagnosticBundle.ts`、`DiagnosticBundlePanel.vue`（新）+ `DeveloperPage.vue`、`developer-copy.ts`（增量） | 新增为主 | 2026-10-26「一键诊断包」 | 四观测面聚合导出（环境/API/自检/提示词/写库/帧回放），纯聚合不新增事实源，各节失败隔离，下载与复制双出口 | **否** | **按我方** |
+| `source/tests/setup/warm-app-graph.ts`（重写） | 增量改写 | 2026-10-26 B1 预热根治 | beforeAll 预热 → setup 顶层 TLA + resetModules 清实例；窄 mock 免疫（判据与 Pinia 泄漏教训见 quality-guidelines「冷启动预热」节） | **否**（上游无此 setup 文件则新增即我方；有则按我方） | **按我方** |
 
 > **口径提示（阶段 3）**：上表按引入任务分行 —— 第 1 行是**阶段 2** 的差量，第 2 行是 **T3.1**，
 > 第 3–7 行是 **T3.2**，第 8–9 行是 **T3.3**（T3.3 的两行中有一行落在 T3.2 改过的同一批我方文件上，
