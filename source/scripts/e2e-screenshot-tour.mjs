@@ -119,15 +119,19 @@ const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const outDir = join(projectRoot, 'source', 'test-results', 'e2e-shots');
 mkdirSync(outDir, { recursive: true });
 
-const args = process.argv.slice(2);
-const onlyIdx = args.indexOf('--only');
-const pagesIdx = args.indexOf('--pages');
-const pagesFilter = pagesIdx >= 0 ? args[pagesIdx + 1].split(',').map(s => s.trim()) : null;
-const tourPages = pagesFilter ? TOUR_PAGES.filter(p => pagesFilter.includes(p.id)) : TOUR_PAGES;
-const selected =
-  onlyIdx >= 0
-    ? TARGETS.filter(t => args[onlyIdx + 1].split(',').map(s => s.trim()).includes(t.id))
-    : TARGETS;
+function parseArgs(argv) {
+  // 与 host-compat-probe.mjs 同款：只认 --key=value 形式
+  const out = { only: null, pages: null };
+  for (const arg of argv) {
+    if (arg.startsWith('--only=')) out.only = arg.slice(7).split(',').map(s => s.trim()).filter(Boolean);
+    else if (arg.startsWith('--pages=')) out.pages = arg.slice(8).split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return out;
+}
+
+const parsed = parseArgs(process.argv.slice(2));
+const tourPages = parsed.pages ? TOUR_PAGES.filter(p => parsed.pages.includes(p.id)) : TOUR_PAGES;
+const selected = parsed.only ? TARGETS.filter(t => parsed.only.includes(t.id)) : TARGETS;
 if (!selected.length) {
   console.error('[e2e-tour] 没有匹配的目标。可选：' + TARGETS.map(t => t.id).join(', '));
   process.exit(2);
