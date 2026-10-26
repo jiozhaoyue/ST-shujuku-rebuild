@@ -213,9 +213,18 @@ async function shootPage(chromium, target, tourPage, result) {
     await page.waitForTimeout(1200); // 等首屏渲染与懒加载稳定
 
     const v2Mounted = await page.evaluate(() => !!document.querySelector('#acu-app-v2'));
-    // 开发者页面板多（一键诊断包在折叠线下）：整页截图才能把全部面板收进证据。
+    // V2 是固定容器内部滚动，fullPage 抓不到折叠线下面板：开发者页把「一键诊断包」
+    // scrollIntoView 后再拍（新功能的直接证据）。
+    if (tourPage.id === 'developer') {
+      await page.evaluate(() => {
+        const panel = document.querySelector('#developer-diagnostic-bundle-panel');
+        if (panel) panel.scrollIntoView({ block: 'center' });
+        else document.querySelector('#acu-app-v2')?.scrollTo?.(0, 999999);
+      }).catch(() => {});
+      await page.waitForTimeout(400);
+    }
     const shotPath = join(outDir, `${target.id}-${tourPage.label}.png`);
-    await page.screenshot({ path: shotPath, fullPage: tourPage.id === 'developer' });
+    await page.screenshot({ path: shotPath, fullPage: false });
 
     const attributable = pluginErrors.filter(t => !/资源加载失败|Script error\.|Script error$/.test(t));
     result.pages.push({
