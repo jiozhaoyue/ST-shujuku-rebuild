@@ -287,6 +287,49 @@
         <DormantDataPanel />
 
         <AcuPanel
+          title="写入体积提示"
+          description="只提示、不拦截：单元格或单次写入数据量超过阈值时提示一次，数据照常写入。"
+        >
+          <div class="acu-v2-data-mgmt-page__form-stack">
+            <AcuFormRow
+              label="启用提示"
+              hint="关闭后不再测量、不再提示；写入行为与关闭前完全一致。"
+            >
+              <AcuCheckbox
+                :model-value="flow.oversizedWriteWarningEnabled.value"
+                label="超过阈值时提示一次"
+                @update:model-value="flow.setOversizedWriteWarningEnabled($event)"
+              />
+            </AcuFormRow>
+            <AcuFormRow
+              label="单单元格字符数阈值"
+              hint="超过该长度的单元格提示一次；默认 10000 字符，可填 1000–10000000。"
+            >
+              <AcuInput
+                type="number"
+                :min="1000"
+                :step="1000"
+                :model-value="flow.oversizedCellWarnChars.value"
+                @change="flow.setOversizedCellWarnChars($event)"
+              />
+            </AcuFormRow>
+            <AcuFormRow
+              label="单次写入载荷阈值（MB）"
+              hint="一次写入的数据量超过该值时提示一次；默认 0.5 MB，可填 0.03–64 MB。"
+            >
+              <AcuInput
+                type="number"
+                :min="0.03"
+                :max="64"
+                :step="0.01"
+                :model-value="oversizedWriteWarnMegabytes"
+                @change="setOversizedWriteWarnMegabytes($event)"
+              />
+            </AcuFormRow>
+          </div>
+        </AcuPanel>
+
+        <AcuPanel
           :title="dataMgmtCopy.panels.cleanup.title"
           :description="dataMgmtCopy.panels.cleanup.description"
         >
@@ -517,6 +560,18 @@ const toast = useToastStore();
 const flow = useDataManagement();
 const runtimeDiagnostic = useSqliteRuntimeDiagnostic();
 const historyExpanded = ref(false);
+
+const oversizedWriteWarnMegabytes = computed(() => {
+  const bytes = Number(flow.oversizedWriteWarnBytes.value) || 0;
+  return Math.round((bytes / (1024 * 1024)) * 100) / 100;
+});
+
+function setOversizedWriteWarnMegabytes(value: number | string): void {
+  const megabytes = Number(value);
+  flow.setOversizedWriteWarnBytes(
+    Number.isFinite(megabytes) ? Math.round(megabytes * 1024 * 1024) : value,
+  );
+}
 
 const isolationCodeHint = computed(
   () =>

@@ -107,6 +107,31 @@ AI 侧的写操作不得是裸 SQL 字符串：走 `shared/restricted-sql-dml.ts
 
 ---
 
+## 数据体积软警告（只提示、不拦截）
+
+**规则**：写库提交边界必须探测「单单元格字符数」与「单次写入载荷字节数」；
+超阈值**只发一次警告**（toast + 结构化日志 + 诊断包 `oversizedWrite` 段），
+**不得拦截、不得截断、不得改写、不得改变函数返回值**。总开关关闭时必须**连测量都不做**。
+
+**为什么**：checkpoint 的体积阈值已被显式废除（`storage-frame-v2-persist.ts` 的
+`maxOperationBytesAfterCheckpoint = Number.MAX_SAFE_INTEGER`），唯一 2 MiB 上限只用于截断观测日志。
+没有这层提示，一条超大字段会直接落进聊天消息字段，撑大存档与存储配额，事后只能靠
+`log-error-hints` 的 `storage-quota` 建议收拾。
+
+**落点**：单一出口 `service/table/oversized-write-warning.ts` 的 `probeOversizedWrite_ACU`；
+接入点 `runTableUpdateCommit_ACU`（apply 成功后，统一覆盖填表/Agent/导入/可视化/手动重填）
+与 `writeInitFullCheckpointFrameV2_ACU`（模板重置 / 初始帧）。
+测量只扫本次 `writeSet` 命中的表，不做全库扫描；去重按「聊天 + 隔离 + 维度 + 档位」，
+数值回落到阈值以下即重置。
+
+**默认值与边界**（`shared/defaults.ts` 单一注册表）：单元格 `10000` 字符（1000–10000000），
+载荷 `512 KiB`（32 KiB–64 MiB），开关默认开启；三项均可在「数据管理 → 写入体积提示」调整。
+
+**判据**：超阈值写入**仍然成功**（返回值与未超阈值一致）；关闭开关零 toast/零日志/零诊断记录；
+诊断包新段不得出现单元格原文（只含长度、表键、行列序号）。
+
+---
+
 ## 反模式
 
 - 新增一处直接 `fetch(endpoint)` 而不过 `assertSafeHttpEndpoint_ACU`。

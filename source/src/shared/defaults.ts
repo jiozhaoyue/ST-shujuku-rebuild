@@ -175,6 +175,16 @@ export const DEFAULT_AUTO_UPDATE_FREQUENCY_ACU = 1;
 export const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
 export const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
 
+// --- [数据体积] 超大字段写入软警告：只提示、不拦截 ---
+// 单元格默认 1 万字符（用户 2026-10-26 指定）；载荷按同一口径下调到 512 KiB。
+export const OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU = true;
+export const OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU = 10_000;
+export const OVERSIZED_CELL_WARN_CHARS_MIN_ACU = 1_000;
+export const OVERSIZED_CELL_WARN_CHARS_MAX_ACU = 10_000_000;
+export const OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU = 512 * 1024;
+export const OVERSIZED_PAYLOAD_WARN_BYTES_MIN_ACU = 32 * 1024;
+export const OVERSIZED_PAYLOAD_WARN_BYTES_MAX_ACU = 64 * 1024 * 1024;
+
 // --- 一次性默认值刷新版本标记 ---
 export const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.6.3-keyword-prompt-content-based-refresh';
 /**

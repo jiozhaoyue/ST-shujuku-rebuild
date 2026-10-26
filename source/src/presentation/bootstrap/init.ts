@@ -10,6 +10,10 @@ import {
   showToastr_ACU
 } from '../theme/toast';
 import {
+  formatOversizedWriteWarningsText_ACU,
+  registerOversizedWriteWarningSink_ACU
+} from '../../service/table/oversized-write-warning';
+import {
   attemptToLoadCoreApis_ACU
 } from '../triggers/settings-ui-sync/settings-ui-connect';
 import {
@@ -596,6 +600,12 @@ export   function mainInitialize_ACU() {
       void notifyAcuTauriVersionIfOutdated_ACU();
 
       loadSettings_ACU();
+      // 数据体积软警告：service 层只负责测量与日志，toast 出口在这里注册（presentation 层）。
+      registerOversizedWriteWarningSink_ACU((warnings) => {
+        try {
+          showToastr_ACU('warning', formatOversizedWriteWarningsText_ACU(warnings), '数据体积提示');
+        } catch { /* 提示失败不影响主流程 */ }
+      });
       // S0-4：注册插件保存后的 checkpoint 保管库同步（删楼恢复的影子基线）。
       installCheckpointDeleteGuard_ACU();
       // TT 帧架构：续写基线跟随表格 checkpoint 落层 + 删楼恢复适配（与删楼守卫并列，函数幂等）。

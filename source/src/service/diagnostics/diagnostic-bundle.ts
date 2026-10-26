@@ -24,6 +24,11 @@ import { isSqliteMode } from '../table/storage-mode';
 import { collectSelfCheckSnapshot_ACU, type SelfCheckProbe_ACU } from '../table/self-check';
 import { exportTableWritePipeline_ACU } from '../table/write-pipeline-observer';
 import {
+  getRecentOversizedWriteWarnings_ACU,
+  resolveOversizedWriteSettings_ACU,
+  type OversizedWriteWarning_ACU,
+} from '../table/oversized-write-warning';
+import {
   buildFrameReplayView_ACU,
   listFrameBearingFloors_ACU,
   type FrameShape_ACU,
@@ -70,6 +75,12 @@ export interface DiagnosticFrameReplaySection_ACU {
   } | null;
 }
 
+export interface DiagnosticOversizedWriteSection_ACU {
+  enabled: boolean;
+  thresholds: { cellChars: number; payloadBytes: number };
+  recent: OversizedWriteWarning_ACU[];
+}
+
 export interface DiagnosticBundle_ACU {
   schema: typeof DIAGNOSTIC_BUNDLE_SCHEMA_ACU;
   generatedAt: string;
@@ -79,6 +90,8 @@ export interface DiagnosticBundle_ACU {
   promptObservations: Record<string, unknown>;
   writePipeline: Record<string, unknown>;
   frameReplay: DiagnosticFrameReplaySection_ACU | { error: string };
+  /** 超大字段写入软警告：阈值 + 最近告警摘要（只含长度与位置，不含单元格原文）。 */
+  oversizedWrite: DiagnosticOversizedWriteSection_ACU | { error: string };
 }
 
 /** 与 useCapabilityOverview 的环境节同一组事实源；这里是非响应式版本（service 层不依赖 vue）。 */
@@ -191,6 +204,15 @@ function safeCollect_ACU<T>(fn: () => T, label: string): T | { error: string } {
   }
 }
 
+function collectOversizedWriteSection_ACU(): DiagnosticOversizedWriteSection_ACU {
+  const settings = resolveOversizedWriteSettings_ACU();
+  return {
+    enabled: settings.enabled,
+    thresholds: { cellChars: settings.cellChars, payloadBytes: settings.payloadBytes },
+    recent: getRecentOversizedWriteWarnings_ACU(),
+  };
+}
+
 export function buildDiagnosticBundle_ACU(
   options?: { frameFloorLimit?: number },
 ): DiagnosticBundle_ACU {
@@ -204,6 +226,7 @@ export function buildDiagnosticBundle_ACU(
     promptObservations: parseExportedJson_ACU(safeCollect_ACU(exportPromptObservations_ACU, 'promptObservations') as string),
     writePipeline: parseExportedJson_ACU(safeCollect_ACU(exportTableWritePipeline_ACU, 'writePipeline') as string),
     frameReplay: safeCollect_ACU(() => collectFrameReplaySection_ACU(frameFloorLimit), 'frameReplay'),
+    oversizedWrite: safeCollect_ACU(collectOversizedWriteSection_ACU, 'oversizedWrite'),
   };
 }
 
@@ -259,6 +282,26 @@ export function formatDiagnosticBundleText_ACU(bundle: DiagnosticBundle_ACU): st
     lines.push('- 导出内容无法解析（见 JSON 包内原始串）');
   } else {
     lines.push(`- 记录数：${String(bundle.writePipeline.recordCount ?? 0)}`);
+  }
+  lines.push('');
+
+  lines.push('## 数据体积提示');
+  if ('error' in bundle.oversizedWrite) {
+    lines.push(`- 采集失败：${bundle.oversizedWrite.error}`);
+  } else {
+    const section = bundle.oversizedWrite;
+    lines.push(`- 开关：${section.enabled ? '开启' : '关闭'}；阈值：单单元格 ${section.thresholds.cellChars} 字符 / 单次载荷 ${section.thresholds.payloadBytes} 字节`);
+    if (section.recent.length === 0) {
+      lines.push('- 最近没有触发告警');
+    } else {
+      for (const warning of section.recent) {
+        const unit = warning.unit === 'chars' ? '字符' : '字节';
+        const where = warning.sheetKey
+          ? ` @ ${warning.sheetKey}${warning.rowIndex === undefined ? '' : ` 第 ${warning.rowIndex} 行第 ${warning.columnIndex} 列`}`
+          : '';
+        lines.push(`- ${warning.kind === 'cell' ? '单元格' : '载荷'} ${warning.value} ${unit}（阈值 ${warning.threshold}）${where}`);
+      }
+    }
   }
   lines.push('');
 

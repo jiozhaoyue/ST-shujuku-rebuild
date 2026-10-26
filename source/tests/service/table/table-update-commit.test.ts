@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   currentChatKey: 'chat-a',
   currentIsolationKey: 'scope-a',
   isAutoUpdating: false,
+  settings: {
+    oversizedWriteWarningEnabled: true,
+    oversizedCellWarnChars: 10_000,
+    oversizedWriteWarnBytes: 512 * 1024,
+  } as Record<string, unknown>,
 }));
 
 vi.mock('../../../src/shared/utils', () => ({
@@ -18,6 +23,7 @@ vi.mock('../../../src/shared/utils', () => ({
 }));
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   get currentChatFileIdentifier_ACU() { return mocks.currentChatKey; },
+  get settings_ACU() { return mocks.settings; },
   currentJsonTableData_ACU: null,
   get isAutoUpdatingCard_ACU() { return mocks.isAutoUpdating; },
   getCurrentIsolationKey_ACU: () => mocks.currentIsolationKey,
@@ -50,6 +56,7 @@ import {
   getTableWritePipelineRecords_ACU,
   setTableWriteObservationEnabled_ACU,
 } from '../../../src/service/table/write-pipeline-observer';
+import { resetOversizedWriteWarningStateForTests_ACU } from '../../../src/service/table/oversized-write-warning';
 
 function options(reason: string) {
   return {
@@ -709,5 +716,110 @@ describe('runTableUpdateCommit_ACU 的写库流水埋点（第三段）', () => 
 
     expect(result.success).toBe(true);
     expect(getTableWritePipelineRecords_ACU()).toHaveLength(0);
+  });
+});
+
+describe('超大字段写入软警告（只警告不拦截）', () => {
+  const BIG_CELL = 'x'.repeat(10_001);
+
+  function makeOversizedData(): any {
+    return {
+      mate: { type: 'acu', version: 2 },
+      sheet_a: {
+        uid: 'sheet_a',
+        name: '表A',
+        sourceData: {},
+        content: [['row_id', '内容'], ['r1', BIG_CELL]],
+        updateConfig: {},
+        exportConfig: {},
+        orderNo: 0,
+      },
+    };
+  }
+
+  beforeEach(() => {
+    mocks.currentChatKey = 'chat-oversized';
+    mocks.currentIsolationKey = 'scope-oversized';
+    mocks.settings = {
+      oversizedWriteWarningEnabled: true,
+      oversizedCellWarnChars: 10_000,
+      oversizedWriteWarnBytes: 512 * 1024,
+    };
+    mocks.migration.mockReset().mockResolvedValue({ success: true, migrated: false });
+    mocks.reload.mockReset();
+    mocks.transaction.mockReset().mockImplementation(async (_opts: any, task: any) => task({
+      runCommit: async (commitTask: any) => commitTask(),
+    }, null));
+    mocks.persist.mockReset().mockResolvedValue({ saved: true, messageIndex: 0 });
+    mocks.ensureProvider.mockReset();
+    mocks.setCurrentData.mockReset();
+    mocks.isAutoUpdating = false;
+    clearRuntimeOnlyPendingSheets_ACU();
+    vi.mocked(logWarn_ACU).mockClear();
+    resetOversizedWriteWarningStateForTests_ACU();
+  });
+
+  it('超阈值写入仍然成功，并发出一次体积警告', async () => {
+    const result = await runTableUpdateCommit_ACU({
+      source: 'manual_crud',
+      reason: 'insertRow:sqlite',
+      writeSet: [{ kind: 'sheet', sheetKey: 'sheet_a' }],
+      targetMessageIndex: 0,
+      targetSheetKeys: ['sheet_a'],
+      skipChatSave: true,
+      chatKey: 'chat-oversized',
+      isolationKey: 'scope-oversized',
+    }, async () => ({ success: true, tableData: makeOversizedData() }));
+
+    expect(result.success).toBe(true);
+    const warnText = vi.mocked(logWarn_ACU).mock.calls.flat().map((value) => String(value)).join('\n');
+    expect(warnText).toContain('[数据体积]');
+    expect(warnText).toContain('"kind":"cell"');
+  });
+
+  it('关闭开关后不探测、不产生体积警告', async () => {
+    mocks.settings.oversizedWriteWarningEnabled = false;
+
+    const result = await runTableUpdateCommit_ACU({
+      source: 'manual_crud',
+      reason: 'insertRow:sqlite',
+      writeSet: [{ kind: 'sheet', sheetKey: 'sheet_a' }],
+      targetMessageIndex: 0,
+      targetSheetKeys: ['sheet_a'],
+      skipChatSave: true,
+      chatKey: 'chat-oversized',
+      isolationKey: 'scope-oversized',
+    }, async () => ({ success: true, tableData: makeOversizedData() }));
+
+    expect(result.success).toBe(true);
+    const warnText = vi.mocked(logWarn_ACU).mock.calls.flat().map((value) => String(value)).join('\n');
+    expect(warnText).not.toContain('[数据体积]');
+  });
+
+  it('未超阈值时不产生体积警告', async () => {
+    const smallData: any = {
+      mate: { type: 'acu', version: 2 },
+      sheet_a: {
+        uid: 'sheet_a', name: '表A', sourceData: {},
+        content: [['row_id', '内容'], ['r1', '短']],
+        updateConfig: {}, exportConfig: {}, orderNo: 0,
+      },
+    };
+
+    const result = await runTableUpdateCommit_ACU({
+      source: 'manual_crud',
+      reason: 'insertRow:sqlite',
+      writeSet: [{ kind: 'sheet', sheetKey: 'sheet_a' }],
+      targetMessageIndex: 0,
+      targetSheetKeys: ['sheet_a'],
+      skipChatSave: true,
+      chatKey: 'chat-oversized',
+      isolationKey: 'scope-oversized',
+    }, async () => ({ success: true, tableData: smallData }));
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+    const warnText = vi.mocked(logWarn_ACU).mock.calls.flat().map((value) => String(value)).join('\n');
+    expect(warnText).not.toContain('[数据体积]');
   });
 });

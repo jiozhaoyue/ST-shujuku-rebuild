@@ -225,5 +225,29 @@ describe('useDataManagement', () => {
     expect(d.cleanupWorldbook).not.toHaveBeenCalled();
   });
 
+  it('写入体积提示设置：默认值、落盘与非法输入回落', async () => {
+    const d = await loadFlow();
+    d.flow.refresh();
+
+    expect(d.flow.oversizedWriteWarningEnabled.value).toBe(true);
+    expect(d.flow.oversizedCellWarnChars.value).toBe(10_000);
+    expect(d.flow.oversizedWriteWarnBytes.value).toBe(512 * 1024);
+
+    d.flow.setOversizedCellWarnChars('25000');
+    expect(d.flow.oversizedCellWarnChars.value).toBe(25_000);
+    expect(d.settings.oversizedCellWarnChars).toBe(25_000);
+
+    d.flow.setOversizedWriteWarnBytes(1024 * 1024);
+    expect(d.settings.oversizedWriteWarnBytes).toBe(1024 * 1024);
+
+    d.flow.setOversizedWriteWarningEnabled(false);
+    expect(d.settings.oversizedWriteWarningEnabled).toBe(false);
+
+    // 非法输入回落到默认值，而不是写入 NaN。
+    d.flow.setOversizedCellWarnChars('abc');
+    expect(d.settings.oversizedCellWarnChars).toBe(10_000);
+    expect(d.saveSettings).toHaveBeenCalled();
+  });
+
 });
 

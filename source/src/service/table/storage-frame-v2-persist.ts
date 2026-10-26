@@ -26,6 +26,7 @@ import { reconcileRevealedSheetWithTemplate_ACU } from '../template/chat-templat
 import { assertSummaryVectorMirrorFrameInvariantsV2_ACU } from '../vector/summary-vector-mirror-resolver';
 import { scheduleSummaryVectorMirrorFlushAfterPersist_ACU } from '../vector/summary-vector-index-flush-queue';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
+import { probeOversizedWrite_ACU } from './oversized-write-warning';
 import { isDataBearingMessage_ACU } from '../../shared/ai-floor';
 
 export interface TableCheckpointGenerationConfig_ACU {
@@ -926,6 +927,12 @@ export function writeInitFullCheckpointFrameV2_ACU(options: {
   if (checkpoint?.kind !== 'full' || checkpoint.reason !== 'init') {
     throw new Error(`初始化 checkpoint 写入口只接受 reason:'init' 的 full checkpoint（收到 kind=${checkpoint?.kind}, reason=${(checkpoint as any)?.reason}）。`);
   }
+  // 数据体积软警告：初始帧同样是一次真实写入，只探测不拦截。
+  probeOversizedWrite_ACU({
+    tableData: checkpoint.data,
+    operations: [checkpoint],
+    isolationKey,
+  });
   target.TavernDB_ACU_IsolatedData = {
     ...(target.TavernDB_ACU_IsolatedData || {}),
     [isolationKey]: { _acu_storage_version: 2, storageFrame: { version: 2, checkpoint, logEntries: [] } },

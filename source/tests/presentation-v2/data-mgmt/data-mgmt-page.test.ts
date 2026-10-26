@@ -395,7 +395,7 @@ describe('DataMgmtPage', () => {
     const { mount } = await mountDataMgmtPage();
 
     const panels = document.querySelectorAll('.acu-v2-data-mgmt-page .acu-panel');
-    expect(panels.length).toBe(3);
+    expect(panels.length).toBe(4);
     panels.forEach(panel => {
       expect(panel.querySelector('.acu-panel__description-region .acu-info-banner')).not.toBeNull();
       expect(panel.querySelector('.acu-panel__header .acu-info-banner')).toBeNull();
@@ -416,8 +416,21 @@ describe('DataMgmtPage', () => {
       .map(title => title.textContent?.trim() || '');
 
     expect(leftTitles).toEqual(['备份与恢复']);
-    // S3-4：右列在删除清理面板上方新增常驻「休眠数据」面板。
-    expect(rightTitles).toEqual(['休眠数据', '删除与清理']);
+    // 右列顺序：休眠数据 → 写入体积提示 → 删除与清理。
+    expect(rightTitles).toEqual(['休眠数据', '写入体积提示', '删除与清理']);
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('写入体积提示面板：提供开关与两个阈值输入', async () => {
+    const { mount } = await mountDataMgmtPage();
+
+    const panels = Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-data-mgmt-page .acu-panel'));
+    const panel = panels.find(item => item.querySelector('.acu-panel__title')?.textContent?.trim() === '写入体积提示');
+    expect(panel).toBeTruthy();
+    expect(panel!.querySelector('[role="checkbox"]')).not.toBeNull();
+    expect(panel!.querySelectorAll('input[type="number"]')).toHaveLength(2);
+    expect(panel!.textContent).toContain('只提示、不拦截');
 
     mount.__resetAcuV2MountForTests();
   });

@@ -21,6 +21,12 @@ import {
 } from '../../service/settings/settings-service';
 import { resetAllPromptsToDefault_ACU } from '../../service/settings/settings-write-service';
 import { getCurrentStorageMode, isSqliteMode } from '../../service/table/storage-mode';
+import {
+  normalizeOversizedWriteSettings_ACU,
+  OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU,
+  OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU,
+  OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU,
+} from '../../service/table/oversized-write-warning';
 import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import { getChatArray_ACU, deleteLocalDataWithScope_ACU, isFullRangeDeletionRequest_ACU, overrideLatestLayerWithTemplateCore_ACU } from '../../service/chat/chat-service';
 import { saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
@@ -295,6 +301,10 @@ export function useDataManagement() {
     endFloor: '' as number | string,
   });
   const retainRecentLayers = ref(100);
+  // [数据体积] 超大字段写入软警告（只提示、不拦截）。
+  const oversizedWriteWarningEnabled = ref(OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU);
+  const oversizedCellWarnChars = ref(OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU);
+  const oversizedWriteWarnBytes = ref(OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU);
   const aiMessageCount = ref(0);
 
   const currentIsolationLabel = computed(() => {
@@ -364,6 +374,14 @@ export function useDataManagement() {
     deleteRange.startFloor = settings_ACU.deleteStartFloor || 1;
     deleteRange.endFloor = settings_ACU.deleteEndFloor || '';
     retainRecentLayers.value = normalizeRetainRecentLayers(settings_ACU.retainRecentLayers ?? 100);
+    const oversized = normalizeOversizedWriteSettings_ACU({
+      enabled: settings_ACU.oversizedWriteWarningEnabled,
+      cellChars: settings_ACU.oversizedCellWarnChars,
+      payloadBytes: settings_ACU.oversizedWriteWarnBytes,
+    });
+    oversizedWriteWarningEnabled.value = oversized.enabled;
+    oversizedCellWarnChars.value = oversized.cellChars;
+    oversizedWriteWarnBytes.value = oversized.payloadBytes;
     aiMessageCount.value = getAiMessageCount();
     mixedStorageDecision.value = getActiveMixedStorageDecisionSummary_ACU();
     // 聊天/模板切换后运行时表集合可能变化：剔除已不存在的勾选，避免删到看不见的 key。
@@ -962,6 +980,38 @@ export function useDataManagement() {
     message.value = null;
   }
 
+  function applyOversizedWriteSettings(patch: {
+    enabled?: boolean;
+    cellChars?: number | string;
+    payloadBytes?: number | string;
+  }): void {
+    const normalized = normalizeOversizedWriteSettings_ACU({
+      enabled: patch.enabled !== undefined ? patch.enabled : settings_ACU.oversizedWriteWarningEnabled,
+      cellChars: patch.cellChars !== undefined ? patch.cellChars : settings_ACU.oversizedCellWarnChars,
+      payloadBytes: patch.payloadBytes !== undefined ? patch.payloadBytes : settings_ACU.oversizedWriteWarnBytes,
+    });
+    oversizedWriteWarningEnabled.value = normalized.enabled;
+    oversizedCellWarnChars.value = normalized.cellChars;
+    oversizedWriteWarnBytes.value = normalized.payloadBytes;
+    settings_ACU.oversizedWriteWarningEnabled = normalized.enabled;
+    settings_ACU.oversizedCellWarnChars = normalized.cellChars;
+    settings_ACU.oversizedWriteWarnBytes = normalized.payloadBytes;
+    saveSettings_ACU();
+    message.value = null;
+  }
+
+  function setOversizedWriteWarningEnabled(value: boolean | string): void {
+    applyOversizedWriteSettings({ enabled: value === true || value === 'true' });
+  }
+
+  function setOversizedCellWarnChars(value: number | string): void {
+    applyOversizedWriteSettings({ cellChars: value });
+  }
+
+  function setOversizedWriteWarnBytes(value: number | string): void {
+    applyOversizedWriteSettings({ payloadBytes: value });
+  }
+
   return {
     message,
     busyAction,
@@ -981,6 +1031,12 @@ export function useDataManagement() {
     toggleDeleteSheetKey,
     clearDeleteSheetSelection,
     retainRecentLayers,
+    oversizedWriteWarningEnabled,
+    oversizedCellWarnChars,
+    oversizedWriteWarnBytes,
+    setOversizedWriteWarningEnabled,
+    setOversizedCellWarnChars,
+    setOversizedWriteWarnBytes,
     rangeLabel,
     aiMessageCount,
     tableCount,

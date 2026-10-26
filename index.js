@@ -4638,6 +4638,15 @@ const DEFAULT_AUTO_UPDATE_THRESHOLD_ACU = 3;
 const DEFAULT_AUTO_UPDATE_FREQUENCY_ACU = 1;
 const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
 const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
+// --- [数据体积] 超大字段写入软警告：只提示、不拦截 ---
+// 单元格默认 1 万字符（用户 2026-10-26 指定）；载荷按同一口径下调到 512 KiB。
+const OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU = true;
+const OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU = 10000;
+const OVERSIZED_CELL_WARN_CHARS_MIN_ACU = 1000;
+const OVERSIZED_CELL_WARN_CHARS_MAX_ACU = 10000000;
+const OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU = 512 * 1024;
+const OVERSIZED_PAYLOAD_WARN_BYTES_MIN_ACU = 32 * 1024;
+const OVERSIZED_PAYLOAD_WARN_BYTES_MAX_ACU = 64 * 1024 * 1024;
 // --- 一次性默认值刷新版本标记 ---
 const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.6.3-keyword-prompt-content-based-refresh';
 /**
@@ -58858,6 +58867,236 @@ async function recoverProvisionalBridgeSession_ACU(options = {}) {
     return { ok: true, action: 'finalized' };
 }
 
+/**
+ * oversized-write-warning.ts — 超大字段写入软警告（只警告、不拦截）
+ *
+ * 为什么需要：checkpoint 的体积阈值已被显式废除（storage-frame-v2-persist 里全是
+ * MAX_SAFE_INTEGER），唯一的 2 MiB 上限只用于截断观测日志。于是单个超大单元格可以
+ * 直接写进聊天消息字段，把存档与存储配额撑大，且写入前没有任何提示。
+ *
+ * 本模块只做三件事：测量本次写库增量、与阈值比较、发一次性警告。
+ * 它**不改写入结果、不截断、不抛错**；关闭开关时连测量都不做。
+ */
+const OVERSIZED_WRITE_RECENT_LIMIT_ACU = 10;
+function normalizeFloorInt_ACU(value, min, max, fallback) {
+    const num = Number(value);
+    if (!Number.isFinite(num))
+        return fallback;
+    return Math.min(max, Math.max(min, Math.floor(num)));
+}
+function normalizeOversizedWriteSettings_ACU(raw) {
+    return {
+        enabled: typeof raw?.enabled === 'boolean'
+            ? raw.enabled
+            : OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU,
+        cellChars: normalizeFloorInt_ACU(raw?.cellChars, OVERSIZED_CELL_WARN_CHARS_MIN_ACU, OVERSIZED_CELL_WARN_CHARS_MAX_ACU, OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU),
+        payloadBytes: normalizeFloorInt_ACU(raw?.payloadBytes, OVERSIZED_PAYLOAD_WARN_BYTES_MIN_ACU, OVERSIZED_PAYLOAD_WARN_BYTES_MAX_ACU, OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU),
+    };
+}
+/** 读取当前设置；settings 尚未就绪或测试未提供时回落默认值。 */
+function resolveOversizedWriteSettings_ACU() {
+    const source = settings_ACU;
+    return normalizeOversizedWriteSettings_ACU({
+        enabled: source?.oversizedWriteWarningEnabled,
+        cellChars: source?.oversizedCellWarnChars,
+        payloadBytes: source?.oversizedWriteWarnBytes,
+    });
+}
+function utf8ByteLength_ACU(value) {
+    try {
+        const json = JSON.stringify(value);
+        if (typeof json !== 'string')
+            return 0;
+        if (typeof TextEncoder !== 'undefined')
+            return new TextEncoder().encode(json).length;
+        return json.length;
+    }
+    catch {
+        return 0;
+    }
+}
+function resolveSheetKeys_ACU(tableData, sheetKeys) {
+    if (Array.isArray(sheetKeys) && sheetKeys.length > 0)
+        return sheetKeys;
+    return Object.keys(tableData).filter((key) => key.startsWith('sheet_'));
+}
+/**
+ * 测量本次写入的增量：最长单元格（跳过表头行、只算字符串）与载荷字节数。
+ * 只扫本次写入命中的表，不做全库扫描。
+ */
+function measureOversizedWrite_ACU(input) {
+    let maxCell;
+    const tableData = input.tableData;
+    if (tableData && typeof tableData === 'object') {
+        for (const sheetKey of resolveSheetKeys_ACU(tableData, input.sheetKeys)) {
+            const sheet = tableData[sheetKey];
+            const rows = sheet?.content;
+            if (!Array.isArray(rows))
+                continue;
+            // 第 0 行是表头（模板作者写的固定文本），不是本次写入的风险源。
+            for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+                const row = rows[rowIndex];
+                if (!Array.isArray(row))
+                    continue;
+                for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+                    const cell = row[columnIndex];
+                    if (typeof cell !== 'string')
+                        continue;
+                    if (maxCell && cell.length <= maxCell.chars)
+                        continue;
+                    maxCell = { chars: cell.length, sheetKey, rowIndex, columnIndex };
+                }
+            }
+        }
+    }
+    return {
+        maxCell,
+        payloadBytes: Array.isArray(input.operations) && input.operations.length > 0
+            ? utf8ByteLength_ACU(input.operations)
+            : 0,
+    };
+}
+function evaluateOversizedWriteWarnings_ACU(metrics, settings, now = Date.now()) {
+    if (!settings.enabled)
+        return [];
+    const warnings = [];
+    if (metrics.maxCell && metrics.maxCell.chars >= settings.cellChars) {
+        warnings.push({
+            kind: 'cell',
+            value: metrics.maxCell.chars,
+            threshold: settings.cellChars,
+            unit: 'chars',
+            at: now,
+            sheetKey: metrics.maxCell.sheetKey,
+            rowIndex: metrics.maxCell.rowIndex,
+            columnIndex: metrics.maxCell.columnIndex,
+        });
+    }
+    if (metrics.payloadBytes >= settings.payloadBytes) {
+        warnings.push({
+            kind: 'payload',
+            value: metrics.payloadBytes,
+            threshold: settings.payloadBytes,
+            unit: 'bytes',
+            at: now,
+        });
+    }
+    return warnings;
+}
+const dedupState_ACU = new Map();
+function scopeKeyOf_ACU(input) {
+    return `${input.chatKey || ''}|${input.isolationKey || ''}`;
+}
+function bandOf_ACU(value, threshold) {
+    if (value < threshold || threshold <= 0)
+        return -1;
+    return Math.floor(Math.log2(value / threshold));
+}
+function updateDedupAndFilter_ACU(metrics, warnings, scopeKey, settings) {
+    const entry = dedupState_ACU.get(scopeKey) ?? {};
+    if ((metrics.maxCell?.chars ?? 0) < settings.cellChars)
+        delete entry.cell;
+    if (metrics.payloadBytes < settings.payloadBytes)
+        delete entry.payload;
+    const fresh = [];
+    for (const warning of warnings) {
+        const band = bandOf_ACU(warning.value, warning.threshold);
+        if (band < 0)
+            continue;
+        const previous = warning.kind === 'cell' ? entry.cell : entry.payload;
+        // 同一档或更低（数值缩小但仍超阈值）不再重复提示；涨一个数量级才再提示一次。
+        if (previous !== undefined && band <= previous)
+            continue;
+        if (warning.kind === 'cell')
+            entry.cell = band;
+        else
+            entry.payload = band;
+        fresh.push(warning);
+    }
+    dedupState_ACU.set(scopeKey, entry);
+    return fresh;
+}
+// ─── 出口：结构化日志 + 最近记录 + 订阅者（presentation 注册 toast） ───
+const recentWarnings_ACU = [];
+let sink_ACU = null;
+function registerOversizedWriteWarningSink_ACU(sink) {
+    sink_ACU = sink;
+    return () => {
+        if (sink_ACU === sink)
+            sink_ACU = null;
+    };
+}
+function recordAndEmit_ACU(warnings) {
+    if (warnings.length === 0)
+        return;
+    for (const warning of warnings) {
+        recentWarnings_ACU.push(warning);
+        try {
+            logWarn_ACU(`[数据体积] ${JSON.stringify({
+                kind: warning.kind,
+                value: warning.value,
+                threshold: warning.threshold,
+                unit: warning.unit,
+                sheetKey: warning.sheetKey,
+                rowIndex: warning.rowIndex,
+                columnIndex: warning.columnIndex,
+            })}`);
+        }
+        catch { /* 日志失败不影响主流程 */ }
+    }
+    while (recentWarnings_ACU.length > OVERSIZED_WRITE_RECENT_LIMIT_ACU)
+        recentWarnings_ACU.shift();
+    try {
+        sink_ACU?.(warnings);
+    }
+    catch { /* 通知失败不影响主流程 */ }
+}
+/**
+ * 唯一探针入口：设置关闭时直接返回（连测量都不做），任何异常都吞掉。
+ * 调用方不得依赖它的返回值——它永远返回 void。
+ */
+function probeOversizedWrite_ACU(input) {
+    try {
+        const settings = resolveOversizedWriteSettings_ACU();
+        if (!settings.enabled)
+            return;
+        const metrics = measureOversizedWrite_ACU(input);
+        const warnings = evaluateOversizedWriteWarnings_ACU(metrics, settings);
+        const fresh = updateDedupAndFilter_ACU(metrics, warnings, scopeKeyOf_ACU(input), settings);
+        recordAndEmit_ACU(fresh);
+    }
+    catch { /* 探针绝不影响主流程 */ }
+}
+function getRecentOversizedWriteWarnings_ACU() {
+    return recentWarnings_ACU.map((warning) => ({ ...warning }));
+}
+function formatBytesForUser_ACU(bytes) {
+    if (bytes >= 1024 * 1024)
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+}
+/**
+ * 用户可见文案：说明「多大 / 会怎样 / 去哪里调」，并明确「数据已正常写入、不会被拦截」。
+ */
+function formatOversizedWriteWarningsText_ACU(warnings) {
+    const parts = [];
+    const cell = warnings.find((warning) => warning.kind === 'cell');
+    const payload = warnings.find((warning) => warning.kind === 'payload');
+    if (cell)
+        parts.push(`有一个单元格长达 ${cell.value} 字符（阈值 ${cell.threshold}）`);
+    if (payload) {
+        parts.push(`这次写入约 ${formatBytesForUser_ACU(payload.value)}（阈值 ${formatBytesForUser_ACU(payload.threshold)}）`);
+    }
+    return `数据体积提示：${parts.join('；')}。数据已正常写入、不会被拦截；`
+        + '可在「数据管理 → 写入体积提示」调整阈值或关闭本提示。';
+}
+/** 仅测试使用：清空去重表、最近记录与订阅者。 */
+function resetOversizedWriteWarningStateForTests_ACU() {
+    dedupState_ACU.clear();
+    recentWarnings_ACU.length = 0;
+    sink_ACU = null;
+}
+
 function assertTemplateCommitChatContext_ACU(expectedChat, options) {
     if (options.signal?.aborted)
         throw new Error('模板提交已取消。');
@@ -59429,6 +59668,12 @@ function writeInitFullCheckpointFrameV2_ACU(options) {
     if (checkpoint?.kind !== 'full' || checkpoint.reason !== 'init') {
         throw new Error(`初始化 checkpoint 写入口只接受 reason:'init' 的 full checkpoint（收到 kind=${checkpoint?.kind}, reason=${checkpoint?.reason}）。`);
     }
+    // 数据体积软警告：初始帧同样是一次真实写入，只探测不拦截。
+    probeOversizedWrite_ACU({
+        tableData: checkpoint.data,
+        operations: [checkpoint],
+        isolationKey,
+    });
     target.TavernDB_ACU_IsolatedData = {
         ...(target.TavernDB_ACU_IsolatedData || {}),
         [isolationKey]: { _acu_storage_version: 2, storageFrame: { version: 2, checkpoint, logEntries: [] } },
@@ -103420,6 +103665,10 @@ function buildDefaultSettings_ACU() {
         autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
         autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
         autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+        // [数据体积] 超大字段写入软警告：只提示、不拦截；三项均可在「数据管理」页调整。
+        oversizedWriteWarningEnabled: OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU,
+        oversizedCellWarnChars: OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU,
+        oversizedWriteWarnBytes: OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU,
         updateBatchSize: 3,
         maxConcurrentGroups: 1,
         autoUpdateEnabled: true,
@@ -104629,6 +104878,14 @@ async function runTableUpdateCommit_ACU(options, apply) {
                     const targetSheetKeys = persistOptions.targetSheetKeys !== undefined ? persistOptions.targetSheetKeys : options.targetSheetKeys;
                     const operations = persistOptions.operations ?? options.operations;
                     commitRevisionWriteSet = revisionWriteSet;
+                    // 数据体积软警告：只读探测，不改写入结果；关闭开关时连测量都不做。
+                    probeOversizedWrite_ACU({
+                        tableData: applied.tableData,
+                        sheetKeys: targetSheetKeys,
+                        operations,
+                        chatKey: String(options.chatKey ?? currentChatFileIdentifier_ACU ?? ''),
+                        isolationKey: String(options.isolationKey ?? getCurrentIsolationKey_ACU() ?? ''),
+                    });
                     const staged = persistOptions.beforePersist
                         ? await persistOptions.beforePersist(applied.tableData)
                         : undefined;
@@ -145851,6 +146108,13 @@ function mainInitialize_ACU() {
         // 不得阻塞后续初始化；非 TT 宿主与版本读取失败都按 fail-open 不打扰。
         void notifyAcuTauriVersionIfOutdated_ACU();
         loadSettings_ACU();
+        // 数据体积软警告：service 层只负责测量与日志，toast 出口在这里注册（presentation 层）。
+        registerOversizedWriteWarningSink_ACU((warnings) => {
+            try {
+                showToastr_ACU('warning', formatOversizedWriteWarningsText_ACU(warnings), '数据体积提示');
+            }
+            catch { /* 提示失败不影响主流程 */ }
+        });
         // S0-4：注册插件保存后的 checkpoint 保管库同步（删楼恢复的影子基线）。
         installCheckpointDeleteGuard_ACU();
         // TT 帧架构：续写基线跟随表格 checkpoint 落层 + 删楼恢复适配（与删楼守卫并列，函数幂等）。
@@ -152012,7 +152276,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261025-19";
+        const stamp = "20261026-06";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180220,7 +180484,7 @@ var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_re
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261025-19";
+        const stamp = "20261026-06";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -186926,7 +187190,7 @@ const _hoisted_36$1 = {
 const _hoisted_37$1 = { class: "acu-v2-continuation-materials__outline-heading" };
 const _hoisted_38$1 = { class: "acu-v2-continuation-materials__badge" };
 const _hoisted_39$1 = { class: "acu-v2-continuation-materials__badge" };
-const _hoisted_40 = { class: "acu-v2-continuation-materials__badge" };
+const _hoisted_40$1 = { class: "acu-v2-continuation-materials__badge" };
 const _hoisted_41 = { class: "acu-v2-continuation-materials__card-body" };
 const _hoisted_42 = { class: "acu-v2-continuation-materials__list" };
 const _hoisted_43 = {
@@ -187543,7 +187807,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 												),
 												createBaseVNode(
 													"span",
-													_hoisted_40,
+													_hoisted_40$1,
 													"职责：" + toDisplayString($setup.ROLE_LABELS[revision.outline.role ?? ""] ?? revision.outline.role ?? "未标注"),
 													1
 													/* TEXT */
@@ -193992,6 +194256,10 @@ function useDataManagement() {
         endFloor: '',
     });
     const retainRecentLayers = ref(100);
+    // [数据体积] 超大字段写入软警告（只提示、不拦截）。
+    const oversizedWriteWarningEnabled = ref(OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU);
+    const oversizedCellWarnChars = ref(OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU);
+    const oversizedWriteWarnBytes = ref(OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU);
     const aiMessageCount = ref(0);
     const currentIsolationLabel = computed(() => {
         const code = activeIsolationCode.value;
@@ -194055,6 +194323,14 @@ function useDataManagement() {
         deleteRange.startFloor = settings_ACU.deleteStartFloor || 1;
         deleteRange.endFloor = settings_ACU.deleteEndFloor || '';
         retainRecentLayers.value = normalizeRetainRecentLayers(settings_ACU.retainRecentLayers ?? 100);
+        const oversized = normalizeOversizedWriteSettings_ACU({
+            enabled: settings_ACU.oversizedWriteWarningEnabled,
+            cellChars: settings_ACU.oversizedCellWarnChars,
+            payloadBytes: settings_ACU.oversizedWriteWarnBytes,
+        });
+        oversizedWriteWarningEnabled.value = oversized.enabled;
+        oversizedCellWarnChars.value = oversized.cellChars;
+        oversizedWriteWarnBytes.value = oversized.payloadBytes;
         aiMessageCount.value = getAiMessageCount();
         mixedStorageDecision.value = getActiveMixedStorageDecisionSummary_ACU();
         // 聊天/模板切换后运行时表集合可能变化：剔除已不存在的勾选，避免删到看不见的 key。
@@ -194674,6 +194950,30 @@ function useDataManagement() {
         saveSettings_ACU();
         message.value = null;
     }
+    function applyOversizedWriteSettings(patch) {
+        const normalized = normalizeOversizedWriteSettings_ACU({
+            enabled: patch.enabled !== undefined ? patch.enabled : settings_ACU.oversizedWriteWarningEnabled,
+            cellChars: patch.cellChars !== undefined ? patch.cellChars : settings_ACU.oversizedCellWarnChars,
+            payloadBytes: patch.payloadBytes !== undefined ? patch.payloadBytes : settings_ACU.oversizedWriteWarnBytes,
+        });
+        oversizedWriteWarningEnabled.value = normalized.enabled;
+        oversizedCellWarnChars.value = normalized.cellChars;
+        oversizedWriteWarnBytes.value = normalized.payloadBytes;
+        settings_ACU.oversizedWriteWarningEnabled = normalized.enabled;
+        settings_ACU.oversizedCellWarnChars = normalized.cellChars;
+        settings_ACU.oversizedWriteWarnBytes = normalized.payloadBytes;
+        saveSettings_ACU();
+        message.value = null;
+    }
+    function setOversizedWriteWarningEnabled(value) {
+        applyOversizedWriteSettings({ enabled: value === true || value === 'true' });
+    }
+    function setOversizedCellWarnChars(value) {
+        applyOversizedWriteSettings({ cellChars: value });
+    }
+    function setOversizedWriteWarnBytes(value) {
+        applyOversizedWriteSettings({ payloadBytes: value });
+    }
     return {
         message,
         busyAction,
@@ -194693,6 +194993,12 @@ function useDataManagement() {
         toggleDeleteSheetKey,
         clearDeleteSheetSelection,
         retainRecentLayers,
+        oversizedWriteWarningEnabled,
+        oversizedCellWarnChars,
+        oversizedWriteWarnBytes,
+        setOversizedWriteWarningEnabled,
+        setOversizedCellWarnChars,
+        setOversizedWriteWarnBytes,
         rangeLabel,
         aiMessageCount,
         tableCount,
@@ -194774,6 +195080,14 @@ var _sfc_main$l = /*@__PURE__*/ defineComponent({
         const flow = useDataManagement();
         const runtimeDiagnostic = useSqliteRuntimeDiagnostic();
         const historyExpanded = ref(false);
+        const oversizedWriteWarnMegabytes = computed(() => {
+            const bytes = Number(flow.oversizedWriteWarnBytes.value) || 0;
+            return Math.round((bytes / (1024 * 1024)) * 100) / 100;
+        });
+        function setOversizedWriteWarnMegabytes(value) {
+            const megabytes = Number(value);
+            flow.setOversizedWriteWarnBytes(Number.isFinite(megabytes) ? Math.round(megabytes * 1024 * 1024) : value);
+        }
         const isolationCodeHint = computed(() => `当前正在使用：${flow.currentIsolationLabel.value}。留空表示默认数据；修改后点击“保存并应用”才会切换。`);
         const historyMetaLabel = computed(() => `${flow.isolationHistory.value.length} 个`);
         function selectHistory(value) {
@@ -195040,14 +195354,14 @@ ${floorNote}确认继续？`,
         }
         onMounted(refreshAll);
         watchChatChanged_ACU(refreshAll);
-        const __returned__ = { SHOW_LEGACY_DATA_MGMT_UI, resetDefaultsCleanupOptions, dialogStore, toast, flow, runtimeDiagnostic, historyExpanded, isolationCodeHint, historyMetaLabel, selectHistory, onApplyIsolation, onRemoveHistory, onDeleteCurrentIsolationEntries, onOverrideLatestLayer, onImportTableCheckpoint, onDeleteLocalData, onCommitMixedStorageDecision, onCommitV2Recovery, onReloadSqliteRuntime, onResetAllDefaults, refreshAll, AcuButton, AcuCheckbox, AcuDisclosureGroup, AcuFileButton, AcuFormRow, AcuIconButton, AcuInput, AcuMessage, AcuPanel, AcuPanelGrid, DormantDataPanel, get dataMgmtCopy() { return dataMgmtCopy; } };
+        const __returned__ = { SHOW_LEGACY_DATA_MGMT_UI, resetDefaultsCleanupOptions, dialogStore, toast, flow, runtimeDiagnostic, historyExpanded, oversizedWriteWarnMegabytes, setOversizedWriteWarnMegabytes, isolationCodeHint, historyMetaLabel, selectHistory, onApplyIsolation, onRemoveHistory, onDeleteCurrentIsolationEntries, onOverrideLatestLayer, onImportTableCheckpoint, onDeleteLocalData, onCommitMixedStorageDecision, onCommitV2Recovery, onReloadSqliteRuntime, onResetAllDefaults, refreshAll, AcuButton, AcuCheckbox, AcuDisclosureGroup, AcuFileButton, AcuFormRow, AcuIconButton, AcuInput, AcuMessage, AcuPanel, AcuPanelGrid, DormantDataPanel, get dataMgmtCopy() { return dataMgmtCopy; } };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-v2-data-mgmt-page[data-v-57b974e0] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-data-mgmt-page__panel-stack[data-v-57b974e0] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 16px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__form-stack[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__meta[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-data-mgmt-page__cleanup-section[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-data-mgmt-page__sheet-filter[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  padding: 10px 12px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md, 8px);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-data-mgmt-page__sheet-filter-head[data-v-57b974e0] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__sheet-filter-title[data-v-57b974e0] {\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-57b974e0] {\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--acu-accent);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  cursor: pointer;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-57b974e0]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.acu-v2-data-mgmt-page__sheet-filter-list[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));\r\n  gap: 6px 12px;\n}\n.acu-v2-data-mgmt-page__cleanup-section\r\n  + .acu-v2-data-mgmt-page__cleanup-section[data-v-57b974e0] {\r\n  margin-top: 4px;\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border);\n}\n.acu-v2-data-mgmt-page__section-title[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-data-mgmt-page__history[data-v-57b974e0] {\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__history[data-v-57b974e0] .acu-disclosure-group__header {\r\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-data-mgmt-page__history-list[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-data-mgmt-page__history-item[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-data-mgmt-page__history-fill[data-v-57b974e0] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  justify-content: flex-start;\n}\n.acu-v2-data-mgmt-page__history-code[data-v-57b974e0] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-align: left;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__history-current[data-v-57b974e0] {\r\n  flex-shrink: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__history-empty[data-v-57b974e0] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-data-mgmt-page__actions[data-v-57b974e0] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  justify-content: flex-end;\n}\n.acu-v2-data-mgmt-page__actions[data-v-57b974e0],\r\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__command-grid--cleanup[data-v-57b974e0] {\r\n  margin-top: 12px;\n}\n.acu-v2-data-mgmt-page__checkpoint-section[data-v-57b974e0] {\r\n  margin-top: 16px;\r\n  padding-top: 16px;\r\n  border-top: 1px solid var(--acu-border, rgba(255, 255, 255, 0.12));\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin: 12px 0 0;\n}\n.acu-v2-data-mgmt-page__runtime-health > div[data-v-57b974e0] {\r\n  min-width: 0;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__runtime-health dt[data-v-57b974e0] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__runtime-health dd[data-v-57b974e0] {\r\n  margin: 4px 0 0;\r\n  overflow-wrap: anywhere;\r\n  color: var(--acu-text-1);\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin-top: 10px;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] .acu-file-button,\r\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] .acu-btn { width: 100%; min-width: 0;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] .acu-file-button,\r\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] .acu-btn {\r\n  width: 100%;\r\n  min-width: 0;\n}\n@media (max-width: 860px) {\n.acu-v2-data-mgmt-page[data-v-57b974e0] {\r\n    padding: 14px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n}\n@media (max-width: 560px) {\n.acu-v2-data-mgmt-page__command-grid[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-57b974e0] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/DataMgmtPage.vue#style-0-57b974e0");
-var DataMgmtPage_vue_vue_type_style_index_0_scoped_57b974e0_lang = null;
+injectSfcStyle("\n.acu-v2-data-mgmt-page[data-v-ec178c23] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-data-mgmt-page__panel-stack[data-v-ec178c23] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 16px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__form-stack[data-v-ec178c23] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\n}\n.acu-v2-data-mgmt-page__meta[data-v-ec178c23] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-data-mgmt-page__cleanup-section[data-v-ec178c23] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 12px;\r\n  min-width: 0;\n}\n.acu-v2-data-mgmt-page__sheet-filter[data-v-ec178c23] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  padding: 10px 12px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md, 8px);\r\n  background: var(--acu-bg-1);\n}\n.acu-v2-data-mgmt-page__sheet-filter-head[data-v-ec178c23] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__sheet-filter-title[data-v-ec178c23] {\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-ec178c23] {\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--acu-accent);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  cursor: pointer;\n}\n.acu-v2-data-mgmt-page__sheet-filter-clear[data-v-ec178c23]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.acu-v2-data-mgmt-page__sheet-filter-list[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));\r\n  gap: 6px 12px;\n}\n.acu-v2-data-mgmt-page__cleanup-section\r\n  + .acu-v2-data-mgmt-page__cleanup-section[data-v-ec178c23] {\r\n  margin-top: 4px;\r\n  padding-top: 14px;\r\n  border-top: 1px solid var(--acu-border);\n}\n.acu-v2-data-mgmt-page__section-title[data-v-ec178c23] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-data-mgmt-page__history[data-v-ec178c23] {\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__history[data-v-ec178c23] .acu-disclosure-group__header {\r\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-data-mgmt-page__history-list[data-v-ec178c23] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\n}\n.acu-v2-data-mgmt-page__history-item[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-data-mgmt-page__history-fill[data-v-ec178c23] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  justify-content: flex-start;\n}\n.acu-v2-data-mgmt-page__history-code[data-v-ec178c23] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-align: left;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__history-current[data-v-ec178c23] {\r\n  flex-shrink: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__history-empty[data-v-ec178c23] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: 1.5;\n}\n.acu-v2-data-mgmt-page__actions[data-v-ec178c23] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  justify-content: flex-end;\n}\n.acu-v2-data-mgmt-page__actions[data-v-ec178c23],\r\n.acu-v2-data-mgmt-page__command-grid[data-v-ec178c23] {\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\n}\n.acu-v2-data-mgmt-page__command-grid--cleanup[data-v-ec178c23] {\r\n  margin-top: 12px;\n}\n.acu-v2-data-mgmt-page__checkpoint-section[data-v-ec178c23] {\r\n  margin-top: 16px;\r\n  padding-top: 16px;\r\n  border-top: 1px solid var(--acu-border, rgba(255, 255, 255, 0.12));\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin: 12px 0 0;\n}\n.acu-v2-data-mgmt-page__runtime-health > div[data-v-ec178c23] {\r\n  min-width: 0;\r\n  padding: 8px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-bg-2) 72%, transparent);\n}\n.acu-v2-data-mgmt-page__runtime-health dt[data-v-ec178c23] {\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-data-mgmt-page__runtime-health dd[data-v-ec178c23] {\r\n  margin: 4px 0 0;\r\n  overflow-wrap: anywhere;\r\n  color: var(--acu-text-1);\r\n  font-family: var(--acu-font-mono, Consolas, Menlo, monospace);\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-ec178c23] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 8px;\r\n  margin-top: 10px;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-ec178c23] .acu-file-button,\r\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-ec178c23] .acu-btn { width: 100%; min-width: 0;\n}\n.acu-v2-data-mgmt-page__command-grid[data-v-ec178c23] .acu-file-button,\r\n.acu-v2-data-mgmt-page__command-grid[data-v-ec178c23] .acu-btn {\r\n  width: 100%;\r\n  min-width: 0;\n}\n@media (max-width: 860px) {\n.acu-v2-data-mgmt-page[data-v-ec178c23] {\r\n    padding: 14px;\n}\n.acu-v2-data-mgmt-page__form-grid[data-v-ec178c23] {\r\n    grid-template-columns: 1fr;\n}\n}\n@media (max-width: 560px) {\n.acu-v2-data-mgmt-page__command-grid[data-v-ec178c23] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__checkpoint-actions[data-v-ec178c23] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-data-mgmt-page__runtime-health[data-v-ec178c23] {\r\n    grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/pages/DataMgmtPage.vue#style-0-ec178c23");
+var DataMgmtPage_vue_vue_type_style_index_0_scoped_ec178c23_lang = null;
 
 const _hoisted_1$l = { class: "acu-v2-data-mgmt-page" };
 const _hoisted_2$j = { class: "acu-v2-data-mgmt-page__panel-stack" };
@@ -195120,28 +195434,29 @@ const _hoisted_27$2 = {
 	class: "acu-v2-data-mgmt-page__checkpoint-actions"
 };
 const _hoisted_28$1 = { class: "acu-v2-data-mgmt-page__panel-stack" };
-const _hoisted_29$1 = {
+const _hoisted_29$1 = { class: "acu-v2-data-mgmt-page__form-stack" };
+const _hoisted_30$1 = {
 	class: "acu-v2-data-mgmt-page__cleanup-section",
 	"aria-labelledby": "acu-cleanup-auto-title"
 };
-const _hoisted_30$1 = { class: "acu-v2-data-mgmt-page__form-stack" };
-const _hoisted_31$1 = {
+const _hoisted_31$1 = { class: "acu-v2-data-mgmt-page__form-stack" };
+const _hoisted_32$1 = {
 	class: "acu-v2-data-mgmt-page__cleanup-section",
 	"aria-labelledby": "acu-cleanup-manual-title"
 };
-const _hoisted_32$1 = { class: "acu-v2-data-mgmt-page__meta" };
-const _hoisted_33$1 = { class: "acu-v2-data-mgmt-page__form-grid" };
-const _hoisted_34$1 = {
+const _hoisted_33$1 = { class: "acu-v2-data-mgmt-page__meta" };
+const _hoisted_34$1 = { class: "acu-v2-data-mgmt-page__form-grid" };
+const _hoisted_35 = {
 	key: 0,
 	class: "acu-v2-data-mgmt-page__sheet-filter",
 	role: "group",
 	"aria-labelledby": "acu-cleanup-sheet-filter-title"
 };
-const _hoisted_35 = { class: "acu-v2-data-mgmt-page__sheet-filter-head" };
-const _hoisted_36 = ["disabled"];
-const _hoisted_37 = { class: "acu-v2-data-mgmt-page__sheet-filter-list" };
-const _hoisted_38 = { class: "acu-v2-data-mgmt-page__meta" };
-const _hoisted_39 = { class: "acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup" };
+const _hoisted_36 = { class: "acu-v2-data-mgmt-page__sheet-filter-head" };
+const _hoisted_37 = ["disabled"];
+const _hoisted_38 = { class: "acu-v2-data-mgmt-page__sheet-filter-list" };
+const _hoisted_39 = { class: "acu-v2-data-mgmt-page__meta" };
+const _hoisted_40 = { class: "acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup" };
 function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$l, [$setup.flow.message.value ? (openBlock(), createBlock($setup["AcuMessage"], {
 		key: 0,
@@ -195228,7 +195543,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 				loading: $setup.flow.busyAction.value === "delete-isolation-entries",
 				onClick: $setup.onDeleteCurrentIsolationEntries
 			}, {
-				default: withCtx(() => [..._cache[12] || (_cache[12] = [createTextVNode(
+				default: withCtx(() => [..._cache[15] || (_cache[15] = [createTextVNode(
 					" 删除当前标识注入条目 ",
 					-1
 					/* CACHED */
@@ -195240,7 +195555,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 				loading: $setup.flow.busyAction.value === "apply-isolation",
 				onClick: $setup.onApplyIsolation
 			}, {
-				default: withCtx(() => [..._cache[13] || (_cache[13] = [createTextVNode(
+				default: withCtx(() => [..._cache[16] || (_cache[16] = [createTextVNode(
 					" 保存并应用 ",
 					-1
 					/* CACHED */
@@ -195261,7 +195576,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 						onFile: $setup.flow.importCombinedSettings
 					}, {
-						default: withCtx(() => [..._cache[14] || (_cache[14] = [createBaseVNode(
+						default: withCtx(() => [..._cache[17] || (_cache[17] = [createBaseVNode(
 							"i",
 							{ class: "fa-solid fa-download" },
 							null,
@@ -195279,7 +195594,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 						onClick: $setup.flow.exportCombinedSettings
 					}, {
-						default: withCtx(() => [..._cache[15] || (_cache[15] = [createBaseVNode(
+						default: withCtx(() => [..._cache[18] || (_cache[18] = [createBaseVNode(
 							"i",
 							{ class: "fa-solid fa-upload" },
 							null,
@@ -195297,7 +195612,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 						onClick: $setup.flow.exportJsonData
 					}, {
-						default: withCtx(() => [..._cache[16] || (_cache[16] = [createBaseVNode(
+						default: withCtx(() => [..._cache[19] || (_cache[19] = [createBaseVNode(
 							"i",
 							{ class: "fa-solid fa-upload" },
 							null,
@@ -195316,7 +195631,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						loading: $setup.flow.busyAction.value === "override-latest",
 						onClick: $setup.onOverrideLatestLayer
 					}, {
-						default: withCtx(() => [..._cache[17] || (_cache[17] = [createTextVNode(
+						default: withCtx(() => [..._cache[20] || (_cache[20] = [createTextVNode(
 							" 模板覆盖最新层数据 ",
 							-1
 							/* CACHED */
@@ -195325,7 +195640,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["disabled", "loading"])
 				])) : createCommentVNode("v-if", true),
 				createBaseVNode("section", _hoisted_10$9, [
-					_cache[20] || (_cache[20] = createBaseVNode(
+					_cache[23] || (_cache[23] = createBaseVNode(
 						"h3",
 						{
 							id: "acu-checkpoint-title",
@@ -195335,7 +195650,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						-1
 						/* CACHED */
 					)),
-					_cache[21] || (_cache[21] = createBaseVNode(
+					_cache[24] || (_cache[24] = createBaseVNode(
 						"p",
 						{ class: "acu-v2-data-mgmt-page__section-description" },
 						" 导出当前隔离标识的表格、聊天模板和指导表。导入会清空当前聊天全部 AI 楼层、所有隔离标识的本地表格数据， 仅在当前激活隔离键的最新 AI 楼层重建数据；当前聊天表格模板会切换为文件模板，后续更新将使用该模板。 全局模板和聊天正文不变。 ",
@@ -195347,7 +195662,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 						onClick: $setup.flow.exportTableCheckpoint
 					}, {
-						default: withCtx(() => [..._cache[18] || (_cache[18] = [createTextVNode(
+						default: withCtx(() => [..._cache[21] || (_cache[21] = [createTextVNode(
 							" 导出 Checkpoint ",
 							-1
 							/* CACHED */
@@ -195359,7 +195674,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 						onFile: $setup.onImportTableCheckpoint
 					}, {
-						default: withCtx(() => [..._cache[19] || (_cache[19] = [createTextVNode(
+						default: withCtx(() => [..._cache[22] || (_cache[22] = [createTextVNode(
 							" 导入 Checkpoint ",
 							-1
 							/* CACHED */
@@ -195368,7 +195683,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["disabled"])])
 				]),
 				$setup.flow.mixedStorageDecision.value ? (openBlock(), createElementBlock("section", _hoisted_12$9, [
-					_cache[26] || (_cache[26] = createBaseVNode(
+					_cache[29] || (_cache[29] = createBaseVNode(
 						"h3",
 						{
 							id: "acu-mixed-storage-title",
@@ -195406,7 +195721,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							64
 							/* STABLE_FRAGMENT */
 						)) : createCommentVNode("v-if", true),
-						_cache[22] || (_cache[22] = createTextVNode(
+						_cache[25] || (_cache[25] = createTextVNode(
 							" 可先导出两份独立快照；提交动作只引用当前决议，不会从页面接收或覆盖表格数据。 ",
 							-1
 							/* CACHED */
@@ -195419,7 +195734,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.flow.busyAction.value === "export-mixed-storage-snapshots",
 							onClick: $setup.flow.exportMixedStorageSnapshots
 						}, {
-							default: withCtx(() => [..._cache[23] || (_cache[23] = [createTextVNode(
+							default: withCtx(() => [..._cache[26] || (_cache[26] = [createTextVNode(
 								" 导出 legacy/V2 快照 ",
 								-1
 								/* CACHED */
@@ -195437,7 +195752,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.flow.busyAction.value === "commit-mixed-storage-keep_v2",
 							onClick: _cache[2] || (_cache[2] = ($event) => $setup.onCommitMixedStorageDecision("keep_v2"))
 						}, {
-							default: withCtx(() => [..._cache[24] || (_cache[24] = [createTextVNode(
+							default: withCtx(() => [..._cache[27] || (_cache[27] = [createTextVNode(
 								" 保留 V2 并清理 legacy ",
 								-1
 								/* CACHED */
@@ -195451,7 +195766,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.flow.busyAction.value === "commit-mixed-storage-commit_merge_candidate",
 							onClick: _cache[3] || (_cache[3] = ($event) => $setup.onCommitMixedStorageDecision("commit_merge_candidate"))
 						}, {
-							default: withCtx(() => [..._cache[25] || (_cache[25] = [createTextVNode(
+							default: withCtx(() => [..._cache[28] || (_cache[28] = [createTextVNode(
 								" 提交受限合并候选 ",
 								-1
 								/* CACHED */
@@ -195461,7 +195776,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					])
 				])) : createCommentVNode("v-if", true),
 				$setup.flow.v2RecoverySummary.value ? (openBlock(), createElementBlock("section", _hoisted_15$7, [
-					_cache[30] || (_cache[30] = createBaseVNode(
+					_cache[33] || (_cache[33] = createBaseVNode(
 						"h3",
 						{
 							id: "acu-v2-recovery-title",
@@ -195484,7 +195799,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							disabled: !!$setup.flow.busyAction.value || $setup.runtimeDiagnostic.busy.value,
 							onClick: $setup.flow.exportV2RecoveryBackups
 						}, {
-							default: withCtx(() => [..._cache[27] || (_cache[27] = [createTextVNode(
+							default: withCtx(() => [..._cache[30] || (_cache[30] = [createTextVNode(
 								" 导出已保存的原始 frame 备份 ",
 								-1
 								/* CACHED */
@@ -195499,7 +195814,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.flow.busyAction.value === "commit-v2-recovery",
 							onClick: _cache[4] || (_cache[4] = ($event) => $setup.onCommitV2Recovery(false))
 						}, {
-							default: withCtx(() => [..._cache[28] || (_cache[28] = [createTextVNode(
+							default: withCtx(() => [..._cache[31] || (_cache[31] = [createTextVNode(
 								" 应用 Checkpoint 修复/收敛 ",
 								-1
 								/* CACHED */
@@ -195514,7 +195829,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 							loading: $setup.flow.busyAction.value === "commit-v2-recovery",
 							onClick: _cache[5] || (_cache[5] = ($event) => $setup.onCommitV2Recovery(true))
 						}, {
-							default: withCtx(() => [..._cache[29] || (_cache[29] = [createTextVNode(
+							default: withCtx(() => [..._cache[32] || (_cache[32] = [createTextVNode(
 								" 确认无锚点 data_replace 恢复 ",
 								-1
 								/* CACHED */
@@ -195523,7 +195838,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 						}, 8, ["disabled", "loading"])) : createCommentVNode("v-if", true)
 					])
 				])) : createCommentVNode("v-if", true),
-				$setup.flow.v2IsolationDiagnostics.value.length ? (openBlock(), createElementBlock("section", _hoisted_18$6, [_cache[31] || (_cache[31] = createBaseVNode(
+				$setup.flow.v2IsolationDiagnostics.value.length ? (openBlock(), createElementBlock("section", _hoisted_18$6, [_cache[34] || (_cache[34] = createBaseVNode(
 					"h3",
 					{
 						id: "acu-v2-isolation-diagnostics-title",
@@ -195676,7 +195991,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					loading: $setup.flow.busyAction.value === "scan-v2-isolation-diagnostics",
 					onClick: $setup.flow.scanV2IsolationDiagnostics
 				}, {
-					default: withCtx(() => [..._cache[32] || (_cache[32] = [createTextVNode(
+					default: withCtx(() => [..._cache[35] || (_cache[35] = [createTextVNode(
 						" 扫描全部 V2 隔离域 ",
 						-1
 						/* CACHED */
@@ -195692,7 +196007,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					loading: $setup.flow.busyAction.value === "prepare-v2-recovery",
 					onClick: $setup.flow.prepareV2Recovery
 				}, {
-					default: withCtx(() => [..._cache[33] || (_cache[33] = [createTextVNode(
+					default: withCtx(() => [..._cache[36] || (_cache[36] = [createTextVNode(
 						" 诊断 V2 数据恢复 ",
 						-1
 						/* CACHED */
@@ -195705,183 +196020,232 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 				])])) : createCommentVNode("v-if", true)
 			]),
 			_: 1
-		}, 8, ["title", "description"])]), createBaseVNode("div", _hoisted_28$1, [createVNode($setup["DormantDataPanel"]), createVNode($setup["AcuPanel"], {
-			title: $setup.dataMgmtCopy.panels.cleanup.title,
-			description: $setup.dataMgmtCopy.panels.cleanup.description
-		}, {
-			default: withCtx(() => [
-				createBaseVNode("section", _hoisted_29$1, [_cache[34] || (_cache[34] = createBaseVNode(
-					"h3",
-					{
-						id: "acu-cleanup-auto-title",
-						class: "acu-v2-data-mgmt-page__section-title"
-					},
-					" 自动清理 ",
-					-1
-					/* CACHED */
-				)), createBaseVNode("div", _hoisted_30$1, [createVNode($setup["AcuFormRow"], {
-					label: "保留数据层数",
-					hint: "自动更新结束后，超过保留范围的旧楼层插件数据会被清理；不影响聊天正文。"
-				}, {
-					default: withCtx(() => [createVNode($setup["AcuInput"], {
-						type: "number",
-						min: 0,
-						step: 1,
-						disabled: $setup.runtimeDiagnostic.busy.value,
-						"model-value": $setup.flow.retainRecentLayers.value,
-						onChange: _cache[6] || (_cache[6] = ($event) => $setup.flow.setRetainRecentLayers($event))
-					}, null, 8, ["disabled", "model-value"])]),
-					_: 1
-				})])]),
-				createBaseVNode("section", _hoisted_31$1, [
-					_cache[37] || (_cache[37] = createBaseVNode(
+		}, 8, ["title", "description"])]), createBaseVNode("div", _hoisted_28$1, [
+			createVNode($setup["DormantDataPanel"]),
+			createVNode($setup["AcuPanel"], {
+				title: "写入体积提示",
+				description: "只提示、不拦截：单元格或单次写入数据量超过阈值时提示一次，数据照常写入。"
+			}, {
+				default: withCtx(() => [createBaseVNode("div", _hoisted_29$1, [
+					createVNode($setup["AcuFormRow"], {
+						label: "启用提示",
+						hint: "关闭后不再测量、不再提示；写入行为与关闭前完全一致。"
+					}, {
+						default: withCtx(() => [createVNode($setup["AcuCheckbox"], {
+							"model-value": $setup.flow.oversizedWriteWarningEnabled.value,
+							label: "超过阈值时提示一次",
+							"onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => $setup.flow.setOversizedWriteWarningEnabled($event))
+						}, null, 8, ["model-value"])]),
+						_: 1
+					}),
+					createVNode($setup["AcuFormRow"], {
+						label: "单单元格字符数阈值",
+						hint: "超过该长度的单元格提示一次；默认 10000 字符，可填 1000–10000000。"
+					}, {
+						default: withCtx(() => [createVNode($setup["AcuInput"], {
+							type: "number",
+							min: 1e3,
+							step: 1e3,
+							"model-value": $setup.flow.oversizedCellWarnChars.value,
+							onChange: _cache[7] || (_cache[7] = ($event) => $setup.flow.setOversizedCellWarnChars($event))
+						}, null, 8, ["model-value"])]),
+						_: 1
+					}),
+					createVNode($setup["AcuFormRow"], {
+						label: "单次写入载荷阈值（MB）",
+						hint: "一次写入的数据量超过该值时提示一次；默认 0.5 MB，可填 0.03–64 MB。"
+					}, {
+						default: withCtx(() => [createVNode($setup["AcuInput"], {
+							type: "number",
+							min: .03,
+							max: 64,
+							step: .01,
+							"model-value": $setup.oversizedWriteWarnMegabytes,
+							onChange: _cache[8] || (_cache[8] = ($event) => $setup.setOversizedWriteWarnMegabytes($event))
+						}, null, 8, ["model-value"])]),
+						_: 1
+					})
+				])]),
+				_: 1
+			}),
+			createVNode($setup["AcuPanel"], {
+				title: $setup.dataMgmtCopy.panels.cleanup.title,
+				description: $setup.dataMgmtCopy.panels.cleanup.description
+			}, {
+				default: withCtx(() => [
+					createBaseVNode("section", _hoisted_30$1, [_cache[37] || (_cache[37] = createBaseVNode(
 						"h3",
 						{
-							id: "acu-cleanup-manual-title",
+							id: "acu-cleanup-auto-title",
 							class: "acu-v2-data-mgmt-page__section-title"
 						},
-						" 手动删除 ",
+						" 自动清理 ",
 						-1
 						/* CACHED */
-					)),
+					)), createBaseVNode("div", _hoisted_31$1, [createVNode($setup["AcuFormRow"], {
+						label: "保留数据层数",
+						hint: "自动更新结束后，超过保留范围的旧楼层插件数据会被清理；不影响聊天正文。"
+					}, {
+						default: withCtx(() => [createVNode($setup["AcuInput"], {
+							type: "number",
+							min: 0,
+							step: 1,
+							disabled: $setup.runtimeDiagnostic.busy.value,
+							"model-value": $setup.flow.retainRecentLayers.value,
+							onChange: _cache[9] || (_cache[9] = ($event) => $setup.flow.setRetainRecentLayers($event))
+						}, null, 8, ["disabled", "model-value"])]),
+						_: 1
+					})])]),
+					createBaseVNode("section", _hoisted_32$1, [
+						_cache[40] || (_cache[40] = createBaseVNode(
+							"h3",
+							{
+								id: "acu-cleanup-manual-title",
+								class: "acu-v2-data-mgmt-page__section-title"
+							},
+							" 手动删除 ",
+							-1
+							/* CACHED */
+						)),
+						createBaseVNode(
+							"p",
+							_hoisted_33$1,
+							" 当前聊天 " + toDisplayString($setup.flow.aiMessageCount.value) + " 个 AI 楼层 · 将处理：" + toDisplayString($setup.flow.rangeLabel.value),
+							1
+							/* TEXT */
+						),
+						createBaseVNode("div", _hoisted_34$1, [createVNode($setup["AcuFormRow"], {
+							label: "起始楼层",
+							hint: "从第N个楼层 AI 回复开始，留空为第 1 层。"
+						}, {
+							default: withCtx(() => [createVNode($setup["AcuInput"], {
+								"model-value": $setup.flow.deleteRange.startFloor,
+								type: "number",
+								min: 1,
+								step: 1,
+								"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => $setup.flow.deleteRange.startFloor = $event)
+							}, null, 8, ["model-value"])]),
+							_: 1
+						}), createVNode($setup["AcuFormRow"], {
+							label: "终止楼层",
+							hint: "留空为最新楼层。"
+						}, {
+							default: withCtx(() => [createVNode($setup["AcuInput"], {
+								"model-value": $setup.flow.deleteRange.endFloor,
+								type: "number",
+								min: 1,
+								step: 1,
+								placeholder: "到最后",
+								"onUpdate:modelValue": _cache[11] || (_cache[11] = ($event) => $setup.flow.deleteRange.endFloor = $event)
+							}, null, 8, ["model-value"])]),
+							_: 1
+						})]),
+						$setup.flow.deletableSheetOptions.value.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_35, [
+							createBaseVNode("div", _hoisted_36, [_cache[38] || (_cache[38] = createBaseVNode(
+								"span",
+								{
+									id: "acu-cleanup-sheet-filter-title",
+									class: "acu-v2-data-mgmt-page__sheet-filter-title"
+								},
+								"限定表格（可选）",
+								-1
+								/* CACHED */
+							)), $setup.flow.hasDeleteSheetSelection.value ? (openBlock(), createElementBlock("button", {
+								key: 0,
+								type: "button",
+								class: "acu-v2-data-mgmt-page__sheet-filter-clear",
+								disabled: $setup.runtimeDiagnostic.busy.value,
+								onClick: _cache[12] || (_cache[12] = (...args) => $setup.flow.clearDeleteSheetSelection && $setup.flow.clearDeleteSheetSelection(...args))
+							}, " 清除选择 ", 8, _hoisted_37)) : createCommentVNode("v-if", true)]),
+							createBaseVNode("div", _hoisted_38, [(openBlock(true), createElementBlock(
+								Fragment,
+								null,
+								renderList($setup.flow.deletableSheetOptions.value, (option) => {
+									return openBlock(), createBlock($setup["AcuCheckbox"], {
+										key: option.sheetKey,
+										"model-value": $setup.flow.deleteSheetKeys.value.includes(option.sheetKey),
+										label: option.name,
+										disabled: $setup.runtimeDiagnostic.busy.value,
+										"data-sheet-key": option.sheetKey,
+										"onUpdate:modelValue": ($event) => $setup.flow.toggleDeleteSheetKey(option.sheetKey, $event)
+									}, null, 8, [
+										"model-value",
+										"label",
+										"disabled",
+										"data-sheet-key",
+										"onUpdate:modelValue"
+									]);
+								}),
+								128
+								/* KEYED_FRAGMENT */
+							))]),
+							_cache[39] || (_cache[39] = createBaseVNode(
+								"p",
+								{ class: "acu-v2-data-mgmt-page__meta" },
+								" 勾选后只删除所选表格在楼层范围内的数据（包括 checkpoint 里这些表的数据），其它表格、模板与指导表都不受影响；不勾选则按整楼层删除。 ",
+								-1
+								/* CACHED */
+							))
+						])) : createCommentVNode("v-if", true)
+					]),
 					createBaseVNode(
 						"p",
-						_hoisted_32$1,
-						" 当前聊天 " + toDisplayString($setup.flow.aiMessageCount.value) + " 个 AI 楼层 · 将处理：" + toDisplayString($setup.flow.rangeLabel.value),
+						_hoisted_39,
+						toDisplayString($setup.flow.hasDeleteSheetSelection.value ? `当前已限定 ${$setup.flow.deleteSheetKeys.value.length} 张表：${$setup.flow.selectedDeleteSheetNames.value.join("、")}。按表删除不会硬清空，即便范围覆盖全部楼层。` : "楼层范围同时作用于两个删除按钮。「删除所有本地数据」在范围覆盖全部 AI 楼层时执行硬清空，范围为局部时只删除对应楼层的填表数据。"),
 						1
 						/* TEXT */
 					),
-					createBaseVNode("div", _hoisted_33$1, [createVNode($setup["AcuFormRow"], {
-						label: "起始楼层",
-						hint: "从第N个楼层 AI 回复开始，留空为第 1 层。"
-					}, {
-						default: withCtx(() => [createVNode($setup["AcuInput"], {
-							"model-value": $setup.flow.deleteRange.startFloor,
-							type: "number",
-							min: 1,
-							step: 1,
-							"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => $setup.flow.deleteRange.startFloor = $event)
-						}, null, 8, ["model-value"])]),
-						_: 1
-					}), createVNode($setup["AcuFormRow"], {
-						label: "终止楼层",
-						hint: "留空为最新楼层。"
-					}, {
-						default: withCtx(() => [createVNode($setup["AcuInput"], {
-							"model-value": $setup.flow.deleteRange.endFloor,
-							type: "number",
-							min: 1,
-							step: 1,
-							placeholder: "到最后",
-							"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => $setup.flow.deleteRange.endFloor = $event)
-						}, null, 8, ["model-value"])]),
-						_: 1
-					})]),
-					$setup.flow.deletableSheetOptions.value.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_34$1, [
-						createBaseVNode("div", _hoisted_35, [_cache[35] || (_cache[35] = createBaseVNode(
-							"span",
-							{
-								id: "acu-cleanup-sheet-filter-title",
-								class: "acu-v2-data-mgmt-page__sheet-filter-title"
-							},
-							"限定表格（可选）",
-							-1
-							/* CACHED */
-						)), $setup.flow.hasDeleteSheetSelection.value ? (openBlock(), createElementBlock("button", {
+					createBaseVNode("div", _hoisted_40, [
+						$setup.SHOW_LEGACY_DATA_MGMT_UI ? (openBlock(), createBlock($setup["AcuButton"], {
 							key: 0,
-							type: "button",
-							class: "acu-v2-data-mgmt-page__sheet-filter-clear",
+							block: "",
 							disabled: $setup.runtimeDiagnostic.busy.value,
-							onClick: _cache[9] || (_cache[9] = (...args) => $setup.flow.clearDeleteSheetSelection && $setup.flow.clearDeleteSheetSelection(...args))
-						}, " 清除选择 ", 8, _hoisted_36)) : createCommentVNode("v-if", true)]),
-						createBaseVNode("div", _hoisted_37, [(openBlock(true), createElementBlock(
-							Fragment,
-							null,
-							renderList($setup.flow.deletableSheetOptions.value, (option) => {
-								return openBlock(), createBlock($setup["AcuCheckbox"], {
-									key: option.sheetKey,
-									"model-value": $setup.flow.deleteSheetKeys.value.includes(option.sheetKey),
-									label: option.name,
-									disabled: $setup.runtimeDiagnostic.busy.value,
-									"data-sheet-key": option.sheetKey,
-									"onUpdate:modelValue": ($event) => $setup.flow.toggleDeleteSheetKey(option.sheetKey, $event)
-								}, null, 8, [
-									"model-value",
-									"label",
-									"disabled",
-									"data-sheet-key",
-									"onUpdate:modelValue"
-								]);
-							}),
-							128
-							/* KEYED_FRAGMENT */
-						))]),
-						_cache[36] || (_cache[36] = createBaseVNode(
-							"p",
-							{ class: "acu-v2-data-mgmt-page__meta" },
-							" 勾选后只删除所选表格在楼层范围内的数据（包括 checkpoint 里这些表的数据），其它表格、模板与指导表都不受影响；不勾选则按整楼层删除。 ",
-							-1
-							/* CACHED */
-						))
-					])) : createCommentVNode("v-if", true)
+							loading: $setup.flow.busyAction.value === "delete-current-local",
+							onClick: _cache[13] || (_cache[13] = ($event) => $setup.onDeleteLocalData("current"))
+						}, {
+							default: withCtx(() => [..._cache[41] || (_cache[41] = [createTextVNode(
+								" 删除当前标识本地数据 ",
+								-1
+								/* CACHED */
+							)])]),
+							_: 1
+						}, 8, ["disabled", "loading"])) : createCommentVNode("v-if", true),
+						createVNode($setup["AcuButton"], {
+							block: "",
+							variant: "danger",
+							disabled: $setup.runtimeDiagnostic.busy.value,
+							loading: $setup.flow.busyAction.value === "purge-all-local" || $setup.flow.busyAction.value === "delete-all-local",
+							onClick: _cache[14] || (_cache[14] = ($event) => $setup.onDeleteLocalData("all"))
+						}, {
+							default: withCtx(() => [createTextVNode(
+								toDisplayString($setup.flow.hasDeleteSheetSelection.value ? `删除所选 ${$setup.flow.deleteSheetKeys.value.length} 张表的数据` : "删除所有本地数据"),
+								1
+								/* TEXT */
+							)]),
+							_: 1
+						}, 8, ["disabled", "loading"]),
+						createVNode($setup["AcuButton"], {
+							block: "",
+							disabled: $setup.runtimeDiagnostic.busy.value,
+							loading: $setup.flow.busyAction.value === "reset-defaults",
+							onClick: $setup.onResetAllDefaults
+						}, {
+							default: withCtx(() => [..._cache[42] || (_cache[42] = [createTextVNode(
+								" 恢复默认配置 ",
+								-1
+								/* CACHED */
+							)])]),
+							_: 1
+						}, 8, ["disabled", "loading"])
+					])
 				]),
-				createBaseVNode(
-					"p",
-					_hoisted_38,
-					toDisplayString($setup.flow.hasDeleteSheetSelection.value ? `当前已限定 ${$setup.flow.deleteSheetKeys.value.length} 张表：${$setup.flow.selectedDeleteSheetNames.value.join("、")}。按表删除不会硬清空，即便范围覆盖全部楼层。` : "楼层范围同时作用于两个删除按钮。「删除所有本地数据」在范围覆盖全部 AI 楼层时执行硬清空，范围为局部时只删除对应楼层的填表数据。"),
-					1
-					/* TEXT */
-				),
-				createBaseVNode("div", _hoisted_39, [
-					$setup.SHOW_LEGACY_DATA_MGMT_UI ? (openBlock(), createBlock($setup["AcuButton"], {
-						key: 0,
-						block: "",
-						disabled: $setup.runtimeDiagnostic.busy.value,
-						loading: $setup.flow.busyAction.value === "delete-current-local",
-						onClick: _cache[10] || (_cache[10] = ($event) => $setup.onDeleteLocalData("current"))
-					}, {
-						default: withCtx(() => [..._cache[38] || (_cache[38] = [createTextVNode(
-							" 删除当前标识本地数据 ",
-							-1
-							/* CACHED */
-						)])]),
-						_: 1
-					}, 8, ["disabled", "loading"])) : createCommentVNode("v-if", true),
-					createVNode($setup["AcuButton"], {
-						block: "",
-						variant: "danger",
-						disabled: $setup.runtimeDiagnostic.busy.value,
-						loading: $setup.flow.busyAction.value === "purge-all-local" || $setup.flow.busyAction.value === "delete-all-local",
-						onClick: _cache[11] || (_cache[11] = ($event) => $setup.onDeleteLocalData("all"))
-					}, {
-						default: withCtx(() => [createTextVNode(
-							toDisplayString($setup.flow.hasDeleteSheetSelection.value ? `删除所选 ${$setup.flow.deleteSheetKeys.value.length} 张表的数据` : "删除所有本地数据"),
-							1
-							/* TEXT */
-						)]),
-						_: 1
-					}, 8, ["disabled", "loading"]),
-					createVNode($setup["AcuButton"], {
-						block: "",
-						disabled: $setup.runtimeDiagnostic.busy.value,
-						loading: $setup.flow.busyAction.value === "reset-defaults",
-						onClick: $setup.onResetAllDefaults
-					}, {
-						default: withCtx(() => [..._cache[39] || (_cache[39] = [createTextVNode(
-							" 恢复默认配置 ",
-							-1
-							/* CACHED */
-						)])]),
-						_: 1
-					}, 8, ["disabled", "loading"])
-				])
-			]),
-			_: 1
-		}, 8, ["title", "description"])])]),
+				_: 1
+			}, 8, ["title", "description"])
+		])]),
 		_: 1
 	})]);
 }
-var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$l], ["__scopeId", "data-v-57b974e0"]]);
+var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$l], ["__scopeId", "data-v-ec178c23"]]);
 
 var _sfc_main$k = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePresetDrawer',
@@ -200264,6 +200628,14 @@ function safeCollect_ACU(fn, label) {
         return { error: `${label}: ${error?.message || String(error)}` };
     }
 }
+function collectOversizedWriteSection_ACU() {
+    const settings = resolveOversizedWriteSettings_ACU();
+    return {
+        enabled: settings.enabled,
+        thresholds: { cellChars: settings.cellChars, payloadBytes: settings.payloadBytes },
+        recent: getRecentOversizedWriteWarnings_ACU(),
+    };
+}
 function buildDiagnosticBundle_ACU(options) {
     const frameFloorLimit = Math.max(1, Math.floor(options?.frameFloorLimit ?? DIAGNOSTIC_BUNDLE_FRAME_FLOOR_LIMIT_ACU));
     return {
@@ -200275,6 +200647,7 @@ function buildDiagnosticBundle_ACU(options) {
         promptObservations: parseExportedJson_ACU(safeCollect_ACU(exportPromptObservations_ACU, 'promptObservations')),
         writePipeline: parseExportedJson_ACU(safeCollect_ACU(exportTableWritePipeline_ACU, 'writePipeline')),
         frameReplay: safeCollect_ACU(() => collectFrameReplaySection_ACU(frameFloorLimit), 'frameReplay'),
+        oversizedWrite: safeCollect_ACU(collectOversizedWriteSection_ACU, 'oversizedWrite'),
     };
 }
 /**
@@ -200330,6 +200703,27 @@ function formatDiagnosticBundleText_ACU(bundle) {
     }
     else {
         lines.push(`- 记录数：${String(bundle.writePipeline.recordCount ?? 0)}`);
+    }
+    lines.push('');
+    lines.push('## 数据体积提示');
+    if ('error' in bundle.oversizedWrite) {
+        lines.push(`- 采集失败：${bundle.oversizedWrite.error}`);
+    }
+    else {
+        const section = bundle.oversizedWrite;
+        lines.push(`- 开关：${section.enabled ? '开启' : '关闭'}；阈值：单单元格 ${section.thresholds.cellChars} 字符 / 单次载荷 ${section.thresholds.payloadBytes} 字节`);
+        if (section.recent.length === 0) {
+            lines.push('- 最近没有触发告警');
+        }
+        else {
+            for (const warning of section.recent) {
+                const unit = warning.unit === 'chars' ? '字符' : '字节';
+                const where = warning.sheetKey
+                    ? ` @ ${warning.sheetKey}${warning.rowIndex === undefined ? '' : ` 第 ${warning.rowIndex} 行第 ${warning.columnIndex} 列`}`
+                    : '';
+                lines.push(`- ${warning.kind === 'cell' ? '单元格' : '载荷'} ${warning.value} ${unit}（阈值 ${warning.threshold}）${where}`);
+            }
+        }
     }
     lines.push('');
     lines.push('## 历史楼层回放');

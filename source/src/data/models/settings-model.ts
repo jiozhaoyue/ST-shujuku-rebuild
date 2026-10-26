@@ -71,6 +71,12 @@ export interface Settings_ACU {
   performanceSlowThresholdMs?: number;
   /** 长任务级摘要阈值，默认 200ms。 */
   performanceLongTaskThresholdMs?: number;
+  /** 超大字段写入软警告总开关（只警告不拦截），默认开启。 */
+  oversizedWriteWarningEnabled?: boolean;
+  /** 单单元格字符数告警阈值，默认 10000。 */
+  oversizedCellWarnChars?: number;
+  /** 单次写入载荷字节告警阈值，默认 512 KiB。 */
+  oversizedWriteWarnBytes?: number;
   /** 角色专属设置键映射 */
   [key: string]: unknown;
 }

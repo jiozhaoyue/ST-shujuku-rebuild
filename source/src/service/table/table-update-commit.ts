@@ -10,6 +10,7 @@ import { isAppendedOperationsWriteRejection_ACU, isCompatReadonlyWriteRejection_
 import type { ReplaceExistingIncrementalOptions_ACU } from './storage-frame-v2-persist';
 import type { ManualRefillProgressV2_ACU, TableCheckpointV2_ACU, TableMutationOperationV2_ACU, TableMutationSourceV2_ACU, TableWriteConflictUnitV2_ACU } from './storage-frame-v2-types';
 import { buildSqlSheetBatchOperations_ACU, rebindSqlMutationIdentifiers_ACU } from './sql-table-service';
+import { probeOversizedWrite_ACU } from './oversized-write-warning';
 import {
   extractPendingSheetKeysFromWriteSet_ACU,
   markRuntimeOnlyPendingSheets_ACU,
@@ -401,6 +402,14 @@ export async function runTableUpdateCommit_ACU<T>(
           const targetSheetKeys = persistOptions.targetSheetKeys !== undefined ? persistOptions.targetSheetKeys : options.targetSheetKeys;
           const operations = persistOptions.operations ?? options.operations;
           commitRevisionWriteSet = revisionWriteSet;
+          // 数据体积软警告：只读探测，不改写入结果；关闭开关时连测量都不做。
+          probeOversizedWrite_ACU({
+            tableData: applied.tableData,
+            sheetKeys: targetSheetKeys,
+            operations,
+            chatKey: String(options.chatKey ?? currentChatFileIdentifier_ACU ?? ''),
+            isolationKey: String(options.isolationKey ?? getCurrentIsolationKey_ACU() ?? ''),
+          });
           const staged = persistOptions.beforePersist
             ? await persistOptions.beforePersist(applied.tableData)
             : undefined;

@@ -153,6 +153,7 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | `source/tests/setup/warm-app-graph.ts`（重写） | 增量改写 | 2026-10-26 B1 预热根治 | beforeAll 预热 → setup 顶层 TLA + resetModules 清实例；窄 mock 免疫（判据与 Pinia 泄漏教训见 quality-guidelines「冷启动预热」节） | **否**（上游无此 setup 文件则新增即我方；有则按我方） | **按我方** |
 | `source/src/presentation-v2/composables/download.ts`（新）+ 三个 composable 增量 | 新增 + 增量 | 2026-10-26 B5 下载助手去重 | downloadTextFile_ACU 三处逐字副本收敛为单一事实源（行为契约：宿主文档取 DOM、延迟 revoke） | **否** | **按我方** |
 | `source/tests/service/ai/api-call-response-observation-wiring.test.ts`（新） | 新增 | 2026-10-26 B7 接线守卫 | 「出口数 == handleApiResponse_ACU 接线点数」判据固化为结构守卫，防上游新增 AI 出口后半截记录 | **否** | **按我方** |
+| `source/src/service/table/oversized-write-warning.ts`（新）+ `table-update-commit.ts`、`diagnostic-bundle.ts`、`shared/defaults.ts`、`data/models/settings-model.ts`、`settings-service.ts`、`presentation/bootstrap/init.ts`、`presentation-v2` 的 `useDataManagement.ts`/`DataMgmtPage.vue`（增量） | 新增 + 增量 | 2026-10-26 超大字段写入软警告 | 写库提交边界测量「单单元格字符数 / 单次载荷字节」；超阈值只发一次警告（toast + 结构化日志 + 诊断包新段），**不拦截、不截断、不改存储格式**；阈值三项可配置（默认 10000 字符 / 512 KiB），关闭时连测量都不做 | **否** | **按我方** |
 
 > **口径提示（阶段 3）**：上表按引入任务分行 —— 第 1 行是**阶段 2** 的差量，第 2 行是 **T3.1**，
 > 第 3–7 行是 **T3.2**，第 8–9 行是 **T3.3**（T3.3 的两行中有一行落在 T3.2 改过的同一批我方文件上，

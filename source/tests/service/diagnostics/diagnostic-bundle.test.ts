@@ -203,6 +203,15 @@ describe('buildDiagnosticBundle_ACU', () => {
     const serialized = JSON.stringify(bundle);
     expect(serialized).not.toMatch(/api[_-]?key|secret|authorization|cookie/i);
   });
+
+  it('数据体积提示：默认开启并给出两个阈值的默认值', () => {
+    const bundle = buildDiagnosticBundle_ACU();
+    expect('error' in bundle.oversizedWrite).toBe(false);
+    if ('error' in bundle.oversizedWrite) return;
+    expect(bundle.oversizedWrite.enabled).toBe(true);
+    expect(bundle.oversizedWrite.thresholds).toEqual({ cellChars: 10_000, payloadBytes: 512 * 1024 });
+    expect(bundle.oversizedWrite.recent).toEqual([]);
+  });
 });
 
 describe('formatDiagnosticBundleText_ACU', () => {
@@ -232,6 +241,8 @@ describe('formatDiagnosticBundleText_ACU', () => {
     expect(text).toContain('记录数：2');
     expect(text).toContain('## 写库流水');
     expect(text).toContain('记录数：1');
+    expect(text).toContain('## 数据体积提示');
+    expect(text).toContain('最近没有触发告警');
     expect(text).toContain('## 历史楼层回放');
     expect(text).toContain('最新一楼 #3');
     expect(text).toContain('不含密钥/请求头');
