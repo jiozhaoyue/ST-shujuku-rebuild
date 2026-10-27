@@ -124,6 +124,20 @@ try {
   step('data-hydrated', { sheetCount: hydrated });
   if (!hydrated) fail('导出为空：数据上下文未水合');
 
+  // 3.6) sheetKey 定位修复探针：insertRow 以 sheetKey 定位应成功（2026-10-28 Table-not-found 修复）
+  const crudProbe = await page.evaluate(async () => {
+    try {
+      const v = await window.AutoCardUpdaterAPI.insertRow('sheet_protagonist', {
+        '姓名': 'E2E-sheetKey-probe', '性别': '女', '年龄': '20',
+        '身份': 'E2E', '外貌特征': 'E2E', '当前衣着/装扮': 'E2E',
+        '所在地点': 'E2E', '基础属性': 'E2E',
+      });
+      return String(v);
+    } catch (e) { return 'ERR:' + String(e).slice(0, 150); }
+  });
+  step('crud-sheetkey-probe', { result: crudProbe });
+  if (crudProbe === '-1' || crudProbe.startsWith('ERR')) fail(`insertRow(sheetKey) 探针失败: ${crudProbe}`);
+
   /** 页面内公共动作：导出 → 确保主角表有一行数据 → 置「作者要求」为 big → 导入（persist）→ 回读量程。 */
   const importWithBig = async (big, clearToasts) => page.evaluate(async ({ big, clearToasts }) => {
     const A = window.AutoCardUpdaterAPI;

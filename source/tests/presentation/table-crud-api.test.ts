@@ -246,6 +246,42 @@ describe('findTargetSheet', () => {
     expect(result!.sheetKey).toBe('sheet_0');
   });
 
+  it('sheetKey 精确匹配：运行时显示名与模板显示名不一致时仍可定位（真机 2026-10-28 场景）', () => {
+    // 运行时 canonical 视图 sheet.name = '主角信息'（SyncBridge 导出名），
+    // 模板显示名是 '主角信息表'，sheetKey 是 'sheet_protagonist' —— 三者互不相同。
+    mockCurrentJsonTableData = {
+      sheet_protagonist: { name: '主角信息', content: [['row_id', 'name']] },
+    };
+    const byKey = findTargetSheet('sheet_protagonist');
+    expect(byKey).not.toBeNull();
+    expect(byKey!.sheetKey).toBe('sheet_protagonist');
+    expect(byKey!.sheet.name).toBe('主角信息');
+    // 既有路径不受影响：运行时显示名仍可命中
+    const byRuntimeName = findTargetSheet('主角信息');
+    expect(byRuntimeName!.sheetKey).toBe('sheet_protagonist');
+  });
+
+  it('mate 键不能作为 sheetKey 命中', () => {
+    mockCurrentJsonTableData = {
+      mate: { name: '背包物品表' },
+      sheet_0: { name: '背包物品表', content: [] },
+    };
+    expect(findTargetSheet('mate')).toBeNull();
+  });
+
+  it('全路径未命中时输出含数据表样本的诊断日志', async () => {
+    mockCurrentJsonTableData = {
+      sheet_protagonist: { name: '主角信息', content: [['row_id']] },
+    };
+    const { logWarn_ACU } = await import('../../src/shared/utils');
+    vi.mocked(logWarn_ACU).mockClear();
+    expect(findTargetSheet('不存在的表')).toBeNull();
+    expect(vi.mocked(logWarn_ACU)).toHaveBeenCalledTimes(1);
+    const msg = String(vi.mocked(logWarn_ACU).mock.calls[0]?.[0] ?? '');
+    expect(msg).toContain('表名解析失败');
+    expect(msg).toContain('sheet_protagonist');
+  });
+
   describe('活跃 SQLite runtime 的 owner-aware 映射刷新', () => {
     const tableData = {
       sheet_0: { name: '背包物品表', content: [['row_id', 'item']] },

@@ -147223,6 +147223,23 @@ function findTargetSheetInData_ACU(tableData, tableName) {
         return null;
     if (!ensureNameMapperForTableData_ACU(tableData))
         return null;
+    // 路径 0：sheetKey 精确匹配（canonical 视图键唯一，零歧义）。
+    // 真机实测（2026-10-28，Dev ST 8001）：运行时 canonical 视图的 sheet.name 是运行时显示名
+    // （如「主角信息」），与模板显示名（「主角信息表」）、sheetKey（sheet_protagonist）三者互不相同；
+    // 调用方传 sheetKey 定位合法且无歧义，缺此路径会让手动 CRUD 在运行时名与模板名不一致的
+    // 聊天上全部报「Table not found」。
+    for (const sheetKey of Object.keys(tableData)) {
+        if (sheetKey !== tableName || !sheetKey.startsWith('sheet_'))
+            continue;
+        const sheet = tableData[sheetKey];
+        if (!sheet || typeof sheet !== 'object')
+            continue;
+        return {
+            sheet,
+            sheetKey,
+            englishTableName: getEnglishTableName(tableData, sheetKey),
+        };
+    }
     // 路径 1：按 sheet.name（中文显示名）直接匹配
     for (const sheetKey in tableData) {
         if (!sheetKey.startsWith('sheet_'))
@@ -147288,6 +147305,13 @@ function findTargetSheetInData_ACU(tableData, tableName) {
             englishTableName: getEnglishTableName(tableData, sheetKey),
         };
     }
+    // 全路径未命中：输出一次性诊断（键名 + 运行时显示名样本），真机排查「Table not found」时不必再猜。
+    const sheetKeySample = Object.keys(tableData)
+        .filter((k) => k.startsWith('sheet_'))
+        .slice(0, 8)
+        .map((k) => `${k}(${String(tableData[k]?.name ?? '').slice(0, 16)})`)
+        .join(', ');
+    logWarn_ACU(`[TableCRUD] 表名解析失败: "${tableName}" 未命中 sheetKey/显示名/物理名/DDL 别名；当前数据表: ${sheetKeySample || '(无 sheet_)'}`);
     return null;
 }
 function findTargetSheet(tableName) {
@@ -152276,7 +152300,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261026-06";
+        const stamp = "20261027-17";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -180484,7 +180508,7 @@ var TableSelector = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_re
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261026-06";
+        const stamp = "20261027-17";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
