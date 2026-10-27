@@ -8,8 +8,10 @@
  *
  * 回放模型（与插件 data/sqlite/sync-bridge.ts 一致）：
  *   1) 全量 checkpoint（storageFrame.checkpoint，kind=full）建库：
- *      各 sheet 的 sourceData.ddl 建表（表名改写为 sheetKey 的 key 形式：
- *      sheet_ji_yao_biao -> jiyaobiao），content[0] 中文表头按 DDL 注释映射物理列后 INSERT；
+ *      各 sheet 的 sourceData.ddl 建表（**直接采用 DDL 声明的物理表名**——
+ *      logEntries 语句由运行时按 DDL 物理名生成，二者同源零改写；
+ *      DDL 名缺失/非法时回退消毒后的 sheetKey 键形式），
+ *      content[0] 中文表头按 DDL 注释映射物理列后 INSERT；
  *   2) 之后各楼帧的 logEntries 按 seq 顺序重放 operations[].statements（纯 SQL 字符串）。
  *
  * 宽容回放规则（--strict 关闭）：
@@ -169,9 +171,30 @@ for (const [sheetKey, sheet] of Object.entries(checkpoint.data)) {
         const line = ddlSrc.split(/\r?\n/).find((l) => new RegExp(`^\\s*${col.name}\\s+`).test(l));
         if (line) col.comment = extractLineComment(line);
     }
-    const phys = keyFormOf(sheetKey); // 回放库的实际表名
+    // 回放库的实际表名：**直接用 DDL 声明的物理名**。
+    // 真机实证（2026-10-28，角色画像 2.44MB 真实聊天）：logEntries 里的语句由运行时按 DDL
+    // 物理名生成（如 INSERT INTO tracking_body_baseline ...），旧实现按键形式建表
+    // （sheet_698uv3qra → "698uv3qra"）有两个致命缺陷：
+    //   ① 键后缀数字开头 → CREATE TABLE 出非法标识符 → 整个回放崩溃（unrecognized token）；
+    //   ② DDL 名 ≠ 键形式 → 回放语句全部 no such table 被静默跳过 → 救援输出丢掉全部数据行。
+    // DDL 名在单隔离内唯一（运行时有物理名冲突预检），直接采用即与语句原生同源、零改写。
+    let phys = (physName || '').trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(phys)) {
+        // DDL 名缺失/非法时才回退键形式，并消毒为合法标识符
+        phys = keyFormOf(sheetKey).replace(/[^A-Za-z0-9_]/g, '');
+        if (/^[0-9]/.test(phys)) phys = `t${phys}`;
+        if (!phys) {
+            diag.push({ line: checkpoint.line, seq: 'checkpoint', op: -1, phys: '', action: 'skip-sheet', reason: '无法确定物理表名（DDL 缺失且键形式为空）', sql: '' });
+            continue;
+        }
+    }
     const ddl = rebindDdlTableName(ddlSrc, phys);
-    db.run(ddl);
+    try {
+        db.run(ddl);
+    } catch (e) {
+        diag.push({ line: checkpoint.line, seq: 'checkpoint', op: -1, phys, action: 'skip-sheet', reason: dbErr(e), sql: ddl.slice(0, 200) });
+        continue;
+    }
     // content[0] 中文表头 → 物理列名
     const header = Array.isArray(sheet.content) && sheet.content[0] || [];
     const colNames = columns.map((c) => c.name);
@@ -181,6 +204,10 @@ for (const [sheetKey, sheet] of Object.entries(checkpoint.data)) {
         const hIdx = header.findIndex((h) => h === cmt || h === name);
         return hIdx >= 0 ? hIdx : -1;
     });
+    if (sheetsByPhys[phys]) {
+        diag.push({ line: checkpoint.line, seq: 'checkpoint', op: -1, phys, action: 'skip-sheet', reason: '物理表名与已有表冲突（同隔离内应唯一）', sql: '' });
+        continue;
+    }
     let imported = 0;
     for (let r = 1; r < (sheet.content || []).length; r++) {
         const row = sheet.content[r];
@@ -202,6 +229,29 @@ for (const [sheetKey, sheet] of Object.entries(checkpoint.data)) {
 
 // ── 重放 logEntries ──
 let replayedOps = 0, replayedStmts = 0, skipped = 0, rewritten = 0;
+// 语句头部表名别名重绑：旧代插件的语句用 sheetKey 键形式物理名（如 beiwanglu），
+// 新代用 DDL 声明名（如 memo/protagonist_info）。回放库按 DDL 名建表，
+// 因此把语句头部命中的键形式别名精确改绑为回放表名（只改语句头部一个 token，不碰字符串字面量）。
+const aliasToPhys = new Map();
+const physSet = new Set(Object.keys(sheetsByPhys));
+for (const { sheetKey, phys } of Object.values(sheetsByPhys)) {
+    const alias = keyFormOf(sheetKey);
+    if (!alias || alias === phys || physSet.has(alias)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) continue;
+    aliasToPhys.set(alias, phys);
+}
+const STMT_HEAD_RE = /^(\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM|ALTER\s+TABLE|CREATE\s+(?:TABLE|INDEX)|DROP\s+TABLE)\s+)("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)/;
+function rebindStmtTable(st) {
+    if (aliasToPhys.size === 0) return st;
+    const m = st.match(STMT_HEAD_RE);
+    if (!m) return st;
+    const raw = m[2];
+    const name = raw.startsWith('"') ? raw.slice(1, -1).replace(/""/g, '"') : raw;
+    const mapped = aliasToPhys.get(name);
+    if (!mapped || mapped === name) return st;
+    return st.slice(0, m[1].length) + mapped + st.slice(m[1].length + raw.length);
+}
+let aliasRebound = 0;
 for (const { line, iso, frame } of frames) {
     if (iso !== isolation) continue;
     const entries = frame.logEntries || [];
@@ -213,8 +263,10 @@ for (const { line, iso, frame } of frames) {
             replayedOps++;
             const stmts = op.statements || [];
             for (let si = 0; si < stmts.length; si++) {
-                const st = stmts[si];
-                if (typeof st !== 'string' || !st.trim()) continue;
+                const st0 = stmts[si];
+                if (typeof st0 !== 'string' || !st0.trim()) continue;
+                const st = rebindStmtTable(st0);
+                if (st !== st0) aliasRebound++;
                 replayedStmts++;
                 try {
                     db.run(st);
@@ -285,7 +337,7 @@ const summary = `# 回放摘要
 
 - 聊天文件：\`${resolve(chatPath)}\`（${lines.length} 行）
 - 隔离键：\`${isolation}\`；checkpoint 位于第 ${checkpoint.line} 行（kind=full）
-- 回放操作批次：${replayedOps}；语句：${replayedStmts}
+- 回放操作批次：${replayedOps}；语句：${replayedStmts}；别名改绑：${aliasRebound}
 - 宽容改写（INSERT OR IGNORE）：${rewritten}；跳过：${skipped}
 
 ## 表×行数
