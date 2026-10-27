@@ -67,6 +67,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/nvm4w/nodejs/node.exe\" \".zcode/hooks/goal-continuation.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }
