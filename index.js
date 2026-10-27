@@ -147221,8 +147221,12 @@ function ensureNameMapperForTableData_ACU(tableData) {
 function findTargetSheetInData_ACU(tableData, tableName) {
     if (!tableData)
         return null;
-    if (!ensureNameMapperForTableData_ACU(tableData))
+    if (!ensureNameMapperForTableData_ACU(tableData)) {
+        // ensure 失败时已用 logWarn 输出具体原因（不支持 owner-aware 刷新 / 发布被拒）；
+        // 这里补一条桥接说明，避免方法层把它误读成「表不存在」。
+        logWarn_ACU(`[TableCRUD] 表名解析被映射刷新失败拦截（"${tableName}" 并非一定不存在，原因见上一条）。`);
         return null;
+    }
     // 路径 0：sheetKey 精确匹配（canonical 视图键唯一，零歧义）。
     // 真机实测（2026-10-28，Dev ST 8001）：运行时 canonical 视图的 sheet.name 是运行时显示名
     // （如「主角信息」），与模板显示名（「主角信息表」）、sheetKey（sheet_protagonist）三者互不相同；
