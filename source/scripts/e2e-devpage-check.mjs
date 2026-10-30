@@ -37,8 +37,15 @@ let pw = null;
 if (!pw) { console.error('[devpage] 无法加载 playwright：NODE_PATH="C:/nvm4w/nodejs/node_modules" node scripts/e2e-devpage-check.mjs'); process.exit(2); }
 const { chromium } = pw;
 
-const TARGET_URL = 'http://127.0.0.1:8001/'; // Dev ST；8003 需 https，另参 e2e-screenshot-tour.mjs
-if (!/127\.0\.0\.1:800[13]/.test(TARGET_URL)) { console.error('目标不在 Dev 白名单'); process.exit(3); }
+// 目标：--target=luker → Dev Luker 8003（https）；默认 Dev ST 8001（http）。白名单硬校验。
+const argTarget = (process.argv.find((a) => a.startsWith('--target=')) || '').split('=')[1] || 'st';
+const TARGETS = {
+    st: { url: 'http://127.0.0.1:8001/', https: false, shotPrefix: 'devpage' },
+    luker: { url: 'https://127.0.0.1:8003/', https: true, shotPrefix: 'devpage-luker' },
+};
+const TARGET = TARGETS[argTarget];
+if (!TARGET || !/127\.0\.0\.1:800[13]/.test(TARGET.url)) { console.error('目标不在 Dev 白名单（st/luker）'); process.exit(3); }
+const TARGET_URL = TARGET.url;
 
 const results = [];
 const add = (name, pass, detail) => { results.push({ name, pass, detail }); console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${detail ? ' — ' + detail : ''}`); };
@@ -46,6 +53,7 @@ const add = (name, pass, detail) => { results.push({ name, pass, detail }); cons
 const browser = await chromium.launch();
 const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
+    ignoreHTTPSErrors: TARGET.https,
     permissions: ['clipboard-read', 'clipboard-write'],
 });
 const page = await context.newPage();
@@ -100,7 +108,7 @@ try {
     }
     const apiDomains = ['agent-worldbook', 'core-data', 'data-admin', 'sql', 'table-crud', 'table-lock', 'template-preset', 'worldbook-ai'];
     for (const d of apiDomains) add(`API 域 ${d}`, body.includes(d));
-    await page.screenshot({ path: join(SHOT_DIR, 'devpage-overview.png'), fullPage: false });
+    await page.screenshot({ path: join(SHOT_DIR, `${TARGET.shotPrefix}-overview.png`), fullPage: false });
 
     // B. 复制诊断包文本
     await page.locator('button:has-text("复制诊断包文本")').first().click({ timeout: 8000 });
@@ -112,7 +120,7 @@ try {
         const lower = clip.toLowerCase();
         const secretHits = ['apikey', 'api_key', 'authorization'].filter((k) => lower.includes(k));
         add('诊断包无凭据字段名', secretHits.length === 0, secretHits.join(',') || 'clean');
-        writeFileSync(join(SHOT_DIR, 'devpage-diagnostic.md'), clip, 'utf-8');
+        writeFileSync(join(SHOT_DIR, `${TARGET.shotPrefix}-diagnostic.md`), clip, 'utf-8');
     }
 
     // C. 导出诊断包 JSON（download 事件）
@@ -121,7 +129,7 @@ try {
         page.locator('button:has-text("导出诊断包 JSON")').first().click({ timeout: 8000 }).catch(() => null),
     ]);
     if (download) {
-        const p = join(SHOT_DIR, 'devpage-diagnostic.json');
+        const p = join(SHOT_DIR, `${TARGET.shotPrefix}-diagnostic.json`);
         await download.saveAs(p);
         try {
             const j = JSON.parse(readFileSync(p, 'utf-8'));
@@ -137,12 +145,12 @@ try {
     }
 } catch (e) {
     add('流程异常', false, String(e && e.message || e));
-    await page.screenshot({ path: join(SHOT_DIR, 'devpage-error.png'), fullPage: false }).catch(() => {});
+    await page.screenshot({ path: join(SHOT_DIR, `${TARGET.shotPrefix}-error.png`), fullPage: false }).catch(() => {});
 }
 
 await context.close();
 await browser.close();
-writeFileSync(join(SHOT_DIR, 'devpage-report.json'), JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 1), 'utf-8');
+writeFileSync(join(SHOT_DIR, `${TARGET.shotPrefix}-report.json`), JSON.stringify({ generatedAt: new Date().toISOString(), target: TARGET_URL, results }, null, 1), 'utf-8');
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n汇总：${passed}/${results.length} 项通过`);
 process.exit(passed === results.length ? 0 : 1);
