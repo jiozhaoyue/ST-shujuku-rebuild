@@ -47,11 +47,12 @@
       「调用测试」或一次手动填表）→ 回到本页应出现一条记录；展开可见 模型 / 端点主机 / 流式 /
       消息数 / 总字符 / 估算 token、与上次调用的 diff（基线 / 一致 / 前缀分歧）、逐条消息明细。
       非填表功能域应显示「**未分段**」并说明原因（只有填表链按占位符分段）。
-- [x] **导出 JSON / 复制诊断包文本（2026-10-31 Dev ST 8001 自动化实证）**：
-      `scripts/e2e-devpage-check.mjs` 17/17 PASS——环境与能力总览六要素齐全、8 个 API 域分组在列、
-      复制诊断包文本为脱敏 Markdown（3189 字符，无 apikey/authorization 字段名）、导出诊断包 JSON
-      下载成功且脱敏扫描 clean（schema/environment/capabilities/selfCheck/promptObservations）。
-      产物：`test-results/e2e-shots/devpage-*`。注：新会话默认基础模式，需先切高手模式并在仪表盘
+- [x] **导出 JSON / 复制诊断包文本（2026-10-31 Dev 双实例自动化实证）**：
+      `scripts/e2e-devpage-check.mjs`（--target=st/luker）在 Dev ST 8001 与 Dev Luker 8003 各 **17/17 PASS**
+      ——环境与能力总览六要素齐全、8 个 API 域分组在列、复制诊断包文本为脱敏 Markdown
+      （无 apikey/authorization 字段名）、导出诊断包 JSON 下载成功且脱敏扫描 clean
+      （schema/environment/capabilities/selfCheck/promptObservations）。
+      产物：`test-results/e2e-shots/devpage-*` 与 `devpage-luker-*`。注：新会话默认基础模式，需先切高手模式并在仪表盘
       打开「启用开发者选项」总开关（自动化已覆盖该前置链）。
 - [x] **环境与能力总览（同上实证）**：构建戳 / 存储模式 / 当前聊天标识 / 数据隔离 / 可调用的公开 API
       （按域分组可展开）/ 状态持久化面（四通道）全部渲染。
