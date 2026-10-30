@@ -71,7 +71,7 @@ export function useFormFillInjectionTarget() {
     try {
       const oldLorebookName = await resolveLorebookName(oldTargetSetting);
       if (oldLorebookName) {
-        toast.info(`正在从旧目标 [${oldLorebookName}] 中清除条目...`, { muteable: false });
+        toast.info(`正在从旧目标 [${oldLorebookName}] 中清除条目…`, { muteable: false });
         try {
           await deleteAllGeneratedEntries_ACU(oldLorebookName);
           await waitForCleanupSettle();
@@ -90,7 +90,7 @@ export function useFormFillInjectionTarget() {
       );
 
       if (currentJsonTableData_ACU) {
-        toast.info('正在向新目标注入条目...', { muteable: false });
+        toast.info('正在向新目标注入条目…', { muteable: false });
         await updateReadableLorebookEntry_ACU(true);
         toast.success('数据注入目标已成功切换！', { muteable: false });
       } else {

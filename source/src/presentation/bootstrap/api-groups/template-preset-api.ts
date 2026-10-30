@@ -185,7 +185,7 @@ export function createTemplatePresetApi(ctx: ApiGroupContext): Record<string, Fu
             } catch (e) {
                 logError_ACU('importTemplateFromData failed:', e);
                 const error = e?.message || String(e);
-                return { success: false, scope: normalizeTemplateOperationScope_ACU(options?.scope || 'global'), message: `导入失败: ${error}`, error };
+                return { success: false, scope: normalizeTemplateOperationScope_ACU(options?.scope || 'global'), message: `导入失败：${error}`, error };
             }
         },
 

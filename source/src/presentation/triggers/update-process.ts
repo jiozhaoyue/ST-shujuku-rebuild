@@ -159,23 +159,23 @@ function buildProgressMessage(event: CardUpdateProgressEvent): string {
     const batchLabel = buildBatchProgressLabel(event);
     switch (event.phase) {
         case 'preparing':
-            return `${batchLabel}：准备AI输入...`;
+            return `${batchLabel}：准备AI输入…`;
         case 'calling_ai':
-            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次调用AI进行增量更新...`;
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次调用AI进行增量更新…`;
         case 'parsing':
-            return `${batchLabel}：解析并应用AI返回的更新...`;
+            return `${batchLabel}：解析并应用AI返回的更新…`;
         case 'saving':
-            return `${batchLabel}：正在将更新后的数据库保存到聊天记录...`;
+            return `${batchLabel}：正在将更新后的数据库保存到聊天记录…`;
         case 'chunk_done':
-            return `${batchLabel}：分块处理成功...`;
+            return `${batchLabel}：分块处理成功…`;
         case 'complete':
             return `${batchLabel}：数据库增量更新成功！`;
         case 'retry':
-            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次尝试失败，5秒后重试...${event.message ? ` (${event.message})` : ''}`;
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次尝试失败，5秒后重试…${event.message ? ` (${event.message})` : ''}`;
         case 'error':
             return `${batchLabel}：错误：更新失败。`;
         default:
-            return `${batchLabel}：正在处理...`;
+            return `${batchLabel}：正在处理…`;
     }
 }
 
@@ -223,7 +223,7 @@ function handleProgressEvent(event: CardUpdateProgressEvent, isSilentMode: boole
  */
 export async function proceedWithCardUpdate_ACU(
     messagesToUse: any[],
-    batchToastMessage = '正在填表，请稍候...',
+    batchToastMessage = '正在填表，请稍候…',
     saveTargetIndex = -1,
     isImportMode = false,
     updateMode = 'standard',
@@ -245,8 +245,8 @@ export async function proceedWithCardUpdate_ACU(
         // UI：显示加载 toast（带停止按钮）
         const stopButtonHtml = renderStopButton_ACU(stopButtonId, '终止');
         const initialMessage = progressContext
-            ? `${buildBatchProgressLabel(progressContext)}：${batchToastMessage || '正在填表，请稍候...'}`
-            : (batchToastMessage || '正在填表，请稍候...');
+            ? `${buildBatchProgressLabel(progressContext)}：${batchToastMessage || '正在填表，请稍候…'}`
+            : (batchToastMessage || '正在填表，请稍候…');
         const toastMessage = `<div><span class="acu-toast-progress-message">${initialMessage}</span>${stopButtonHtml}</div>`;
         loadingToast = showToastr_ACU('info', toastMessage, {
             timeOut: 0,
@@ -260,8 +260,8 @@ export async function proceedWithCardUpdate_ACU(
                         _set_wasStoppedByUser_ACU(true);
                         abortAllActiveRequests_ACU();
                         _set_isAutoUpdatingCard_ACU(false);
-                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次...', false);
-                        updateLoadingToastMessage(loadingToast, '填表任务已终止，正在停止当前任务与后续批次...');
+                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次…', false);
+                        updateLoadingToastMessage(loadingToast, '填表任务已终止，正在停止当前任务与后续批次…');
                         showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
                 }
@@ -290,7 +290,7 @@ export async function proceedWithCardUpdate_ACU(
                 notifyTableUpdate();
             }, 250);
         } else if (!result.success && !result.aborted && !isSilentMode && showFinalErrorToast) {
-            showToastr_ACU('error', `更新失败: ${result.error || '未知错误'}`);
+            showToastr_ACU('error', `更新失败：${result.error || '未知错误'}`);
             updateStatusText('错误：更新失败。', false);
         }
 
@@ -398,8 +398,8 @@ export async function handleManualUpdate_ACU() {
                         _set_wasStoppedByUser_ACU(true);
                         abortAllActiveRequests_ACU();
                         _set_isAutoUpdatingCard_ACU(false);
-                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次...', false);
-                        updateLoadingToastMessage(manualProgressToast, '填表任务已终止，正在停止当前任务与后续批次...');
+                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次…', false);
+                        updateLoadingToastMessage(manualProgressToast, '填表任务已终止，正在停止当前任务与后续批次…');
                         showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
                 }

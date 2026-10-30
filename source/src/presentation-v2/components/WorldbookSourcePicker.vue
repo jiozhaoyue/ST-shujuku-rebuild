@@ -11,7 +11,7 @@
 
     <template v-if="source === 'manual'">
       <AcuFormRow v-if="filterable" label="筛选">
-        <AcuInput v-model="filter" type="text" placeholder="筛选世界书..." />
+        <AcuInput v-model="filter" type="text" placeholder="筛选世界书…" />
       </AcuFormRow>
 
       <div
@@ -36,7 +36,7 @@
           ></i>
         </button>
         <div v-if="!filteredNames.length" class="acu-v2-wb-source-picker__empty">
-          {{ status === 'loading' ? '正在加载世界书...' : '无可选世界书' }}
+          {{ status === 'loading' ? '正在加载世界书…' : '无可选世界书' }}
         </div>
       </div>
     </template>

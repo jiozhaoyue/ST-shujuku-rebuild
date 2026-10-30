@@ -213,7 +213,7 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
         ),
         summaryIndexArchiveMaxInputChars: normalizePositiveInteger_ACU(
             (source as any).summaryIndexArchiveMaxInputChars,
-            Number((defaults as any).summaryIndexArchiveMaxInputChars) || 24000,
+            Number((defaults as any).summaryIndexArchiveMaxInputChars) || defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
         ),
         summaryIndexArchiveEmbeddingConcurrency: normalizePositiveInteger_ACU(
             (source as any).summaryIndexArchiveEmbeddingConcurrency,
@@ -432,7 +432,7 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
     );
     const summaryIndexArchiveMaxInputChars = normalizePositiveInteger_ACU(
         (config as any).summaryIndexArchiveMaxInputChars,
-        Number((defaults as any).summaryIndexArchiveMaxInputChars) || 24000,
+        Number((defaults as any).summaryIndexArchiveMaxInputChars) || defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
     );
     // T9：归档 embedding 批次的有界并发度（同时进行中的批次上限）。独立于 summaryIndexArchiveMaxConcurrency（批大小）。
     const summaryIndexArchiveEmbeddingConcurrency = normalizePositiveInteger_ACU(

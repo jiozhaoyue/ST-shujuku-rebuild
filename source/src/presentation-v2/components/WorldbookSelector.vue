@@ -1,7 +1,7 @@
 <template>
   <div class="acu-v2-wb-selector">
     <AcuFormRow v-if="filterable" label="筛选">
-      <AcuInput v-model="filter" type="text" placeholder="筛选世界书..." />
+      <AcuInput v-model="filter" type="text" placeholder="筛选世界书…" />
     </AcuFormRow>
     <AcuFormRow label="目标世界书">
       <AcuSelect

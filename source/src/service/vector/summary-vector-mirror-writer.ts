@@ -7,6 +7,7 @@
  */
 
 import { createEmbeddings_ACU, isVectorEmbeddingError_ACU } from '../../data/gateways/vector-embedding-gateway';
+import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import {
     executeEmbeddingBatchPlan_ACU,
     planEmbeddingBatches_ACU,
@@ -379,7 +380,7 @@ export async function flushSummaryVectorMirrorNow_ACU(options: {
         try {
             const plan = planEmbeddingBatches_ACU(chunkSources, {
                 maxRowsPerRequest: config.summaryIndexArchiveMaxConcurrency,
-                maxInputCharsPerRequest: Number(config.summaryIndexArchiveMaxInputChars) || 24000,
+                maxInputCharsPerRequest: Number(config.summaryIndexArchiveMaxInputChars) || defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
             });
             const executed = await executeEmbeddingBatchPlan_ACU(plan, {
                 maxConcurrentRequests: config.summaryIndexArchiveEmbeddingConcurrency,

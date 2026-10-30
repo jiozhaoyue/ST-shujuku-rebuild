@@ -117,23 +117,23 @@ function buildAutoUpdateProgressMessage_ACU(event: CardUpdateProgressEvent): str
     const batchLabel = buildAutoUpdateProgressLabel_ACU(event);
     switch (event.phase) {
         case 'preparing':
-            return `${batchLabel}：准备AI输入...`;
+            return `${batchLabel}：准备AI输入…`;
         case 'calling_ai':
-            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次调用AI进行增量更新...`;
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次调用AI进行增量更新…`;
         case 'parsing':
-            return `${batchLabel}：解析并应用AI返回的更新...`;
+            return `${batchLabel}：解析并应用AI返回的更新…`;
         case 'saving':
-            return `${batchLabel}：正在将更新后的数据库保存到聊天记录...`;
+            return `${batchLabel}：正在将更新后的数据库保存到聊天记录…`;
         case 'chunk_done':
-            return `${batchLabel}：分块处理成功...`;
+            return `${batchLabel}：分块处理成功…`;
         case 'complete':
             return `${batchLabel}：数据库增量更新成功！`;
         case 'retry':
-            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次尝试失败，5秒后重试...${event.message ? ` (${event.message})` : ''}`;
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次尝试失败，5秒后重试…${event.message ? ` (${event.message})` : ''}`;
         case 'error':
             return `${batchLabel}：错误：更新失败。`;
         default:
-            return `${batchLabel}：正在处理...`;
+            return `${batchLabel}：正在处理…`;
     }
 }
 
@@ -290,7 +290,7 @@ let pendingAutoUpdatePerformanceContext_ACU: { runId?: string; parentSpanId?: st
     if (useGroupedAutoUpdates) {
         const stopButtonId = `acu-stop-auto-update-btn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const stopButtonHtml = renderStopButton_ACU(stopButtonId, '终止');
-        const initialMessage = '自动填表正在准备，请稍候...';
+        const initialMessage = '自动填表正在准备，请稍候…';
         const toastMessage = `<div><span class="acu-toast-progress-message">${initialMessage}</span>${stopButtonHtml}</div>`;
         autoProgressToast = showToastr_ACU('info', toastMessage, {
             timeOut: 0,
@@ -305,7 +305,7 @@ let pendingAutoUpdatePerformanceContext_ACU: { runId?: string; parentSpanId?: st
                         autoGroupedAbortController.abort();
                         abortAllActiveRequests_ACU();
                         _set_isAutoUpdatingCard_ACU(false);
-                        updateAutoUpdateToastMessage_ACU(autoProgressToast, '填表任务已终止，正在停止当前任务与后续批次...');
+                        updateAutoUpdateToastMessage_ACU(autoProgressToast, '填表任务已终止，正在停止当前任务与后续批次…');
                         showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
                 }

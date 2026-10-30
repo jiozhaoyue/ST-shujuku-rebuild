@@ -80,7 +80,7 @@ import {
         return true;
     } catch (error) {
         logError_ACU('导出合并配置失败:', error);
-        showToastr_ACU('error', '导出合并配置失败，请检查控制台获取详情。');
+        showToastr_ACU('error', '导出合并配置失败，详情见运行日志。');
         return false;
     }
   }

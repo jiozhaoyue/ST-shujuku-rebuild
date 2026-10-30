@@ -79,13 +79,13 @@ import {
               border-left: 2px solid var(--acu-border, #36332e);
             ">
               <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
+                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '…' : ''}
               </div>
               <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
                 <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
               </div>
               <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
+                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '…' : ''}
               </div>
             </div>
           `).join('')}
@@ -164,7 +164,7 @@ import {
     
     // 绑定重新优化事件
     jQuery_API_ACU('#acu-opt-reoptimize').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
+      jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
       
       // 关闭当前对话框
       jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
@@ -183,7 +183,7 @@ import {
     
     // 绑定应用事件
     jQuery_API_ACU('#acu-opt-apply').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('处理中...');
+      jQuery_API_ACU(this).prop('disabled', true).text('处理中…');
       
       logDebug_ACU(`[正文优化] 用户点击应用，isLastLoop=${isLastLoop}, messageIndex=${messageIndex}`);
       logDebug_ACU(`[正文优化] optimizedContent长度: ${result.optimizedContent?.length || 0}`);
@@ -225,7 +225,7 @@ import {
         jQuery_API_ACU('#acu-opt-toast-reoptimize').off('click.acu_reopt').on('click.acu_reopt', async function(e) {
           e.preventDefault();
           e.stopPropagation();
-          jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
+          jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
           if (toast && toastr_API_ACU) toastr_API_ACU.clear(toast);
           await reoptimizeMessage_ACU(messageIndex);
         });
@@ -271,13 +271,13 @@ import {
               border-left: 2px solid var(--acu-border, #36332e);
             ">
               <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(String(opt?.original || '').substring(0, 200))}${String(opt?.original || '').length > 200 ? '...' : ''}
+                <strong>原文：</strong>${escapeHtml_ACU(String(opt?.original || '').substring(0, 200))}${String(opt?.original || '').length > 200 ? '…' : ''}
               </div>
               <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
                 <strong>修改方案：</strong>${escapeHtml_ACU(String(opt?.plan || opt?.reason || '未说明'))}
               </div>
               <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(String(opt?.optimized || '').substring(0, 200))}${String(opt?.optimized || '').length > 200 ? '...' : ''}
+                <strong>优化：</strong>${escapeHtml_ACU(String(opt?.optimized || '').substring(0, 200))}${String(opt?.optimized || '').length > 200 ? '…' : ''}
               </div>
             </div>
           `).join('')}
@@ -324,7 +324,7 @@ import {
     });
 
     jQuery_API_ACU('#acu-opt-result-reoptimize').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
+      jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
       jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
       logDebug_ACU(`[正文优化] 结果对话框点击重新优化，messageIndex=${messageIndex}`);
       await reoptimizeMessage_ACU(messageIndex);

@@ -36,7 +36,7 @@
             >
               <i class="fa-solid fa-brain"></i>
               {{
-                vector.buildBusy.value ? "正在重建..." : "立即构建交火纪要索引"
+                vector.buildBusy.value ? "正在重建…" : "立即构建交火纪要索引"
               }}
             </AcuButton>
             <p class="acu-v2-vector-index-page__hint">

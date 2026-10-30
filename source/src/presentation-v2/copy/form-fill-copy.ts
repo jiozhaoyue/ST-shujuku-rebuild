@@ -30,7 +30,7 @@ export const formFillCopy = {
         "可按指定上下文重填所选表，也可按已提交前沿追平尚未填写的后缀楼层。填表 API 使用「自动更新设置」中的配置。",
       runLabel: "执行手动填表",
       catchUpLabel: "一键追平所选表未填楼层",
-      catchUpBusyLabel: "追平中...",
+      catchUpBusyLabel: "追平中…",
       catchUpBoundary:
         "追平只补每张表已提交连续前沿之后的后缀缺口，不扫描历史前沿之前的内部空洞。",
       syncPending:

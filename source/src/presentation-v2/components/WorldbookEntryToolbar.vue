@@ -13,7 +13,7 @@
       <AcuInput
         :model-value="filter"
         type="text"
-        placeholder="搜索条目..."
+        placeholder="搜索条目…"
         @update:model-value="$emit('update:filter', String($event))"
       />
     </AcuFormRow>

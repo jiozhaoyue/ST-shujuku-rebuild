@@ -107,9 +107,9 @@ import {
     logDebug_ACU(`[重新优化] 开始重新优化消息 ${messageIndex}，内容长度: ${originalContent.length}`);
     
     if (config.seamlessMode) {
-      showOptimizationOverlay_ACU('正在重新优化正文...');
+      showOptimizationOverlay_ACU('正在重新优化正文…');
     } else {
-      showOptimizationProgressToast_ACU('正在进行正文优化（重新优化）...');
+      showOptimizationProgressToast_ACU('正在进行正文优化（重新优化）…');
     }
     
     try {
@@ -127,7 +127,7 @@ import {
       }
 
       if (!result.success) {
-        showToastr_ACU('error', `重新优化失败: ${result.error || '未知错误'}`);
+        showToastr_ACU('error', `重新优化失败：${result.error || '未知错误'}`);
         return false;
       }
       
@@ -147,7 +147,7 @@ import {
         return false;
       }
       logError_ACU('[重新优化] 执行出错:', error);
-      showToastr_ACU('error', `重新优化失败: ${error.message}`);
+      showToastr_ACU('error', `重新优化失败：${error.message}`);
       return false;
     } finally {
       hideOptimizationOverlay_ACU();
@@ -260,7 +260,7 @@ import {
     
     // 绑定再次优化事件
     jQuery_API_ACU('#acu-opt-reoptimize').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
+      jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
       
       // 关闭当前对话框
       jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
@@ -271,7 +271,7 @@ import {
     
     // 绑定应用事件
     jQuery_API_ACU('#acu-opt-apply').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('应用中...');
+      jQuery_API_ACU(this).prop('disabled', true).text('应用中…');
       
       const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
       
@@ -381,9 +381,9 @@ import {
     logDebug_ACU(`[正文优化] 开始优化消息 ${messageIndex}，原始长度 ${content.length}，处理后长度 ${processedContent.length}，循环次数: ${loopCount}`);
     
     if (config.seamlessMode) {
-      showOptimizationOverlay_ACU(loopCount > 1 ? `正在优化正文 (1/${loopCount})...` : '正在优化正文...');
+      showOptimizationOverlay_ACU(loopCount > 1 ? `正在优化正文 (1/${loopCount})…` : '正在优化正文…');
     } else {
-      showOptimizationProgressToast_ACU(loopCount > 1 ? `正在进行正文优化 (1/${loopCount})...` : '正在进行正文优化...');
+      showOptimizationProgressToast_ACU(loopCount > 1 ? `正在进行正文优化 (1/${loopCount})…` : '正在进行正文优化…');
     }
     
     try {
@@ -540,7 +540,7 @@ import {
       logDebug_ACU(`[正文优化-手动确认] 第 ${currentLoop} 轮优化失败:`, result.error);
       // 如果是第一轮就失败，显示错误
       if (currentLoop === 1) {
-        showToastr_ACU('error', `正文优化失败: ${result.error}`);
+        showToastr_ACU('error', `正文优化失败：${result.error}`);
         return false;
       }
       // 如果是后续轮次失败，使用之前的结果触发填表

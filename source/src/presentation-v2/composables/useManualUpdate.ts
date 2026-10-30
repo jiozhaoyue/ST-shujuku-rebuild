@@ -340,13 +340,13 @@ export function useManualUpdate(): ManualUpdateState {
     abortAllActiveRequests_ACU();
     _set_isAutoUpdatingCard_ACU(false);
     if (progressToastId) {
-      toast.update(progressToastId, 'warning', '手动填表已终止，正在停止当前任务与后续批次...', {
+      toast.update(progressToastId, 'warning', '手动填表已终止，正在停止当前任务与后续批次…', {
         durationMs: 0,
         muteable: false,
         dismissible: false,
       });
     } else {
-      toast.warning('手动填表已终止，正在停止当前任务与后续批次...', {
+      toast.warning('手动填表已终止，正在停止当前任务与后续批次…', {
         durationMs: 0,
         muteable: false,
         dismissible: false,
@@ -357,7 +357,7 @@ export function useManualUpdate(): ManualUpdateState {
   function requestCatchUpAbort(): void {
     if (!catchUpAbortController || catchUpAbortController.signal.aborted) return;
     catchUpAbortController.abort();
-    const text = '手动追平已终止，正在等待当前安全边界收敛...';
+    const text = '手动追平已终止，正在等待当前安全边界收敛…';
     if (progressToastId) {
       toast.update(progressToastId, 'warning', text, { durationMs: 0, muteable: false, dismissible: false });
     } else {

@@ -129,11 +129,11 @@ import {
     const apiKey = String($customApiKeyInput_ACU.val() || '');
     if (!apiUrl) {
       showToastr_ACU('warning', '请输入API基础URL。');
-      $apiStatusDisplay_ACU.text('状态:请输入API基础URL').css('color', 'orange');
+      $apiStatusDisplay_ACU.text('状态：请输入API基础URL').css('color', 'orange');
       return;
     }
-    $apiStatusDisplay_ACU.text('状态: 正在检查API端点状态...').css('color', '#61afef');
-    showToastr_ACU('info', '正在检查自定义API端点状态...');
+    $apiStatusDisplay_ACU.text('状态：正在检查API端点状态…').css('color', '#61afef');
+    showToastr_ACU('info', '正在检查自定义API端点状态…');
 
     try {
         // [重构] 调用 service 层获取模型列表
@@ -163,8 +163,8 @@ import {
         showToastr_ACU('success', `模型列表加载成功！共加载 ${models.length} 个模型。`);
     } catch (error) {
       logError_ACU('加载模型列表时出错:', error);
-      showToastr_ACU('error', `加载模型列表失败: ${error.message}`);
-      $apiStatusDisplay_ACU.text(`状态: 加载模型失败 - ${error.message}`).css('color', '#ff6b6b');
+      showToastr_ACU('error', `加载模型列表失败：${error.message}`);
+      $apiStatusDisplay_ACU.text(`状态：加载模型失败 - ${error.message}`).css('color', '#ff6b6b');
     }
     updateApiStatusDisplay_ACU();
   }

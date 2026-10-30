@@ -33,7 +33,7 @@ import {
 
 
   // --- [正文优化] 构建默认提示词组 ---
-  export function showOptimizationOverlay_ACU(message = '正在优化正文...') {
+  export function showOptimizationOverlay_ACU(message = '正在优化正文…') {
     // 移除已存在的遮罩
     hideOptimizationOverlay_ACU();
     
@@ -99,7 +99,7 @@ import {
    * 显示正文优化进度提示框（无遮罩模式）
    * @param {string} message - 提示消息
    */
-  export function showOptimizationProgressToast_ACU(message = '正在进行正文优化...') {
+  export function showOptimizationProgressToast_ACU(message = '正在进行正文优化…') {
     hideOptimizationProgressToast_ACU();
     const stopButtonHtml = renderStopButton_ACU('acu-opt-stop-btn', '取消优化');
     _set_optimizationProgressToast_ACU(showToastr_ACU('info', `<div>${message}${stopButtonHtml}</div>`, {

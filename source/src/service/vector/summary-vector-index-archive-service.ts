@@ -14,6 +14,7 @@ import {
     SummaryVectorFlushGenerationInvalidatedError_ACU,
 } from '../../data/storage/vector-index-hot-cache';
 import { createEmbeddings_ACU, isVectorEmbeddingError_ACU } from '../../data/gateways/vector-embedding-gateway';
+import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import {
     EmbeddingBatchExecutionError_ACU,
     executeEmbeddingBatchPlan_ACU,
@@ -1456,7 +1457,7 @@ async function archiveSummaryVectorIndexNowUnlocked_ACU(options: SummaryVectorIn
             embeddingApiKey: config.embeddingApiKey,
             embeddingModel: config.embeddingModel,
             maxRowsPerRequest: maxRowsPerBatch,
-            maxInputCharsPerRequest: Number(config.summaryIndexArchiveMaxInputChars) || 24000,
+            maxInputCharsPerRequest: Number(config.summaryIndexArchiveMaxInputChars) || defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
             maxConcurrentRequests: config.summaryIndexArchiveEmbeddingConcurrency,
         });
         embeddedRows.push(...batchResult.rows);

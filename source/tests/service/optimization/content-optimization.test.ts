@@ -276,10 +276,10 @@ describe('_set_contentOptimizationAbortRequested_ACU', () => {
 // ═══ _set_optimizationProgressToast_ACU ═══
 describe('_set_optimizationProgressToast_ACU', () => {
   it('设置 toast 值后变量更新为该值', () => {
-    const toast = { message: '优化中...' };
+    const toast = { message: '优化中…' };
     _set_optimizationProgressToast_ACU(toast);
     expect(optimizationProgressToast_ACU).toBe(toast);
-    expect(optimizationProgressToast_ACU.message).toBe('优化中...');
+    expect(optimizationProgressToast_ACU.message).toBe('优化中…');
   });
   it('设置为 null 后变量为 null', () => {
     _set_optimizationProgressToast_ACU({ message: '先设置一个值' });

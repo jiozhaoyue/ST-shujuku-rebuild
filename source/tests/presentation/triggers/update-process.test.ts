@@ -137,7 +137,7 @@ describe('update error toast ownership', () => {
 
     expect(result.success).toBe(false);
     expect(showToastr_ACU.mock.calls.filter(call => call[0] === 'error')).toEqual([
-      ['error', '更新失败: 单次失败'],
+      ['error', '更新失败：单次失败'],
     ]);
   });
 

@@ -21,7 +21,7 @@ export async function runOptimizationLogicWithUI_ACU(userMessage: any, options: 
   // 1. 创建带中止按钮的进度 toast
   const toastMsg = `
       <div style="display: flex; align-items: center; justify-content: space-between;">
-          <span class="toastr-message" style="margin-right: 10px;">正在读取过往的记忆并分析，请稍后...</span>
+          <span class="toastr-message" style="margin-right: 10px;">正在读取过往的记忆并分析，请稍后…</span>
           <button class="qrf-abort-btn">终止</button>
       </div>
   `;

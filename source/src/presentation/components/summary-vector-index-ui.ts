@@ -38,7 +38,7 @@ export function shouldRebuildSummaryVectorIndexWithUI_ACU(reason: string | undef
 
 /** 复用“立即构建交火纪要索引”的普通业务链路，并提供阻塞式进度提示。 */
 export async function rebuildCurrentSummaryVectorIndexWithUI_ACU(): Promise<SummaryVectorIndexArchiveResult_ACU> {
-  const $toast = showToastr_ACU('info', '正在重建交火索引快照...', {
+  const $toast = showToastr_ACU('info', '正在重建交火索引快照…', {
     timeOut: 0,
     extendedTimeOut: 0,
     tapToDismiss: false,
@@ -123,7 +123,7 @@ export async function processSummaryVectorIndexBeforeGenerationWithUI_ACU(
 ): Promise<SummaryVectorIndexRuntimeResult_ACU> {
   const toastMsg = `
       <div style="display: flex; align-items: center; justify-content: space-between;">
-          <span class="toastr-message" style="margin-right: 10px;">正在召回交火记忆并重排纪要索引，请稍后...</span>
+          <span class="toastr-message" style="margin-right: 10px;">正在召回交火记忆并重排纪要索引，请稍后…</span>
       </div>
   `;
 

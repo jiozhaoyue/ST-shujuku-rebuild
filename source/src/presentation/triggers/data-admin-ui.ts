@@ -169,7 +169,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
 
             } catch (error) {
                 logError_ACU('导入合并配置失败：结构验证失败。', error);
-                showToastr_ACU('error', `导入失败: ${error.message}`, { timeOut: 10000 });
+                showToastr_ACU('error', `导入失败：${error.message}`, { timeOut: 10000 });
             }
         };
         reader.readAsText(file, 'UTF-8');
@@ -306,7 +306,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
         return true;
     } catch (error) {
         logError_ACU('导出JSON数据失败:', error);
-        showToastr_ACU('error', '导出JSON失败，请检查控制台获取详情。');
+        showToastr_ACU('error', '导出JSON失败，详情见运行日志。');
         return false;
     }
   }
@@ -352,7 +352,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
         return true;
     } catch (error) {
         logError_ACU('导出模板失败:', error);
-        showToastr_ACU('error', '导出模板失败，请检查控制台获取详情。');
+        showToastr_ACU('error', '导出模板失败，详情见运行日志。');
         return false;
     }
   }
@@ -388,7 +388,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
           return true;
       } catch (error) {
           logError_ACU('恢复默认设置失败:', error);
-          showToastr_ACU('error', '恢复默认设置失败，请检查控制台获取详情。');
+          showToastr_ACU('error', '恢复默认设置失败，详情见运行日志。');
           return false;
       }
   }
@@ -476,7 +476,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
     } catch (error) {
         logError_ACU('恢复默认模板失败:', error);
         if (showToast) {
-            showToastr_ACU('error', '恢复默认模板失败，请检查控制台获取详情。');
+            showToastr_ACU('error', '恢复默认模板失败，详情见运行日志。');
         }
         return false;
     }
@@ -555,7 +555,7 @@ import { isAiFloor_ACU, countAiFloors_ACU } from '../../shared/ai-floor';
                 }
             } catch (error) {
                 logError_ACU('导入模板失败：', error);
-                showToastr_ACU('error', `导入失败: ${error.message}`, {
+                showToastr_ACU('error', `导入失败：${error.message}`, {
                     acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR,
                     timeOut: 10000,
                 });

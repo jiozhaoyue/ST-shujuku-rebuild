@@ -114,8 +114,8 @@ describe('useFormFillInjectionTarget', () => {
     expect(mockUpdateReadableLorebookEntry).toHaveBeenCalledWith(true);
     expect(mockDeleteAllGeneratedEntries.mock.invocationCallOrder[0]).toBeLessThan(mockSaveSettings.mock.invocationCallOrder[0]);
     expect(mockSaveSettings.mock.invocationCallOrder[0]).toBeLessThan(mockUpdateReadableLorebookEntry.mock.invocationCallOrder[0]);
-    expect(mockToast.info).toHaveBeenCalledWith('正在从旧目标 [CharBook-A] 中清除条目...', { muteable: false });
-    expect(mockToast.info).toHaveBeenCalledWith('正在向新目标注入条目...', { muteable: false });
+    expect(mockToast.info).toHaveBeenCalledWith('正在从旧目标 [CharBook-A] 中清除条目…', { muteable: false });
+    expect(mockToast.info).toHaveBeenCalledWith('正在向新目标注入条目…', { muteable: false });
     expect(mockToast.success).toHaveBeenCalledWith('数据注入目标已成功切换！', { muteable: false });
   });
 

@@ -178,7 +178,7 @@
             <AcuTextarea
               :model-value="manualUpdate.manualExtraHint.value"
               :rows="4"
-              placeholder="仅用于本次手动填表..."
+              placeholder="仅用于本次手动填表…"
               @update:model-value="manualUpdate.manualExtraHint.value = $event"
             />
           </AcuFormRow>
@@ -218,7 +218,7 @@
           >
             {{
               manualUpdate.manualUpdateBusy.value
-                ? "填表中..."
+                ? "填表中…"
                 : manualUpdate.vectorIndexWarning.value
                   ? "交火索引已启用"
                   : formFillCopy.panels.manual.runLabel

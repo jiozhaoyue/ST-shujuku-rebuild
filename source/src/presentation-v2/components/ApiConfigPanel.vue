@@ -76,7 +76,7 @@
           <span
             v-if="store.modelLoadStatus === 'loading'"
             class="acu-api-config-panel__muted"
-            >加载中...</span
+            >加载中…</span
           >
           <span
             v-else-if="store.modelLoadStatus === 'error'"

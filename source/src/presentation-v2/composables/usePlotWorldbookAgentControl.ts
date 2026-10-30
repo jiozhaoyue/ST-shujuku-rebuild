@@ -529,7 +529,7 @@ export function usePlotWorldbookAgentControl() {
     try {
       const progressOptions = { durationMs: 0, muteable: false, dismissible: false };
       const formatProgressText = (event: AgentSkillifyProgressEvent_ACU): string => {
-        if (event.phase === 'collecting') return '正在扫描当前世界书范围内可 Skill 化的条目...';
+        if (event.phase === 'collecting') return '正在扫描当前世界书范围内可 Skill 化的条目…';
         if (event.phase === 'processing') return `正在 Skill 化世界书条目：0/${event.total}`;
         if (event.phase === 'retry') {
           const target = [event.bookName, event.uid !== undefined ? `#${event.uid}` : ''].filter(Boolean).join(' ');
@@ -545,7 +545,7 @@ export function usePlotWorldbookAgentControl() {
         if (event.phase === 'complete') {
           return `Skill 化处理完成：${event.current}/${event.total}，更新 ${event.updated}，跳过 ${event.skipped}，失败 ${event.failed}。`;
         }
-        return '正在 Skill 化世界书条目...';
+        return '正在 Skill 化世界书条目…';
       };
       const notifyProgress = (event: AgentSkillifyProgressEvent_ACU): void => {
         const text = formatProgressText(event);

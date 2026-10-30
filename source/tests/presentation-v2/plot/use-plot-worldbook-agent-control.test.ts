@@ -196,7 +196,7 @@ describe('usePlotWorldbookAgentControl', () => {
     const result = await c.skillifyAll();
 
     expect(result).toBe(false);
-    expect(toast.info).toHaveBeenCalledWith('正在扫描当前世界书范围内可 Skill 化的条目...', {
+    expect(toast.info).toHaveBeenCalledWith('正在扫描当前世界书范围内可 Skill 化的条目…', {
       durationMs: 0,
       muteable: false,
       dismissible: false,

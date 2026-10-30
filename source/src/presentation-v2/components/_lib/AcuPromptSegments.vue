@@ -74,7 +74,7 @@
         <AcuTextarea
           :model-value="seg.content"
           :rows="rows"
-          placeholder="提示词内容..."
+          placeholder="提示词内容…"
           @update:model-value="$emit('update', index, { content: $event })"
         />
       </li>

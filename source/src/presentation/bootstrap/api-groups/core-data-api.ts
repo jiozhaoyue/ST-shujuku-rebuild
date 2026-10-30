@@ -84,7 +84,7 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
                 }
             } catch (error: any) {
                 logError_ACU('Failed to import table data from JSON:', error);
-                showToastr_ACU('error', `导入数据失败: ${error?.message || String(error)}`);
+                showToastr_ACU('error', `导入数据失败：${error?.message || String(error)}`);
                 return false;
             }
         },

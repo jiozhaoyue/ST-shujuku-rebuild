@@ -56,7 +56,7 @@ describe('summary vector index UI recovery', () => {
     await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
 
     expect(h.rebuild).toHaveBeenCalledTimes(1);
-    expect(h.toast).toHaveBeenCalledWith('info', '正在重建交火索引快照...', expect.objectContaining({ timeOut: 0 }));
+    expect(h.toast).toHaveBeenCalledWith('info', '正在重建交火索引快照…', expect.objectContaining({ timeOut: 0 }));
     expect(h.toast).toHaveBeenCalledWith('success', '交火索引快照重建完成：6 行，3 个 chunks。', expect.any(Object));
     expect(h.clear).toHaveBeenCalledTimes(2);
     expect(h.remove).toHaveBeenCalledTimes(2);

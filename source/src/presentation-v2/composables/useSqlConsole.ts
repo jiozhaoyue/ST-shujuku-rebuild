@@ -94,7 +94,7 @@ export function useSqlConsole() {
   });
   const hasSqlText = computed(() => sqlText.value.trim().length > 0);
   const statusLabel = computed(() => {
-    if (busyAction.value === 'execute') return '执行中...';
+    if (busyAction.value === 'execute') return '执行中…';
     if (result.value.kind === 'query') return `${result.value.rowCount} 行 · ${result.value.elapsedMs}ms`;
     if (result.value.kind === 'mutation') return `${result.value.changes} 行受影响 · ${result.value.elapsedMs}ms`;
     if (result.value.kind === 'error') return `失败 · ${result.value.elapsedMs}ms`;

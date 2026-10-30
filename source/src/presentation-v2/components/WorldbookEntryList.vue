@@ -1,6 +1,6 @@
 <template>
   <div class="acu-v2-wb-entries">
-    <div v-if="loading" class="acu-v2-wb-entries__status">正在加载条目...</div>
+    <div v-if="loading" class="acu-v2-wb-entries__status">正在加载条目…</div>
     <div v-else-if="status === 'error'" class="acu-v2-wb-entries__status acu-v2-wb-entries__status--error" role="alert">
       {{ error || '加载条目失败' }}
     </div>

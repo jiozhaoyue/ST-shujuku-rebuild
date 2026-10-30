@@ -595,7 +595,7 @@ export const useContentReplaceStore = defineStore('acu-v2-content-replace', {
         return;
       }
       this.busyAction = 'test';
-      this.testOutput = '正在调用 AI 进行正文替换测试...';
+      this.testOutput = '正在调用 AI 进行正文替换测试…';
       try {
         const result = await performContentOptimization_ACU(input, { currentLoop: 1, userMessage: '' });
         this.testOutput = formatOptimizationResult(result);

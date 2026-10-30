@@ -133,7 +133,7 @@ describe('optimization-ui TT surface 打标', () => {
   });
 
   it('优化遮罩 #acu-optimization-overlay 声明为 backdrop', () => {
-    showOptimizationOverlay_ACU('正在优化正文...');
+    showOptimizationOverlay_ACU('正在优化正文…');
 
     const overlay = document.getElementById('acu-optimization-overlay') as HTMLElement | null;
     expect(overlay).not.toBeNull();

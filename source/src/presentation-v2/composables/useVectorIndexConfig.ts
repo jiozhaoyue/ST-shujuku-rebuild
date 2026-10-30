@@ -160,7 +160,7 @@ function createEmptyForm(): VectorIndexForm {
     summaryChunkSentenceCount: defaults.summaryChunkSentenceCount,
     summaryIndexChunkChronicleBySentence: (defaults as any).summaryIndexChunkChronicleBySentence === true,
     summaryIndexArchiveMaxConcurrency: defaults.summaryIndexArchiveMaxConcurrency ?? 30,
-    summaryIndexArchiveMaxInputChars: defaults.summaryIndexArchiveMaxInputChars ?? 24000,
+    summaryIndexArchiveMaxInputChars: defaults.summaryIndexArchiveMaxInputChars ?? defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
     summaryIndexArchiveEmbeddingConcurrency: defaults.summaryIndexArchiveEmbeddingConcurrency ?? 3,
     summaryIndexRollingDeltaEnabled: defaults.summaryIndexRollingDeltaEnabled === true,
     summaryIndexRollingDeltaFoldThreshold: defaults.summaryIndexRollingDeltaFoldThreshold,
@@ -552,7 +552,7 @@ export function useVectorIndexConfig() {
     if (maintenanceBusy.value || buildBusy.value) return;
     maintenanceBusy.value = true;
     progressToastId = null;
-    notifyProgress('正在检查旧交火索引...');
+    notifyProgress('正在检查旧交火索引…');
     try {
       const report = await inspectSummaryVectorIndexHealth_ACU();
       const legacyCount = report.legacyManifestCount || 0;
@@ -561,7 +561,7 @@ export function useVectorIndexConfig() {
         return;
       }
 
-      notifyProgress('正在迁移旧交火索引...');
+      notifyProgress('正在迁移旧交火索引…');
       const result = await migrateLegacySummaryVectorIndexToContentAddressed_ACU();
       await refreshIndexStatus(false);
       if (result.success && !result.skipped) {
@@ -584,7 +584,7 @@ export function useVectorIndexConfig() {
     if (buildBusy.value) return;
     buildBusy.value = true;
     progressToastId = null;
-    notifyProgress('正在重建交火索引快照...');
+    notifyProgress('正在重建交火索引快照…');
     try {
       const result = await rebuildCurrentSummaryVectorIndexNow_ACU();
       if (result.success && !result.skipped) {

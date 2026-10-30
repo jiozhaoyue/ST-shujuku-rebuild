@@ -215,7 +215,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
 
             } catch (e) {
                 logError_ACU('importPlotPresetFromData failed:', e);
-                return { success: false, message: `导入失败: ${e.message}` };
+                return { success: false, message: `导入失败：${e.message}` };
             }
         },
 
@@ -252,7 +252,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
 
             } catch (e) {
                 logError_ACU('importPlotPresetsFromData failed:', e);
-                return { success: false, message: `批量导入失败: ${e.message}`, imported: 0, failed: 0, details: [] };
+                return { success: false, message: `批量导入失败：${e.message}`, imported: 0, failed: 0, details: [] };
             }
         },
 
@@ -368,7 +368,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
                         logDebug_ACU('[游戏初始化] 数据库模板已原子提交');
                     } catch (templateError) {
                         logError_ACU('[游戏初始化] 模板注入失败:', templateError);
-                        throw new Error(`数据库模板注入失败: ${templateError.message}`);
+                        throw new Error(`数据库模板注入失败：${templateError.message}`);
                     }
                 }
 
@@ -412,7 +412,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
                 logDebug_ACU('[游戏初始化] 游戏初始化流程完成');
 
             } catch (error) {
-                result.message = `初始化失败: ${error.message}`;
+                result.message = `初始化失败：${error.message}`;
                 logError_ACU('initGameSession failed:', error);
             }
 

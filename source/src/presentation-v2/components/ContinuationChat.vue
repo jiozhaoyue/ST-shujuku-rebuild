@@ -78,10 +78,10 @@ const statusTone = computed(() => {
 });
 
 const placeholder = computed(() => {
-  if (!props.task) return '描述你想要的续写方向，发送后主 Agent 会创建任务并开始规划...';
+  if (!props.task) return '描述你想要的续写方向，发送后主 Agent 会创建任务并开始规划…';
   if (props.awaitingHost) return '酒馆正在生成正文。点「停止」可打断；要接着做就打字再发送。';
   if (props.task.status === 'running' || props.running) return '主 Agent 正在工作。点「停止」可打断；要接着做就打字再发送。';
-  return '继续和主 Agent 对话，写好后再发送...';
+  return '继续和主 Agent 对话，写好后再发送…';
 });
 
 const notice = computed(() => {

@@ -952,7 +952,7 @@ describe('FormFillPage · 手动填表面板', () => {
         totalBatches: 1,
         attempt: 1,
         maxRetries: 20,
-        message: '正在生成第 1/20 组 AI 响应...',
+        message: '正在生成第 1/20 组 AI 响应…',
       });
       await new Promise<void>(resolve => {
         releaseCore = resolve;
@@ -976,9 +976,9 @@ describe('FormFillPage · 手动填表面板', () => {
     await new Promise(r => setTimeout(r, 0));
 
     const toastText = document.querySelector('.acu-toast-viewport')?.textContent || '';
-    expect(toastText).toContain('批次 1/1 · 正在生成第 1/20 组手动填表结果...');
+    expect(toastText).toContain('批次 1/1 · 正在生成第 1/20 组手动填表结果…');
     expect(toastText).not.toContain('调用 AI (1/20)');
-    expect(button.textContent || '').toContain('填表中...');
+    expect(button.textContent || '').toContain('填表中…');
 
     expect(orchestrate).toHaveBeenCalled();
     releaseCore();

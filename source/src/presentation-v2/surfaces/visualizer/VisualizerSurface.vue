@@ -109,7 +109,7 @@
           class="acu-visualizer-surface__loading"
         >
           <i class="fa-solid fa-spinner fa-spin"></i>
-          <span>正在载入当前聊天的表格数据...</span>
+          <span>正在载入当前聊天的表格数据…</span>
         </div>
 
         <AcuPanel
@@ -1124,7 +1124,7 @@ const rows = computed(() => {
 const footerStatus = computed(() => {
   if (visualizer.isLoading) return "正在读取当前聊天的表格数据。";
   if (visualizer.loadError) return "当前没有可保存的表格草稿。";
-  if (visualizer.isSaving) return "正在保存表格数据...";
+  if (visualizer.isSaving) return "正在保存表格数据…";
   if (visualizer.dirty) return "有未保存修改，保存前只存在于编辑器草稿中。";
   if (visualizer.lastSavedAt) return "最近一次保存已完成。";
   return "载入后可以分别保存数据、当前聊天模板或全局模板。";
