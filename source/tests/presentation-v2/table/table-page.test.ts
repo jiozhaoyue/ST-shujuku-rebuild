@@ -270,6 +270,16 @@ describe('TablePage', () => {
     mount.__resetAcuV2MountForTests();
   });
 
+  it('填表提示词面板渲染空态说明（含插槽就绪与模式文案）', async () => {
+    const { mount } = await mountTablePage();
+    const hint = document.querySelector('.acu-v2-table-page__prompt-hint');
+    expect(hint).not.toBeNull();
+    // 夹具的 charCardPrompt 与内置默认不同 → promptTemplateMode 为 custom 分支
+    expect(hint!.textContent || '').toContain('自定义填表提示词');
+    expect(hint!.textContent || '').toContain('主插槽 A/B 就绪');
+    mount.__resetAcuV2MountForTests();
+  });
+
   it('越权 SQL 降级开关默认开启，切换后立即保存设置', async () => {
     const { mount, settings, saveSettings } = await mountTablePage();
     const toggle = document.querySelector<HTMLButtonElement>(

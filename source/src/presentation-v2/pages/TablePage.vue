@@ -53,6 +53,7 @@
               编辑提示词
             </AcuButton>
           </div>
+          <p class="acu-v2-table-page__prompt-hint">{{ promptStateHint }}</p>
         </AcuPanel>
       </div>
 
@@ -220,6 +221,16 @@ const promptTemplateBadgeLabel = computed(() =>
 const promptTemplateBadgeVariant = computed<AcuBadgeVariant>(() =>
   settings.promptTemplateMode.value === 'default' ? 'neutral' : 'accent',
 );
+// 空态说明：面板主体除按钮外常为空白（默认态无警告），给一行当前提示词状态说明
+const promptStateHint = computed(() => {
+  const slotText =
+    promptSlotSummary.value.hasA && promptSlotSummary.value.hasB
+      ? '主插槽 A/B 就绪'
+      : '主插槽缺失（见上方提醒）';
+  return settings.promptTemplateMode.value === 'default'
+    ? `当前为内置默认填表提示词（${slotText}）。可直接使用，也可在编辑器中查看或另存为自定义版本。`
+    : `当前为自定义填表提示词（${slotText}）。改动会即时生效，可随时在编辑器中恢复默认。`;
+});
 const promptMessage = computed(() =>
   settings.message.value?.scope === 'prompt' ? settings.message.value : null,
 );
@@ -371,6 +382,13 @@ useUiCloseGuard(confirmPromptClose);
   gap: 8px;
   padding-top: 12px;
   margin-top: 4px;
+}
+
+.acu-v2-table-page__prompt-hint {
+  margin: 8px 0 0;
+  font-size: var(--acu-font-size-body, 12px);
+  line-height: 1.5;
+  color: var(--acu-text-3);
 }
 
 .acu-v2-table-page__status-line {
