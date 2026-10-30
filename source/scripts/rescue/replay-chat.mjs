@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * scripts/rescue/replay-chat.mjs — 会话数据库救援：宽容回放重建
  *
@@ -32,28 +31,10 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require('sql.js');
-
-// ───────────────────────── CLI ─────────────────────────
-const args = process.argv.slice(2);
-const chatPath = args[0];
-const outDir = args[1];
-if (!chatPath || !outDir) {
-    console.error('用法: node replay-chat.mjs <chat.jsonl路径> <输出目录> [--isolation <隔离键>] [--strict] [--from <楼层>]');
-    process.exit(1);
-}
-const isolation = readFlag('--isolation', '');
-const strict = args.includes('--strict');
-const fromLine = Number(readFlag('--from', '0')) || 0;
-
-function readFlag(name, dflt) {
-    const i = args.indexOf(name);
-    if (i < 0 || i + 1 >= args.length) return dflt;
-    return args[i + 1];
-}
 
 // ─────────────────────── 解析辅助 ───────────────────────
 /** sheetKey → 回放库表名（sheet_ji_yao_biao -> jiyaobiao） */
@@ -61,29 +42,96 @@ function keyFormOf(sheetKey) {
     return sheetKey.replace(/^sheet_/, '').replace(/_/g, '');
 }
 
+/** 读 CLI 旗标 */
+function readFlag(argv, name, dflt) {
+    const i = argv.indexOf(name);
+    if (i < 0 || i + 1 >= argv.length) return dflt;
+    return argv[i + 1];
+}
+
 /** 解析 CREATE TABLE DDL：物理表名 + 列定义（列名、中文注释）
+ *  括号感知：CHECK(event_type IN ('a', 'b')) 内含逗号，按顶层逗号切分（真实模板
+ *  romance_diary 曾因旧版「逐行逗号正则」把整条 NOT NULL 尾列撕碎丢弃 → checkpoint
+ *  导入时该列缺位 → 全行 NOT NULL 跳过）。
+ *  字符串感知：'...' 内的 '--' 不当注释、'' 转义不终止字符串。
  *  注意：注释提取必须支持行尾 CHECK(...) 之后的 "-- 注释"（与插件 parseDDLColumnInfos 一致），
  *  否则 NOT NULL 列缺注释表头会触发导入审计 upgrade_required_mapping_ambiguous。 */
 function parseDdl(ddl) {
     const physName = (ddl.match(/CREATE TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i) || [])[1];
     if (!physName) throw new Error('DDL 缺少 CREATE TABLE 表名: ' + ddl.slice(0, 80));
+    const bodyStart = ddl.indexOf('(');
+    const bodyEnd = ddl.lastIndexOf(')');
+    if (bodyStart < 0 || bodyEnd <= bodyStart) throw new Error('DDL 缺少列定义体: ' + ddl.slice(0, 120));
+    const body = ddl.slice(bodyStart + 1, bodyEnd);
+    // 顶层切分（括号深度 + 字符串感知）。关键口径：**行尾逗号 + 同行注释是列边界**——
+    // 「writer TEXT NOT NULL, -- 写作角色」的注释属于 writer；若在逗号处切开，注释会
+    // 污染下一列 def 头部使其 ^(\w+) 匹配失败（旧版逐行正则丢列的同族问题）。
+    // 因此顶层逗号后若同行只剩空白/注释，就留到换行符再切分；行内仍有内容才在逗号处切。
+    const defs = [];
+    let cur = '';
+    let depth = 0;
+    let inStr = false;
+    for (let i = 0; i < body.length; i++) {
+        const ch = body[i];
+        if (inStr) {
+            cur += ch;
+            if (ch === "'") {
+                if (body[i + 1] === "'") { cur += body[++i]; continue; }
+                inStr = false;
+            }
+            continue;
+        }
+        if (ch === "'") { inStr = true; cur += ch; continue; }
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        if (depth === 0 && ch === ',') {
+            const nl = body.indexOf('\n', i + 1);
+            const rest = body.slice(i + 1, nl < 0 ? body.length : nl);
+            // 行内逗号后还有实质内容（单行多列写法）：在逗号处切分（逗号留上一列尾部）
+            if (!/^\s*(--[^\n]*)?$/.test(rest)) { cur += ch; defs.push(cur); cur = ''; continue; }
+            // 行尾逗号（后跟注释/空白）：不在此切分，注释随后归入本 def，换行符处再切
+            cur += ch;
+            continue;
+        }
+        if (depth === 0 && ch === '\n') {
+            if (cur.trim()) { defs.push(cur); cur = ''; }
+            continue;
+        }
+        cur += ch;
+    }
+    if (cur.trim()) defs.push(cur);
     const columns = [];
-    for (const rawLine of ddl.split(/\r?\n/)) {
-        const m = rawLine.match(/^\s*(\w+)\s+([A-Za-z]+[^,]*?),?\s*(?:--\s*(.*))?\s*$/);
+    for (const def of defs) {
+        const m = def.trim().match(/^(\w+)\s+([A-Za-z]+)/);
         if (!m) continue;
-        const [, name, type, comment] = m;
+        const [, name, type] = m;
         if (/^(CREATE|TABLE|PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)$/i.test(name)) continue;
         if (!/^(INTEGER|TEXT|REAL|NUMERIC|BLOB|VARCHAR|CHAR|BOOLEAN|DATETIME|DATE)/i.test(type)) continue;
-        columns.push({ name, comment: (comment || '').trim() });
+        columns.push({ name, comment: extractLineComment(def) });
     }
     if (!columns.length) throw new Error('DDL 未解析出列: ' + ddl.slice(0, 120));
     return { physName, columns };
 }
 
-/** 从列定义行提取注释（支持 CHECK(...) 等括号结构之后的行尾注释） */
-function extractLineComment(line) {
-    const idx = line.lastIndexOf('--');
-    return idx >= 0 ? line.slice(idx + 2).trim() : '';
+/** 提取注释：取最后一个不在单引号字符串内的 '--' 之后的文本
+ *  （支持 CHECK(...) 等括号结构之后的行尾注释；'--' 出现在字符串字面量内不误判） */
+function extractLineComment(text) {
+    const s = String(text ?? '');
+    let inStr = false;
+    let last = -1;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (ch === "'") {
+                if (s[i + 1] === "'") { i++; continue; }
+                inStr = false;
+            }
+            continue;
+        }
+        if (ch === "'") { inStr = true; continue; }
+        if (ch === '-' && s[i + 1] === '-') { last = i; i++; }
+    }
+    return last >= 0 ? s.slice(last + 2).trim() : '';
 }
 
 /** 括号感知的 DDL 列解析：CHECK(IN (...)) 内含逗号会让简单正则截断，导致
@@ -100,6 +148,34 @@ function parseDdlColumnsParenAware(ddl) {
     return columns;
 }
 
+/** 表头单元格归一化：去空白与全半角标点差异、统一小写（救援场景表头常被宿主/人工改写） */
+function normalizeHeaderCell(s) {
+    return String(s ?? '').replace(/\s+/g, '').replace(/[：:（）()、，,．.]/g, '').toLowerCase();
+}
+
+/** content[0] 中文表头 → 物理列下标映射（2026-10-31 根治项）：
+ *  ① 精确匹配（表头 === 注释 或 === 物理名）；
+ *  ② 归一化匹配（全半角标点/空白/大小写差异）；
+ *  ③ 子串互含兜底（表头常带前后缀修饰，如「事件类型记录」↔「事件类型」）。
+ *  已命中的表头不重复分配（used 集），防止多列同抢一格导致错位注入。 */
+function buildHeaderToCol(columns, header) {
+    const used = new Set();
+    return columns.map((col) => {
+        const cmt = col.comment || col.name;
+        let hIdx = header.findIndex((h, i) => !used.has(i) && (h === cmt || h === col.name));
+        if (hIdx < 0) {
+            const nc = normalizeHeaderCell(cmt);
+            const nn = normalizeHeaderCell(col.name);
+            hIdx = header.findIndex((h, i) => !used.has(i) && (normalizeHeaderCell(h) === nc || normalizeHeaderCell(h) === nn));
+        }
+        if (hIdx < 0) {
+            hIdx = header.findIndex((h, i) => !used.has(i) && !!cmt && (String(h).includes(cmt) || cmt.includes(String(h))));
+        }
+        if (hIdx >= 0) used.add(hIdx);
+        return hIdx;
+    });
+}
+
 /** 把 DDL 中的表名改写为 key 形式（只替换 CREATE TABLE 处，其余照旧） */
 function rebindDdlTableName(ddl, newPhys) {
     return ddl.replace(/CREATE TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)/i, (m0, ifne) =>
@@ -112,7 +188,20 @@ function ensureFrameParsed(v) {
     return val;
 }
 
-// ─────────────────────── 主流程 ───────────────────────
+// ─────────────────────── 主流程（CLI 直跑入口；被 import 时不执行） ───────────────────────
+async function main() {
+// ───────────────────────── CLI ─────────────────────────
+const args = process.argv.slice(2);
+const chatPath = args[0];
+const outDir = args[1];
+if (!chatPath || !outDir) {
+    console.error('用法: node replay-chat.mjs <chat.jsonl路径> <输出目录> [--isolation <隔离键>] [--strict] [--from <楼层>]');
+    process.exit(1);
+}
+const isolation = readFlag(args, '--isolation', '');
+const strict = args.includes('--strict');
+const fromLine = Number(readFlag(args, '--from', '0')) || 0;
+
 const raw = readFileSync(chatPath, 'utf-8');
 const lines = raw.split('\n').filter((l) => l.trim() !== '');
 console.log(`聊天文件共 ${lines.length} 楼（行）`);
@@ -198,12 +287,8 @@ for (const [sheetKey, sheet] of Object.entries(checkpoint.data)) {
     // content[0] 中文表头 → 物理列名
     const header = Array.isArray(sheet.content) && sheet.content[0] || [];
     const colNames = columns.map((c) => c.name);
-    // 按注释匹配表头（row_id 直接同名）；匹配不上的列留 NULL
-    const headerToCol = colNames.map((name, idx) => {
-        const cmt = columns[idx].comment || name;
-        const hIdx = header.findIndex((h) => h === cmt || h === name);
-        return hIdx >= 0 ? hIdx : -1;
-    });
+    // 精确 → 归一化 → 子串互含 三级匹配；已命中表头不重复分配；匹配不上的列留 NULL
+    const headerToCol = buildHeaderToCol(columns, header);
     if (sheetsByPhys[phys]) {
         diag.push({ line: checkpoint.line, seq: 'checkpoint', op: -1, phys, action: 'skip-sheet', reason: '物理表名与已有表冲突（同隔离内应唯一）', sql: '' });
         continue;
@@ -355,3 +440,19 @@ writeFileSync(join(outDir, 'summary.md'), summary, 'utf-8');
 console.log(`回放完成：${replayedStmts} 条语句，改写 ${rewritten}，跳过 ${skipped}`);
 console.log('表行数：', Object.fromEntries(tableStats.map((t) => [t.phys, t.rows])));
 console.log('输出目录：', outDir);
+}
+
+// ─────────────────────── 模块出口 ───────────────────────
+// CLI 直跑判定：node replay-chat.mjs ... 时执行主流程；被测试/工具 import 时只取纯函数
+const invokedDirectly = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (invokedDirectly) await main();
+
+export {
+    parseDdl,
+    extractLineComment,
+    parseDdlColumnsParenAware,
+    rebindDdlTableName,
+    keyFormOf,
+    buildHeaderToCol,
+    normalizeHeaderCell,
+};
