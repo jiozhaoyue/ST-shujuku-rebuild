@@ -12,6 +12,8 @@ import {
     normalizeHeaderCell,
     parseDdl,
     rebindDdlTableName,
+    replaceAliasAfterFromJoin,
+    replaceAliasOutsideStrings,
 } from '../../scripts/rescue/replay-chat.mjs';
 
 const ROMANCE_DIARY_DDL = `CREATE TABLE romance_diary ( -- 恋爱日记表
@@ -173,5 +175,52 @@ describe('matchTableByColumnSignature（救援回放 v2：旧代物理名列签�
             { phys: 't_b', names: ['row_id', 'memo'] },
         ])).toBeNull();
         expect(matchTableByColumnSignature('UPDATE old_t SET nope = 1', tables)).toBeNull();
+    });
+
+    it('前导注释不挡签名匹配（真实 logEntries 常态；返回值为注释剥离后的语句）', () => {
+        const st = "-- 更新恋爱对象经历\nUPDATE lianaiduixiangbiao SET past_experience = 'x' WHERE row_id = 1";
+        expect(matchTableByColumnSignature(st, [
+            { phys: 'romance_targets', names: ['row_id', 'past_experience'] },
+        ])).toBe("UPDATE romance_targets SET past_experience = 'x' WHERE row_id = 1");
+    });
+});
+
+describe('replaceAliasOutsideStrings（残余别名：子查询等非头部位置）', () => {
+    it('子查询里的旧名整词替换，头部已正确名不受影响', () => {
+        const st = 'DELETE FROM romance_diary WHERE row_id IN (SELECT row_id FROM lianairijibiao ORDER BY time ASC LIMIT 4)';
+        expect(replaceAliasOutsideStrings(st, 'lianairijibiao', 'romance_diary')).toBe(
+            'DELETE FROM romance_diary WHERE row_id IN (SELECT row_id FROM romance_diary ORDER BY time ASC LIMIT 4)',
+        );
+    });
+
+    it("字符串字面量内的同形词不替换（无外部命中返回 null）", () => {
+        const st = "UPDATE t SET note = 'see lianairijibiao here''s ok' WHERE src = 'lianairijibiao'";
+        expect(replaceAliasOutsideStrings(st, 'lianairijibiao', 'romance_diary')).toBeNull();
+    });
+
+    it('整词边界：前缀相同的其他标识符不受影响；无命中返回 null', () => {
+        expect(replaceAliasOutsideStrings('SELECT lianairijibiao_extra FROM t', 'lianairijibiao', 'x')).toBeNull();
+        expect(replaceAliasOutsideStrings('SELECT 1', 'lianairijibiao', 'x')).toBeNull();
+    });
+});
+
+describe('replaceAliasAfterFromJoin（关键词锚定残余别名）', () => {
+    it('替换 FROM/JOIN 之后的旧名（子查询场景）', () => {
+        const st = 'DELETE FROM romance_diary WHERE row_id IN (SELECT row_id FROM lianairijibiao ORDER BY time ASC LIMIT 4)';
+        expect(replaceAliasAfterFromJoin(st, 'lianairijibiao', 'romance_diary')).toBe(
+            'DELETE FROM romance_diary WHERE row_id IN (SELECT row_id FROM romance_diary ORDER BY time ASC LIMIT 4)',
+        );
+    });
+
+    it('回归（2026-10-31 实证）：列清单里的同名单词不被改写', () => {
+        // sheet_summary 的键形式别名「summary」恰好是 romance_diary 的列名——必须原样保留
+        const st = "INSERT INTO romance_diary (row_id, writer, related_char, summary, time, event_type) VALUES (1, 'w', 'c', 's', 't', '初次相遇')";
+        expect(replaceAliasAfterFromJoin(st, 'summary', 'chronicle')).toBeNull();
+    });
+
+    it('字符串字面量内不替换；非 FROM/JOIN 前缀不替换', () => {
+        expect(replaceAliasAfterFromJoin("SELECT ' summary ' FROM t", 'summary', 'chronicle')).toBeNull();
+        expect(replaceAliasAfterFromJoin('SELECT summary FROM t', 'summary', 'chronicle')).toBeNull();
+        expect(replaceAliasAfterFromJoin('SELECT * FROM summary', 'summary', 'chronicle')).toBe('SELECT * FROM chronicle');
     });
 });

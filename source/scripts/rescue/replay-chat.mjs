@@ -199,7 +199,8 @@ const STMT_HEAD_RE = /^(\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM
  *  @param tables [{phys, names: string[]}]——已建表及其 DDL 列名（原始大小写）
  *  @returns 改绑后的语句，或 null */
 function matchTableByColumnSignature(stmt, tables) {
-    const s = String(stmt);
+    // 前导注释剥离：真实 logEntries 语句常带「-- 中文说明」行，挡住 INSERT/UPDATE 头部匹配
+    const s = String(stmt).replace(/^\s*(?:--[^\n]*\n\s*)+/, '');
     let cols = [];
     const im = s.match(/^\s*INSERT\s+(?:OR\s+\w+\s+)?INTO\s+("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/i);
     if (im) {
@@ -266,6 +267,91 @@ function matchTableByColumnSignature(stmt, tables) {
     const h = s.match(STMT_HEAD_RE);
     if (!h || h[2] === hit) return null;
     return s.slice(0, h[1].length) + hit + s.slice(h[1].length + h[2].length);
+}
+
+/** 字符串感知的标识符整词替换：把语句中所有「不在单引号字符串内」的 alias 整词换成 phys
+ *  （用于子查询等非头部位置：DELETE FROM romance_diary WHERE … IN (SELECT … FROM lianairijibiao)） */
+function replaceAliasOutsideStrings(stmt, alias, phys) {
+    const s = String(stmt);
+    let out = '';
+    let i = 0;
+    let inStr = false;
+    let changed = false;
+    while (i < s.length) {
+        const ch = s[i];
+        if (inStr) {
+            out += ch;
+            if (ch === "'") {
+                if (s[i + 1] === "'") { out += s[i + 1]; i += 2; continue; }
+                inStr = false;
+            }
+            i++;
+            continue;
+        }
+        if (ch === "'") { inStr = true; out += ch; i++; continue; }
+        if (/[A-Za-z_]/.test(ch)) {
+            let j = i;
+            while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+            const word = s.slice(i, j);
+            if (word === alias) { out += phys; changed = true; } else { out += word; }
+            i = j;
+            continue;
+        }
+        out += ch;
+        i++;
+    }
+    return changed ? out : null;
+}
+
+/** 关键词锚定的残余别名替换：只替换紧跟 FROM / JOIN 之后的旧名整词
+ *  （2026-10-31 实证教训：键形式别名可能恰好是常见列名——sheet_summary 的键形式是
+ *  「summary」， romance_diary 的列也有 summary，无锚定全词替换会把列名改写成表名）。
+ *  字符串感知；不命中返回 null。 */
+function replaceAliasAfterFromJoin(stmt, alias, phys) {
+    const s = String(stmt);
+    let out = '';
+    let i = 0;
+    let inStr = false;
+    let changed = false;
+    let lastWord = '';
+    let onlySpaceSince = true;
+    while (i < s.length) {
+        const ch = s[i];
+        if (inStr) {
+            out += ch;
+            if (ch === "'") {
+                if (s[i + 1] === "'") { out += s[i + 1]; i += 2; continue; }
+                inStr = false;
+            }
+            i++;
+            continue;
+        }
+        if (ch === "'") { inStr = true; out += ch; onlySpaceSince = false; i++; continue; }
+        if (/[A-Za-z_]/.test(ch)) {
+            let j = i;
+            while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+            const word = s.slice(i, j);
+            if (onlySpaceSince && lastWord && /^(FROM|JOIN)$/i.test(lastWord) && word === alias) {
+                out += phys;
+                changed = true;
+            } else {
+                out += word;
+            }
+            lastWord = word;
+            onlySpaceSince = false;
+            i = j;
+            continue;
+        }
+        out += ch;
+        if (/\s/.test(ch)) {
+            onlySpaceSince = true; // 空白保持「自上一标识符以来仅空白」的锚定资格
+        } else {
+            lastWord = '';
+            onlySpaceSince = true;
+        }
+        i++;
+    }
+    return changed ? out : null;
 }
 
 // ─────────────────────── 主流程（CLI 直跑入口；被 import 时不执行） ───────────────────────
@@ -417,6 +503,7 @@ function rebindStmtTable(st) {
 }
 let aliasRebound = 0;
 let sigRebound = 0;
+let residualRebound = 0;
 for (const { line, iso, frame } of frames) {
     if (iso !== isolation) continue;
     const entries = frame.logEntries || [];
@@ -430,24 +517,30 @@ for (const { line, iso, frame } of frames) {
             for (let si = 0; si < stmts.length; si++) {
                 const st0 = stmts[si];
                 if (typeof st0 !== 'string' || !st0.trim()) continue;
-                const st = rebindStmtTable(st0);
-                if (st !== st0) aliasRebound++;
-                // v2：语句头部表不在回放库 → 按列清单签名做唯一匹配改绑（旧代拼音物理名救援）
-                let stFinal = st;
-                const headM = st.match(STMT_HEAD_RE);
+                let stFinal = rebindStmtTable(st0);
+                if (stFinal !== st0) aliasRebound++;
+                // 头部提取剥离前导注释：真实 logEntries 语句常带「-- 中文说明」行
+                const stClean = stFinal.replace(/^\s*(?:--[^\n]*\n\s*)+/, '');
+                const headM = stClean.match(STMT_HEAD_RE);
                 const headName = headM ? (headM[2].startsWith('"') ? headM[2].slice(1, -1).replace(/""/g, '"') : headM[2]) : '';
+                // v2：语句头部表不在回放库 → 按列清单签名做唯一匹配改绑（旧代拼音物理名救援）
                 if (headName && !physSet.has(headName)) {
                     const sigTables = Object.entries(sheetsByPhys).map(([phys, info]) => ({ phys, names: info.columns.map((c) => c.name) }));
-                    const rb = matchTableByColumnSignature(st, sigTables);
+                    const rb = matchTableByColumnSignature(stClean, sigTables);
                     if (rb) {
                         stFinal = rb;
                         sigRebound++;
                         diag.push({ line, seq: entry.seq, op: oi, action: 'rewrite-signature', reason: `语句头部表 "${headName}" 不在回放库（旧代物理名），列签名唯一匹配改绑`, sql: st0 });
-                        // 记入别名映射：后续同名词句直接走 rebindStmtTable 快路径
                         const rbHead = rb.match(STMT_HEAD_RE);
                         const mappedName = rbHead ? (rbHead[2].startsWith('"') ? rbHead[2].slice(1, -1).replace(/""/g, '"') : rbHead[2]) : '';
                         if (mappedName && mappedName !== headName) aliasToPhys.set(headName, mappedName);
                     }
+                }
+                // 残余别名替换：仅锚定 FROM/JOIN 之后的旧名（子查询等非头部位置）
+                for (const [al, mp] of aliasToPhys) {
+                    if (!stFinal.includes(al)) continue;
+                    const replaced = replaceAliasAfterFromJoin(stFinal, al, mp);
+                    if (replaced !== null && replaced !== stFinal) { stFinal = replaced; residualRebound++; }
                 }
                 replayedStmts++;
                 try {
@@ -519,7 +612,7 @@ const summary = `# 回放摘要
 
 - 聊天文件：\`${resolve(chatPath)}\`（${lines.length} 行）
 - 隔离键：\`${isolation}\`；checkpoint 位于第 ${checkpoint.line} 行（kind=full）
-- 回放操作批次：${replayedOps}；语句：${replayedStmts}；别名改绑：${aliasRebound}；签名改绑：${sigRebound}
+- 回放操作批次：${replayedOps}；语句：${replayedStmts}；别名改绑：${aliasRebound}；签名改绑：${sigRebound}；残余改绑：${residualRebound}
 - 宽容改写（INSERT OR IGNORE）：${rewritten}；跳过：${skipped}
 
 ## 表×行数
@@ -553,4 +646,6 @@ export {
     buildHeaderToCol,
     normalizeHeaderCell,
     matchTableByColumnSignature,
+    replaceAliasOutsideStrings,
+    replaceAliasAfterFromJoin,
 };
