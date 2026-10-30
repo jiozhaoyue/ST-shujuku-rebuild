@@ -35,7 +35,11 @@
 - [ ] 控制台无「等待 SillyTavern 就绪超时」；调试面板 host 字段为 `luker`（`window.Luker.getContext` 特征命中）
 - [ ] V2 面板挂载：表格 / 填表 / SQL 控制台 / 运行日志全量可用
 - [ ] 聊天含旧 TT/上游数据（Branch 陈旧 HotSnapshot / 上游 `TavernDB_ACU_HotSnapshot` 等）时：owner 守卫忽略，无报错、无阻塞
-- [ ] 世界书桥接降级：不装酒馆助手时核心表格功能正常，世界书操作给出可操作提示（不抛未捕获异常）
+- [x] 世界书桥接降级（2026-10-31 Dev ST 8001 ttavern ABI 注入环境=无酒馆助手，自动化实证）：
+      `scripts/e2e-worldbook-degrade-check.mjs` 3/3 PASS——worldbook-ai 读向方法
+      （listWorldbookSkillMetas → []、getWorldbookEntrySkillMeta → null、cancelContentOptimization → true）
+      全部优雅返回结构化结果，无未捕获异常（pageerror clean）。**公开 API 是扁平对象**（组名只是
+      开发者页自描述索引），自动化时不要按 `api['worldbook-ai'].xxx` 寻址。
 - [ ] auto_update 安全：manifest `homePage` 指向本仓库，宿主自动更新不会拉回上游 rebuild 产物
       （2026-10-31 静态核对：homePage=`https://github.com/jiozhaoyue/ST-shujuku-rebuild`、version=9.7.5、auto_update=true ✓）
 
