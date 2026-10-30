@@ -8,6 +8,7 @@ import {
     buildHeaderToCol,
     extractLineComment,
     keyFormOf,
+    matchTableByColumnSignature,
     normalizeHeaderCell,
     parseDdl,
     rebindDdlTableName,
@@ -117,5 +118,60 @@ describe('keyFormOf / rebindDdlTableName（回归保护）', () => {
         const out = rebindDdlTableName(ROMANCE_DIARY_DDL, 'beiwanglu');
         expect(out).toContain('CREATE TABLE beiwanglu');
         expect(out).toContain('event_type');
+    });
+});
+
+describe('matchTableByColumnSignature（救援回放 v2：旧代物理名列签名改绑）', () => {
+    const tables = [
+        { phys: 'romance_targets', names: ['row_id', 'char_name', 'affection_level', 'note'] },
+        { phys: 'status_bar', names: ['row_id', 'arousal', 'stamina'] },
+    ];
+
+    it('列清单唯一命中 → 头部表名改绑', () => {
+        const st = "INSERT INTO lianaiduixiangbiao (row_id, char_name, affection_level, note) VALUES (1, 'a', 2, 'b')";
+        expect(matchTableByColumnSignature(st, tables)).toBe(
+            "INSERT INTO romance_targets (row_id, char_name, affection_level, note) VALUES (1, 'a', 2, 'b')",
+        );
+    });
+
+    it('大小写/引号列名归一化命中', () => {
+        const st = 'INSERT INTO OLD_T ("ROW_ID", "Arousal") VALUES (1, 2)';
+        expect(matchTableByColumnSignature(st, tables)).toBe('INSERT INTO status_bar ("ROW_ID", "Arousal") VALUES (1, 2)');
+    });
+
+    it('≥2 候选（歧义）→ null 不猜', () => {
+        const both = [...tables, { phys: 'another', names: ['row_id', 'char_name'] }];
+        const st = 'INSERT INTO old_name (row_id, char_name) VALUES (1, 2)';
+        expect(matchTableByColumnSignature(st, both)).toBeNull();
+    });
+
+    it('无候选 / 非INSERT / 空列清单 → null', () => {
+        expect(matchTableByColumnSignature('INSERT INTO x (nope) VALUES (1)', tables)).toBeNull();
+        expect(matchTableByColumnSignature('INSERT INTO x () VALUES ()', tables)).toBeNull();
+    });
+
+    it('UPDATE：SET 左值 + WHERE 列组成签名集，唯一命中改绑', () => {
+        const st = "UPDATE lianaiduixiangbiao SET past_experience = past_experience || 'x=y, z', recent_interactions = 'a' WHERE name = '后藤一里'";
+        expect(matchTableByColumnSignature(st, [
+            { phys: 'romance_targets', names: ['row_id', 'name', 'past_experience', 'recent_interactions'] },
+            { phys: 'status_bar', names: ['row_id', 'arousal'] },
+        ])).toBe("UPDATE romance_targets SET past_experience = past_experience || 'x=y, z', recent_interactions = 'a' WHERE name = '后藤一里'");
+    });
+
+    it('UPDATE：字符串字面量里的 = 与逗号不干扰签名', () => {
+        const st = "UPDATE old_t SET note = 'WHERE fake = 1, x' WHERE code = 'IN''J'" ;
+        expect(matchTableByColumnSignature(st, [
+            { phys: 't_a', names: ['row_id', 'note', 'code'] },
+            { phys: 't_b', names: ['row_id', 'note'] },
+        ])).toBe("UPDATE t_a SET note = 'WHERE fake = 1, x' WHERE code = 'IN''J'");
+    });
+
+    it('UPDATE：歧义或无候选 → null', () => {
+        const st = 'UPDATE old_t SET row_id = 1';
+        expect(matchTableByColumnSignature(st, [
+            { phys: 't_a', names: ['row_id', 'note'] },
+            { phys: 't_b', names: ['row_id', 'memo'] },
+        ])).toBeNull();
+        expect(matchTableByColumnSignature('UPDATE old_t SET nope = 1', tables)).toBeNull();
     });
 });

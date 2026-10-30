@@ -188,6 +188,86 @@ function ensureFrameParsed(v) {
     return val;
 }
 
+const STMT_HEAD_RE = /^(\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM|ALTER\s+TABLE|CREATE\s+(?:TABLE|INDEX)|DROP\s+TABLE)\s+)("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)/;
+
+/** INSERT 语句列清单签名 → 唯一候选表匹配（救援回放 v2，2026-10-31）
+ *  旧代运行时按「表名中文拼音」生成物理名（如 lianaiduixiangbiao），新代按 DDL 声明名
+ *  （如 romance_targets）——两者之间没有可直接查表的映射，但 INSERT 语句自带列清单：
+ *  与已建表的 DDL 列做归一化包含匹配，**唯一候选**才改绑（歧义/无候选返回 null，
+ *  交回宽容跳过 + 诊断路径，不猜）。
+ *  @param stmt 语句（可能已做过键形式别名重绑）
+ *  @param tables [{phys, names: string[]}]——已建表及其 DDL 列名（原始大小写）
+ *  @returns 改绑后的语句，或 null */
+function matchTableByColumnSignature(stmt, tables) {
+    const s = String(stmt);
+    let cols = [];
+    const im = s.match(/^\s*INSERT\s+(?:OR\s+\w+\s+)?INTO\s+("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/i);
+    if (im) {
+        cols = im[2].split(',').map((c) => c.trim().replace(/^"+|"+$/g, '').toLowerCase()).filter(Boolean);
+    } else {
+        // UPDATE：签名集 = SET 赋值左值 + WHERE 首阶谓词列（字符串感知，避免字面量里的 = / 逗号干扰）
+        const um = s.match(/^\s*UPDATE\s+("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)\s+SET\s+([\s\S]*)$/i);
+        if (!um) return null;
+        const body = um[2];
+        // 顶层切分（字符串感知）：赋值段 / WHERE 段
+        let depth = 0, inStr = false, whereIdx = -1;
+        const assigns = [];
+        let cur = '';
+        let i = 0;
+        for (; i < body.length; i++) {
+            const ch = body[i];
+            if (inStr) {
+                cur += ch;
+                if (ch === "'") {
+                    if (body[i + 1] === "'") { cur += body[++i]; continue; }
+                    inStr = false;
+                }
+                continue;
+            }
+            if (ch === "'") { inStr = true; cur += ch; continue; }
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+            if (depth === 0 && /\s/i.test(ch)) {
+                const rest = body.slice(i + 1);
+                const wm = rest.match(/^WHERE\b/i);
+                if (wm) {
+                    // 检查 WHERE 不在字符串内已由 inStr 保证；记录赋值段结尾
+                    assigns.push(cur);
+                    const wherePart = rest.slice(wm[0].length);
+                    const stripped = wherePart.replace(/'(?:[^']|'')*'/g, "''");
+                    for (const wm2 of stripped.matchAll(/([A-Za-z_]\w*)\s*(?:=|LIKE|IN\b|>|<|BETWEEN|IS\b)/gi)) {
+                        cols.push(wm2[1].toLowerCase());
+                    }
+                    cur = null;
+                    break;
+                }
+            }
+            if (depth === 0 && ch === ',') { assigns.push(cur); cur = ''; continue; }
+            cur += ch;
+        }
+        if (cur !== null && cur.trim()) assigns.push(cur);
+        for (const a of assigns) {
+            const am = a.trim().match(/^"?([A-Za-z_]\w*)"?\s*=/);
+            if (am) cols.push(am[1].toLowerCase());
+        }
+        cols = cols.filter(Boolean);
+    }
+    if (!cols.length) return null;
+    let hit = null;
+    for (const t of tables) {
+        const names = new Set(t.names.map((n) => String(n).toLowerCase()));
+        if (cols.every((c) => names.has(c))) {
+            if (hit) return null; // ≥2 候选：歧义不改绑
+            hit = t.phys;
+        }
+    }
+    if (!hit) return null;
+    // 头部表名 token 手术（与 rebindStmtTable 同法：只改语句头部一个 token）
+    const h = s.match(STMT_HEAD_RE);
+    if (!h || h[2] === hit) return null;
+    return s.slice(0, h[1].length) + hit + s.slice(h[1].length + h[2].length);
+}
+
 // ─────────────────────── 主流程（CLI 直跑入口；被 import 时不执行） ───────────────────────
 async function main() {
 // ───────────────────────── CLI ─────────────────────────
@@ -325,7 +405,6 @@ for (const { sheetKey, phys } of Object.values(sheetsByPhys)) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) continue;
     aliasToPhys.set(alias, phys);
 }
-const STMT_HEAD_RE = /^(\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM|ALTER\s+TABLE|CREATE\s+(?:TABLE|INDEX)|DROP\s+TABLE)\s+)("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)/;
 function rebindStmtTable(st) {
     if (aliasToPhys.size === 0) return st;
     const m = st.match(STMT_HEAD_RE);
@@ -337,6 +416,7 @@ function rebindStmtTable(st) {
     return st.slice(0, m[1].length) + mapped + st.slice(m[1].length + raw.length);
 }
 let aliasRebound = 0;
+let sigRebound = 0;
 for (const { line, iso, frame } of frames) {
     if (iso !== isolation) continue;
     const entries = frame.logEntries || [];
@@ -352,27 +432,44 @@ for (const { line, iso, frame } of frames) {
                 if (typeof st0 !== 'string' || !st0.trim()) continue;
                 const st = rebindStmtTable(st0);
                 if (st !== st0) aliasRebound++;
+                // v2：语句头部表不在回放库 → 按列清单签名做唯一匹配改绑（旧代拼音物理名救援）
+                let stFinal = st;
+                const headM = st.match(STMT_HEAD_RE);
+                const headName = headM ? (headM[2].startsWith('"') ? headM[2].slice(1, -1).replace(/""/g, '"') : headM[2]) : '';
+                if (headName && !physSet.has(headName)) {
+                    const sigTables = Object.entries(sheetsByPhys).map(([phys, info]) => ({ phys, names: info.columns.map((c) => c.name) }));
+                    const rb = matchTableByColumnSignature(st, sigTables);
+                    if (rb) {
+                        stFinal = rb;
+                        sigRebound++;
+                        diag.push({ line, seq: entry.seq, op: oi, action: 'rewrite-signature', reason: `语句头部表 "${headName}" 不在回放库（旧代物理名），列签名唯一匹配改绑`, sql: st0 });
+                        // 记入别名映射：后续同名词句直接走 rebindStmtTable 快路径
+                        const rbHead = rb.match(STMT_HEAD_RE);
+                        const mappedName = rbHead ? (rbHead[2].startsWith('"') ? rbHead[2].slice(1, -1).replace(/""/g, '"') : rbHead[2]) : '';
+                        if (mappedName && mappedName !== headName) aliasToPhys.set(headName, mappedName);
+                    }
+                }
                 replayedStmts++;
                 try {
-                    db.run(st);
+                    db.run(stFinal);
                 } catch (e1) {
                     const msg1 = dbErr(e1);
                     const isUnique = /UNIQUE constraint failed/i.test(msg1);
-                    if (!strict && isUnique && /^\s*INSERT\s+INTO/i.test(st) && !/INSERT\s+OR\s+IGNORE/i.test(st)) {
-                        const retry = st.replace(/^\s*INSERT\s+INTO/i, 'INSERT OR IGNORE INTO');
+                    if (!strict && isUnique && /^\s*INSERT\s+INTO/i.test(stFinal) && !/INSERT\s+OR\s+IGNORE/i.test(stFinal)) {
+                        const retry = stFinal.replace(/^\s*INSERT\s+INTO/i, 'INSERT OR IGNORE INTO');
                         try {
                             db.run(retry);
                             rewritten++;
-                            diag.push({ line, seq: entry.seq, op: oi, action: 'rewrite-or-ignore', reason: msg1, sql: st });
+                            diag.push({ line, seq: entry.seq, op: oi, action: 'rewrite-or-ignore', reason: msg1, sql: stFinal });
                             continue;
                         } catch (e2) {
                             skipped++;
-                            diag.push({ line, seq: entry.seq, op: oi, action: 'skip', reason: dbErr(e2) + '（初错: ' + msg1 + '）', sql: st });
+                            diag.push({ line, seq: entry.seq, op: oi, action: 'skip', reason: dbErr(e2) + '（初错: ' + msg1 + '）', sql: stFinal });
                             continue;
                         }
                     }
                     skipped++;
-                    diag.push({ line, seq: entry.seq, op: oi, action: 'skip', reason: msg1, sql: st });
+                    diag.push({ line, seq: entry.seq, op: oi, action: 'skip', reason: msg1, sql: stFinal });
                     if (strict) throw e1;
                 }
             }
@@ -422,7 +519,7 @@ const summary = `# 回放摘要
 
 - 聊天文件：\`${resolve(chatPath)}\`（${lines.length} 行）
 - 隔离键：\`${isolation}\`；checkpoint 位于第 ${checkpoint.line} 行（kind=full）
-- 回放操作批次：${replayedOps}；语句：${replayedStmts}；别名改绑：${aliasRebound}
+- 回放操作批次：${replayedOps}；语句：${replayedStmts}；别名改绑：${aliasRebound}；签名改绑：${sigRebound}
 - 宽容改写（INSERT OR IGNORE）：${rewritten}；跳过：${skipped}
 
 ## 表×行数
@@ -455,4 +552,5 @@ export {
     keyFormOf,
     buildHeaderToCol,
     normalizeHeaderCell,
+    matchTableByColumnSignature,
 };
