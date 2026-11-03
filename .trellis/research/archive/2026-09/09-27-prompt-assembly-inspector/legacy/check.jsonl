@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核对：门槛命令全绿、零回退、禁止恒真断言、新增用例真的会在回归时变红"}
+{"file": ".trellis/spec/backend/safety-and-isolation.md", "reason": "核对：展示与导出都不含密钥/头值；端点只留主机；未开未脱敏通道"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "核对：两条样式隔离自查无输出、UI 测试齐、有界等待/高频回调 rAF 纪律"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "核对：新页面在 panelGridPages 列表内、用 AcuPanelGrid、无手写加权 fr、复用 _lib 未自造组件"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "核对：观察器降级只用 logDebug/logWarn、绝不 console 裸打、正文不进 console"}

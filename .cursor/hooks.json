@@ -12,6 +12,10 @@
       {
         "command": "python .cursor/hooks/session-start.py",
         "timeout": 30
+      },
+      {
+        "command": "python -X utf8 .cursor/hooks/session-start.py",
+        "timeout": 30
       }
     ],
     "beforeShellExecution": [

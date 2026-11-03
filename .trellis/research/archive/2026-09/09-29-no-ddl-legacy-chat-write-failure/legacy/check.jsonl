@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/safety-and-isolation.md", "reason": "只读/隔离纪律与数据安全红线（破坏性清理前 fail-closed）"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "发版门槛与真机限制（Dev 8001）"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "落点分层：shared/ vs data/sqlite/ vs service/table/"}

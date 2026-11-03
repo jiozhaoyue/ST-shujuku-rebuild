@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核对：门槛命令全绿、零回退；AC1 的穷举切分断言真的会红（自证）；无恒真断言"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "核对：AbortError 穿透而非降级；无永久 pending；异常分支不改变既有分类语义"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "核对：停滞诊断只走 logDebug（默认静默，不破坏「观测关闭时日志无差异」）、无裸 console、正文不进日志"}
+{"file": ".trellis/spec/backend/host-adaptation.md", "reason": "核对：没有出现宿主裸判断（__TAURITAVERN__ / window.Luker 之类）；走能力检测"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核对：改动只落在 service/ai 一层，未向上污染 presentation、未向 data 层扩散；可选参数不破坏既有调用点"}

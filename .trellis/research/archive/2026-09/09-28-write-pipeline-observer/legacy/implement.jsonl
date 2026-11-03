@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "T3.2：复用既有实现而非另造——prompt-observer 的观测契约、restricted-sql-dml 的 SQL 解析、_lib 下的展示件"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "T3.2：新内核落 service/table（收口点同层）、composable 落 presentation-v2，确认分层边界"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "T3.2：观测器异常只降级为 debug 日志，绝不抛错影响主链"}
+{"file": ".trellis/spec/backend/safety-and-isolation.md", "reason": "T3.2：密钥在结构上拿不到 + 导出前逐字段脱敏（对象图上、转义之前）"}

@@ -1,0 +1,28 @@
+{
+  "id": "prompt-assembly-inspector",
+  "name": "prompt-assembly-inspector",
+  "title": "提示词拼接排查：Developer 页内嵌检查器",
+  "description": "让任意一次 AI 调用的最终提示词可排查：段级拆解（段名/来源/字符数/token 估算/占位符命中）、与上次调用的 diff、最近 N 次环形缓冲；观测埋点未开启时零行为变化、零额外开销。复用 agent-prompt-drift.ts 内核，UI 落 DeveloperPage。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "jiozhaoyue",
+  "assignee": "jiozhaoyue",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-28",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "open_gap": "AC8 部分未闭：table-fill 域真机证据未取到（挡路根因=无 DDL 旧聊天手动填表恒失败，已独立登记）。AC1-AC7 已闭，同漏斗的 worldbook-ai 路径与脱敏已真机验证。"
+  }
+}

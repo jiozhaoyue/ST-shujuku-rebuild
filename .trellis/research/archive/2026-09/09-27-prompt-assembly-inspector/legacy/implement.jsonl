@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "分层落点：埋点进 service/ai，UI 只经 composable 访问 data/service；导入一律相对路径（别用 @ 别名，rollup 未注册）"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "观察器的环形缓冲/订阅/清空照 shared/log-buffer 的既有形态写；日志级别与「敏感值不进日志」纪律"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "观察器必须绝不抛错、绝不 await：全文 try/catch + logDebug 降级；不定义新错误类"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "门槛命令；零回退；AC1 需要一个「开关关闭时返回值逐字节不变」的回归钉并自证会变红"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "面板须用 AcuPanelGrid 并加入 panel-grid-conventions 用例；acu- 双前缀 + scoped；先看 _lib 有无现成组件"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "开关存既有 acu_v2_ui_state 的 dev-options 节，禁止新增 localStorage key；flag 由低层持有、store 推送"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "composable 订阅必须成对（onBeforeUnmount 退订）；状态类返回对象而非数组"}
