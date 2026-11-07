@@ -37,3 +37,14 @@ export function acuCancelAnimationFrame(handle: AcuTimerHandle | null | undefine
   }
   win.clearTimeout(handle);
 }
+
+// 我方差量依赖（2026-11-07 上游追平恢复）：v2 组件层 _lib 套件（AcuPanel/AcuDisclosureGroup 等，
+// 我方四面板与 SQL 控制台相关组件仍在用）需要这两个宿主安全封装；上游新版界面不再使用故删。
+export function acuGetComputedStyle(el: Element): CSSStyleDeclaration {
+  return (el.ownerDocument.defaultView ?? getAcuHostWindow()).getComputedStyle(el);
+}
+
+export function acuMatchesMedia(query: string): boolean {
+  const win = getAcuHostWindow();
+  return typeof win.matchMedia === 'function' && win.matchMedia(query).matches;
+}
