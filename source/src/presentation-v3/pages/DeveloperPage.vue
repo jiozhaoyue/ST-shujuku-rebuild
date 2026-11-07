@@ -14,12 +14,22 @@
         <UbSwitch :model-value="devOptions.warnLogEnabled.value" aria-label="WARN 日志" @update:model-value="devOptions.setWarnLogEnabled($event)" />
       </UbRow>
     </UbSection>
+
+    <!-- 我方差量移植（2026-11-07 上游追平）：观测与诊断四面板，自包含 AcuPanel 组件直接挂载 -->
+    <PromptInspectionPanel />
+    <WritePipelinePanel />
+    <FrameReplayPanel />
+    <DiagnosticBundlePanel />
   </UbPage>
 </template>
 
 <script setup lang="ts">
 import { useDevOptions } from '../../presentation-v2/composables/useDevOptions';
 import { developerCopy as copy } from '../../presentation-v2/copy/developer-copy';
+import DiagnosticBundlePanel from '../../presentation-v2/components/DiagnosticBundlePanel.vue';
+import FrameReplayPanel from '../../presentation-v2/components/FrameReplayPanel.vue';
+import PromptInspectionPanel from '../../presentation-v2/components/PromptInspectionPanel.vue';
+import WritePipelinePanel from '../../presentation-v2/components/WritePipelinePanel.vue';
 import UbPage from '../ui/UbPage.vue';
 import UbRow from '../ui/UbRow.vue';
 import UbSection from '../ui/UbSection.vue';

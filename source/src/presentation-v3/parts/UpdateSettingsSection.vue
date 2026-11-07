@@ -59,6 +59,37 @@
             @change="settings.setNumber(field.key, $event)"
           />
         </UbRow>
+        <!-- 我方差量移植（2026-11-07 上游追平）：填表差量注入（实验）配置 -->
+        <UbRow
+          label="差量注入（实验）"
+          hint="开启后填表只携带热表全量数据，冷表仅供建表语句与行数；省 token 且减少干扰。默认关闭。"
+        >
+          <UbSwitch
+            :model-value="differential.enabled.value"
+            aria-label="差量注入"
+            @update:model-value="(v: boolean) => { differential.enabled.value = v; }"
+          />
+        </UbRow>
+        <UbRow
+          label="热表名单"
+          hint="始终携带全量数据的表：填表名（逗号分隔），如：纪要, 背包。留空则只按近期改动自动判定。"
+        >
+          <UbInput
+            :model-value="differential.hotSheets.value"
+            aria-label="热表名单"
+            @change="differential.hotSheets.value = String($event ?? '')"
+          />
+        </UbRow>
+        <UbRow
+          label="冷表名单"
+          hint="始终只供建表语句的表（压过热表与近期改动）：填表名（逗号分隔）。"
+        >
+          <UbInput
+            :model-value="differential.coldSheets.value"
+            aria-label="冷表名单"
+            @change="differential.coldSheets.value = String($event ?? '')"
+          />
+        </UbRow>
       </template>
     </template>
   </UbSection>
@@ -76,6 +107,7 @@ import { useApiPresetSelectOptions } from '../../presentation-v2/composables/use
 import { useApiPresetStaleness } from '../../presentation-v2/composables/useApiPresetStaleness';
 import { watchChatChanged_ACU } from '../../presentation-v2/composables/useChatChangedListener';
 import { useFormFillSettings, type NumberSettingKey } from '../../presentation-v2/composables/useFormFillSettings';
+import { useDifferentialInjectionSettings } from '../../presentation-v2/composables/useDifferentialInjectionSettings';
 import { formFillCopy } from '../../presentation-v2/copy/form-fill-copy';
 import UbBadge from '../ui/UbBadge.vue';
 import UbInput from '../ui/UbInput.vue';
@@ -92,6 +124,7 @@ withDefaults(defineProps<{ id?: string; showAdvanced?: boolean }>(), {
 });
 
 const settings = useFormFillSettings();
+const differential = useDifferentialInjectionSettings();
 const { apiStore, followActiveApiLabel, apiPresetSelectOptions: tableApiPresetOptions } = useApiPresetSelectOptions();
 // 防呆：API 预设在别处被改过时这一行标黄，手动重选一次即确认
 const { isStale: tableFillStale, markConfirmed: markTableFillConfirmed } = useApiPresetStaleness('table-fill');

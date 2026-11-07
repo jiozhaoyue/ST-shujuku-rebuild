@@ -304,7 +304,7 @@ watchChatChanged_ACU(refreshAll);
 useUiCloseGuard(() => {
   if (!promptSheetOpen.value || !vector.promptDirty.value) return true;
   return dialogStore.confirm({
-    title: '关闭 UnbirthDB',
+    title: '关闭 Luker·数据库',
     message: '你有未保存的关键词生成提示词修改，确定要关闭吗？',
     confirmLabel: '仍然关闭',
     confirmVariant: 'danger',

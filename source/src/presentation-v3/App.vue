@@ -9,7 +9,7 @@
             <div class="ub-brand">
               <UbBrandMark />
               <span class="ub-brand__text">
-                <span class="ub-brand__name">UnbirthDB</span>
+                <span class="ub-brand__name">Luker·数据库</span>
                 <span class="ub-brand__tag">{{ uiMode.isBasicMode ? '基础模式' : '高手模式' }}</span>
               </span>
             </div>
@@ -51,10 +51,10 @@
               <h1 class="ub-top__title">
                 <i v-if="activeEntry" :class="[activeEntry.icon, 'ub-top__icon']" aria-hidden="true"></i>
                 <span v-if="appearanceStore.isClaudeStyle && activeGroupTitle" class="ub-top__crumb">{{ activeGroupTitle }}</span>
-                {{ router.activePage?.title || 'UnbirthDB' }}
+                {{ router.activePage?.title || 'Luker·数据库' }}
               </h1>
             </div>
-            <UbIconButton icon="fa-solid fa-xmark" title="关闭 UnbirthDB" @click="closeApp" />
+            <UbIconButton icon="fa-solid fa-xmark" title="关闭 Luker·数据库" @click="closeApp" />
           </header>
 
           <main ref="scroller" class="ub-scroll" data-ub-main>
@@ -83,7 +83,7 @@
             <div class="ub-brand">
               <UbBrandMark />
               <span class="ub-brand__text">
-                <span class="ub-brand__name">UnbirthDB</span>
+                <span class="ub-brand__name">Luker·数据库</span>
                 <span class="ub-brand__tag">{{ uiMode.isBasicMode ? '基础模式' : '高手模式' }}</span>
               </span>
             </div>

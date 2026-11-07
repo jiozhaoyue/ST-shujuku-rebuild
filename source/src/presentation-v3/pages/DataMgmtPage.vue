@@ -155,6 +155,42 @@
         </div>
       </div>
     </UbSection>
+
+    <!-- 我方差量移植（2026-11-07 上游追平）：写入体积软警告（只提示、不拦截） -->
+    <UbSection
+      id="dm-oversized-write"
+      title="写入体积提示"
+      description="只提示、不拦截：单元格或单次写入数据量超过阈值时提示一次，数据照常写入。"
+      icon="fa-solid fa-weight-hanging"
+    >
+      <UbRow label="超过阈值时提示一次" hint="关闭后连测量都不做，完全不产生开销。">
+        <UbSwitch
+          :model-value="flow.oversizedWriteWarningEnabled.value"
+          aria-label="超过阈值时提示一次"
+          @update:model-value="flow.setOversizedWriteWarningEnabled($event)"
+        />
+      </UbRow>
+      <UbRow label="单单元格字符数阈值" hint="单个单元格超过这个字符数时计入警告（0 为不限制）。">
+        <UbInput
+          type="number"
+          :min="0"
+          :step="1000"
+          :model-value="flow.oversizedCellWarnChars.value"
+          aria-label="单单元格字符数阈值"
+          @change="flow.setOversizedCellWarnChars($event)"
+        />
+      </UbRow>
+      <UbRow label="单次写入体积阈值（MB）" hint="单次提交的数据量超过这个 MB 数时计入警告（0 为不限制）。">
+        <UbInput
+          type="number"
+          :min="0"
+          :step="0.5"
+          :model-value="oversizedWriteWarnMegabytes"
+          aria-label="单次写入体积阈值"
+          @change="setOversizedWriteWarnMegabytes($event)"
+        />
+      </UbRow>
+    </UbSection>
   </UbPage>
 </template>
 
@@ -179,6 +215,7 @@ import UbInput from '../ui/UbInput.vue';
 import UbPage from '../ui/UbPage.vue';
 import UbRow from '../ui/UbRow.vue';
 import UbSection from '../ui/UbSection.vue';
+import UbSwitch from '../ui/UbSwitch.vue';
 
 const RECOVERABLE_CHECKPOINT_STATUSES: string[] = [
   'recoverable_repaired_checkpoint',
@@ -200,6 +237,19 @@ const toast = useToastStore();
 const flow = useDataManagement();
 /** R10B-08：任一数据操作在途时其它危险操作一律禁用；确认框关闭后再查同一条件。 */
 const busy = computed(() => !!flow.busyAction.value);
+
+// 我方差量（写入体积软警告）：字节阈值以 MB 展示与编辑，存储口径保持字节
+const oversizedWriteWarnMegabytes = computed(() => {
+  const bytes = Number(flow.oversizedWriteWarnBytes.value) || 0;
+  return Math.round((bytes / (1024 * 1024)) * 100) / 100;
+});
+
+function setOversizedWriteWarnMegabytes(value: number | string): void {
+  const megabytes = Number(value);
+  flow.setOversizedWriteWarnBytes(
+    Number.isFinite(megabytes) ? Math.round(megabytes * 1024 * 1024) : value,
+  );
+}
 
 const sections = computed(() => [
   { id: 'dm-checkpoint', label: '备份与恢复' },

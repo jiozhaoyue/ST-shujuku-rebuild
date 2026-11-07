@@ -24,35 +24,106 @@
         <div class="ub-at__row">
           <UbButton variant="primary" icon="fa-solid fa-play" :busy="sqlFlow.busyAction.value === 'execute'" :disabled="!sqlFlow.hasSqlText.value" @click="sqlFlow.executeCurrent">执行</UbButton>
           <UbButton variant="ghost" icon="fa-solid fa-eraser" :disabled="!sqlFlow.hasSqlText.value || !!sqlFlow.busyAction.value" @click="sqlFlow.clearSql">清空</UbButton>
+          <UbButton
+            size="sm"
+            variant="ghost"
+            icon="fa-solid fa-star"
+            :disabled="!sqlFlow.hasSqlText.value"
+            title="把当前语句收藏为常用片段（跨聊天可用，点击仅填入编辑器）"
+            @click="sqlFlow.saveSnippetFromEditor"
+          >
+            存为常用
+          </UbButton>
           <span class="ub-at__hint">Ctrl / ⌘ + Enter 执行</span>
           <span class="ub-at__status" :class="`is-${sqlFlow.statusKind.value}`">{{ sqlFlow.statusLabel.value }}</span>
         </div>
 
         <div class="ub-at__result" aria-label="SQL 执行结果">
           <p v-if="sqlFlow.result.value.kind === 'idle'" class="ub-at__empty">执行 SQL 后结果会显示在这里</p>
+          <p v-if="sqlFlow.multiStatementCount.value > 0" class="ub-at__note">
+            输入包含 {{ sqlFlow.multiStatementCount.value }} 条语句：多条语句不会逐条展示结果/影响（只读查询请逐条执行），批量变更由提交机制统一处理。
+          </p>
           <UbCallout v-else-if="sqlFlow.result.value.kind === 'mutation'" kind="success">
             执行成功，{{ sqlFlow.result.value.changes }} 行受影响，耗时 {{ sqlFlow.result.value.elapsedMs }}ms。
           </UbCallout>
           <pre v-else-if="sqlFlow.result.value.kind === 'error'" class="ub-at__error">{{ sqlFlow.result.value.error }}</pre>
           <template v-else>
+            <div class="ub-at__row">
+              <UbButton size="sm" variant="ghost" icon="fa-solid fa-copy" title="把结果表格复制为 CSV 文本" @click="sqlFlow.copyResultCsv">复制 CSV</UbButton>
+              <UbButton size="sm" variant="ghost" icon="fa-solid fa-table" title="复制为 Markdown 表格（可直接贴进聊天给 AI/人看，长文本截断）" @click="sqlFlow.copyResultMarkdown">复制为 Markdown</UbButton>
+              <UbButton size="sm" variant="ghost" icon="fa-solid fa-download" title="下载 UTF-8 CSV 文件（Excel 可直接打开）" @click="sqlFlow.exportResultCsv">导出 CSV</UbButton>
+              <UbButton size="sm" variant="ghost" icon="fa-solid fa-file-code" title="下载 JSON 文件（每行一个对象）" @click="sqlFlow.exportResultJson">导出 JSON</UbButton>
+            </div>
             <div class="ub-at__table-wrap">
               <table class="ub-at__table">
                 <thead>
-                  <tr><th v-for="column in sqlFlow.result.value.columns" :key="column">{{ column }}</th></tr>
+                  <tr>
+                    <th
+                      v-for="(column, columnIndex) in sqlFlow.result.value.columns"
+                      :key="column"
+                      :aria-sort="sqlFlow.sortState.value?.column === columnIndex ? (sqlFlow.sortState.value.dir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                    >
+                      <button
+                        type="button"
+                        class="ub-at__sort"
+                        :title="`按「${column}」排序（点击循环 升序 → 降序 → 取消）`"
+                        @click="sqlFlow.toggleSort(columnIndex)"
+                      >
+                        {{ column }}
+                        <span v-if="sqlFlow.sortState.value?.column === columnIndex" aria-hidden="true">{{ sqlFlow.sortState.value.dir === 'asc' ? '↑' : '↓' }}</span>
+                      </button>
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!sqlFlow.result.value.values.length">
+                  <tr v-if="!sqlFlow.displayedValues.value.length">
                     <td :colspan="Math.max(sqlFlow.result.value.columns.length, 1)" class="ub-at__empty">查询成功，没有返回行</td>
                   </tr>
-                  <tr v-for="(row, rowIndex) in sqlFlow.result.value.values" :key="rowIndex">
-                    <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ 'is-null': cell === null }">{{ formatSqlCell(cell) }}</td>
+                  <tr v-for="(row, rowIndex) in sqlFlow.displayedValues.value" :key="rowIndex">
+                    <td
+                      v-for="(cell, cellIndex) in row"
+                      :key="cellIndex"
+                      class="ub-at__cell"
+                      :class="{ 'is-null': cell === null }"
+                      :title="cellHoverTitle(cell)"
+                      @click="sqlFlow.copyCellLiteral(cell)"
+                    >{{ formatSqlCell(cell) }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <p class="ub-at__meta">{{ sqlFlow.result.value.rowCount }} 行 · {{ sqlFlow.result.value.elapsedMs }}ms</p>
+            <p class="ub-at__meta">
+              {{ sqlFlow.result.value.rowCount }} 行 · {{ sqlFlow.result.value.elapsedMs }}ms<template v-if="sqlFlow.hiddenByWindow.value > 0"> · 已折叠较早的 {{ sqlFlow.hiddenByWindow.value }} 行（复制/导出仍取全量）</template>
+            </p>
+            <div v-if="sqlFlow.hiddenByWindow.value > 0" class="ub-at__row">
+              <UbButton size="sm" variant="ghost" icon="fa-solid fa-chevron-down" @click="sqlFlow.showMoreRows">显示更多</UbButton>
+            </div>
           </template>
         </div>
+
+        <UbDisclosure label="常用语句" :meta="`${sqlFlow.snippets.value.length} 条`" :expanded="snippetsOpen" max-height="220px" @toggle="snippetsOpen = !snippetsOpen">
+          <p v-if="!sqlFlow.snippets.value.length" class="ub-at__empty">还没有常用语句：编辑器写好后点「存为常用」收藏（跨聊天可用，点击仅填入编辑器、绝不自动执行）</p>
+          <div v-else class="ub-at__snippets" aria-label="常用语句">
+            <span
+              v-for="(snippet, snippetIndex) in sqlFlow.snippets.value"
+              :key="`${snippetIndex}-${snippet.slice(0, 24)}`"
+              class="ub-at__snippet"
+              role="button"
+              tabindex="0"
+              :title="snippet"
+              @click="sqlFlow.insertSnippet(snippet)"
+              @keydown.enter.prevent="sqlFlow.insertSnippet(snippet)"
+            >
+              <code>{{ snippet }}</code>
+              <i
+                class="fa-solid fa-xmark ub-at__snippet-remove"
+                role="button"
+                aria-label="删除该常用语句"
+                @click.stop="sqlFlow.removeSnippet(snippetIndex)"
+              ></i>
+            </span>
+          </div>
+        </UbDisclosure>
 
         <UbDisclosure label="执行历史" :meta="`${sqlFlow.history.value.length} 条`" :expanded="historyOpen" max-height="260px" @toggle="historyOpen = !historyOpen">
           <p v-if="!sqlFlow.history.value.length" class="ub-at__empty">暂无执行历史</p>
@@ -181,6 +252,7 @@ const debugFlow = useDebugPanel();
 const debugIssueUrl = buildDebugIssueUrl_ACU();
 const logListRef = ref<HTMLElement | null>(null);
 const historyOpen = ref(false);
+const snippetsOpen = ref(false);
 
 const sections = [
   { id: 'at-sql', label: copy.nav.sql },
@@ -217,6 +289,13 @@ function formatSqlCell(value: string | number | Uint8Array | null): string {
   if (value === null) return 'NULL';
   if (value instanceof Uint8Array) return `BLOB(${value.byteLength})`;
   return String(value);
+}
+
+/** 悬停提示带完整值（超 2000 字符截断）+ 点击行为说明（复制为 SQL 字面量）。 */
+function cellHoverTitle(value: string | number | Uint8Array | null): string {
+  const text = formatSqlCell(value);
+  const shown = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+  return `${shown}\n点击复制为 SQL 字面量（可直接粘进 WHERE / SET）`;
 }
 
 function logLevelVariant(level: LogLevel): UbBadgeVariant {
@@ -344,6 +423,69 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   margin-top: var(--ub-s1);
   color: var(--ub-text-3);
   font-size: var(--ub-fs-xs);
+}
+
+.ub-at__note {
+  margin: 0;
+  padding: var(--ub-s2) var(--ub-s3);
+  border-radius: var(--ub-r-control);
+  background: var(--ub-warn-soft);
+  color: var(--ub-text-2);
+  font-size: var(--ub-fs-xs);
+}
+
+.ub-at__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ub-at__cell {
+  cursor: copy;
+}
+
+.ub-at__snippets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ub-s2);
+}
+
+.ub-at__snippet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ub-s1);
+  max-width: 100%;
+  padding: var(--ub-s1) var(--ub-s2);
+  border: 1px solid var(--ub-line-soft);
+  border-radius: 999px;
+  background: var(--ub-sunken);
+  cursor: pointer;
+}
+
+.ub-at__snippet code {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--ub-text-2);
+  font-family: var(--ub-mono);
+  font-size: var(--ub-fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ub-at__snippet-remove {
+  color: var(--ub-text-3);
+  font-size: var(--ub-fs-2xs);
+}
+
+.ub-at__snippet-remove:hover {
+  color: var(--ub-danger);
 }
 
 .ub-at__history {
