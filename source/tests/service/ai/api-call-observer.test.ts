@@ -88,9 +88,9 @@ describe('postChatCompletion_ACU 的响应观测接线', () => {
 
   it('真增量：res.body.getReader 存在 ⇒ transport=incremental，onDelta 被转接并计数', async () => {
     mockFetch.mockResolvedValue(fakeResponse({ withReader: true }));
-    mockHandleApiResponse.mockImplementation(async (_res: any, _wants: any, _usage: any, onDelta: any) => {
-      onDelta?.('a');
-      onDelta?.('b');
+    mockHandleApiResponse.mockImplementation(async (_res: any, _wants: any, _usage: any, hooks: any) => {
+      hooks?.onDelta?.('a');
+      hooks?.onDelta?.('b');
       return 'ab';
     });
 
@@ -107,9 +107,9 @@ describe('postChatCompletion_ACU 的响应观测接线', () => {
 
   it('整读回退：请求要流但 res.body 无 getReader ⇒ transport=buffered（回调仍会来）', async () => {
     mockFetch.mockResolvedValue(fakeResponse({ withReader: false }));
-    mockHandleApiResponse.mockImplementation(async (_res: any, _wants: any, _usage: any, onDelta: any) => {
+    mockHandleApiResponse.mockImplementation(async (_res: any, _wants: any, _usage: any, hooks: any) => {
       // 整读回退分支同样逐行触发 onDelta —— 这正是不能用 chunkCount 判增量的原因
-      onDelta?.('line');
+      hooks?.onDelta?.('line');
       return 'line';
     });
 
@@ -163,9 +163,9 @@ describe('postChatCompletion_ACU 的响应观测接线', () => {
     const result = await postChatCompletion_ACU(body);
 
     expect(result).toBe('closed');
-    const [, wantsStream, , onDelta] = mockHandleApiResponse.mock.calls[0];
+    const [, wantsStream, , hooks] = mockHandleApiResponse.mock.calls[0];
     expect(wantsStream).toBe(true);
-    expect(onDelta).toBeUndefined();
+    expect(hooks?.onDelta).toBeUndefined();
     expect(getPromptObservations_ACU()).toHaveLength(0);
   });
 

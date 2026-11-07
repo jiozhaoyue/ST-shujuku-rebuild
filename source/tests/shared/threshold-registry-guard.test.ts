@@ -173,11 +173,15 @@ describe('阈值字面量散落守卫（白名单冻结制）', () => {
       whitelist: [
         // 网页检索单页字数上限（UI 范围 + 校验），不同领域
         'presentation-v2/pages/ContinuationPage.vue',
+        // 2026-11-07 上游追平（Unbirth A.D. 6386）：上游新版界面 v3 的续写页，与 v2 页面同一语义
+        'presentation-v3/pages/ContinuationPage.vue',
         // API maxTokens 回退与续写检索预算/超时，不同领域
         'service/ai/api-call.ts',
         'service/continuation/continuation-store.ts',
         'service/continuation/agent/agent-search.ts',
         'service/continuation/agent/agent-web-client.ts',
+        // 2026-11-07 上游追平：上游新增决策门（Agent 世界书放行的最小 token 预算），不同领域
+        'service/optimization/decision-gate.ts',
       ],
       note: 'greenlightMinTkBudget',
     },
@@ -229,6 +233,8 @@ describe('阈值字面量散落守卫（白名单冻结制）', () => {
       'data/storage/vector-index-temp-cache.ts',
       'service/ai/prompt-observer.ts',
       'service/table/write-pipeline-observer.ts',
+      // 2026-11-07 上游追平：上游 Agent 世界书读取的条目 token 缓存字节预算，自有领域
+      'service/continuation/agent/agent-worldbook-read.ts',
     ];
     const offenders: string[] = [];
     for (const file of ALL_SOURCES) {

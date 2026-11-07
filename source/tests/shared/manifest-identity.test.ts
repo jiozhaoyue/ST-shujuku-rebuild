@@ -22,8 +22,8 @@ describe('manifest identity', () => {
       expect(manifest.display_name).not.toBe(legacy);
     }
   });
-  it('版本号进入 9.2.x 序列', () => {
-    expect(manifest.version).toMatch(/^9\.[2-9]\./);
+  it('版本号非空（版本号体系跟随上游，上游已切换为叙事版本「Unbirth A.D. N」）', () => {
+    expect(String(manifest.version).trim().length).toBeGreaterThan(0);
   });
   it('version 与 source/package.json 一致（防自动同步把 manifest 留在旧值）', () => {
     // 背景：upstream-sync 的合并步骤把 manifest.json 整体按「我方」解决（为保住 author/homePage

@@ -81,6 +81,13 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const buttonByText = (root: ParentNode, text: string) => Array.from(root.querySelectorAll<HTMLButtonElement>('button'))
   .find(button => button.textContent?.trim() === text || button.textContent?.includes(text));
 
+async function openDisclosure(label: string): Promise<void> {
+  const head = Array.from(sqlSection().querySelectorAll<HTMLButtonElement>('.ub-disc__head'))
+    .find(button => button.textContent?.includes(label))!;
+  if (head.getAttribute('aria-expanded') !== 'true') head.click();
+  await tick();
+}
+
 async function openHistory(): Promise<void> {
   const head = Array.from(sqlSection().querySelectorAll<HTMLButtonElement>('.ub-disc__head'))
     .find(button => button.textContent?.includes('执行历史'))!;
@@ -141,30 +148,30 @@ describe('AdvancedToolsPage SQL panel', () => {
       },
     });
 
-    const textarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    const textarea = document.querySelector<HTMLTextAreaElement>('#at-sql textarea[aria-label="SQL 语句"]');
     expect(textarea).not.toBeNull();
     textarea!.value = 'SELECT id, name FROM item;';
     textarea!.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise(r => setTimeout(r, 0));
 
-    const executeButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page button'))
+    const executeButton = Array.from(document.querySelectorAll<HTMLButtonElement>('#at-sql button'))
       .find(button => button.textContent?.includes('执行'));
     executeButton!.click();
     await new Promise(r => setTimeout(r, 0));
 
     const tbodyRowCount = () =>
-      document.querySelectorAll('.acu-v2-advanced-tools-page__sql-result-table tbody tr').length;
+      document.querySelectorAll('#at-sql .ub-at__table tbody tr').length;
     // 窗口默认 200 行：450 行结果只渲染 200 行，注记提示共 450 行
     expect(tbodyRowCount()).toBe(200);
-    let text = document.querySelector('.acu-v2-advanced-tools-page')?.textContent || '';
-    expect(text).toContain('只显示前 200 行');
-    expect(text).toContain('共 450 行');
+    let text = document.querySelector('#at-sql')?.textContent || '';
+    expect(text).toContain('已折叠较早的 250 行');
+    expect(text).toContain('450 行');
     expect(text).toContain('row-200');
     expect(text).not.toContain('row-201');
 
     // 「显示更多」逐窗追加：200 → 400 → 450，追平后注记消失
     const moreButton = () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page__sql-result-note button'))
+      Array.from(document.querySelectorAll<HTMLButtonElement>('#at-sql .ub-at__result button'))
         .find(button => button.textContent?.includes('显示更多'));
     moreButton()!.click();
     await new Promise(r => setTimeout(r, 0));
@@ -173,8 +180,8 @@ describe('AdvancedToolsPage SQL panel', () => {
     moreButton()!.click();
     await new Promise(r => setTimeout(r, 0));
     expect(tbodyRowCount()).toBe(450);
-    expect(document.querySelector('.acu-v2-advanced-tools-page__sql-result-note')).toBeNull();
-    text = document.querySelector('.acu-v2-advanced-tools-page')?.textContent || '';
+    expect(moreButton()).toBeUndefined();
+    text = document.querySelector('#at-sql')?.textContent || '';
     expect(text).toContain('row-450');
 
     mount.__resetAcuV2MountForTests();
@@ -183,7 +190,7 @@ describe('AdvancedToolsPage SQL panel', () => {
   it('SQL 草稿跨重开持久化——写入落盘后，重挂载自动恢复到编辑器', async () => {
     // 第一次挂载：输入语句，等防抖落盘（300ms + 余量）
     const first = await mountAdvancedToolsSqlPanel();
-    const firstTextarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    const firstTextarea = document.querySelector<HTMLTextAreaElement>('#at-sql textarea[aria-label="SQL 语句"]');
     expect(firstTextarea).not.toBeNull();
     firstTextarea!.value = 'SELECT id, name FROM item WHERE id = 7;';
     firstTextarea!.dispatchEvent(new Event('input', { bubbles: true }));
@@ -196,7 +203,7 @@ describe('AdvancedToolsPage SQL panel', () => {
 
     // 第二次挂载：编辑器应预填草稿
     const second = await mountAdvancedToolsSqlPanel();
-    const secondTextarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    const secondTextarea = document.querySelector<HTMLTextAreaElement>('#at-sql textarea[aria-label="SQL 语句"]');
     expect(secondTextarea).not.toBeNull();
     expect(secondTextarea!.value).toBe('SELECT id, name FROM item WHERE id = 7;');
 
@@ -205,22 +212,25 @@ describe('AdvancedToolsPage SQL panel', () => {
 
   it('常用语句收藏：收藏去重置顶、点击仅填入编辑器、可删除、持久化入 ui-state', async () => {
     const { mount } = await mountAdvancedToolsSqlPanel();
-    const textarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    const textarea = document.querySelector<HTMLTextAreaElement>('#at-sql textarea[aria-label="SQL 语句"]');
     expect(textarea).not.toBeNull();
 
     const findButton = (label: string) =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page button'))
+      Array.from(document.querySelectorAll<HTMLButtonElement>('#at-sql button'))
         .find(button => button.textContent?.includes(label));
 
     // 输入并收藏
     textarea!.value = 'SELECT name FROM beiwanglu;';
     textarea!.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise(r => setTimeout(r, 0));
-    findButton('收藏')!.click();
+    findButton('存为常用')!.click();
     await new Promise(r => setTimeout(r, 0));
 
+    // 常用语句抽屉默认收起，先展开再断言 chip
+    await openDisclosure('常用语句');
+
     // chip 渲染且持久化
-    const chipText = () => document.querySelector('.acu-v2-advanced-tools-page__snippet-chip code')?.textContent;
+    const chipText = () => document.querySelector('.ub-at__snippet code')?.textContent;
     expect(chipText()).toBe('SELECT name FROM beiwanglu;');
     let persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] };
     expect(persisted.sqlConsoleSnippets).toEqual(['SELECT name FROM beiwanglu;']);
@@ -229,9 +239,9 @@ describe('AdvancedToolsPage SQL panel', () => {
     textarea!.value = 'SELECT name FROM beiwanglu;';
     textarea!.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise(r => setTimeout(r, 0));
-    findButton('收藏')!.click();
+    findButton('存为常用')!.click();
     await new Promise(r => setTimeout(r, 0));
-    expect(document.querySelectorAll('.acu-v2-advanced-tools-page__snippet-chip')).toHaveLength(1);
+    expect(document.querySelectorAll('.ub-at__snippet')).toHaveLength(1);
     expect((JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] }).sqlConsoleSnippets)
       .toEqual(['SELECT name FROM beiwanglu;']);
 
@@ -239,14 +249,14 @@ describe('AdvancedToolsPage SQL panel', () => {
     findButton('清空')!.click();
     await new Promise(r => setTimeout(r, 0));
     expect(textarea!.value).toBe('');
-    (document.querySelector('.acu-v2-advanced-tools-page__snippet-chip') as HTMLElement).click();
+    (document.querySelector('.ub-at__snippet') as HTMLElement).click();
     await new Promise(r => setTimeout(r, 0));
     expect(textarea!.value).toBe('SELECT name FROM beiwanglu;');
 
     // 删除：chip 消失且持久化同步
-    (document.querySelector('.acu-v2-advanced-tools-page__snippet-remove') as HTMLElement).click();
+    (document.querySelector('.ub-at__snippet-remove') as HTMLElement).click();
     await new Promise(r => setTimeout(r, 0));
-    expect(document.querySelectorAll('.acu-v2-advanced-tools-page__snippet-chip')).toHaveLength(0);
+    expect(document.querySelectorAll('.ub-at__snippet')).toHaveLength(0);
     persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] };
     expect(persisted.sqlConsoleSnippets).toEqual([]);
 

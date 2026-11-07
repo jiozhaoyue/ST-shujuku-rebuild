@@ -1038,7 +1038,7 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
 
   it('回退路径：body 不可用时走整读，结果与增量路径一致（AC3）', async () => {
     const viaFallback = await readViaFallback(SSE_FULL_TEXT);
-    const viaStream = await handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true);
+    const viaStream = await handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true, undefined, { onProgress: () => {} });
     expect(viaFallback).toBe(SSE_FULL_EXPECTED);
     expect(viaStream).toBe(viaFallback);
   });
@@ -1049,6 +1049,8 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
       const actual = await handleApiResponse_ACU(
         makeStreamResponse([SSE_FULL_TEXT.slice(0, i), SSE_FULL_TEXT.slice(i)]),
         true,
+        undefined,
+        { onProgress: () => {} },
       );
       expect({ cut: i, actual }).toEqual({ cut: i, actual: reference });
     }
@@ -1065,6 +1067,8 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
       const actual = await handleApiResponse_ACU(
         makeStreamResponse([bytes.slice(0, i), bytes.slice(i)]),
         true,
+        undefined,
+        { onProgress: () => {} },
       );
       expect({ cut: i, actual }).toEqual({ cut: i, actual: reference });
     }
@@ -1079,7 +1083,7 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
     ];
     for (const [label, chunks] of cases) {
       const expected = await readViaFallback(chunks.join(''));
-      const actual = await handleApiResponse_ACU(makeStreamResponse(chunks), true);
+      const actual = await handleApiResponse_ACU(makeStreamResponse(chunks), true, undefined, { onProgress: () => {} });
       expect({ label, expected }).toEqual({ label, expected: SSE_FULL_EXPECTED });
       expect({ label, actual }).toEqual({ label, actual: expected });
     }
@@ -1088,19 +1092,19 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
   it('截断：未见 [DONE] / message_stop 时返回 null（AC4）', async () => {
     const truncated = ['data: {"choices":[{"delta":{"content":"半截"}}]}', ''].join('\n');
     await expect(readViaFallback(truncated)).resolves.toBeNull();
-    await expect(handleApiResponse_ACU(makeStreamResponse([truncated]), true)).resolves.toBeNull();
+    await expect(handleApiResponse_ACU(makeStreamResponse([truncated]), true, undefined, { onProgress: () => {} })).resolves.toBeNull();
   });
 
   it('正常结束：[DONE] 与 message_stop 两种终态都返回内容（AC4）', async () => {
     const openAiDone = ['data: {"choices":[{"delta":{"content":"完"}}]}', 'data: [DONE]', ''].join('\n');
-    await expect(handleApiResponse_ACU(makeStreamResponse([openAiDone]), true)).resolves.toBe('完');
+    await expect(handleApiResponse_ACU(makeStreamResponse([openAiDone]), true, undefined, { onProgress: () => {} })).resolves.toBe('完');
 
     const anthropicDone = [
       'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"完"}}',
       'data: {"type":"message_stop"}',
       '',
     ].join('\n');
-    await expect(handleApiResponse_ACU(makeStreamResponse([anthropicDone]), true)).resolves.toBe('完');
+    await expect(handleApiResponse_ACU(makeStreamResponse([anthropicDone]), true, undefined, { onProgress: () => {} })).resolves.toBe('完');
   });
 
   it('流中途取消：AbortError 原样上抛，不被降级为 null（AC5）', async () => {
@@ -1121,7 +1125,7 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
         }),
       },
     };
-    await expect(handleApiResponse_ACU(response, true)).rejects.toBe(abortError);
+    await expect(handleApiResponse_ACU(response, true, undefined, { onProgress: () => {} })).rejects.toBe(abortError);
   });
 
   it('观测回调：逐 delta 被调用，且回调抛错不影响返回值（AC6）', async () => {
@@ -1130,14 +1134,14 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
       makeStreamResponse([SSE_FULL_TEXT]),
       true,
       undefined,
-      delta => { seen.push(delta); },
+      { onProgress: () => {}, onDelta: delta => { seen.push(delta); } },
     );
     expect(result).toBe(SSE_FULL_EXPECTED);
     expect(seen).toEqual(['你', '好，世界', '（Claude 段）']);
 
     const throwing = vi.fn(() => { throw new Error('观测炸了'); });
     await expect(
-      handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true, undefined, throwing),
+      handleApiResponse_ACU(makeStreamResponse([SSE_FULL_TEXT]), true, undefined, { onProgress: () => {}, onDelta: throwing }),
     ).resolves.toBe(SSE_FULL_EXPECTED);
     expect(throwing).toHaveBeenCalled();
   });
@@ -1169,7 +1173,7 @@ describe('parseStreamResponse_ACU — 真流式增量读取', () => {
         },
       };
 
-      const pending = handleApiResponse_ACU(response, true);
+      const pending = handleApiResponse_ACU(response, true, undefined, { onProgress: () => {} });
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(SSE_STALL_DIAG_MS_ACU + 1);
 

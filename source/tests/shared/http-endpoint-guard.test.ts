@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { _resetUnsafeEndpointNoticeForTests_ACU, assertSafeHttpEndpoint_ACU } from '../../src/shared/utils';
-import { isWarnLogEnabled, setWarnLogEnabled } from '../../src/shared/log-buffer';
+import { isWarnLogEnabled, setWarnLogEnabledByDevOption_ACU as setWarnLogEnabled } from '../../src/shared/log-buffer';
 import { registerUiSurface_ACU, resetUiSurfaceRegistryForTests_ACU } from '../../src/shared/ui-surface-registry';
 
 /**
