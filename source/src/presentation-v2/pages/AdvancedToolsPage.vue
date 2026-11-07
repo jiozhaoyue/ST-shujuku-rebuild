@@ -104,7 +104,7 @@
                       查询成功，没有返回行
                     </td>
                   </tr>
-                  <tr v-for="(row, rowIndex) in sqlFlow.result.value.values" :key="rowIndex">
+                  <tr v-for="(row, rowIndex) in sqlFlow.displayedValues.value" :key="rowIndex">
                     <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ 'acu-v2-advanced-tools-page__cell-null': cell === null }">
                       {{ formatSqlCell(cell) }}
                     </td>
@@ -112,6 +112,14 @@
                 </tbody>
               </table>
             </div>
+            <p v-if="sqlFlow.hiddenByWindow.value > 0" class="acu-v2-advanced-tools-page__sql-result-note">
+              为渲染性能只显示前 {{ sqlFlow.displayedValues.value.length }} 行（共 {{ sqlFlow.result.value.rowCount }} 行），
+              复制/导出仍取全部行。
+              <AcuButton size="sm" @click="sqlFlow.showMoreRows">
+                <i class="fa-solid fa-chevron-down"></i>
+                显示更多
+              </AcuButton>
+            </p>
             <p class="acu-v2-advanced-tools-page__sql-result-meta">
               {{ sqlFlow.result.value.rowCount }} 行 · {{ sqlFlow.result.value.elapsedMs }}ms
             </p>
@@ -558,6 +566,17 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   color: var(--acu-text-3);
   font-size: var(--acu-font-size-body, 12px);
   text-align: right;
+}
+
+.acu-v2-advanced-tools-page__sql-result-note {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  color: var(--acu-text-3);
+  font-size: var(--acu-font-size-body, 12px);
+  line-height: 1.55;
 }
 
 .acu-v2-advanced-tools-page__sql-error {

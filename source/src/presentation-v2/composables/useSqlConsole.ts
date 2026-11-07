@@ -51,6 +51,13 @@ export interface SqlResultState {
 
 export const SQL_CONSOLE_MAX_HISTORY = 50;
 
+/**
+ * 结果渲染窗口：大 SELECT 会整表物化进 values（engine.query 不截断），
+ * 全量渲染进 vdom 会卡宿主页面（P-8 同类）。列表只渲染窗口内行，「显示更多」逐窗追加；
+ * 复制/导出仍取全量（与日志查看器「渲染 300 条、导出取全部」同口径）。
+ */
+export const SQL_CONSOLE_VIEW_WINDOW = 200;
+
 const sqlHistory = ref<SqlHistoryItem[]>([]);
 
 type SqlConsoleContext = { chatIdentity: string; isolationKey: string; key: string };
@@ -100,6 +107,21 @@ export function useSqlConsole() {
     return sqlHistory.value.filter(item => item.chatIdentity === context.chatIdentity && item.isolationKey === context.isolationKey);
   });
   const hasSqlText = computed(() => sqlText.value.trim().length > 0);
+  /** 渲染窗口：只把窗口内行交给 vdom。 */
+  const visibleCount = ref(SQL_CONSOLE_VIEW_WINDOW);
+  const displayedValues = computed<SqlResultState['values']>(() =>
+    result.value.kind === 'query' ? result.value.values.slice(0, visibleCount.value) : [],
+  );
+  const hiddenByWindow = computed(() =>
+    result.value.kind === 'query' ? Math.max(0, result.value.values.length - visibleCount.value) : 0,
+  );
+  function showMoreRows(): void {
+    visibleCount.value += SQL_CONSOLE_VIEW_WINDOW;
+  }
+  /** 新查询/清空结果时把窗口收回默认值。 */
+  function resetWindow(): void {
+    visibleCount.value = SQL_CONSOLE_VIEW_WINDOW;
+  }
   const statusLabel = computed(() => {
     if (busyAction.value === 'execute') return '执行中…';
     if (result.value.kind === 'query') return `${result.value.rowCount} 行 · ${result.value.elapsedMs}ms`;
@@ -119,6 +141,7 @@ export function useSqlConsole() {
    */
   function clearResult(): void {
     result.value = emptyResult();
+    resetWindow();
   }
 
   function clearHistory(): void {
@@ -219,6 +242,7 @@ export function useSqlConsole() {
       if (isSqlConsoleQuery(sql)) {
         const queryResult = provider.executeQuery(resolveCurrentRuntimeReadSql_ACU(sql).sql);
         const elapsedMs = (performance.now() - startTime).toFixed(1);
+        resetWindow();
         result.value = {
           ...emptyResult(),
           kind: 'query',
@@ -293,6 +317,9 @@ export function useSqlConsole() {
     hasSqlText,
     statusLabel,
     statusKind,
+    displayedValues,
+    hiddenByWindow,
+    showMoreRows,
     refresh,
     clearResult,
     clearHistory,

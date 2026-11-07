@@ -157,6 +157,55 @@ describe('AdvancedToolsPage SQL panel', () => {
     mount.__resetAcuV2MountForTests();
   });
 
+  it('大结果集只渲染窗口内行，「显示更多」逐窗追加，注记随全量显示消失', async () => {
+    const rows = Array.from({ length: 450 }, (_, i) => [i + 1, `row-${i + 1}`]);
+    const { mount } = await mountAdvancedToolsSqlPanel({
+      queryResult: {
+        columns: ['id', 'name'],
+        values: rows,
+        rowCount: 450,
+      },
+    });
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    expect(textarea).not.toBeNull();
+    textarea!.value = 'SELECT id, name FROM item;';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+
+    const executeButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page button'))
+      .find(button => button.textContent?.includes('执行'));
+    executeButton!.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const tbodyRowCount = () =>
+      document.querySelectorAll('.acu-v2-advanced-tools-page__sql-result-table tbody tr').length;
+    // 窗口默认 200 行：450 行结果只渲染 200 行，注记提示共 450 行
+    expect(tbodyRowCount()).toBe(200);
+    let text = document.querySelector('.acu-v2-advanced-tools-page')?.textContent || '';
+    expect(text).toContain('只显示前 200 行');
+    expect(text).toContain('共 450 行');
+    expect(text).toContain('row-200');
+    expect(text).not.toContain('row-201');
+
+    // 「显示更多」逐窗追加：200 → 400 → 450，追平后注记消失
+    const moreButton = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page__sql-result-note button'))
+        .find(button => button.textContent?.includes('显示更多'));
+    moreButton()!.click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(tbodyRowCount()).toBe(400);
+
+    moreButton()!.click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(tbodyRowCount()).toBe(450);
+    expect(document.querySelector('.acu-v2-advanced-tools-page__sql-result-note')).toBeNull();
+    text = document.querySelector('.acu-v2-advanced-tools-page')?.textContent || '';
+    expect(text).toContain('row-450');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
   it('快捷查看所有表会填入 SQL 并立即执行', async () => {
     const { mount, executeQuery } = await mountAdvancedToolsSqlPanel();
 
