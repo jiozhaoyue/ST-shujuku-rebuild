@@ -88,6 +88,9 @@
               </AcuButton>
             </div>
           </div>
+          <p v-if="sqlFlow.multiStatementCount.value > 0" class="acu-v2-advanced-tools-page__sql-result-note">
+            输入包含 {{ sqlFlow.multiStatementCount.value }} 条语句：多条语句不会逐条展示结果/影响（只读查询请逐条执行），批量变更由提交机制统一处理。
+          </p>
           <div v-if="sqlFlow.result.value.kind === 'idle'" class="acu-v2-advanced-tools-page__empty">
             执行 SQL 后结果会显示在这里
           </div>

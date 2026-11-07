@@ -11,6 +11,38 @@ import {
   sqlValueToExportText,
   sqlValueToSqlLiteral,
 } from '../../../src/presentation-v2/composables/sql-result-export';
+import { countTopLevelSqlStatements } from '../../../src/presentation-v2/composables/sql-statement-count';
+
+describe('countTopLevelSqlStatements', () => {
+  it('空串/纯注释 → 0；单条 → 1', () => {
+    expect(countTopLevelSqlStatements('')).toBe(0);
+    expect(countTopLevelSqlStatements('   \n  ')).toBe(0);
+    expect(countTopLevelSqlStatements('-- 全是注释\n')).toBe(0);
+    expect(countTopLevelSqlStatements('/* 块注释 */')).toBe(0);
+    expect(countTopLevelSqlStatements('SELECT 1;')).toBe(1);
+    expect(countTopLevelSqlStatements('SELECT 1')).toBe(1);
+  });
+
+  it('多条语句按顶层分号计数，尾分号不重复计', () => {
+    expect(countTopLevelSqlStatements('SELECT 1; SELECT 2;')).toBe(2);
+    expect(countTopLevelSqlStatements('SELECT 1; SELECT 2; SELECT 3;')).toBe(3);
+    expect(countTopLevelSqlStatements(';;SELECT 1;;')).toBe(1);
+  });
+
+  it('字符串/注释里的分号不算语句边界', () => {
+    expect(countTopLevelSqlStatements("SELECT 'a;b' FROM t;")).toBe(1);
+    expect(countTopLevelSqlStatements("SELECT 'it''s; ok' FROM t;")).toBe(1);
+    expect(countTopLevelSqlStatements('SELECT "col;name" FROM t;')).toBe(1);
+    expect(countTopLevelSqlStatements('SELECT `tab;le` FROM t;')).toBe(1);
+    expect(countTopLevelSqlStatements('SELECT 1 -- 注释;还有\nFROM t;')).toBe(1);
+    expect(countTopLevelSqlStatements('SELECT 1 /* 块;注释 */ FROM t;')).toBe(1);
+  });
+
+  it('注释先行不吞后续语句', () => {
+    expect(countTopLevelSqlStatements('-- 说明\nSELECT 1; SELECT 2;')).toBe(2);
+    expect(countTopLevelSqlStatements('/* 头部\n说明 */ SELECT 1; SELECT 2;')).toBe(2);
+  });
+});
 
 describe('sqlValueToSqlLiteral', () => {
   it('NULL → NULL；数字原样', () => {

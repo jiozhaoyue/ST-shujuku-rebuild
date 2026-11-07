@@ -15,6 +15,7 @@ import { isReadOnlySqlStatement_ACU } from '../../service/runtime/template-vars/
 import { resolveCurrentRuntimeReadSql_ACU } from '../../service/runtime/read-query-resolver';
 import { useToastStore } from '../stores/toast-store';
 import { copyTextToClipboard_ACU } from './clipboard';
+import { countTopLevelSqlStatements } from './sql-statement-count';
 import { readSection, writeSection } from '../stores/persistence';
 import {
   buildSqlResultFilename,
@@ -148,6 +149,15 @@ export function useSqlConsole() {
     return sqlHistory.value.filter(item => item.chatIdentity === context.chatIdentity && item.isolationKey === context.isolationKey);
   });
   const hasSqlText = computed(() => sqlText.value.trim().length > 0);
+  /**
+   * 最近一次执行的顶层语句数（>1 时结果区给诚实提示）。
+   * 口径：只读校验对多语句 fail-closed（multiple_statements）→ 多语句一律走批量提交机制，
+   * 不会逐条展示结果集。提示覆盖 mutation/error（query 分支按定义到不了多语句，留着无妨）。
+   */
+  const executedStatementCount = ref(0);
+  const multiStatementCount = computed(() =>
+    result.value.kind !== 'idle' && executedStatementCount.value > 1 ? executedStatementCount.value : 0,
+  );
   /** 渲染窗口：只把窗口内行交给 vdom。 */
   const visibleCount = ref(SQL_CONSOLE_VIEW_WINDOW);
   const displayedValues = computed<SqlResultState['values']>(() =>
@@ -327,6 +337,7 @@ export function useSqlConsole() {
     const executionContext = currentSqlConsoleContext();
     busyAction.value = 'execute';
     const startTime = performance.now();
+    executedStatementCount.value = countTopLevelSqlStatements(sql);
 
     try {
       const provider = await ensureStorageProviderReady_ACU();
@@ -417,6 +428,7 @@ export function useSqlConsole() {
     displayedValues,
     hiddenByWindow,
     showMoreRows,
+    multiStatementCount,
     refresh,
     clearResult,
     clearHistory,
