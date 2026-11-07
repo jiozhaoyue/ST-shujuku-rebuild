@@ -4,7 +4,7 @@
  * v2 页面只依赖本 composable；SQLite provider / storage mode 调用集中在这里，
  * 避免页面直接接触 service 单例。
  */
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import type { SqlQueryResult } from '../../shared/table-storage-provider';
 import { logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { ensureStorageProviderReady_ACU } from '../../service/table/table-storage-strategy';
@@ -15,6 +15,7 @@ import { isReadOnlySqlStatement_ACU } from '../../service/runtime/template-vars/
 import { resolveCurrentRuntimeReadSql_ACU } from '../../service/runtime/read-query-resolver';
 import { useToastStore } from '../stores/toast-store';
 import { copyTextToClipboard_ACU } from './clipboard';
+import { readSection, writeSection } from '../stores/persistence';
 import {
   buildSqlResultFilename,
   copySqlResultCsv,
@@ -60,6 +61,15 @@ export const SQL_CONSOLE_MAX_HISTORY = 50;
  */
 export const SQL_CONSOLE_VIEW_WINDOW = 200;
 
+/**
+ * 编辑器草稿持久化：长语句写在一半刷新/重开面板不该丢。
+ * 走新 UI 统一持久化层（acu_v2_ui_state::sqlConsoleDraft）；仅是编辑器缓冲，
+ * 不绑定聊天 —— 执行时本就有聊天上下文校验，恢复草稿不会自动执行任何语句。
+ */
+const SQL_CONSOLE_DRAFT_SECTION = 'sqlConsoleDraft';
+const SQL_CONSOLE_DRAFT_MAX_CHARS = 100_000;
+const SQL_CONSOLE_DRAFT_DEBOUNCE_MS = 300;
+
 const sqlHistory = ref<SqlHistoryItem[]>([]);
 
 type SqlConsoleContext = { chatIdentity: string; isolationKey: string; key: string };
@@ -100,6 +110,19 @@ export function __resetSqlConsoleHistoryForTests(): void {
 export function useSqlConsole() {
   const toast = useToastStore();
   const sqlText = ref('');
+  // 恢复草稿（空串视为无草稿，跳过）
+  const restoredDraft = readSection<string>(SQL_CONSOLE_DRAFT_SECTION);
+  if (typeof restoredDraft === 'string' && restoredDraft) sqlText.value = restoredDraft;
+  let draftTimer: ReturnType<typeof setTimeout> | null = null;
+  watch(sqlText, (value) => {
+    if (draftTimer !== null) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      draftTimer = null;
+      // 超长草稿不入库：console 场景到不了这个量级，兜住 localStorage 配额
+      if (value.length > SQL_CONSOLE_DRAFT_MAX_CHARS) return;
+      writeSection(SQL_CONSOLE_DRAFT_SECTION, value);
+    }, SQL_CONSOLE_DRAFT_DEBOUNCE_MS);
+  });
   const busyAction = ref('');
   const isSqliteAvailable = ref(false);
   const result = shallowRef<SqlResultState>(emptyResult());

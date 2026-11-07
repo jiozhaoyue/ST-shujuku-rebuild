@@ -197881,6 +197881,14 @@ const SQL_CONSOLE_MAX_HISTORY = 50;
  * 复制/导出仍取全量（与日志查看器「渲染 300 条、导出取全部」同口径）。
  */
 const SQL_CONSOLE_VIEW_WINDOW = 200;
+/**
+ * 编辑器草稿持久化：长语句写在一半刷新/重开面板不该丢。
+ * 走新 UI 统一持久化层（acu_v2_ui_state::sqlConsoleDraft）；仅是编辑器缓冲，
+ * 不绑定聊天 —— 执行时本就有聊天上下文校验，恢复草稿不会自动执行任何语句。
+ */
+const SQL_CONSOLE_DRAFT_SECTION = 'sqlConsoleDraft';
+const SQL_CONSOLE_DRAFT_MAX_CHARS = 100000;
+const SQL_CONSOLE_DRAFT_DEBOUNCE_MS = 300;
 const sqlHistory = ref([]);
 function currentSqlConsoleContext() {
     const chatIdentity = String(currentChatFileIdentifier_ACU || '');
@@ -197913,6 +197921,22 @@ function __resetSqlConsoleHistoryForTests() {
 function useSqlConsole() {
     const toast = useToastStore();
     const sqlText = ref('');
+    // 恢复草稿（空串视为无草稿，跳过）
+    const restoredDraft = readSection(SQL_CONSOLE_DRAFT_SECTION);
+    if (typeof restoredDraft === 'string' && restoredDraft)
+        sqlText.value = restoredDraft;
+    let draftTimer = null;
+    watch(sqlText, (value) => {
+        if (draftTimer !== null)
+            clearTimeout(draftTimer);
+        draftTimer = setTimeout(() => {
+            draftTimer = null;
+            // 超长草稿不入库：console 场景到不了这个量级，兜住 localStorage 配额
+            if (value.length > SQL_CONSOLE_DRAFT_MAX_CHARS)
+                return;
+            writeSection(SQL_CONSOLE_DRAFT_SECTION, value);
+        }, SQL_CONSOLE_DRAFT_DEBOUNCE_MS);
+    });
     const busyAction = ref('');
     const isSqliteAvailable = ref(false);
     const result = shallowRef(emptyResult());

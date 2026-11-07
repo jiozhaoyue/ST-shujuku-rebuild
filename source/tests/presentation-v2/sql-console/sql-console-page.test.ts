@@ -14,7 +14,9 @@ async function mountAdvancedToolsSqlPanel(opts: {
   vi.resetModules();
   document.body.innerHTML = '';
   document.head.innerHTML = '';
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ router: { activePageId: 'advanced-tools' } }));
+  // 合并而非整键覆盖：持久化往返用例要在二次挂载时保住首次挂载写入的其它 section（如草稿）
+  const seeded = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...seeded, router: { activePageId: 'advanced-tools' } }));
 
   const executeQuery = vi.fn(() => opts.queryResult ?? {
     columns: ['name'],
@@ -204,6 +206,29 @@ describe('AdvancedToolsPage SQL panel', () => {
     expect(text).toContain('row-450');
 
     mount.__resetAcuV2MountForTests();
+  });
+
+  it('SQL 草稿跨重开持久化——写入落盘后，重挂载自动恢复到编辑器', async () => {
+    // 第一次挂载：输入语句，等防抖落盘（300ms + 余量）
+    const first = await mountAdvancedToolsSqlPanel();
+    const firstTextarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    expect(firstTextarea).not.toBeNull();
+    firstTextarea!.value = 'SELECT id, name FROM item WHERE id = 7;';
+    firstTextarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 700));
+    first.mount.__resetAcuV2MountForTests();
+
+    // 草稿已进统一持久化根键
+    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, unknown>;
+    expect(persisted.sqlConsoleDraft).toBe('SELECT id, name FROM item WHERE id = 7;');
+
+    // 第二次挂载：编辑器应预填草稿
+    const second = await mountAdvancedToolsSqlPanel();
+    const secondTextarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    expect(secondTextarea).not.toBeNull();
+    expect(secondTextarea!.value).toBe('SELECT id, name FROM item WHERE id = 7;');
+
+    second.mount.__resetAcuV2MountForTests();
   });
 
   it('快捷查看所有表会填入 SQL 并立即执行', async () => {
