@@ -142,7 +142,7 @@
                       v-for="(cell, cellIndex) in row"
                       :key="cellIndex"
                       :class="{ 'acu-v2-advanced-tools-page__cell-null': cell === null }"
-                      title="点击复制为 SQL 字面量（可直接粘进 WHERE / SET）"
+                      :title="cellHoverTitle(cell)"
                       @click="sqlFlow.copyCellLiteral(cell)"
                     >
                       {{ formatSqlCell(cell) }}
@@ -427,6 +427,13 @@ function formatSqlCell(value: string | number | Uint8Array | null): string {
   if (value === null) return 'NULL';
   if (value instanceof Uint8Array) return `BLOB(${value.byteLength})`;
   return String(value);
+}
+
+/** hover 提示 = 完整值（表格里被省略的长文本靠它看全）+ 复制指引；超长再截，避免巨 tooltip。 */
+function cellHoverTitle(value: string | number | Uint8Array | null): string {
+  const text = formatSqlCell(value);
+  const shown = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+  return `${shown}\n点击复制为 SQL 字面量（可直接粘进 WHERE / SET）`;
 }
 
 function logLevelVariant(level: LogLevel): AcuBadgeVariant {
