@@ -140,3 +140,24 @@ export function sortSqlRows(
   const factor = dir === 'asc' ? 1 : -1;
   return values.slice().sort((rowA, rowB) => factor * compareSqlCells(rowA[column] ?? null, rowB[column] ?? null));
 }
+
+/**
+ * 结果 → Markdown 表格（贴进酒馆聊天给 AI/人看）。
+ * 展示语义而非导出保真：NULL → `NULL`、BLOB → `BLOB(n)`；`|` 转义、换行折叠成空格；
+ * 单元格文本超 200 字符截断（聊天里贴巨表没意义，全量请用导出）。
+ */
+export function sqlResultToMarkdownTable(columns: readonly string[], values: readonly SqlCellValue[][]): string {
+  const display = (value: SqlCellValue): string => {
+    if (value === null) return 'NULL';
+    if (value instanceof Uint8Array) return `BLOB(${value.byteLength})`;
+    return String(value).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').slice(0, 200);
+  };
+  const header = `| ${columns.map(column => display(column)).join(' | ')} |`;
+  const separator = `| ${columns.map(() => '---').join(' | ')} |`;
+  const body = values.map(row => `| ${columns.map((_, index) => display(row[index] ?? null)).join(' | ')} |`);
+  return [header, separator, ...body].join('\n');
+}
+
+export async function copySqlResultMarkdown(columns: readonly string[], values: readonly SqlCellValue[][]): Promise<boolean> {
+  return copyTextToClipboard_ACU(sqlResultToMarkdownTable(columns, values));
+}

@@ -9,11 +9,39 @@ import {
   compareSqlCells,
   sortSqlRows,
   sqlResultToCsv,
+  sqlResultToMarkdownTable,
   sqlResultToJson,
   sqlValueToExportText,
   sqlValueToSqlLiteral,
 } from '../../../src/presentation-v2/composables/sql-result-export';
 import { countTopLevelSqlStatements } from '../../../src/presentation-v2/composables/sql-statement-count';
+
+describe('sqlResultToMarkdownTable', () => {
+  it('表头 + 分隔行 + 数据行', () => {
+    const md = sqlResultToMarkdownTable(['id', 'name'], [[1, '背包'], [2, '技能表']]);
+    expect(md).toBe('| id | name |\n| --- | --- |\n| 1 | 背包 |\n| 2 | 技能表 |');
+  });
+
+  it('竖线转义、换行折叠、NULL/BLOB 展示语义、超长截断 200', () => {
+    const long = 'x'.repeat(250);
+    const md = sqlResultToMarkdownTable(
+      ['a|b'],
+      [['含|竖线\n两行'], [null], [Uint8Array.from([1, 2, 3])], [long]],
+    );
+    const lines = md.split('\n');
+    expect(lines[0]).toBe('| a\\|b |');
+    expect(lines[2]).toContain('含\\|竖线 两行');
+    expect(lines[3]).toContain('| NULL |');
+    expect(lines[4]).toContain('| BLOB(3) |');
+    expect(lines[5]?.includes('x'.repeat(200))).toBe(true);
+    expect(lines[5]?.includes('x'.repeat(201))).toBe(false);
+  });
+
+  it('零行仍输出表头 + 分隔行；短行按 NULL 补', () => {
+    expect(sqlResultToMarkdownTable(['a'], [])).toBe('| a |\n| --- |');
+    expect(sqlResultToMarkdownTable(['a', 'b'], [['x']])).toBe('| a | b |\n| --- | --- |\n| x | NULL |');
+  });
+});
 
 describe('countTopLevelSqlStatements', () => {
   it('空串/纯注释 → 0；单条 → 1', () => {

@@ -78,6 +78,10 @@
                 <i class="fa-solid fa-clipboard"></i>
                 复制 CSV
               </AcuButton>
+              <AcuButton size="sm" title="复制为 Markdown 表格（可直接贴进聊天给 AI/人看，长文本截断）" @click="sqlFlow.copyResultMarkdown">
+                <i class="fa-solid fa-table"></i>
+                复制 MD
+              </AcuButton>
               <AcuButton size="sm" title="下载 UTF-8 CSV 文件（Excel 可直接打开）" @click="sqlFlow.exportResultCsv">
                 <i class="fa-solid fa-file-csv"></i>
                 导出 CSV

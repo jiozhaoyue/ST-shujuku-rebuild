@@ -20,6 +20,7 @@ import { readSection, writeSection } from '../stores/persistence';
 import {
   buildSqlResultFilename,
   copySqlResultCsv,
+  copySqlResultMarkdown,
   downloadSqlResultFile,
   sortSqlRows,
   sqlResultToCsv,
@@ -313,6 +314,15 @@ export function useSqlConsole() {
     else toast.error('复制失败，请改用「导出 CSV」。');
   }
 
+  /** Markdown 表格按显示语义复制（截断/转义），供直接贴进聊天给 AI/人看。 */
+  async function copyResultMarkdown(): Promise<void> {
+    const queryResult = requireQueryResult();
+    if (!queryResult) return;
+    const ok = await copySqlResultMarkdown(queryResult.columns, queryResult.values);
+    if (ok) toast.success(`已复制 ${queryResult.values.length} 行为 Markdown 表格。`);
+    else toast.error('复制失败，请改用「导出 JSON」。');
+  }
+
   function exportResultCsv(): void {
     const queryResult = requireQueryResult();
     if (!queryResult) return;
@@ -463,6 +473,7 @@ export function useSqlConsole() {
     removeSnippet,
     insertSnippet,
     copyResultCsv,
+    copyResultMarkdown,
     exportResultCsv,
     exportResultJson,
     copyCellLiteral,
