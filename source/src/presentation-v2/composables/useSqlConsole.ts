@@ -297,13 +297,14 @@ export function useSqlConsole() {
   /**
    * 结果导出只针对查询结果：mutation/error 结果没有行列数据可导，
    * 且行数据属于执行时的聊天 —— 换聊天后 clearResult 已兜底清空。
+   * 行序跟随当前列排序（WYSIWYG：所见即所得），行数始终取全量（不受渲染窗口影响）。
    */
   function requireQueryResult(): { columns: string[]; values: SqlResultState['values'] } | null {
     if (result.value.kind !== 'query') {
       toast.warning('当前没有可导出的查询结果。');
       return null;
     }
-    return { columns: result.value.columns, values: result.value.values };
+    return { columns: result.value.columns, values: sortedValues.value };
   }
 
   async function copyResultCsv(): Promise<void> {

@@ -153,7 +153,7 @@
             </div>
             <p v-if="sqlFlow.hiddenByWindow.value > 0" class="acu-v2-advanced-tools-page__sql-result-note">
               为渲染性能只显示前 {{ sqlFlow.displayedValues.value.length }} 行（共 {{ sqlFlow.result.value.rowCount }} 行），
-              复制/导出仍取全部行。
+              复制/导出仍取全部行（顺序跟随当前排序）。
               <AcuButton size="sm" @click="sqlFlow.showMoreRows">
                 <i class="fa-solid fa-chevron-down"></i>
                 显示更多
