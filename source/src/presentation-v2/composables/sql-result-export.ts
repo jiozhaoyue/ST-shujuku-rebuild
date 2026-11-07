@@ -33,6 +33,21 @@ export function sqlValueToExportText(value: SqlCellValue): string {
   return String(value);
 }
 
+/**
+ * 取值 → SQLite 字面量（单元格点击复制用，可直接粘进 WHERE/SET）：
+ * NULL → `NULL`；BLOB → `X'hex'`；字符串 → 单引号包裹并双写转义；数字原样。
+ */
+export function sqlValueToSqlLiteral(value: SqlCellValue): string {
+  if (value === null) return 'NULL';
+  if (value instanceof Uint8Array) {
+    let hex = '';
+    for (let i = 0; i < value.length; i++) hex += value[i].toString(16).padStart(2, '0');
+    return `X'${hex}'`;
+  }
+  if (typeof value === 'number') return String(value);
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
 function csvField(text: string): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

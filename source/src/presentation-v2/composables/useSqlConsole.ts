@@ -14,12 +14,14 @@ import { runSqliteRuntimeMutationCommit_ACU } from '../../service/table/table-up
 import { isReadOnlySqlStatement_ACU } from '../../service/runtime/template-vars/read-only-sql-validation';
 import { resolveCurrentRuntimeReadSql_ACU } from '../../service/runtime/read-query-resolver';
 import { useToastStore } from '../stores/toast-store';
+import { copyTextToClipboard_ACU } from './clipboard';
 import {
   buildSqlResultFilename,
   copySqlResultCsv,
   downloadSqlResultFile,
   sqlResultToCsv,
   sqlResultToJson,
+  sqlValueToSqlLiteral,
 } from './sql-result-export';
 
 export type SqlConsoleMessageKind = 'info' | 'success' | 'warning' | 'error';
@@ -214,6 +216,19 @@ export function useSqlConsole() {
     toast.success('已导出 JSON 文件。');
   }
 
+  /**
+   * 单元格点击复制为 SQLite 字面量（修数据场景：直接粘进 WHERE/SET）。
+   * 有文本选区时不复制（用户在手动划选内容，别抢）。
+   */
+  async function copyCellLiteral(cell: SqlResultState['values'][number][number]): Promise<void> {
+    const literal = sqlValueToSqlLiteral(cell ?? null);
+    const selection = (globalThis as any)?.getSelection?.()?.toString?.() || '';
+    if (selection) return;
+    const ok = await copyTextToClipboard_ACU(literal);
+    if (ok) toast.success(`已复制 SQL 字面量：${literal.length > 60 ? `${literal.slice(0, 60)}…` : literal}`);
+    else toast.error('复制失败，请手动选择单元格文本。');
+  }
+
   async function executeCurrent(): Promise<void> {
     const sql = sqlText.value.trim();
     if (!sql) {
@@ -331,6 +346,7 @@ export function useSqlConsole() {
     copyResultCsv,
     exportResultCsv,
     exportResultJson,
+    copyCellLiteral,
     executeCurrent,
   };
 }

@@ -105,7 +105,13 @@
                     </td>
                   </tr>
                   <tr v-for="(row, rowIndex) in sqlFlow.displayedValues.value" :key="rowIndex">
-                    <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ 'acu-v2-advanced-tools-page__cell-null': cell === null }">
+                    <td
+                      v-for="(cell, cellIndex) in row"
+                      :key="cellIndex"
+                      :class="{ 'acu-v2-advanced-tools-page__cell-null': cell === null }"
+                      title="点击复制为 SQL 字面量（可直接粘进 WHERE / SET）"
+                      @click="sqlFlow.copyCellLiteral(cell)"
+                    >
                       {{ formatSqlCell(cell) }}
                     </td>
                   </tr>
@@ -540,6 +546,10 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.acu-v2-advanced-tools-page__sql-result-table td {
+  cursor: copy;
 }
 
 .acu-v2-advanced-tools-page__sql-result-table th {

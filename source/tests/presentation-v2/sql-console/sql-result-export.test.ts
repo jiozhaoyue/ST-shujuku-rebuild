@@ -9,7 +9,28 @@ import {
   sqlResultToCsv,
   sqlResultToJson,
   sqlValueToExportText,
+  sqlValueToSqlLiteral,
 } from '../../../src/presentation-v2/composables/sql-result-export';
+
+describe('sqlValueToSqlLiteral', () => {
+  it('NULL → NULL；数字原样', () => {
+    expect(sqlValueToSqlLiteral(null)).toBe('NULL');
+    expect(sqlValueToSqlLiteral(42)).toBe('42');
+    expect(sqlValueToSqlLiteral(-1.5)).toBe('-1.5');
+  });
+
+  it('字符串单引号包裹并双写转义', () => {
+    expect(sqlValueToSqlLiteral('abc')).toBe("'abc'");
+    expect(sqlValueToSqlLiteral("it's")).toBe("'it''s'");
+    expect(sqlValueToSqlLiteral('')).toBe("''");
+  });
+
+  it("BLOB → X'hex'（SQLite blob 字面量）", () => {
+    expect(sqlValueToSqlLiteral(Uint8Array.from([0xde, 0xad, 0xbe, 0xef]))).toBe("X'deadbeef'");
+    expect(sqlValueToSqlLiteral(Uint8Array.from([0x0f]))).toBe("X'0f'");
+    expect(sqlValueToSqlLiteral(new Uint8Array(0))).toBe("X''");
+  });
+});
 
 describe('sqlValueToExportText', () => {
   it('NULL → 空串；普通值 → String()', () => {
