@@ -221,6 +221,17 @@ watch(useTemplateRuntimeChangeTick(), () => {
   gap: 18px;
 }
 
+/* 开关卡内容少而概态卡内容多，stretch 会把开关卡拉出一大截死空间；
+   本页改自然高度（卡片到内容即止，空隙留给页面背景），与其它页观感一致。
+   注意 .acu-panel 自带 height:100%（对 grid area 取百分比），单改 align-items 不生效，须一并覆盖。 */
+.acu-v2-dashboard-page__grid.acu-panel-grid {
+  align-items: start;
+}
+
+.acu-v2-dashboard-page__grid.acu-panel-grid > .acu-panel {
+  height: auto;
+}
+
 .acu-v2-dashboard-page__toggle-list {
   display: flex;
   flex-direction: column;

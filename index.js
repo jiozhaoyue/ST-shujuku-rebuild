@@ -180249,8 +180249,8 @@ var _sfc_main$J = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-dashboard-page[data-v-e585c9c7] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-dashboard-page__toggle-list[data-v-e585c9c7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\r\n  margin-top: 14px;\n}\n.acu-v2-dashboard-page__health-list[data-v-e585c9c7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-item[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: 30px minmax(0, 1fr) max-content;\r\n  column-gap: 10px;\r\n  row-gap: 8px;\r\n  align-items: center;\r\n  padding: 10px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md);\r\n  background: var(--acu-bg-1);\r\n  transition:\r\n    border-color 0.15s ease,\r\n    background 0.15s ease;\n}\n.acu-v2-dashboard-page__health-item--error[data-v-e585c9c7] {\r\n  border-color: color-mix(in srgb, var(--acu-danger) 38%, var(--acu-border));\n}\n.acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  width: 30px;\r\n  height: 30px;\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\n}\n.acu-v2-dashboard-page__health-item--ok .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-success);\r\n  background: color-mix(in srgb, var(--acu-success) 10%, transparent);\n}\n.acu-v2-dashboard-page__health-item--warning\r\n  .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-warning);\r\n  background: color-mix(in srgb, var(--acu-warning) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-item--error .acu-v2-dashboard-page__health-icon[data-v-e585c9c7] {\r\n  color: var(--acu-danger);\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-body[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 4px;\n}\n.acu-v2-dashboard-page__health-heading[data-v-e585c9c7] {\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-heading strong[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 650;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-dashboard-page__health-body p[data-v-e585c9c7] {\r\n  margin: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-dashboard-page__health-side[data-v-e585c9c7] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-end;\r\n  gap: 8px;\r\n  justify-self: end;\n}\n.acu-v2-dashboard-page__health-action[data-v-e585c9c7] {\r\n  white-space: nowrap;\n}\n@media (max-width: 860px) {\n.acu-v2-dashboard-page[data-v-e585c9c7] {\r\n    padding: 14px;\n}\n.acu-v2-dashboard-page__health-item[data-v-e585c9c7] {\r\n    grid-template-columns: 30px minmax(0, 1fr);\r\n    align-items: center;\n}\n.acu-v2-dashboard-page__health-side[data-v-e585c9c7] {\r\n    grid-column: 2;\r\n    align-items: flex-start;\r\n    justify-self: start;\r\n    flex-direction: row;\r\n    flex-wrap: wrap;\n}\n.acu-v2-dashboard-page__health-action[data-v-e585c9c7] {\r\n    justify-self: start;\n}\n}\r\n", "src/presentation-v2/pages/DashboardPage.vue#style-0-e585c9c7");
-var DashboardPage_vue_vue_type_style_index_0_scoped_e585c9c7_lang = null;
+injectSfcStyle("\n.acu-v2-dashboard-page[data-v-01d271e8] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\r\n\r\n/* 开关卡内容少而概态卡内容多，stretch 会把开关卡拉出一大截死空间；\r\n   本页改自然高度（卡片到内容即止，空隙留给页面背景），与其它页观感一致。\r\n   注意 .acu-panel 自带 height:100%（对 grid area 取百分比），单改 align-items 不生效，须一并覆盖。 */\n.acu-v2-dashboard-page__grid.acu-panel-grid[data-v-01d271e8] {\r\n  align-items: start;\n}\n.acu-v2-dashboard-page__grid.acu-panel-grid > .acu-panel[data-v-01d271e8] {\r\n  height: auto;\n}\n.acu-v2-dashboard-page__toggle-list[data-v-01d271e8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 14px;\r\n  margin-top: 14px;\n}\n.acu-v2-dashboard-page__health-list[data-v-01d271e8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-item[data-v-01d271e8] {\r\n  min-width: 0;\r\n  display: grid;\r\n  grid-template-columns: 30px minmax(0, 1fr) max-content;\r\n  column-gap: 10px;\r\n  row-gap: 8px;\r\n  align-items: center;\r\n  padding: 10px;\r\n  border: 1px solid var(--acu-border);\r\n  border-radius: var(--acu-radius-md);\r\n  background: var(--acu-bg-1);\r\n  transition:\r\n    border-color 0.15s ease,\r\n    background 0.15s ease;\n}\n.acu-v2-dashboard-page__health-item--error[data-v-01d271e8] {\r\n  border-color: color-mix(in srgb, var(--acu-danger) 38%, var(--acu-border));\n}\n.acu-v2-dashboard-page__health-icon[data-v-01d271e8] {\r\n  width: 30px;\r\n  height: 30px;\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-2);\n}\n.acu-v2-dashboard-page__health-item--ok .acu-v2-dashboard-page__health-icon[data-v-01d271e8] {\r\n  color: var(--acu-success);\r\n  background: color-mix(in srgb, var(--acu-success) 10%, transparent);\n}\n.acu-v2-dashboard-page__health-item--warning\r\n  .acu-v2-dashboard-page__health-icon[data-v-01d271e8] {\r\n  color: var(--acu-warning);\r\n  background: color-mix(in srgb, var(--acu-warning) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-item--error .acu-v2-dashboard-page__health-icon[data-v-01d271e8] {\r\n  color: var(--acu-danger);\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent);\n}\n.acu-v2-dashboard-page__health-body[data-v-01d271e8] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 4px;\n}\n.acu-v2-dashboard-page__health-heading[data-v-01d271e8] {\r\n  min-width: 0;\n}\n.acu-v2-dashboard-page__health-heading strong[data-v-01d271e8] {\r\n  min-width: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 650;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.acu-v2-dashboard-page__health-body p[data-v-01d271e8] {\r\n  margin: 0;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-dashboard-page__health-side[data-v-01d271e8] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-end;\r\n  gap: 8px;\r\n  justify-self: end;\n}\n.acu-v2-dashboard-page__health-action[data-v-01d271e8] {\r\n  white-space: nowrap;\n}\n@media (max-width: 860px) {\n.acu-v2-dashboard-page[data-v-01d271e8] {\r\n    padding: 14px;\n}\n.acu-v2-dashboard-page__health-item[data-v-01d271e8] {\r\n    grid-template-columns: 30px minmax(0, 1fr);\r\n    align-items: center;\n}\n.acu-v2-dashboard-page__health-side[data-v-01d271e8] {\r\n    grid-column: 2;\r\n    align-items: flex-start;\r\n    justify-self: start;\r\n    flex-direction: row;\r\n    flex-wrap: wrap;\n}\n.acu-v2-dashboard-page__health-action[data-v-01d271e8] {\r\n    justify-self: start;\n}\n}\r\n", "src/presentation-v2/pages/DashboardPage.vue#style-0-01d271e8");
+var DashboardPage_vue_vue_type_style_index_0_scoped_01d271e8_lang = null;
 
 const _hoisted_1$J = { class: "acu-v2-dashboard-page" };
 const _hoisted_2$D = { class: "acu-v2-dashboard-page__health-list" };
@@ -180377,7 +180377,7 @@ function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$J], ["__scopeId", "data-v-e585c9c7"]]);
+var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$J], ["__scopeId", "data-v-01d271e8"]]);
 
 var _sfc_main$I = /*@__PURE__*/ defineComponent({
     __name: 'TableSelector',
@@ -201299,6 +201299,11 @@ var _sfc_main$e = /*@__PURE__*/ defineComponent({
     setup(__props, { expose: __expose }) {
         __expose();
         const flow = useFrameReplay();
+        const routerStore = useRouterStore();
+        /** 空态引导：没有含帧楼层时跳到填表工作台制造第一帧。 */
+        function goFormFill() {
+            routerStore.setActivePage('form-fill');
+        }
         const SHAPE_LABEL_ACU = {
             full_checkpoint: '整帧检查点',
             delta: '增量',
@@ -201339,14 +201344,14 @@ var _sfc_main$e = /*@__PURE__*/ defineComponent({
                 ...(entry.commitRevision ? [{ label: '提交版本', value: entry.commitRevision }] : []),
             ];
         }
-        const __returned__ = { flow, SHAPE_LABEL_ACU, shapeLabel, shapeVariant, checkpointItems, entryItems, AcuBadge, AcuButton, AcuInfoBanner, AcuPanel, AcuStatsList, get formatCount() { return formatCount; }, get dialectLabel_ACU() { return dialectLabel_ACU; }, get dialectVariant_ACU() { return dialectVariant_ACU; }, get operationLabel_ACU() { return operationLabel_ACU; }, get operationVariant_ACU() { return operationVariant_ACU; } };
+        const __returned__ = { flow, routerStore, goFormFill, SHAPE_LABEL_ACU, shapeLabel, shapeVariant, checkpointItems, entryItems, AcuBadge, AcuButton, AcuInfoBanner, AcuPanel, AcuStatsList, get formatCount() { return formatCount; }, get dialectLabel_ACU() { return dialectLabel_ACU; }, get dialectVariant_ACU() { return dialectVariant_ACU; }, get operationLabel_ACU() { return operationLabel_ACU; }, get operationVariant_ACU() { return operationVariant_ACU; } };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.acu-v2-frame-replay__actions[data-v-018c4830] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__howto[data-v-018c4830] {\n  margin-top: var(--acu-space-3, 12px);\n}\n.acu-v2-frame-replay__empty[data-v-018c4830] {\n  margin: var(--acu-space-3, 12px) 0 0;\n  padding: var(--acu-space-4, 16px);\n  border: 1px dashed var(--acu-border);\n  border-radius: var(--acu-radius-md);\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n  line-height: var(--acu-line-height-body, 1.6);\n  text-align: center;\n}\n.acu-v2-frame-replay__floors[data-v-018c4830] {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  max-height: 260px;\n  overflow: auto;\n  margin-top: var(--acu-space-3, 12px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-018c4830] {\n  display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 4px;\n  padding: 8px 10px;\n  border: 0;\n  border-bottom: 1px solid var(--acu-border-2);\n  background: transparent;\n  color: inherit;\n  cursor: pointer;\n  font: inherit;\n  text-align: left;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-018c4830]:last-child {\n  border-bottom: 0;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-018c4830]:hover {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-frame-replay__floor--active.acu-btn[data-v-018c4830] {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n  box-shadow: inset 2px 0 0 var(--acu-accent);\n}\n.acu-v2-frame-replay__floor-head[data-v-018c4830] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__floor-index[data-v-018c4830] {\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  color: var(--acu-text-1);\n}\n.acu-v2-frame-replay__floor-meta[data-v-018c4830] {\n  margin-left: auto;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  white-space: nowrap;\n}\n.acu-v2-frame-replay__detail[data-v-018c4830] {\n  margin-top: var(--acu-space-3, 12px);\n  padding-top: var(--acu-space-3, 12px);\n  border-top: 1px solid var(--acu-border-2);\n  min-width: 0;\n}\n.acu-v2-frame-replay__section-title[data-v-018c4830] {\n  margin: 0 0 var(--acu-space-150, 6px);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-weight: 600;\n}\n.acu-v2-frame-replay__badges[data-v-018c4830] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__stats[data-v-018c4830] {\n  margin-top: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__entries[data-v-018c4830] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-2, 8px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__entry[data-v-018c4830] {\n  min-width: 0;\n  padding: var(--acu-space-2, 8px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__statements[data-v-018c4830] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-150, 6px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__statement[data-v-018c4830] {\n  min-width: 0;\n}\n.acu-v2-frame-replay__tables[data-v-018c4830] {\n  color: var(--acu-text-2);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  word-break: break-all;\n}\n.acu-v2-frame-replay__note[data-v-018c4830] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-frame-replay__content[data-v-018c4830] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  padding: var(--acu-space-2, 8px);\n  background: var(--acu-bg-2);\n  border-radius: var(--acu-radius-sm);\n  color: var(--acu-text-1);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  white-space: pre-wrap;\n  word-break: break-word;\n  overflow-x: auto;\n}\n", "src/presentation-v2/components/FrameReplayPanel.vue#style-0-018c4830");
-var FrameReplayPanel_vue_vue_type_style_index_0_scoped_018c4830_lang = null;
+injectSfcStyle("\n.acu-v2-frame-replay__actions[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__howto[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-3, 12px);\n}\n.acu-v2-frame-replay__empty[data-v-dfe9f8eb] {\n  /* 网格会把面板拉到与同行最高面板等高；空态吃掉剩余高度并居中，\n     把\"面板内大片死空间\"变成有意图的空态画面。 */\n  flex: 1 1 auto;\n  min-height: 200px;\n  margin: var(--acu-space-3, 12px) 0 0;\n  padding: var(--acu-space-4, 16px);\n  border: 1px dashed var(--acu-border);\n  border-radius: var(--acu-radius-md);\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: 8px;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n  line-height: var(--acu-line-height-body, 1.6);\n  text-align: center;\n}\n.acu-v2-frame-replay__empty-icon[data-v-dfe9f8eb] {\n  font-size: 24px;\n  opacity: 0.85;\n}\n.acu-v2-frame-replay__empty-text[data-v-dfe9f8eb] {\n  margin: 0;\n  color: var(--acu-text-2);\n}\n.acu-v2-frame-replay__empty-hint[data-v-dfe9f8eb] {\n  margin: 0;\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-frame-replay__floors[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  max-height: 260px;\n  overflow: auto;\n  margin-top: var(--acu-space-3, 12px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 4px;\n  padding: 8px 10px;\n  border: 0;\n  border-bottom: 1px solid var(--acu-border-2);\n  background: transparent;\n  color: inherit;\n  cursor: pointer;\n  font: inherit;\n  text-align: left;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb]:last-child {\n  border-bottom: 0;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb]:hover {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-frame-replay__floor--active.acu-btn[data-v-dfe9f8eb] {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n  box-shadow: inset 2px 0 0 var(--acu-accent);\n}\n.acu-v2-frame-replay__floor-head[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__floor-index[data-v-dfe9f8eb] {\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  color: var(--acu-text-1);\n}\n.acu-v2-frame-replay__floor-meta[data-v-dfe9f8eb] {\n  margin-left: auto;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  white-space: nowrap;\n}\n.acu-v2-frame-replay__detail[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-3, 12px);\n  padding-top: var(--acu-space-3, 12px);\n  border-top: 1px solid var(--acu-border-2);\n  min-width: 0;\n}\n.acu-v2-frame-replay__section-title[data-v-dfe9f8eb] {\n  margin: 0 0 var(--acu-space-150, 6px);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-weight: 600;\n}\n.acu-v2-frame-replay__badges[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__stats[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__entries[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-2, 8px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__entry[data-v-dfe9f8eb] {\n  min-width: 0;\n  padding: var(--acu-space-2, 8px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__statements[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-150, 6px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__statement[data-v-dfe9f8eb] {\n  min-width: 0;\n}\n.acu-v2-frame-replay__tables[data-v-dfe9f8eb] {\n  color: var(--acu-text-2);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  word-break: break-all;\n}\n.acu-v2-frame-replay__note[data-v-dfe9f8eb] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-frame-replay__content[data-v-dfe9f8eb] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  padding: var(--acu-space-2, 8px);\n  background: var(--acu-bg-2);\n  border-radius: var(--acu-radius-sm);\n  color: var(--acu-text-1);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  white-space: pre-wrap;\n  word-break: break-word;\n  overflow-x: auto;\n}\n", "src/presentation-v2/components/FrameReplayPanel.vue#style-0-dfe9f8eb");
+var FrameReplayPanel_vue_vue_type_style_index_0_scoped_dfe9f8eb_lang = null;
 
 const _hoisted_1$e = { class: "acu-v2-frame-replay__actions" };
 const _hoisted_2$d = {
@@ -201472,7 +201477,52 @@ function _sfc_render$e(_ctx, _cache, $props, $setup, $data, $options) {
 				)])]),
 				_: 1
 			}),
-			!$setup.flow.floors.value.length ? (openBlock(), createElementBlock("p", _hoisted_2$d, " 当前聊天没有含存储帧的楼层。" + toDisplayString("先触发一次填表或导入，再回来重新扫描。"))) : (openBlock(), createElementBlock("div", _hoisted_3$b, [(openBlock(true), createElementBlock(
+			!$setup.flow.floors.value.length ? (openBlock(), createElementBlock("div", _hoisted_2$d, [
+				_cache[6] || (_cache[6] = createBaseVNode(
+					"i",
+					{
+						class: "fa-solid fa-clock-rotate-left acu-v2-frame-replay__empty-icon",
+						"aria-hidden": "true"
+					},
+					null,
+					-1
+					/* CACHED */
+				)),
+				_cache[7] || (_cache[7] = createBaseVNode(
+					"p",
+					{ class: "acu-v2-frame-replay__empty-text" },
+					"当前聊天没有含存储帧的楼层。",
+					-1
+					/* CACHED */
+				)),
+				_cache[8] || (_cache[8] = createBaseVNode(
+					"p",
+					{ class: "acu-v2-frame-replay__empty-hint" },
+					"先在填表工作台触发一次填表（或导入数据），再回来重新扫描。",
+					-1
+					/* CACHED */
+				)),
+				createVNode($setup["AcuButton"], {
+					size: "sm",
+					onClick: $setup.goFormFill
+				}, {
+					default: withCtx(() => [..._cache[5] || (_cache[5] = [createBaseVNode(
+						"i",
+						{
+							class: "fa-solid fa-wand-magic-sparkles",
+							"aria-hidden": "true"
+						},
+						null,
+						-1
+						/* CACHED */
+					), createTextVNode(
+						" 打开填表工作台 ",
+						-1
+						/* CACHED */
+					)])]),
+					_: 1
+				})
+			])) : (openBlock(), createElementBlock("div", _hoisted_3$b, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($setup.flow.floors.value, (floor) => {
@@ -201557,7 +201607,7 @@ function _sfc_render$e(_ctx, _cache, $props, $setup, $data, $options) {
 						key: 0,
 						variant: "warning"
 					}, {
-						default: withCtx(() => [..._cache[5] || (_cache[5] = [createTextVNode(
+						default: withCtx(() => [..._cache[9] || (_cache[9] = [createTextVNode(
 							"仅旧版 patches（本视图不解析）",
 							-1
 							/* CACHED */
@@ -201568,7 +201618,7 @@ function _sfc_render$e(_ctx, _cache, $props, $setup, $data, $options) {
 						key: 1,
 						variant: "warning"
 					}, {
-						default: withCtx(() => [..._cache[6] || (_cache[6] = [createTextVNode(
+						default: withCtx(() => [..._cache[10] || (_cache[10] = [createTextVNode(
 							"语句集已截断",
 							-1
 							/* CACHED */
@@ -201661,7 +201711,7 @@ function _sfc_render$e(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var FrameReplayPanel = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc_render$e], ["__scopeId", "data-v-018c4830"]]);
+var FrameReplayPanel = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc_render$e], ["__scopeId", "data-v-dfe9f8eb"]]);
 
 /**
  * usePromptInspection — 提示词检查器业务流编排（Developer 页「提示词检查器」面板）

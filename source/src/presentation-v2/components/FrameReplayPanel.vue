@@ -31,9 +31,15 @@
       「空帧」与「不可解析」会显式标出，不会被静默跳过。
     </AcuInfoBanner>
 
-    <p v-if="!flow.floors.value.length" class="acu-v2-frame-replay__empty">
-      当前聊天没有含存储帧的楼层。{{ '先触发一次填表或导入，再回来重新扫描。' }}
-    </p>
+    <div v-if="!flow.floors.value.length" class="acu-v2-frame-replay__empty">
+      <i class="fa-solid fa-clock-rotate-left acu-v2-frame-replay__empty-icon" aria-hidden="true"></i>
+      <p class="acu-v2-frame-replay__empty-text">当前聊天没有含存储帧的楼层。</p>
+      <p class="acu-v2-frame-replay__empty-hint">先在填表工作台触发一次填表（或导入数据），再回来重新扫描。</p>
+      <AcuButton size="sm" @click="goFormFill">
+        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+        打开填表工作台
+      </AcuButton>
+    </div>
 
     <div v-else class="acu-v2-frame-replay__floors" role="list">
       <AcuButton
@@ -116,6 +122,7 @@ import AcuInfoBanner from './_lib/AcuInfoBanner.vue';
 import AcuPanel from './_lib/AcuPanel.vue';
 import AcuStatsList, { type AcuStatsItem } from './_lib/AcuStatsList.vue';
 import { formatCount } from '../composables/prompt-inspection-report';
+import { useRouterStore } from '../stores/router-store';
 import {
   dialectLabel_ACU,
   dialectVariant_ACU,
@@ -130,6 +137,12 @@ import {
 } from '../composables/useFrameReplay';
 
 const flow = useFrameReplay();
+const routerStore = useRouterStore();
+
+/** 空态引导：没有含帧楼层时跳到填表工作台制造第一帧。 */
+function goFormFill(): void {
+  routerStore.setActivePage('form-fill');
+}
 
 const SHAPE_LABEL_ACU: Readonly<Record<FrameShape_ACU, string>> = {
   full_checkpoint: '整帧检查点',
@@ -186,14 +199,38 @@ function entryItems(entry: FrameReplayEntry_ACU): AcuStatsItem[] {
 }
 
 .acu-v2-frame-replay__empty {
+  /* 网格会把面板拉到与同行最高面板等高；空态吃掉剩余高度并居中，
+     把"面板内大片死空间"变成有意图的空态画面。 */
+  flex: 1 1 auto;
+  min-height: 200px;
   margin: var(--acu-space-3, 12px) 0 0;
   padding: var(--acu-space-4, 16px);
   border: 1px dashed var(--acu-border);
   border-radius: var(--acu-radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   color: var(--acu-text-3);
   font-size: var(--acu-font-size-body, 12px);
   line-height: var(--acu-line-height-body, 1.6);
   text-align: center;
+}
+
+.acu-v2-frame-replay__empty-icon {
+  font-size: 24px;
+  opacity: 0.85;
+}
+
+.acu-v2-frame-replay__empty-text {
+  margin: 0;
+  color: var(--acu-text-2);
+}
+
+.acu-v2-frame-replay__empty-hint {
+  margin: 0;
+  font-size: var(--acu-font-size-caption, 11px);
 }
 
 .acu-v2-frame-replay__floors {
