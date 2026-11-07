@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSqlResultFilename,
+  compareSqlCells,
+  sortSqlRows,
   sqlResultToCsv,
   sqlResultToJson,
   sqlValueToExportText,
@@ -117,6 +119,38 @@ describe('sqlResultToJson', () => {
 
   it('零行查询输出空数组', () => {
     expect(sqlResultToJson(['a'], [])).toBe('[]');
+  });
+});
+
+describe('compareSqlCells / sortSqlRows', () => {
+  it('全序：数字 < 字符串 < BLOB < NULL', () => {
+    expect(compareSqlCells(1, 2)).toBeLessThan(0);
+    expect(compareSqlCells('a', 'b')).toBeLessThan(0);
+    expect(compareSqlCells(1, 'a')).toBeLessThan(0);
+    expect(compareSqlCells('a', Uint8Array.from([1]))).toBeLessThan(0);
+    expect(compareSqlCells(Uint8Array.from([1]), null)).toBeLessThan(0);
+    expect(compareSqlCells(null, null)).toBe(0);
+  });
+
+  it('sortSqlRows：升/降序翻转且不改原数组；缺列按 NULL', () => {
+    const rows = [[3, 'c'], [1, 'a'], [2, null]];
+    const asc = sortSqlRows(rows, 0, 'asc');
+    expect(asc.map(r => r[0])).toEqual([1, 2, 3]);
+    const desc = sortSqlRows(rows, 0, 'desc');
+    expect(desc.map(r => r[0])).toEqual([3, 2, 1]);
+    // 原数组不动
+    expect(rows.map(r => r[0])).toEqual([3, 1, 2]);
+    // 按第 2 列排：null 视为最大 → 升序在尾
+    const byName = sortSqlRows(rows, 1, 'asc');
+    expect(byName.map(r => r[1])).toEqual(['a', 'c', null]);
+    // 行短于列数（短行补 NULL 口径一致）
+    const short = sortSqlRows([[2], [1, 'x']], 1, 'asc');
+    expect(short[short.length - 1][0]).toBe(2);
+  });
+
+  it('字符串数字感知排序（numeric: true）', () => {
+    const rows = [['row10'], ['row2'], ['row1']];
+    expect(sortSqlRows(rows, 0, 'asc').map(r => r[0])).toEqual(['row1', 'row2', 'row10']);
   });
 });
 

@@ -187248,12 +187248,12 @@ const _hoisted_43$1 = {
 	key: 1,
 	class: "acu-v2-continuation-materials__empty"
 };
-const _hoisted_44 = {
+const _hoisted_44$1 = {
 	key: 0,
 	class: "acu-v2-continuation-materials__history"
 };
-const _hoisted_45 = { class: "acu-v2-continuation-materials__list" };
-const _hoisted_46 = { class: "acu-v2-continuation-materials__outline-summary" };
+const _hoisted_45$1 = { class: "acu-v2-continuation-materials__list" };
+const _hoisted_46$1 = { class: "acu-v2-continuation-materials__outline-summary" };
 const _hoisted_47 = { class: "acu-v2-continuation-materials__card-head" };
 const _hoisted_48 = { class: "acu-v2-continuation-materials__badge" };
 const _hoisted_49 = { class: "acu-v2-continuation-materials__card-body" };
@@ -187923,7 +187923,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 								}),
 								128
 								/* KEYED_FRAGMENT */
-							)), $setup.olderRevisions(stage).length ? (openBlock(), createElementBlock("details", _hoisted_44, [createBaseVNode(
+							)), $setup.olderRevisions(stage).length ? (openBlock(), createElementBlock("details", _hoisted_44$1, [createBaseVNode(
 								"summary",
 								null,
 								"旧 revision（" + toDisplayString($setup.olderRevisions(stage).length) + "）",
@@ -187942,7 +187942,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 										"revision " + toDisplayString(revision.revision) + " · " + toDisplayString(revision.reason) + " · " + toDisplayString(revision.outline.title),
 										1
 										/* TEXT */
-									), createBaseVNode("ol", _hoisted_45, [(openBlock(true), createElementBlock(
+									), createBaseVNode("ol", _hoisted_45$1, [(openBlock(true), createElementBlock(
 										Fragment,
 										null,
 										renderList(revision.outline.nodes, (node) => {
@@ -187989,7 +187989,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 					-1
 					/* CACHED */
 				)),
-				createBaseVNode("section", _hoisted_46, [_cache[30] || (_cache[30] = createBaseVNode(
+				createBaseVNode("section", _hoisted_46$1, [_cache[30] || (_cache[30] = createBaseVNode(
 					"p",
 					{ class: "acu-v2-continuation-materials__outline-heading" },
 					[createBaseVNode("strong", null, "资料完成状态")],
@@ -197969,6 +197969,41 @@ function downloadSqlResultFile(filename, content, mime) {
 async function copySqlResultCsv(columns, values) {
     return copyTextToClipboard_ACU(sqlResultToCsv(columns, values));
 }
+/**
+ * 结果行排序（列头点击）：定义一个全序 —— NULL 视为最大（升序在尾、降序在首）；
+ * 数值按值、字符串按 localeCompare、BLOB 按字节长度；类型间按 数字 < 字符串 < BLOB 排。
+ * 只对内存中的行数组排序，不动 SQLite。
+ */
+function compareSqlCells(a, b) {
+    const aNull = a === null || a === undefined;
+    const bNull = b === null || b === undefined;
+    if (aNull && bNull)
+        return 0;
+    if (aNull)
+        return 1;
+    if (bNull)
+        return -1;
+    const aBlob = a instanceof Uint8Array;
+    const bBlob = b instanceof Uint8Array;
+    if (aBlob || bBlob) {
+        const aLen = aBlob ? a.length : -1;
+        const bLen = bBlob ? b.length : -1;
+        if (aBlob && bBlob)
+            return aLen - bLen;
+        return aBlob ? 1 : -1;
+    }
+    if (typeof a === 'number' && typeof b === 'number')
+        return a - b;
+    if (typeof a === 'number')
+        return -1;
+    if (typeof b === 'number')
+        return 1;
+    return String(a).localeCompare(String(b), 'zh-Hans-CN', { numeric: true });
+}
+function sortSqlRows(values, column, dir) {
+    const factor = dir === 'asc' ? 1 : -1;
+    return values.slice().sort((rowA, rowB) => factor * compareSqlCells(rowA[column] ?? null, rowB[column] ?? null));
+}
 
 /**
  * useSqlConsole — SQL 控制台业务流编排
@@ -198069,14 +198104,33 @@ function useSqlConsole() {
     const multiStatementCount = computed(() => result.value.kind !== 'idle' && executedStatementCount.value > 1 ? executedStatementCount.value : 0);
     /** 渲染窗口：只把窗口内行交给 vdom。 */
     const visibleCount = ref(SQL_CONSOLE_VIEW_WINDOW);
-    const displayedValues = computed(() => result.value.kind === 'query' ? result.value.values.slice(0, visibleCount.value) : []);
+    /** 列排序状态（三态循环：null → asc → desc → null）；排序作用于全量行、窗口在其上截取。 */
+    const sortState = ref(null);
+    const sortedValues = computed(() => {
+        if (result.value.kind !== 'query' || !sortState.value)
+            return result.value.values;
+        return sortSqlRows(result.value.values, sortState.value.column, sortState.value.dir);
+    });
+    function toggleSort(column) {
+        if (sortState.value?.column !== column) {
+            sortState.value = { column, dir: 'asc' };
+            return;
+        }
+        if (sortState.value.dir === 'asc') {
+            sortState.value = { column, dir: 'desc' };
+            return;
+        }
+        sortState.value = null;
+    }
+    const displayedValues = computed(() => result.value.kind === 'query' ? sortedValues.value.slice(0, visibleCount.value) : []);
     const hiddenByWindow = computed(() => result.value.kind === 'query' ? Math.max(0, result.value.values.length - visibleCount.value) : 0);
     function showMoreRows() {
         visibleCount.value += SQL_CONSOLE_VIEW_WINDOW;
     }
-    /** 新查询/清空结果时把窗口收回默认值。 */
+    /** 新查询/清空结果时把窗口与排序收回默认值。 */
     function resetWindow() {
         visibleCount.value = SQL_CONSOLE_VIEW_WINDOW;
+        sortState.value = null;
     }
     const statusLabel = computed(() => {
         if (busyAction.value === 'execute')
@@ -198325,6 +198379,8 @@ function useSqlConsole() {
         displayedValues,
         hiddenByWindow,
         showMoreRows,
+        sortState,
+        toggleSort,
         multiStatementCount,
         refresh,
         clearResult,
@@ -199674,8 +199730,8 @@ var _sfc_main$h = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-899ae1cb] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-899ae1cb] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-899ae1cb] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-899ae1cb] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-899ae1cb] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-899ae1cb] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-899ae1cb] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__section-head[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px 12px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__sql-export-actions[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-899ae1cb] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-899ae1cb] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-899ae1cb] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-899ae1cb] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-899ae1cb] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-899ae1cb] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-899ae1cb] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-899ae1cb] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-899ae1cb] {\r\n  cursor: copy;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-899ae1cb] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-899ae1cb]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-899ae1cb] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-899ae1cb] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-result-note[data-v-899ae1cb] {\r\n  margin: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 4px 8px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-899ae1cb] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-899ae1cb] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-899ae1cb] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-899ae1cb] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-899ae1cb] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-899ae1cb] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-899ae1cb] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-list[data-v-899ae1cb] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-899ae1cb] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__snippet-list[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__snippet-label[data-v-899ae1cb] {\r\n  flex: 0 0 auto;\r\n  display: inline-flex;\r\n  gap: 5px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-899ae1cb] {\r\n  max-width: 320px;\r\n  display: inline-flex;\r\n  gap: 6px;\r\n  align-items: center;\r\n  padding: 3px 8px;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  border-radius: 999px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  cursor: pointer;\r\n  transition: background 0.15s ease, border-color 0.15s ease;\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-899ae1cb]:hover,\r\n.acu-v2-advanced-tools-page__snippet-chip[data-v-899ae1cb]:focus-visible {\r\n  background: var(--acu-hover-overlay);\r\n  border-color: color-mix(in srgb, var(--acu-accent) 40%, transparent);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__snippet-text[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-899ae1cb] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-text-3);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-899ae1cb]:hover {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__log-list[data-v-899ae1cb] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-row[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-899ae1cb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-899ae1cb] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-899ae1cb]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-899ae1cb]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-899ae1cb] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-899ae1cb] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-899ae1cb]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-899ae1cb]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-899ae1cb],\r\n.acu-v2-advanced-tools-page__log-message[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-899ae1cb] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-899ae1cb] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-899ae1cb] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-899ae1cb] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-899ae1cb] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-899ae1cb] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-899ae1cb]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-899ae1cb]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-899ae1cb]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-899ae1cb] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-899ae1cb] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-899ae1cb] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-899ae1cb]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-899ae1cb]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-899ae1cb] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-899ae1cb] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-899ae1cb] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-899ae1cb] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-899ae1cb] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-899ae1cb] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-899ae1cb] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-899ae1cb] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-899ae1cb],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-899ae1cb] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-899ae1cb");
-var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_899ae1cb_lang = null;
+injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-f9f124c2] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-f9f124c2] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-f9f124c2] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-f9f124c2] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-f9f124c2] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-f9f124c2] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-f9f124c2] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__section-head[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px 12px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__sql-export-actions[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-f9f124c2] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-f9f124c2] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-f9f124c2] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-f9f124c2] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-f9f124c2] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-f9f124c2] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-f9f124c2] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-f9f124c2] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-f9f124c2] {\r\n  cursor: copy;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-f9f124c2] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-sort-th[data-v-f9f124c2] {\r\n  cursor: pointer;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__sql-sort-th[data-v-f9f124c2]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-1);\n}\n.acu-v2-advanced-tools-page__sql-sort-head[data-v-f9f124c2] {\r\n  display: inline-flex;\r\n  gap: 5px;\r\n  align-items: center;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__sql-sort-icon[data-v-f9f124c2] {\r\n  flex: 0 0 auto;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-accent);\n}\n.acu-v2-advanced-tools-page__sql-sort-icon--idle[data-v-f9f124c2] {\r\n  color: var(--acu-text-3);\r\n  opacity: 0.6;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-f9f124c2]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-f9f124c2] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-f9f124c2] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-result-note[data-v-f9f124c2] {\r\n  margin: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 4px 8px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-f9f124c2] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-f9f124c2] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-f9f124c2] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-f9f124c2] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-f9f124c2] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-f9f124c2] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-f9f124c2] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-list[data-v-f9f124c2] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-f9f124c2] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__snippet-list[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__snippet-label[data-v-f9f124c2] {\r\n  flex: 0 0 auto;\r\n  display: inline-flex;\r\n  gap: 5px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-f9f124c2] {\r\n  max-width: 320px;\r\n  display: inline-flex;\r\n  gap: 6px;\r\n  align-items: center;\r\n  padding: 3px 8px;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  border-radius: 999px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  cursor: pointer;\r\n  transition: background 0.15s ease, border-color 0.15s ease;\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-f9f124c2]:hover,\r\n.acu-v2-advanced-tools-page__snippet-chip[data-v-f9f124c2]:focus-visible {\r\n  background: var(--acu-hover-overlay);\r\n  border-color: color-mix(in srgb, var(--acu-accent) 40%, transparent);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__snippet-text[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-f9f124c2] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-text-3);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-f9f124c2]:hover {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__log-list[data-v-f9f124c2] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-row[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-f9f124c2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-f9f124c2] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-f9f124c2]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-f9f124c2]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-f9f124c2] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-f9f124c2] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-f9f124c2]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-f9f124c2]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-f9f124c2],\r\n.acu-v2-advanced-tools-page__log-message[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-f9f124c2] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-f9f124c2] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-f9f124c2] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-f9f124c2] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-f9f124c2] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-f9f124c2] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-f9f124c2]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-f9f124c2]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-f9f124c2]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-f9f124c2] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-f9f124c2] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-f9f124c2] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-f9f124c2]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-f9f124c2]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-f9f124c2] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-f9f124c2] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-f9f124c2] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-f9f124c2] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-f9f124c2] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-f9f124c2] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-f9f124c2] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-f9f124c2] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-f9f124c2],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-f9f124c2] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-f9f124c2");
+var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_f9f124c2_lang = null;
 
 const _hoisted_1$h = { class: "acu-v2-advanced-tools-page" };
 const _hoisted_2$f = {
@@ -199708,66 +199764,77 @@ const _hoisted_9$7 = {
 };
 const _hoisted_10$7 = { class: "acu-v2-advanced-tools-page__sql-table-wrap" };
 const _hoisted_11$7 = { class: "acu-v2-advanced-tools-page__sql-result-table" };
-const _hoisted_12$7 = { key: 0 };
-const _hoisted_13$7 = ["colspan"];
-const _hoisted_14$6 = ["onClick"];
-const _hoisted_15$6 = {
+const _hoisted_12$7 = [
+	"aria-sort",
+	"title",
+	"onClick"
+];
+const _hoisted_13$7 = { class: "acu-v2-advanced-tools-page__sql-sort-head" };
+const _hoisted_14$6 = {
+	key: 1,
+	class: "fa-solid fa-sort acu-v2-advanced-tools-page__sql-sort-icon acu-v2-advanced-tools-page__sql-sort-icon--idle",
+	"aria-hidden": "true"
+};
+const _hoisted_15$6 = { key: 0 };
+const _hoisted_16$6 = ["colspan"];
+const _hoisted_17$5 = ["onClick"];
+const _hoisted_18$5 = {
 	key: 0,
 	class: "acu-v2-advanced-tools-page__sql-result-note"
 };
-const _hoisted_16$6 = { class: "acu-v2-advanced-tools-page__sql-result-meta" };
-const _hoisted_17$5 = {
+const _hoisted_19$5 = { class: "acu-v2-advanced-tools-page__sql-result-meta" };
+const _hoisted_20$4 = {
 	class: "acu-v2-advanced-tools-page__sql-history-section",
 	"aria-label": "SQL 执行历史"
 };
-const _hoisted_18$5 = {
+const _hoisted_21$3 = {
 	key: 0,
 	class: "acu-v2-advanced-tools-page__snippet-list",
 	"aria-label": "常用语句"
 };
-const _hoisted_19$5 = [
+const _hoisted_22$2 = [
 	"title",
 	"onClick",
 	"onKeydown"
 ];
-const _hoisted_20$4 = { class: "acu-v2-advanced-tools-page__snippet-text" };
-const _hoisted_21$3 = ["onClick"];
-const _hoisted_22$2 = {
+const _hoisted_23$2 = { class: "acu-v2-advanced-tools-page__snippet-text" };
+const _hoisted_24$2 = ["onClick"];
+const _hoisted_25$2 = {
 	key: 1,
 	class: "acu-v2-advanced-tools-page__empty acu-v2-advanced-tools-page__empty--compact"
 };
-const _hoisted_23$2 = {
+const _hoisted_26$1 = {
 	key: 2,
 	class: "acu-v2-advanced-tools-page__sql-history-list"
 };
-const _hoisted_24$2 = { class: "acu-v2-advanced-tools-page__log-meta acu-v2-advanced-tools-page__sql-history-meta" };
-const _hoisted_25$2 = { class: "acu-v2-advanced-tools-page__log-time" };
-const _hoisted_26$1 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
-const _hoisted_27$1 = { class: "acu-v2-advanced-tools-page__filter-grid" };
-const _hoisted_28 = { class: "acu-v2-advanced-tools-page__log-control-row" };
-const _hoisted_29 = { class: "acu-v2-advanced-tools-page__log-control-main" };
-const _hoisted_30 = { class: "acu-v2-advanced-tools-page__log-actions" };
-const _hoisted_31 = { class: "acu-v2-advanced-tools-page__toggles" };
-const _hoisted_32 = { class: "acu-v2-advanced-tools-page__hint" };
-const _hoisted_33 = {
+const _hoisted_27$1 = { class: "acu-v2-advanced-tools-page__log-meta acu-v2-advanced-tools-page__sql-history-meta" };
+const _hoisted_28 = { class: "acu-v2-advanced-tools-page__log-time" };
+const _hoisted_29 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
+const _hoisted_30 = { class: "acu-v2-advanced-tools-page__filter-grid" };
+const _hoisted_31 = { class: "acu-v2-advanced-tools-page__log-control-row" };
+const _hoisted_32 = { class: "acu-v2-advanced-tools-page__log-control-main" };
+const _hoisted_33 = { class: "acu-v2-advanced-tools-page__log-actions" };
+const _hoisted_34 = { class: "acu-v2-advanced-tools-page__toggles" };
+const _hoisted_35 = { class: "acu-v2-advanced-tools-page__hint" };
+const _hoisted_36 = {
 	ref: "logListRef",
 	class: "acu-v2-advanced-tools-page__log-list",
 	role: "log",
 	"aria-live": "polite"
 };
-const _hoisted_34 = {
+const _hoisted_37 = {
 	key: 0,
 	class: "acu-v2-advanced-tools-page__empty acu-v2-advanced-tools-page__empty--log"
 };
-const _hoisted_35 = { class: "acu-v2-advanced-tools-page__log-meta" };
-const _hoisted_36 = { class: "acu-v2-advanced-tools-page__log-time" };
-const _hoisted_37 = { class: "acu-v2-advanced-tools-page__log-tag" };
-const _hoisted_38 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
-const _hoisted_39 = ["data-hint-id"];
-const _hoisted_40 = { class: "acu-v2-advanced-tools-page__log-hint-summary" };
-const _hoisted_41 = { class: "acu-v2-advanced-tools-page__log-hint-text" };
-const _hoisted_42 = { class: "acu-v2-advanced-tools-page__log-hint-steps" };
-const _hoisted_43 = { class: "acu-v2-advanced-tools-page__debug-actions" };
+const _hoisted_38 = { class: "acu-v2-advanced-tools-page__log-meta" };
+const _hoisted_39 = { class: "acu-v2-advanced-tools-page__log-time" };
+const _hoisted_40 = { class: "acu-v2-advanced-tools-page__log-tag" };
+const _hoisted_41 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
+const _hoisted_42 = ["data-hint-id"];
+const _hoisted_43 = { class: "acu-v2-advanced-tools-page__log-hint-summary" };
+const _hoisted_44 = { class: "acu-v2-advanced-tools-page__log-hint-text" };
+const _hoisted_45 = { class: "acu-v2-advanced-tools-page__log-hint-steps" };
+const _hoisted_46 = { class: "acu-v2-advanced-tools-page__debug-actions" };
 function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$h, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], {
 		class: "acu-v2-advanced-tools-page__tools-grid",
@@ -199999,21 +200066,35 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 								createBaseVNode("div", _hoisted_10$7, [createBaseVNode("table", _hoisted_11$7, [createBaseVNode("thead", null, [createBaseVNode("tr", null, [(openBlock(true), createElementBlock(
 									Fragment,
 									null,
-									renderList($setup.sqlFlow.result.value.columns, (column) => {
-										return openBlock(), createElementBlock(
-											"th",
-											{ key: column },
-											toDisplayString(column),
+									renderList($setup.sqlFlow.result.value.columns, (column, columnIndex) => {
+										return openBlock(), createElementBlock("th", {
+											key: column,
+											"aria-sort": $setup.sqlFlow.sortState.value?.column === columnIndex ? $setup.sqlFlow.sortState.value.dir === "asc" ? "ascending" : "descending" : "none",
+											class: "acu-v2-advanced-tools-page__sql-sort-th",
+											title: `按「${column}」排序（点击循环 升序 → 降序 → 取消）`,
+											onClick: ($event) => $setup.sqlFlow.toggleSort(columnIndex)
+										}, [createBaseVNode("span", _hoisted_13$7, [createTextVNode(
+											toDisplayString(column) + " ",
 											1
 											/* TEXT */
-										);
+										), $setup.sqlFlow.sortState.value?.column === columnIndex ? (openBlock(), createElementBlock(
+											"i",
+											{
+												key: 0,
+												class: normalizeClass([$setup.sqlFlow.sortState.value.dir === "asc" ? "fa-solid fa-arrow-up-short-wide" : "fa-solid fa-arrow-down-wide-short", "acu-v2-advanced-tools-page__sql-sort-icon"]),
+												"aria-hidden": "true"
+											},
+											null,
+											2
+											/* CLASS */
+										)) : (openBlock(), createElementBlock("i", _hoisted_14$6))])], 8, _hoisted_12$7);
 									}),
 									128
 									/* KEYED_FRAGMENT */
-								))])]), createBaseVNode("tbody", null, [!$setup.sqlFlow.result.value.values.length ? (openBlock(), createElementBlock("tr", _hoisted_12$7, [createBaseVNode("td", {
+								))])]), createBaseVNode("tbody", null, [!$setup.sqlFlow.result.value.values.length ? (openBlock(), createElementBlock("tr", _hoisted_15$6, [createBaseVNode("td", {
 									colspan: Math.max($setup.sqlFlow.result.value.columns.length, 1),
 									class: "acu-v2-advanced-tools-page__empty-cell"
-								}, " 查询成功，没有返回行 ", 8, _hoisted_13$7)])) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
+								}, " 查询成功，没有返回行 ", 8, _hoisted_16$6)])) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
 									Fragment,
 									null,
 									renderList($setup.sqlFlow.displayedValues.value, (row, rowIndex) => {
@@ -200026,7 +200107,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 													class: normalizeClass({ "acu-v2-advanced-tools-page__cell-null": cell === null }),
 													title: "点击复制为 SQL 字面量（可直接粘进 WHERE / SET）",
 													onClick: ($event) => $setup.sqlFlow.copyCellLiteral(cell)
-												}, toDisplayString($setup.formatSqlCell(cell)), 11, _hoisted_14$6);
+												}, toDisplayString($setup.formatSqlCell(cell)), 11, _hoisted_17$5);
 											}),
 											128
 											/* KEYED_FRAGMENT */
@@ -200035,7 +200116,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 									128
 									/* KEYED_FRAGMENT */
 								))])])]),
-								$setup.sqlFlow.hiddenByWindow.value > 0 ? (openBlock(), createElementBlock("p", _hoisted_15$6, [createTextVNode(
+								$setup.sqlFlow.hiddenByWindow.value > 0 ? (openBlock(), createElementBlock("p", _hoisted_18$5, [createTextVNode(
 									" 为渲染性能只显示前 " + toDisplayString($setup.sqlFlow.displayedValues.value.length) + " 行（共 " + toDisplayString($setup.sqlFlow.result.value.rowCount) + " 行）， 复制/导出仍取全部行。 ",
 									1
 									/* TEXT */
@@ -200058,7 +200139,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 								}, 8, ["onClick"])])) : createCommentVNode("v-if", true),
 								createBaseVNode(
 									"p",
-									_hoisted_16$6,
+									_hoisted_19$5,
 									toDisplayString($setup.sqlFlow.result.value.rowCount) + " 行 · " + toDisplayString($setup.sqlFlow.result.value.elapsedMs) + "ms ",
 									1
 									/* TEXT */
@@ -200068,7 +200149,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							/* STABLE_FRAGMENT */
 						))
 					]),
-					createBaseVNode("section", _hoisted_17$5, [
+					createBaseVNode("section", _hoisted_20$4, [
 						_cache[16] || (_cache[16] = createBaseVNode(
 							"h4",
 							{ class: "acu-v2-advanced-tools-page__section-title" },
@@ -200076,7 +200157,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							-1
 							/* CACHED */
 						)),
-						$setup.sqlFlow.snippets.value.length ? (openBlock(), createElementBlock("div", _hoisted_18$5, [_cache[15] || (_cache[15] = createBaseVNode(
+						$setup.sqlFlow.snippets.value.length ? (openBlock(), createElementBlock("div", _hoisted_21$3, [_cache[15] || (_cache[15] = createBaseVNode(
 							"span",
 							{ class: "acu-v2-advanced-tools-page__snippet-label" },
 							[createBaseVNode("i", { class: "fa-solid fa-star" }), createTextVNode(" 常用 ")],
@@ -200096,7 +200177,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 									onKeydown: withKeys(withModifiers(($event) => $setup.sqlFlow.insertSnippet(snippet), ["prevent"]), ["enter"])
 								}, [createBaseVNode(
 									"code",
-									_hoisted_20$4,
+									_hoisted_23$2,
 									toDisplayString(snippet),
 									1
 									/* TEXT */
@@ -200105,12 +200186,12 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 									role: "button",
 									"aria-label": "删除该常用语句",
 									onClick: withModifiers(($event) => $setup.sqlFlow.removeSnippet(snippetIndex), ["stop"])
-								}, null, 8, _hoisted_21$3)], 40, _hoisted_19$5);
+								}, null, 8, _hoisted_24$2)], 40, _hoisted_22$2);
 							}),
 							128
 							/* KEYED_FRAGMENT */
 						))])) : createCommentVNode("v-if", true),
-						!$setup.sqlFlow.history.value.length ? (openBlock(), createElementBlock("div", _hoisted_22$2, " 暂无执行历史 ")) : (openBlock(), createElementBlock("div", _hoisted_23$2, [(openBlock(true), createElementBlock(
+						!$setup.sqlFlow.history.value.length ? (openBlock(), createElementBlock("div", _hoisted_25$2, " 暂无执行历史 ")) : (openBlock(), createElementBlock("div", _hoisted_26$1, [(openBlock(true), createElementBlock(
 							Fragment,
 							null,
 							renderList($setup.sqlFlow.history.value, (item, index) => {
@@ -200120,9 +200201,9 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 									title: "填入编辑器",
 									onClick: ($event) => $setup.sqlFlow.useHistoryItem(item)
 								}, {
-									default: withCtx(() => [createBaseVNode("div", _hoisted_24$2, [createBaseVNode(
+									default: withCtx(() => [createBaseVNode("div", _hoisted_27$1, [createBaseVNode(
 										"span",
-										_hoisted_25$2,
+										_hoisted_28,
 										toDisplayString($setup.formatTime(item.timestamp)),
 										1
 										/* TEXT */
@@ -200135,7 +200216,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 										_: 2
 									}, 1032, ["variant"])]), createBaseVNode(
 										"code",
-										_hoisted_26$1,
+										_hoisted_29,
 										toDisplayString(item.sql),
 										1
 										/* TEXT */
@@ -200172,7 +200253,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 					_: 1
 				}, 8, ["variant"])]),
 				default: withCtx(() => [
-					createBaseVNode("div", _hoisted_27$1, [
+					createBaseVNode("div", _hoisted_30, [
 						createVNode($setup["AcuFormRow"], null, {
 							default: withCtx(() => [createVNode($setup["AcuSelect"], {
 								options: $setup.logFlow.levelOptions,
@@ -200199,7 +200280,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							_: 1
 						})
 					]),
-					createBaseVNode("div", _hoisted_28, [createBaseVNode("div", _hoisted_29, [createBaseVNode("div", _hoisted_30, [
+					createBaseVNode("div", _hoisted_31, [createBaseVNode("div", _hoisted_32, [createBaseVNode("div", _hoisted_33, [
 						createVNode($setup["AcuButton"], {
 							variant: $setup.logFlow.paused.value ? "primary" : "default",
 							onClick: _cache[3] || (_cache[3] = ($event) => $setup.logFlow.setPaused(!$setup.logFlow.paused.value))
@@ -200252,21 +200333,21 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							)])]),
 							_: 1
 						}, 8, ["disabled", "onClick"])
-					]), createBaseVNode("div", _hoisted_31, [createVNode($setup["AcuToggle"], {
+					]), createBaseVNode("div", _hoisted_34, [createVNode($setup["AcuToggle"], {
 						"model-value": $setup.logFlow.autoScroll.value,
 						label: "自动滚动",
 						"onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => $setup.logFlow.autoScroll.value = $event)
 					}, null, 8, ["model-value"])])]), createBaseVNode(
 						"p",
-						_hoisted_32,
+						_hoisted_35,
 						" 最多保留最近 50000 条；列表只渲染最近 " + toDisplayString($setup.logFlow.windowSizeLimit) + " 条（" + toDisplayString($setup.logFlow.hiddenByWindow.value ? `已折叠较早的 ${$setup.logFlow.hiddenByWindow.value} 条，` : "") + "当前显示 " + toDisplayString($setup.logFlow.filteredCount.value) + " / " + toDisplayString($setup.logFlow.totalCount.value) + " 条，导出仍取全部）。" + toDisplayString($setup.logFlow.pendingCount.value ? `${$setup.logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : "没有暂停期间积压的日志。"),
 						1
 						/* TEXT */
 					)]),
 					createBaseVNode(
 						"div",
-						_hoisted_33,
-						[!$setup.logFlow.visibleLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_34, " 暂无匹配日志 ")) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
+						_hoisted_36,
+						[!$setup.logFlow.visibleLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_37, " 暂无匹配日志 ")) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
 							Fragment,
 							null,
 							renderList($setup.logFlow.visibleLogs.value, (entry) => {
@@ -200277,10 +200358,10 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 										class: normalizeClass(["acu-v2-advanced-tools-page__log-row", `acu-v2-advanced-tools-page__log-row--${entry.level}`])
 									},
 									[
-										createBaseVNode("div", _hoisted_35, [
+										createBaseVNode("div", _hoisted_38, [
 											createBaseVNode(
 												"span",
-												_hoisted_36,
+												_hoisted_39,
 												toDisplayString($setup.formatTime(entry.timestamp)),
 												1
 												/* TEXT */
@@ -200295,7 +200376,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											}, 1032, ["variant"]),
 											createBaseVNode(
 												"span",
-												_hoisted_37,
+												_hoisted_40,
 												toDisplayString(entry.tag),
 												1
 												/* TEXT */
@@ -200303,7 +200384,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 										]),
 										createBaseVNode(
 											"code",
-											_hoisted_38,
+											_hoisted_41,
 											toDisplayString(entry.message),
 											1
 											/* TEXT */
@@ -200312,7 +200393,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											key: 0,
 											class: "acu-v2-advanced-tools-page__log-hint",
 											"data-hint-id": $setup.hintFor(entry).id
-										}, [createBaseVNode("summary", _hoisted_40, [
+										}, [createBaseVNode("summary", _hoisted_43, [
 											_cache[20] || (_cache[20] = createBaseVNode(
 												"i",
 												{
@@ -200325,7 +200406,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											)),
 											createBaseVNode(
 												"span",
-												_hoisted_41,
+												_hoisted_44,
 												toDisplayString($setup.hintFor(entry).summary),
 												1
 												/* TEXT */
@@ -200337,7 +200418,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 												-1
 												/* CACHED */
 											))
-										]), createBaseVNode("ol", _hoisted_42, [(openBlock(true), createElementBlock(
+										]), createBaseVNode("ol", _hoisted_45, [(openBlock(true), createElementBlock(
 											Fragment,
 											null,
 											renderList($setup.hintFor(entry).steps, (step, stepIndex) => {
@@ -200351,7 +200432,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											}),
 											128
 											/* KEYED_FRAGMENT */
-										))])], 8, _hoisted_39)) : createCommentVNode("v-if", true)
+										))])], 8, _hoisted_42)) : createCommentVNode("v-if", true)
 									],
 									2
 									/* CLASS */
@@ -200390,7 +200471,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 					)]),
 					_: 1
 				})) : createCommentVNode("v-if", true)]),
-				default: withCtx(() => [createBaseVNode("div", _hoisted_43, [createVNode($setup["AcuButton"], {
+				default: withCtx(() => [createBaseVNode("div", _hoisted_46, [createVNode($setup["AcuButton"], {
 					variant: $setup.debugFlow.active.value ? "danger" : "primary",
 					onClick: $setup.debugFlow.toggleDebug
 				}, {
@@ -200435,7 +200516,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-899ae1cb"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-f9f124c2"]]);
 
 /**
  * useCapabilityOverview — Developer 页「环境与能力总览」的数据接缝

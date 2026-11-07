@@ -104,3 +104,39 @@ export function downloadSqlResultFile(
 export async function copySqlResultCsv(columns: readonly string[], values: readonly SqlCellValue[][]): Promise<boolean> {
   return copyTextToClipboard_ACU(sqlResultToCsv(columns, values));
 }
+
+/**
+ * 结果行排序（列头点击）：定义一个全序 —— NULL 视为最大（升序在尾、降序在首）；
+ * 数值按值、字符串按 localeCompare、BLOB 按字节长度；类型间按 数字 < 字符串 < BLOB 排。
+ * 只对内存中的行数组排序，不动 SQLite。
+ */
+export function compareSqlCells(a: SqlCellValue, b: SqlCellValue): number {
+  const aNull = a === null || a === undefined;
+  const bNull = b === null || b === undefined;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  const aBlob = a instanceof Uint8Array;
+  const bBlob = b instanceof Uint8Array;
+  if (aBlob || bBlob) {
+    const aLen = aBlob ? (a as Uint8Array).length : -1;
+    const bLen = bBlob ? (b as Uint8Array).length : -1;
+    if (aBlob && bBlob) return aLen - bLen;
+    return aBlob ? 1 : -1;
+  }
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'number') return -1;
+  if (typeof b === 'number') return 1;
+  return String(a).localeCompare(String(b), 'zh-Hans-CN', { numeric: true });
+}
+
+export type SqlSortDirection = 'asc' | 'desc';
+
+export function sortSqlRows(
+  values: readonly SqlCellValue[][],
+  column: number,
+  dir: SqlSortDirection,
+): SqlCellValue[][] {
+  const factor = dir === 'asc' ? 1 : -1;
+  return values.slice().sort((rowA, rowB) => factor * compareSqlCells(rowA[column] ?? null, rowB[column] ?? null));
+}

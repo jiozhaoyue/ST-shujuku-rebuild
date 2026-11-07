@@ -106,7 +106,25 @@
               <table class="acu-v2-advanced-tools-page__sql-result-table">
                 <thead>
                   <tr>
-                    <th v-for="column in sqlFlow.result.value.columns" :key="column">{{ column }}</th>
+                    <th
+                      v-for="(column, columnIndex) in sqlFlow.result.value.columns"
+                      :key="column"
+                      :aria-sort="sqlFlow.sortState.value?.column === columnIndex ? (sqlFlow.sortState.value.dir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                      class="acu-v2-advanced-tools-page__sql-sort-th"
+                      :title="`按「${column}」排序（点击循环 升序 → 降序 → 取消）`"
+                      @click="sqlFlow.toggleSort(columnIndex)"
+                    >
+                      <span class="acu-v2-advanced-tools-page__sql-sort-head">
+                        {{ column }}
+                        <i
+                          v-if="sqlFlow.sortState.value?.column === columnIndex"
+                          :class="sqlFlow.sortState.value.dir === 'asc' ? 'fa-solid fa-arrow-up-short-wide' : 'fa-solid fa-arrow-down-wide-short'"
+                          class="acu-v2-advanced-tools-page__sql-sort-icon"
+                          aria-hidden="true"
+                        ></i>
+                        <i v-else class="fa-solid fa-sort acu-v2-advanced-tools-page__sql-sort-icon acu-v2-advanced-tools-page__sql-sort-icon--idle" aria-hidden="true"></i>
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -596,6 +614,33 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   background: var(--acu-bg-1);
   color: var(--acu-text-1);
   font-weight: 600;
+}
+
+.acu-v2-advanced-tools-page__sql-sort-th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.acu-v2-advanced-tools-page__sql-sort-th:hover {
+  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-1);
+}
+
+.acu-v2-advanced-tools-page__sql-sort-head {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.acu-v2-advanced-tools-page__sql-sort-icon {
+  flex: 0 0 auto;
+  font-size: var(--acu-font-size-caption, 11px);
+  color: var(--acu-accent);
+}
+
+.acu-v2-advanced-tools-page__sql-sort-icon--idle {
+  color: var(--acu-text-3);
+  opacity: 0.6;
 }
 
 .acu-v2-advanced-tools-page__sql-result-table tbody tr:nth-child(even) {

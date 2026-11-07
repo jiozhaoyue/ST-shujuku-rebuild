@@ -21,9 +21,11 @@ import {
   buildSqlResultFilename,
   copySqlResultCsv,
   downloadSqlResultFile,
+  sortSqlRows,
   sqlResultToCsv,
   sqlResultToJson,
   sqlValueToSqlLiteral,
+  type SqlSortDirection,
 } from './sql-result-export';
 
 export type SqlConsoleMessageKind = 'info' | 'success' | 'warning' | 'error';
@@ -160,8 +162,25 @@ export function useSqlConsole() {
   );
   /** 渲染窗口：只把窗口内行交给 vdom。 */
   const visibleCount = ref(SQL_CONSOLE_VIEW_WINDOW);
+  /** 列排序状态（三态循环：null → asc → desc → null）；排序作用于全量行、窗口在其上截取。 */
+  const sortState = ref<{ column: number; dir: SqlSortDirection } | null>(null);
+  const sortedValues = computed<SqlResultState['values']>(() => {
+    if (result.value.kind !== 'query' || !sortState.value) return result.value.values;
+    return sortSqlRows(result.value.values, sortState.value.column, sortState.value.dir);
+  });
+  function toggleSort(column: number): void {
+    if (sortState.value?.column !== column) {
+      sortState.value = { column, dir: 'asc' };
+      return;
+    }
+    if (sortState.value.dir === 'asc') {
+      sortState.value = { column, dir: 'desc' };
+      return;
+    }
+    sortState.value = null;
+  }
   const displayedValues = computed<SqlResultState['values']>(() =>
-    result.value.kind === 'query' ? result.value.values.slice(0, visibleCount.value) : [],
+    result.value.kind === 'query' ? sortedValues.value.slice(0, visibleCount.value) : [],
   );
   const hiddenByWindow = computed(() =>
     result.value.kind === 'query' ? Math.max(0, result.value.values.length - visibleCount.value) : 0,
@@ -169,9 +188,10 @@ export function useSqlConsole() {
   function showMoreRows(): void {
     visibleCount.value += SQL_CONSOLE_VIEW_WINDOW;
   }
-  /** 新查询/清空结果时把窗口收回默认值。 */
+  /** 新查询/清空结果时把窗口与排序收回默认值。 */
   function resetWindow(): void {
     visibleCount.value = SQL_CONSOLE_VIEW_WINDOW;
+    sortState.value = null;
   }
   const statusLabel = computed(() => {
     if (busyAction.value === 'execute') return '执行中…';
@@ -428,6 +448,8 @@ export function useSqlConsole() {
     displayedValues,
     hiddenByWindow,
     showMoreRows,
+    sortState,
+    toggleSort,
     multiStatementCount,
     refresh,
     clearResult,
