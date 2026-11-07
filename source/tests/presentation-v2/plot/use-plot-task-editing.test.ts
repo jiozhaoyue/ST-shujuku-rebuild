@@ -19,37 +19,33 @@ beforeEach(() => {
 });
 
 describe('usePlotTaskEditing', () => {
-  it('loadFromRaw 空数组时插入一个默认任务', async () => {
+
+  it('R10A-23：同一毫秒连续新增任务不会撞 id', async () => {
     const { usePlotTaskEditing } = await setup();
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
     const e = usePlotTaskEditing();
     e.loadFromRaw([], '');
-    expect(e.tasks.value).toHaveLength(1);
-    expect(e.currentTaskId.value).toBe(e.tasks.value[0].id);
-    // service 层 normalizePlotTasks_ACU 对空数组兜底为 "默认任务"
-    expect(e.currentTask.value?.name).toMatch(/任务/);
-    expect(e.currentTask.value?.promptGroup.length).toBeGreaterThan(0);
+    e.addTask();
+    e.addTask();
+    const ids = e.tasks.value.map(t => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('addTask 追加新任务并选中', async () => {
+  it('R10A-23：删除任务时清理其它任务对它的依赖/阻塞引用', async () => {
     const { usePlotTaskEditing } = await setup();
     const e = usePlotTaskEditing();
-    e.loadFromRaw([], '');
-    const before = e.tasks.value.length;
-    e.addTask();
-    expect(e.tasks.value).toHaveLength(before + 1);
-    expect(e.currentTaskId.value).toBe(e.tasks.value[e.tasks.value.length - 1].id);
-  });
-
-  it('deleteCurrentTask 仅在 >1 时生效', async () => {
-    const { usePlotTaskEditing } = await setup();
-    const e = usePlotTaskEditing();
-    e.loadFromRaw([], '');
+    e.loadFromRaw([
+      { id: 'a', name: 'A', agentControl: { dependsOnTaskIds: ['b'], blocksTaskIds: ['b', 'c'] } },
+      { id: 'b', name: 'B' },
+      { id: 'c', name: 'C', agentControl: { dependsOnTaskIds: ['b', 'a'] } },
+    ], '');
+    e.selectTask('b');
     e.deleteCurrentTask();
-    expect(e.tasks.value).toHaveLength(1);
-    e.addTask();
-    expect(e.tasks.value).toHaveLength(2);
-    e.deleteCurrentTask();
-    expect(e.tasks.value).toHaveLength(1);
+    const a = e.tasks.value.find(t => t.id === 'a')!;
+    const c = e.tasks.value.find(t => t.id === 'c')!;
+    expect(a.agentControl.dependsOnTaskIds).toEqual([]);
+    expect(a.agentControl.blocksTaskIds).toEqual(['c']);
+    expect(c.agentControl.dependsOnTaskIds).toEqual(['a']);
   });
 
   it('moveCurrent 上下移动当前任务的位置', async () => {

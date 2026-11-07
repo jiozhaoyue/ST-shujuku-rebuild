@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   storageMode: 'native' as 'native' | 'sqlite',
   reload: vi.fn().mockResolvedValue(undefined),
   didFallback: vi.fn(() => false),
+  onTransactionStart: null as null | (() => void),
 }));
 vi.mock('../../../src/service/table/storage-mode', () => ({
   getCurrentStorageMode: () => h.storageMode,
@@ -24,7 +25,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   getCurrentIsolationKey_ACU: () => h.scope.isolationKey,
 }));
 vi.mock('../../../src/service/table/table-write-transaction', () => ({
-  runTableWriteTransaction_ACU: async (_options: any, task: any) => task({ runCommit: async (commit: any) => commit() }),
+  runTableWriteTransaction_ACU: async (_options: any, task: any) => (h.onTransactionStart?.(), task({ runCommit: async (commit: any) => commit() })),
 }));
 
 import { commitPreparedV2Recovery_ACU, prepareV2Recovery_ACU, scanV2IsolationDiagnostics_ACU } from '../../../src/service/table/table-v2-recovery-service';
@@ -55,6 +56,7 @@ describe('table-v2-recovery-service', () => {
     h.reload.mockResolvedValue(undefined);
     h.didFallback.mockReset();
     h.didFallback.mockReturnValue(false);
+    h.onTransactionStart = null;
   });
 
   it('扫描全部 V2 isolationKey 只返回诊断，不创建恢复计划或触发持久化副作用', async () => {
@@ -324,6 +326,28 @@ describe('table-v2-recovery-service', () => {
     expect(h.save).not.toHaveBeenCalled();
   });
 
+  it('等锁期间宿主追加消息或编辑正文：提交只改目标消息的表格字段，不回滚聊天', async () => {
+    // 曾用锁外克隆的旧聊天整体替换 live chat：窗口内的新消息与编辑被静默丢弃并严格落盘。
+    const source = frame({ kind: 'full', createdAt: 1, reason: 'init', data: data([['1', '铁剑'], [' 1 ', '副本']]) });
+    h.chat = [...chatWithFrame(source), { is_user: true, mes: 'u1' }, { is_user: false, mes: 'a2' }];
+    const prepared = await prepareV2Recovery_ACU();
+    const sourceMessage = h.chat[0];
+    const editedMessage = h.chat[2];
+    h.onTransactionStart = () => {
+      h.chat.push({ is_user: true, mes: '等锁期间的新消息' });
+      editedMessage.mes = 'a2 已被宿主编辑';
+    };
+
+    const result = await commitPreparedV2Recovery_ACU(prepared.planId!);
+
+    expect(result).toEqual({ status: 'committed', planId: prepared.planId });
+    expect(h.chat.map(message => message.mes)).toEqual([undefined, 'u1', 'a2 已被宿主编辑', '等锁期间的新消息']);
+    expect(h.chat[0]).toBe(sourceMessage);
+    expect(h.chat[2]).toBe(editedMessage);
+    expect(h.chat[0].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.reason).toBe('integrity_repair');
+    expect(h.save).toHaveBeenCalledTimes(1);
+  });
+
   it('宿主严格保存失败时恢复 live chat', async () => {
     const source = frame({ kind: 'full', createdAt: 1, reason: 'init', data: data([['1', '铁剑'], [' 1 ', '副本']]) });
     h.chat = chatWithFrame(source);
@@ -579,12 +603,66 @@ describe('table-v2-recovery-service', () => {
       changedSheetKeys: [],
       groupKeys: [],
     });
+    // 反向对照（G04-04）：checkpoint 没有声明时，降级 entry 不得凭空长出 restoreUpToAiFloor。
+    expect(degradedTag.storageFrame.logEntries[1]).not.toHaveProperty('restoreUpToAiFloor');
     expect(degradedTag.storageFrame.perSheetCheckpoints.sheet_0.timeline.kind).toBe('sheet_rebase');
     expect(degradedTag.storageFrame.manualRefillProgress).toMatchObject({ status: 'in_progress', targetMessageIndex: 2 });
     expect(degradedTag.recoveryBackup).toMatchObject({ recoveryKind: 'redundant_full_checkpoint_convergence', storageFrame: { checkpoint: { kind: 'full', data: redundantData } } });
 
     const afterFingerprint = getTableDataFingerprint_ACU(await loadTableStateFromFramesV2_ACU(h.chat, '', { updateRuntimeState: false }));
     expect(afterFingerprint).toBe(beforeFingerprint);
+  });
+
+  it('G04-04：冗余 full 带导入声明 restoreUpToAiFloor 时，降级 fallback entry 原样带过声明', async () => {
+    const redundantData = data([['1', '第二根']]);
+    const lateData = data([['1', '第二根'], ['3', '末位累积']]);
+    // 导入恢复写入的根会带 restoreUpToAiFloor 声明（table-checkpoint-transfer）；
+    // 收敛降级必须把声明带进 fallback entry，否则追平前沿跳回该帧楼层（对齐 chat-service 的双胞胎修复）。
+    const redundantFrame = frame({ kind: 'full', createdAt: 1, reason: 'import', data: redundantData, restoreUpToAiFloor: 6, event: { filledSheetKeys: ['sheet_0'], changedSheetKeys: [], groupKeys: [] } }, []);
+    const lateFrame = frame({ kind: 'full', createdAt: 2, reason: 'integrity_repair', data: lateData }, []);
+    h.chat = Array.from({ length: 11 }, (_, messageIndex) => ({
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2 as const,
+          storageFrame: messageIndex === 2
+            ? redundantFrame
+            : messageIndex === 10 ? lateFrame : frame(undefined, []),
+        },
+      },
+    }));
+
+    const prepared = await prepareV2Recovery_ACU();
+    expect(prepared.status).toBe('recoverable_redundant_full_checkpoint');
+    await expect(commitPreparedV2Recovery_ACU(prepared.planId!)).resolves.toEqual({ status: 'committed', planId: prepared.planId });
+
+    const degradedTag = h.chat[2].TavernDB_ACU_IsolatedData[''];
+    expect(degradedTag.storageFrame.checkpoint).toBeUndefined();
+    const fallbackEntry = degradedTag.storageFrame.logEntries.find((entry: any) => entry.entryId === 'redundant-full-fallback-2');
+    expect(fallbackEntry).toBeTruthy();
+    expect(fallbackEntry.restoreUpToAiFloor).toBe(6);
+  });
+
+  it('G04-05：跨聊天放弃的旧计划在新一轮诊断时被淘汰，不再钉住旧 chat 数组', async () => {
+    // 聊天 A：诊断出可修复计划后不提交
+    h.scope.chatKey = 'chat-a';
+    h.chat = chatWithFrame(frame({ kind: 'full', createdAt: 1, reason: 'init', data: data([['1', '铁剑'], [' 1 ', '副本']]) }));
+    const planA = await prepareV2Recovery_ACU();
+    expect(planA.planId).toBeTruthy();
+
+    // 切到聊天 B 再诊断：A 的计划应被无条件淘汰（plans_ACU 不再跨 scope 累积）
+    h.scope.chatKey = 'chat-b';
+    h.chat = chatWithFrame(frame({ kind: 'full', createdAt: 1, reason: 'init', data: data([['2', '木盾'], [' 2 ', '副本']]) }));
+    const planB = await prepareV2Recovery_ACU();
+    expect(planB.planId).not.toBe(planA.planId);
+
+    // 旧计划已不在注册表：报「不存在或已失效」而不是「作用域已变化」（后者意味着计划还留着）
+    await expect(commitPreparedV2Recovery_ACU(planA.planId!)).resolves.toMatchObject({
+      status: 'commit_failed_rolled_back', error: expect.stringContaining('不存在或已失效'),
+    });
+    // 新 scope 计划不受影响，可正常提交
+    await expect(commitPreparedV2Recovery_ACU(planB.planId!)).resolves.toEqual({ status: 'committed', planId: planB.planId });
+    expect(h.save).toHaveBeenCalledTimes(1);
   });
 
   it('含双身份/物理表名冲突的 full checkpoint 诊断为 unrecoverable_identity_conflict 且零保存', async () => {

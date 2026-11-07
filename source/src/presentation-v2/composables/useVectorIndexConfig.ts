@@ -21,7 +21,6 @@ import {
 } from '../../service/vector/vector-memory-config';
 
 import {
-  migrateLegacySummaryVectorIndexToContentAddressed_ACU,
 } from '../../service/vector/summary-vector-index-archive-service';
 import {
   rebuildCurrentSummaryVectorIndexNow_ACU
@@ -34,7 +33,8 @@ import {
   inspectSummaryVectorIndexHealth_ACU,
 } from '../../service/vector/summary-vector-index-storage-service';
 import {
-  clearAllSummaryVectorIndexCaches_ACU
+  clearAllSummaryVectorIndexCaches_ACU,
+  clearAllSummaryVectorIndexFlushQueues_ACU
 } from '../../service/vector/summary-vector-index-cache-service';
 import {
   deleteCurrentSummaryVectorIndexFromChat_ACU
@@ -49,6 +49,7 @@ import type {
 import {
   useToastStore
 } from '../stores/toast-store';
+import { CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU, isChatActionScopeCurrent_ACU, type ChatActionScope_ACU } from './chat-action-scope';
 
 type MessageKind = 'info' | 'success' | 'warning' | 'error';
 type BadgeVariant = 'neutral' | 'accent' | 'success' | 'warning' | 'danger';
@@ -90,6 +91,7 @@ export interface VectorIndexForm {
   // 归档分块
   summaryChunkSentenceCount: number;
   summaryIndexChunkChronicleBySentence: boolean;
+  hybridRetrievalEnabled: boolean;
   summaryIndexArchiveMaxConcurrency: number;
   summaryIndexArchiveMaxInputChars: number;
   summaryIndexArchiveEmbeddingConcurrency: number;
@@ -110,6 +112,8 @@ export interface VectorIndexStatsItem {
   label: string;
   value: string | number;
   key?: string;
+  /** 多列时占两格（UbStats）。 */
+  wide?: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -159,6 +163,8 @@ function createEmptyForm(): VectorIndexForm {
     vectorNamespace: defaults.vectorNamespace || 'chat',
     summaryChunkSentenceCount: defaults.summaryChunkSentenceCount,
     summaryIndexChunkChronicleBySentence: (defaults as any).summaryIndexChunkChronicleBySentence === true,
+    // 与 vector-memory-config.ts:198 的「!== false」同口径：默认开，显式 false 才关。
+    hybridRetrievalEnabled: (defaults as any).hybridRetrievalEnabled !== false,
     summaryIndexArchiveMaxConcurrency: defaults.summaryIndexArchiveMaxConcurrency ?? 30,
     summaryIndexArchiveMaxInputChars: defaults.summaryIndexArchiveMaxInputChars ?? defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxInputChars,
     summaryIndexArchiveEmbeddingConcurrency: defaults.summaryIndexArchiveEmbeddingConcurrency ?? 3,
@@ -261,6 +267,7 @@ export function useVectorIndexConfig() {
     form.vectorNamespace = config.vectorNamespace || 'chat';
     form.summaryChunkSentenceCount = config.summaryChunkSentenceCount;
     form.summaryIndexChunkChronicleBySentence = config.summaryIndexChunkChronicleBySentence === true;
+    form.hybridRetrievalEnabled = config.hybridRetrievalEnabled !== false;
     form.summaryIndexArchiveMaxConcurrency = config.summaryIndexArchiveMaxConcurrency;
     form.summaryIndexArchiveMaxInputChars = config.summaryIndexArchiveMaxInputChars;
     form.summaryIndexArchiveEmbeddingConcurrency = config.summaryIndexArchiveEmbeddingConcurrency;
@@ -274,17 +281,15 @@ export function useVectorIndexConfig() {
     form.keywordGenerationEnabled = config.keywordGenerationEnabled === true;
     form.keywordContextPairCount = config.keywordContextPairCount;
     form.keywordGenerationMaxAttempts = config.keywordGenerationMaxAttempts;
-    promptSegments.value = cloneSegments(config.keywordPromptGroup);
-    promptDirty.value = false;
+    // R10A-12：关键词提示词是全局设置；保存向量 API、切聊天触发的 refresh 不得重置未保存的编辑。
+    if (!promptDirty.value) {
+      promptSegments.value = cloneSegments(config.keywordPromptGroup);
+    }
   }
 
   function refresh(): void {
     readFromConfig();
     runValidation();
-  }
-
-  function pushSavedMessage(text = '设置已保存。'): void {
-    void text;
   }
 
   function runValidation(): boolean {
@@ -305,7 +310,6 @@ export function useVectorIndexConfig() {
       return;
     }
     runValidation();
-    pushSavedMessage();
   }
 
   function setNumberField<
@@ -331,7 +335,6 @@ export function useVectorIndexConfig() {
           return;
         }
         runValidation();
-        pushSavedMessage();
         return;
       }
     }
@@ -349,7 +352,6 @@ export function useVectorIndexConfig() {
           return;
         }
         runValidation();
-        pushSavedMessage();
         return;
       }
     }
@@ -363,12 +365,11 @@ export function useVectorIndexConfig() {
       return;
     }
     runValidation();
-    pushSavedMessage();
   }
 
   function setBooleanField<
     K extends 'summaryIndexRollingDeltaEnabled' | 'summaryIndexV2WriteEnabled' | 'summaryIndexContentPackWriteEnabled'
-      | 'keywordGenerationEnabled' | 'summaryIndexChunkChronicleBySentence',
+      | 'keywordGenerationEnabled' | 'summaryIndexChunkChronicleBySentence' | 'hybridRetrievalEnabled',
   >(key: K, value: boolean): void {
     const next = value === true;
     (form as any)[key] = next;
@@ -378,7 +379,6 @@ export function useVectorIndexConfig() {
       return;
     }
     runValidation();
-    pushSavedMessage();
   }
 
   function setV2WriteScopeAllowlist(raw: string): void {
@@ -393,7 +393,6 @@ export function useVectorIndexConfig() {
       return;
     }
     runValidation();
-    pushSavedMessage();
   }
 
   function previewRecentFixedInjectCount(raw: number | string): void {
@@ -413,7 +412,6 @@ export function useVectorIndexConfig() {
       return;
     }
     runValidation();
-    pushSavedMessage();
   }
 
   function addPromptSegment(position: 'top' | 'bottom'): void {
@@ -515,11 +513,25 @@ export function useVectorIndexConfig() {
     maintenanceBusy.value = true;
     try {
       const fullyCleared = await clearAllSummaryVectorIndexCaches_ACU();
+      // 归档队列（flushTasks）此前无人清理，别的 scope 的残留失败任务会永久挂在状态面板上。
+      // 与缓存清理一并处理：有残留失败时必须走 warning，不允许显示成功。
+      const flushQueues = await clearAllSummaryVectorIndexFlushQueues_ACU();
       await refreshIndexStatus(false);
-      if (fullyCleared === false) {
-        notify('warning', '交火索引缓存未能完全清空（部分存储不可用），请重试。权威外置文件和聊天记录不会被删除。', { muteable: false });
+      const cleared = Math.max(0, Number(flushQueues?.clearedCount) || 0);
+      const queueNote = `归档队列一并处理（清理 ${cleared} 条残留）`;
+      // 三种未清干净的原因必须分别措辞：把"没加载聊天"说成"存储不可用、请重试"是谎报，
+      // 而且不加载聊天时重试永远不会成功。
+      const reason = flushQueues?.reason;
+      const noScopeHint = reason === 'no_current_scope' || reason === 'tombstone_failed';
+      if (fullyCleared === false || flushQueues?.failed) {
+        const cause = noScopeHint
+          ? '未加载聊天或找不到纪要表，无法定位归档队列所属会话，本次未处理队列（打开聊天后可再清）'
+          : reason === 'residual_left'
+            ? '仍有残留任务未清掉'
+            : '部分存储不可用，请重试';
+        notify('warning', `交火索引缓存未能完全清空（${cause}，${queueNote}）。权威外置文件和聊天记录不会被删除。`, { muteable: false });
       } else {
-        notify('success', '交火索引临时缓存与热缓存已清空。权威外置文件和聊天记录不会被删除。', { muteable: false });
+        notify('success', `交火索引临时缓存与热缓存已清空，${queueNote}。权威外置文件和聊天记录不会被删除。`, { muteable: false });
       }
     } catch (error: any) {
       notify('error', `清空交火索引缓存失败：${error?.message || '未知错误'}`, { muteable: false });
@@ -528,8 +540,13 @@ export function useVectorIndexConfig() {
     }
   }
 
-  async function deleteCurrentIndex(): Promise<void> {
+  async function deleteCurrentIndex(scope?: ChatActionScope_ACU | null): Promise<void> {
     if (maintenanceBusy.value) return;
+    // R10A-04：确认的是弹窗时那个聊天的索引；确认期间切了聊天就不删。
+    if (!isChatActionScopeCurrent_ACU(scope)) {
+      notify('warning', CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU, { muteable: false, durationMs: 6000 });
+      return;
+    }
     maintenanceBusy.value = true;
     try {
       const changed = await deleteCurrentSummaryVectorIndexFromChat_ACU();
@@ -561,11 +578,12 @@ export function useVectorIndexConfig() {
         return;
       }
 
-      notifyProgress('正在迁移旧交火索引…');
-      const result = await migrateLegacySummaryVectorIndexToContentAddressed_ACU();
+      // 召回只读新版镜像：旧版指针迁移无效，直接按当前纪要表重建（顺带清掉旧版字段）。
+      notifyProgress('正在按当前纪要表重建交火索引…');
+      const result = await rebuildCurrentSummaryVectorIndexNow_ACU({ reason: 'initial' });
       await refreshIndexStatus(false);
       if (result.success && !result.skipped) {
-        notify('success', `旧交火索引非破坏迁移完成：${result.indexedRowCount || 0} 行，${result.chunkCount || 0} 个 chunks。新 V2 pointer 已 durable 发布；旧外置对象未在主提交路径删除，后续由安全 GC 处理。`, { muteable: false });
+        notify('success', `旧交火索引已重建为新版索引：${result.indexedRowCount || 0} 行，${result.chunkCount || 0} 个 chunks。`, { muteable: false });
         return;
       }
 
@@ -620,16 +638,19 @@ export function useVectorIndexConfig() {
       {
         label: '归档队列',
         value: `${(stats?.flushTaskDirtyCount || 0) + (stats?.flushTaskQueuedCount || 0) + (stats?.flushTaskFlushingCount || 0)} 等待 / ${stats?.flushTaskFailedCount || 0} 失败`,
-      },
-      {
-        label: '身份健康',
-        value: `${healthReport.value?.status || 'unknown'} / ${healthReport.value?.identityMismatchCount || 0} identity / ${healthReport.value?.pathIdentityCollisionCount || 0} collision / ${healthReport.value?.checksumMismatchCount || 0} checksum`,
+        key: 'flushQueue',
       },
       {
         label: 'Legacy 待迁移',
         value: healthReport.value?.legacyManifestCount || 0,
       },
       { label: '更新时间', value: formatTime(stats?.updatedAt || ''), key: 'updatedAt' },
+      {
+        label: '身份健康',
+        // 内容最长，放最后并占两格：11 项正好 12 格，2/3/4 列都整行排满，且不打乱前面各项顺序
+        wide: true,
+        value: `${healthReport.value?.status || 'unknown'} / ${healthReport.value?.identityMismatchCount || 0} identity / ${healthReport.value?.pathIdentityCollisionCount || 0} collision / ${healthReport.value?.checksumMismatchCount || 0} checksum`,
+      },
     ];
   });
   const promptTemplateMode = computed<'default' | 'custom'>(() =>

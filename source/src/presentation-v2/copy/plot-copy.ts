@@ -44,10 +44,10 @@ export const plotCopy = {
     },
     apiPresets: {
       decisionLabel: "Agent 决策 API",
-      decisionHint: "用于 Agent 判断世界书条目是否应启用；留空则使用当前 API 配置。",
+      decisionHint: "用于 Agent 判断世界书条目是否应启用；默认使用当前 API。",
       skillLabel: "Agent Skill 化 API",
-      skillHint: "用于一键生成世界书 Skill 元数据；留空则使用当前 API 配置。",
-      followCurrentLabel: "使用当前 API 配置",
+      skillHint: "用于一键生成世界书 Skill 元数据；默认使用当前 API。",
+      followCurrentLabel: "当前 API",
     },
     restore: {
       button: "清理并初始化",
@@ -80,6 +80,8 @@ export const plotCopy = {
       success: (updated: number, skipped: number) => `Skill 化完成：更新 ${updated} 条，跳过 ${skipped} 条。`,
       partial: (updated: number, skipped: number, failed: number) => `Skill 化部分完成：更新 ${updated} 条，跳过 ${skipped} 条，失败 ${failed} 条。`,
       noSelection: "请先勾选要 Skill 化的世界书条目。",
+      selectedConfirmMessage: (count: number) => `将调用配置的 Agent Skill API，为已勾选的 ${count} 条世界书条目生成描述与触发时机。已有 Skill 元数据的条目会自动跳过，无论这些数据来自 AI 生成还是用户手动编辑。`,
+      booksConfirmMessage: (bookNames: string[]) => `将调用配置的 Agent Skill API，为世界书「${bookNames.join('」「')}」里可处理的条目生成描述与触发时机。已有 Skill 元数据的条目会自动跳过，无论这些数据来自 AI 生成还是用户手动编辑。条目较多时一次只处理一批，可再点一次继续。`,
       noCandidates: "当前范围没有可 Skill 化的世界书条目。",
       error: "一键 Skill 化失败",
     },

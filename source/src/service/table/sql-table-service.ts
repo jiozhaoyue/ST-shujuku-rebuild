@@ -15,6 +15,7 @@ import type {
   FrozenSheetRuntimeSchema_ACU,
   SqlQueryResult,
   SqlMutationResult,
+  SqlMutationResultWithView_ACU,
   ApplyEditsWithRowIdMaterializationResult_ACU,
   ApplyEditsResult,
   SqlQueryExecutionOptions_ACU,
@@ -25,9 +26,11 @@ import { SqliteEngine } from '../../data/sqlite/sqlite-engine';
 import { SyncBridge } from '../../data/sqlite/sync-bridge';
 import {
   currentJsonTableData_ACU,
+  getChatMutationAbortSignal_ACU,
   _set_currentJsonTableData_ACU,
 } from '../runtime/state-manager';
 import { mergeAllIndependentTables_ACU } from '../runtime/helpers-data-merge';
+import { COLD_REPLAY_YIELD_BUDGET_MS_ACU, V2ReplayAbortedError_ACU } from './storage-frame-v2-replay';
 import { hashUserInput_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU, stripSeedRowsFromTemplate_ACU } from '../../shared/utils';
 import {
   createNameMapperOwnerToken_ACU,
@@ -43,14 +46,15 @@ import { ensureStableRowIdsForSheetContent_ACU, getEffectiveSeedRowsForSheet_ACU
 import { isSqlActiveTemplateSheet_ACU, projectSqlActiveTemplateData_ACU } from '../../shared/sql-active-template';
 import { getTemplatePreset_ACU } from '../template/template-preset-service';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
-import { assertNoPhysicalTableNameCollision_ACU, getPhysicalTableNameForSheet_ACU, PhysicalTableNameCollisionError_ACU, resolvePhysicalTableNames_ACU } from '../../shared/sheet-identity';
+import { assertNoPhysicalTableNameCollision_ACU, createPhysicalTableNameResolver_ACU, getPhysicalTableNameForSheet_ACU, PhysicalTableNameCollisionError_ACU, resolvePhysicalTableNames_ACU } from '../../shared/sheet-identity';
 import { buildColumnNameMap, getRuntimeEffectiveSchema_ACU, getSheetColumnProjection_ACU, parseDDLColumnInfos_ACU } from '../../shared/ddl-utils';
 import { rebindSqlMutationTableReferences_ACU, rebindSqlMutationColumnsByTarget_ACU, decodeSqlIdentifier_ACU } from '../../shared/sql-mutation-table-rebind';
 import { buildSheetTableAliasMap_ACU, buildSheetColumnAliasMap_ACU } from '../../shared/sql-read-resolver';
 import { allocateStableRowId_ACU, createStableRowIdReservation_ACU } from '../../shared/stable-row-id-allocator';
 import { extractBusinessKeyColumns_ACU } from '../template/template-data-preflight';
-import { getTableLockIdentitiesForSheet_ACU } from '../runtime/helpers-table-lock';
-import { buildLockRevertPlanForSheet_ACU, formatLockRevertSummary_ACU, type LockRevertItem_ACU } from './table-lock-enforcement';
+import { getTableLockIdentitiesForSheet_ACU, hasAnyTableLocksInCurrentScope_ACU } from '../runtime/helpers-table-lock';
+import { buildLockRevertPlanForSheet_ACU, formatLockRevertSummary_ACU, formatLockViolationSummary_ACU, type LockRevertItem_ACU } from './table-lock-enforcement';
+import { splitSqlStatements_ACU } from '../../shared/sql-statement-splitter';
 
 export interface SnapshotSqlApplyResult_ACU extends ApplyEditsResult {
   workingData?: TableDataObject_ACU;
@@ -629,10 +633,12 @@ function buildRowIdReservationsByRuntimeTable_ACU(
   additionalReservations?: Map<string, Set<string>>,
 ): Map<string, Set<string>> {
   const reservations = new Map<string, Set<string>>();
+  // P1-7：整库物理表名只解析一次（惰性，解析点仍在下方 continue 之后）。
+  const physicalNames = createPhysicalTableNameResolver_ACU(tableData);
   for (const [sheetKey, value] of Object.entries(tableData || {})) {
     if (!sheetKey.startsWith('sheet_')) continue;
     const content = (value as any)?.content;
-    reservations.set(getPhysicalTableNameForSheet_ACU(tableData, sheetKey).toLowerCase(), createStableRowIdReservation_ACU(
+    reservations.set(physicalNames.get(sheetKey).toLowerCase(), createStableRowIdReservation_ACU(
       Array.isArray(content) ? content.slice(1) : [],
     ));
   }
@@ -709,6 +715,16 @@ export function computeRuntimeSchemaDigest_ACU(
   return hashUserInput_ACU(lines.join('\n'));
 }
 
+/**
+ * 冻结视图的表集合过滤谓词（两条构建路径共用，避免过滤语义各自漂移）。
+ *
+ * 语义与历史导出版本逐字一致：activeSheetKeys 缺省或为空集时不过滤（视为“全部参与”），
+ * 只有非空集合才按成员过滤。
+ */
+function isFrozenSchemaSheetKey_ACU(sheetKey: string, activeSheetKeys: ReadonlySet<string> | null | undefined): boolean {
+  return !(activeSheetKeys && activeSheetKeys.size > 0) || activeSheetKeys.has(sheetKey);
+}
+
 /** 从冻结的完整 runtimeData 中构建窄 schema 视图（只保留 schema 证据，不复制业务行）。 */
 export function freezeRuntimeSchemaFromData_ACU(
   runtimeData: TableDataObject_ACU | null | undefined,
@@ -717,8 +733,11 @@ export function freezeRuntimeSchemaFromData_ACU(
   if (!runtimeData || typeof runtimeData !== 'object') return null;
   const bySheetKey = new Map<string, FrozenSheetRuntimeSchema_ACU>();
   const activeKeys = activeSheetKeys ? activeSheetKeys : new Set(Object.keys(runtimeData).filter(key => key.startsWith('sheet_')));
+  // P1-7：物理表名整库只解析一次（惰性：解析点仍在下方 descriptor 守卫之后，
+  // 守卫命中提前 return 时与逐表形态一样一次都不解析、不抛撞名错）。
+  const physicalNames = createPhysicalTableNameResolver_ACU(runtimeData);
   for (const sheetKey of Object.keys(runtimeData).filter(key => key.startsWith('sheet_'))) {
-    if (activeKeys.size > 0 && !activeKeys.has(sheetKey)) continue;
+    if (!isFrozenSchemaSheetKey_ACU(sheetKey, activeKeys)) continue;
     const sheet = (runtimeData as any)[sheetKey];
     if (!sheet || typeof sheet !== 'object') continue;
     const descriptor = getRuntimeEffectiveSchema_ACU(sheet) as {
@@ -728,7 +747,49 @@ export function freezeRuntimeSchemaFromData_ACU(
       // 运行时表必须携带 descriptor；缺失视为 schema 契约损坏（fail-closed）。
       return null;
     }
-    const physicalTableName = getPhysicalTableNameForSheet_ACU(runtimeData, sheetKey);
+    const physicalTableName = physicalNames.get(sheetKey);
+    bySheetKey.set(sheetKey, {
+      sheetKey,
+      physicalTableName,
+      effectiveDDL: String(descriptor.effectiveDDL || ''),
+      columnMap: descriptor.columnMap,
+      source: String(descriptor.source || ''),
+      diagnostics: Array.isArray(descriptor.diagnostics) ? descriptor.diagnostics : [],
+    });
+  }
+  if (bySheetKey.size === 0) return null;
+  return { bySheetKey, sheetKeys: Array.from(bySheetKey.keys()).sort(), digest: computeRuntimeSchemaDigest_ACU(bySheetKey) };
+}
+
+/**
+ * 从 SyncBridge 窄 schema 接口构建冻结视图：只读 runtime effective schema 快照与物理表名表。
+ *
+ * 与 freezeRuntimeSchemaFromData_ACU 的 digest 输入逐字等价（只取 sheetKey / effectiveDDL /
+ * columnMap，业务行不参与），但不需要把每张表整行导出。提交前的 live schema 一致性门禁
+ * 每批 AI 填表都要跑一次，用这条路径可去掉与 digest 无关的全库行导出。
+ *
+ * @param runtimeSchemas SyncBridge 实际执行到 runtime SQLite 的 schema 快照（键即 runtime 表集合）。
+ * @param activeSheetKeys 请求级活动表集合；缺省或空集表示不过滤（与导出版本同语义）。
+ * @param physicalTableNames 已解析的 sheetKey → 物理表名表；缺失键记空串（digest 不消费该字段）。
+ */
+export function freezeRuntimeSchemaFromSchemas_ACU(
+  runtimeSchemas: ReadonlyMap<string, { effectiveDDL?: string; columnMap?: unknown; source?: string; diagnostics?: readonly string[] }>,
+  activeSheetKeys: ReadonlySet<string> | null | undefined,
+  physicalTableNames: ReadonlyMap<string, string>,
+): RuntimeSchemaFreeze_ACU | null {
+  if (!runtimeSchemas || typeof runtimeSchemas !== 'object') return null;
+  const bySheetKey = new Map<string, FrozenSheetRuntimeSchema_ACU>();
+  for (const [sheetKey, descriptor] of runtimeSchemas) {
+    if (!isFrozenSchemaSheetKey_ACU(sheetKey, activeSheetKeys)) continue;
+    if (!descriptor || typeof descriptor !== 'object') {
+      // runtime schema 证据损坏视为契约失败（fail-closed），与导出版本同一处理。
+      return null;
+    }
+    const physicalTableName = physicalTableNames.get(sheetKey) || '';
+    if (!physicalTableName) {
+      // 物理表名不参与 digest，仅作可观测提示：JSON 镜像缺该键时不能反向猜测表名。
+      logDebug_ACU(`[SqlTableService] schema 门禁：canonical 视图缺少 ${sheetKey} 的物理表名证据（digest 不受影响）。`);
+    }
     bySheetKey.set(sheetKey, {
       sheetKey,
       physicalTableName,
@@ -1085,6 +1146,20 @@ export function materializeSystemRowIdsForSqlInserts_ACU(
     // 重建 SQL：保留业务 VALUES 原文/预执行字面量；显式 row_id 由系统重分配。
     return `${insertHead} (row_id, ${businessColumns.join(', ')}) VALUES ${materializedTuples.join(', ')}`;
   });
+}
+
+/**
+ * 外部写入（原生 SQL API、CRUD、SQL 控制台）的隐藏列守卫（R9-04）：
+ * 只检查数据变更语句；原生 SQL API 允许的 CREATE/ALTER/DROP 是既定公开面，不在此拒绝。
+ */
+function assertExternalWriteSkipsHiddenColumns_ACU(statements: string[], tableData: Record<string, any>): void {
+  const dmlStatements = statements.filter(statement => {
+    const tokens = tokenizeSqlMutationIdentifiers_ACU(statement);
+    const action = tokens[getSqlMutationActionIndex_ACU(tokens)];
+    const keyword = action?.quote === null ? action.value.toUpperCase() : '';
+    return keyword === 'INSERT' || keyword === 'REPLACE' || keyword === 'UPDATE' || keyword === 'DELETE';
+  });
+  if (dmlStatements.length > 0) assertNoHiddenPhysicalColumnMutations_ACU(dmlStatements, tableData);
 }
 
 /**
@@ -1533,6 +1608,10 @@ export class SqlTableService implements ITableStorageProvider {
    * 从聊天消息加载表格数据到 SQLite
    * 仅保留兼容入口：回放后委托 loadFromData() 初始化 runtime，
    * 防止聊天回放和 SQLite hydrate 拥有两套不同逻辑。
+   *
+   * 冷入口接线（P1-c 续）：长聊天的全量回放按统一预算在 frame/entry 边界让出事件循环，
+   * 并接入切聊天取消信号（CHAT_CHANGED）——让出窗口内切聊时回放在边界抛
+   * V2ReplayAbortedError，此处按「回放中止」返回，绝不进入 loadFromData 发布半成品 runtime。
    */
   async loadFromChat(): Promise<{
     loaded: boolean;
@@ -1540,10 +1619,18 @@ export class SqlTableService implements ITableStorageProvider {
     error?: string;
   }> {
     try {
-      const mergedData = await mergeAllIndependentTables_ACU();
+      const mergedData = await mergeAllIndependentTables_ACU({
+        yieldBudgetMs: COLD_REPLAY_YIELD_BUDGET_MS_ACU,
+        signal: getChatMutationAbortSignal_ACU(),
+      });
       return await this.loadFromData(mergedData as TableDataObject_ACU | null);
     } catch (e: any) {
       const errMsg = e?.message || String(e);
+      // 中止与真失败必须可区分：调用方（storage strategy）按前缀决定是否可重试加载。
+      if (e instanceof V2ReplayAbortedError_ACU) {
+        logDebug_ACU('[SqlTableService] 回放因聊天变更中止，丢弃本次冷加载结果。');
+        return { loaded: false, source: 'empty', error: `replay_aborted: ${errMsg}` };
+      }
       logError_ACU(`[SqlTableService] 回放聊天数据失败: ${errMsg}`);
       return { loaded: false, source: 'empty', error: `replay_failed: ${errMsg}` };
     }
@@ -1677,7 +1764,12 @@ export class SqlTableService implements ITableStorageProvider {
       this.engine = new SqliteEngine();
       this.syncBridge = new SyncBridge(this.engine);
       await this.engine.init();
-      this.syncBridge.loadFromTableData(cloned, { strict: true });
+      // 与 loadFromChat(:1681) / 合并路径(:1708) 及 V2 回放 hydrate 保持同一套 runtime
+      // DDL 加载口径：显式 DDL 无法执行时（典型尾逗号 `..., )`）首条 CREATE TABLE
+      // 回退 fallback schema 并继续，避免整体替换失败或与回放端产生基底分叉。
+      // 该 flag 只放宽建表 schema；行标识/行宽校验在 DDL 之前跑、映射与 INSERT 在
+      // runBatch 之前生成，行数据/约束/映射错误照旧 fail-closed，sourceData.ddl 不改写。
+      this.syncBridge.loadFromTableData(cloned, { strict: true, allowRuntimeDdlFallback: true });
       this._publishCanonicalView_ACU(cloned);
       ownJsonView = cloned;
       if (!this._tryPublishNameMapper_ACU(cloned)) {
@@ -1804,7 +1896,7 @@ export class SqlTableService implements ITableStorageProvider {
     const statementParams = userParams;
 
     try {
-      const result = this.engine.runBatch(statements, statementParams);
+      const result = this._runExternalMutationGuarded_ACU(statements, statementParams);
       const syncedView = this._syncToJson();
 
       const modifiedTables = extractTableNamesFromStatements(statements);
@@ -1835,16 +1927,19 @@ export class SqlTableService implements ITableStorageProvider {
     this._ensureInitialized();
     this._ensureTablesFromTemplate(scope);
 
+    const lookupData = (scope?.runtimeData || this._readCanonicalView_ACU() || { mate: DEFAULT_MATE_ACU }) as TableDataObject_ACU;
     const normalizedGroups = (Array.isArray(sqlTexts) ? sqlTexts : []).map(sqlText => {
       const normalizedStatements = normalizeSqlStatementsForRuntimeLog_ACU(sqlText);
       return rebindSqlMutationIdentifiers_ACU(
         normalizedStatements,
-        (scope?.runtimeData || this._readCanonicalView_ACU() || { mate: DEFAULT_MATE_ACU }) as TableDataObject_ACU,
+        lookupData,
         scope?.templateData,
         { requireKnownTables: Boolean(scope?.templateData), requireKnownInsertColumns: true },
       );
     });
     const userStatements = normalizedGroups.flat();
+    // 隐藏列守卫的唯一安全边界：对去 HTML 注释标记、重绑后的最终语句校验（collect 阶段看的是原文，可被绕过）。
+    assertNoHiddenPhysicalColumnMutations_ACU(userStatements, lookupData);
     if (userStatements.length === 0) {
       return {
         success: true,
@@ -1878,12 +1973,17 @@ export class SqlTableService implements ITableStorageProvider {
     }
 
     const materializedSqlTexts: string[] = [];
+    // R2A-10：与 statements 逐条对齐的分组下标（执行方插入的补种语句为 -1）。引擎报「第 N 条语句失败」
+    // 时按实际执行的语句计数，出错分组只能在这里换算，调用方按原文条数倒推会被物化/过滤/补种打乱。
+    const statementGroupIndexes: number[] = reseedPlan.inserts.map(() => -1);
     let cursor = 0;
-    for (const group of normalizedGroups) {
+    normalizedGroups.forEach((group, groupIndex) => {
+      const groupStatements = materializedStatements.slice(cursor, cursor + group.length);
       // 空串 = INSERT SELECT 结果为空被物化成无操作，不进日志文本。
-      materializedSqlTexts.push(materializedStatements.slice(cursor, cursor + group.length).filter(Boolean).join(';\n'));
+      materializedSqlTexts.push(groupStatements.filter(Boolean).join(';\n'));
+      groupStatements.forEach(statement => { if (statement) statementGroupIndexes.push(groupIndex); });
       cursor += group.length;
-    }
+    });
 
     const statements = [...reseedPlan.inserts, ...materializedStatements.filter(Boolean)];
     // 运行时 AI 写路径的锁定强制执行必须在 COMMIT 前完成：finalize 回调运行于
@@ -1931,6 +2031,11 @@ export class SqlTableService implements ITableStorageProvider {
       };
     } catch (e: any) {
       // 去重：只 throw，由顶层调用链统一记日志，底层不再记 error。
+      const failedStatement = /^第 (\d+) 条语句失败/.exec(String(e?.message || ''));
+      const failedGroupIndex = failedStatement ? statementGroupIndexes[Number(failedStatement[1]) - 1] : undefined;
+      if (e && typeof e === 'object' && typeof failedGroupIndex === 'number' && failedGroupIndex >= 0) {
+        e.failedGroupIndex = failedGroupIndex;
+      }
       throw e;
     }
   }
@@ -1948,7 +2053,8 @@ export class SqlTableService implements ITableStorageProvider {
     options?: SqlQueryExecutionOptions_ACU,
   ): SqlQueryResult {
     this._ensureInitialized();
-    const result = this.engine.query(sql, params, options);
+    // 只读入口（模板变量、SQL 控制台、对外 API）：引擎级单语句 + query_only，不只靠文本校验器。
+    const result = this.engine.query(sql, params, { ...options, readOnly: true });
     return {
       columns: result.columns,
       values: result.values,
@@ -1958,9 +2064,10 @@ export class SqlTableService implements ITableStorageProvider {
 
   /**
    * 执行 SQL 变更语句（INSERT/UPDATE/DELETE）
-   * 执行后自动同步到 JSON 视图
+   * 执行后自动同步到 JSON 视图，并把本次已发布的视图随结果带回（syncedView），
+   * 让提交链无需紧接着再导一次全库。同步失败时 syncedView 为 null，调用方回退 getCurrentData()。
    */
-  executeMutation(sql: string, params?: (string | number | null)[]): SqlMutationResult & JsonViewSyncDiagnostics_ACU {
+  executeMutation(sql: string, params?: (string | number | null)[]): SqlMutationResultWithView_ACU & JsonViewSyncDiagnostics_ACU {
     this._ensureInitialized();
     this._ensureTablesFromTemplate();
     try {
@@ -1970,18 +2077,48 @@ export class SqlTableService implements ITableStorageProvider {
         [normalizedSql],
         (this._readCanonicalView_ACU() || { mate: DEFAULT_MATE_ACU }) as TableDataObject_ACU,
       )[0];
-      const result = this.engine.run(runtimeSql, params);
+      const result = this._runExternalMutationGuarded_ACU([runtimeSql], [params]);
       const syncedView = this._syncToJson();
-      return { changes: result.changes, errors: [], ...jsonViewSyncDiagnostics_ACU('executeMutation', syncedView) };
+      return { changes: result.totalChanges, errors: [], syncedView, ...jsonViewSyncDiagnostics_ACU('executeMutation', syncedView) };
     } catch (e: any) {
       // 同步 JSON 视图避免 SQLite/JSON 状态分裂
       const syncedView = this._syncToJson();
       return {
         changes: 0,
         errors: [e?.message || String(e)],
+        syncedView,
         ...jsonViewSyncDiagnostics_ACU('executeMutation（语句失败后的视图同步同样未成功）', syncedView),
       };
     }
+  }
+
+  /**
+   * 外部写入（CRUD、原生 SQL API、SQL 控制台）与 AI 写路径同一套守卫（R9-04）：
+   * 不得写隐藏列；改到已锁定的行/列/单元格（含外键级联改到的别的表）整笔拒绝并回滚。
+   * 与 AI 路径不同，这里不做补偿：补偿语句进不了调用方的持久化语句集，冷回放会分叉。
+   */
+  private _runExternalMutationGuarded_ACU(
+    statements: string[],
+    paramsList?: ((string | number | null)[] | undefined)[],
+  ): { totalChanges: number } {
+    const lookupData = (this._readCanonicalView_ACU() || { mate: DEFAULT_MATE_ACU }) as TableDataObject_ACU;
+    assertExternalWriteSkipsHiddenColumns_ACU(statements, lookupData);
+    if (!hasAnyTableLocksInCurrentScope_ACU()) return this.engine.runBatch(statements, paramsList);
+    const lockBeforeData = JSON.parse(JSON.stringify(this._exportCurrentDataStrict())) as TableDataObject_ACU;
+    return this.engine.runBatchWithFinalize(statements, paramsList, (): null => {
+      const interimData = this._exportCurrentDataStrict();
+      const modifiedKeys = this._tableNamesToSheetKeys(extractTableNamesFromStatements(statements));
+      const violations = enforceTableLocksAfterSqlApply_ACU(
+        this.engine,
+        this.syncBridge,
+        lockBeforeData,
+        interimData,
+        modifiedKeys,
+        { detectOnly: true },
+      );
+      if (violations.reverted.length > 0) throw new Error(formatLockViolationSummary_ACU(violations.reverted));
+      return null;
+    });
   }
 
   /**
@@ -2143,13 +2280,16 @@ export class SqlTableService implements ITableStorageProvider {
   private _validateRuntimeSchema_ACU(data: TableDataObject_ACU): void {
     const actualTables = new Set(this.engine.getTableNames());
     const runtimeSchemas = this.syncBridge.getRuntimeEffectiveSchemas_ACU();
+    // P1-7：整库物理表名只解析一次（惰性，解析点仍在下方 continue 之后：
+    // 休眠表被跳过时与逐表形态一样不解析、不抛撞名错）。
+    const physicalNames = createPhysicalTableNameResolver_ACU(data);
     for (const key of Object.keys(data).filter(key => key.startsWith('sheet_'))) {
       const sheet = (data as any)[key];
       if (!sheet || typeof sheet !== 'object') continue;
       // 休眠表（非首列空业务表头）不参与 runtime schema 校验：它们不建表、不进 SQLite，
       // 校验它们只会误报 schema_missing_table。
       if (!isSqlActiveTemplateSheet_ACU(sheet)) continue;
-      const runtimeTableName = getPhysicalTableNameForSheet_ACU(data, key);
+      const runtimeTableName = physicalNames.get(key);
       if (!actualTables.has(runtimeTableName)) {
         throw new Error(`schema_missing_table: ${key} (${runtimeTableName}) 未在 SQLite runtime 中创建。`);
       }
@@ -2176,6 +2316,8 @@ export class SqlTableService implements ITableStorageProvider {
     try {
       const ddlMap = new Map<string, string>();
       const runtimeSchemas = this.syncBridge.getRuntimeEffectiveSchemas_ACU();
+      // P1-7：整库物理表名只解析一次（惰性，解析点仍在下方 continue 之后）。
+      const physicalNames = createPhysicalTableNameResolver_ACU(data);
       for (const [key, value] of Object.entries(data)) {
         if (!key.startsWith('sheet_')) continue;
         const sheet = value as any;
@@ -2185,7 +2327,7 @@ export class SqlTableService implements ITableStorageProvider {
         if (!isSqlActiveTemplateSheet_ACU(sheet)) continue;
         // NameMapper 必须和 SQLite 实际采用的 schema 一致。直接读取 sourceData.ddl
         // 会在 fallback_invalid 场景留下无法映射运行时物理列名的陈旧映射。
-        const runtimeTableName = getPhysicalTableNameForSheet_ACU(data, key);
+        const runtimeTableName = physicalNames.get(key);
         const runtimeSchema = runtimeSchemas.get(key);
         if (!runtimeSchema) {
           logWarn_ACU(`[SqlTableService] 构建 NameMapper 失败: ${key} 缺少 SyncBridge 实际执行 schema。`);
@@ -2248,9 +2390,11 @@ export class SqlTableService implements ITableStorageProvider {
     const view = this._readCanonicalView_ACU();
     if (!view) return [];
     const keys: string[] = [];
+    // P1-7：整库物理表名只解析一次（惰性，解析点仍在下方 continue 之后）。
+    const physicalNames = createPhysicalTableNameResolver_ACU(view);
     for (const key of Object.keys(view)) {
       if (!key.startsWith('sheet_')) continue;
-      const runtimeTableName = getPhysicalTableNameForSheet_ACU(view, key);
+      const runtimeTableName = physicalNames.get(key);
       if (tableNames.includes(runtimeTableName)) keys.push(key);
     }
     return keys;
@@ -2267,8 +2411,10 @@ export class SqlTableService implements ITableStorageProvider {
    * 提交前 schema 一致性 gate：live SQLite runtime 与请求前冻结的 runtime schema
    * 必须一致，否则任何 SQLite mutation 都不得执行（fail-closed，零写入）。
    *
-   * 比较依据是冻结 digest 与当前实时导出（仅 activeSheetKeys 参与）的 digest。
-   * 无冻结 scope 时跳过（旧调用方/低层工具路径），不收紧 Native 与历史 replay。
+   * 比较依据是冻结 digest 与当前 live runtime schema（仅 activeSheetKeys 参与）的 digest。
+   * digest 只由 sheetKey / effectiveDDL / columnMap 决定，因此这里走 SyncBridge 窄 schema
+   * 接口（getRuntimeEffectiveSchemas_ACU）与物理表名解析表即可，不再为算纯 schema 指纹
+   * 把每张表整行导出。无冻结 scope 时跳过（旧调用方/低层工具路径），不收紧 Native 与历史 replay。
    */
   private _assertRuntimeSchemaCurrent(scope?: SqlTableApplyScope_ACU): void {
     const frozenDigest = scope?.runtimeSchema?.digest;
@@ -2276,20 +2422,20 @@ export class SqlTableService implements ITableStorageProvider {
     if (!this._initialized || !this.engine.isReady) {
       throw new SqlRuntimeSchemaInvalidError_ACU('SQLite 运行时未就绪，无法验证冻结 schema 一致性，已阻止本轮写入。');
     }
-    let currentData: TableDataObject_ACU | null;
-    try {
-      const mate = (this._readCanonicalView_ACU()?.mate as Mate_ACU) || DEFAULT_MATE_ACU;
-      // 非 strict 导出：收集跳过明细并聚合 warn，schema gate 可观测部分导出。
-      const exportWarnings: string[] = [];
-      currentData = this.syncBridge.exportToTableData(mate, { warnings: exportWarnings });
-      if (exportWarnings.length > 0) {
-        logWarn_ACU(`[SqlTableService] schema 一致性导出部分表被跳过（${exportWarnings.length}）：${exportWarnings.join('；')}`);
-      }
-    } catch (error: any) {
-      throw new SqlRuntimeSchemaInvalidError_ACU(`无法导出当前 SQLite schema 用于一致性验证：${String(error?.message || error)}`);
-    }
     const activeSheetKeys = scope?.activeSheetKeys ? new Set(scope.activeSheetKeys) : undefined;
-    const current = freezeRuntimeSchemaFromData_ACU(currentData, activeSheetKeys);
+    let current: RuntimeSchemaFreeze_ACU | null;
+    try {
+      // 物理表名只作冻结视图的证据字段（digest 不消费），从 canonical JSON 镜像解析即可：
+      // 物理名是 sheet 显示名的确定性纯函数，无需重新读 SQLite 整库行数据。
+      const physicalTableNames = resolvePhysicalTableNames_ACU(this._readCanonicalView_ACU() || {});
+      current = freezeRuntimeSchemaFromSchemas_ACU(
+        this.syncBridge.getRuntimeEffectiveSchemas_ACU(),
+        activeSheetKeys,
+        physicalTableNames,
+      );
+    } catch (error: any) {
+      throw new SqlRuntimeSchemaInvalidError_ACU(`无法读取当前 SQLite runtime schema 用于一致性验证：${String(error?.message || error)}`);
+    }
     if (!current || current.digest !== frozenDigest) {
       throw new SqlRuntimeSchemaStaleError_ACU(
         'SQLite runtime schema 在 AI 请求等待期间发生变化，与请求前冻结的 schema 不一致，已阻止本轮写入（零 mutation）。请重新发起本轮填表。',
@@ -2342,13 +2488,15 @@ export class SqlTableService implements ITableStorageProvider {
         return isSqlActiveTemplateSheet_ACU(sheet);
     });
     const missingSheets: Record<string, any> = {};
+    // P1-7：整库物理表名只解析一次（惰性，解析点仍在下方 continue 之后）。
+    const physicalNames = createPhysicalTableNameResolver_ACU(templateData);
 
     for (const key of sheetKeys) {
       // 当前聊天模板是建表结构权威；currentJsonTableData_ACU 可能是旧运行时快照，不能让旧 DDL/CHECK 覆盖模板。
       const liveSheet = (this._readCanonicalView_ACU() as any)?.[key];
       const sheet = (templateData[key] as any) || liveSheet;
       if (!sheet) continue;
-      const runtimeTableName = getPhysicalTableNameForSheet_ACU(templateData, key);
+      const runtimeTableName = physicalNames.get(key);
       if (!existingTables.has(runtimeTableName)) {
         missingSheets[key] = sheet;
       }
@@ -2487,13 +2635,19 @@ function enforceTableLocksAfterSqlApply_ACU(
   beforeData: TableDataObject_ACU,
   interimData: TableDataObject_ACU,
   modifiedKeys: readonly string[],
-  options: { runStatementsIndividually?: boolean } = {},
+  options: { runStatementsIndividually?: boolean; detectOnly?: boolean } = {},
 ): { workingData: TableDataObject_ACU; statements: string[]; reverted: LockRevertItem_ACU[] } {
   const allStatements: string[] = [];
   const allReverted: LockRevertItem_ACU[] = [];
   let physicalNames: ReadonlyMap<string, string> | null = null;
+  // R2A-12：不能只比对语句直接写的表——引擎开着外键，作者 DDL 的 ON DELETE CASCADE 等会改到别的表。
+  // 所有表都参与比对；没有锁的表在下面 identities.hasAny 处即跳过，代价只是一次锁查询。
+  const candidateSheetKeys = [...new Set([
+    ...modifiedKeys,
+    ...Object.keys(beforeData || {}).filter(key => key.startsWith('sheet_')),
+  ])];
 
-  for (const sheetKey of modifiedKeys) {
+  for (const sheetKey of candidateSheetKeys) {
     const beforeSheet = (beforeData as any)?.[sheetKey];
     const beforeContent = beforeSheet?.content;
     if (!Array.isArray(beforeContent) || !Array.isArray(beforeContent[0])) continue;
@@ -2532,6 +2686,10 @@ function enforceTableLocksAfterSqlApply_ACU(
   if (allStatements.length === 0) {
     return { workingData: interimData, statements: [], reverted: [] };
   }
+  // 外部写入只判定、不补偿：由调用方整笔回滚（R9-04）。
+  if (options.detectOnly) {
+    return { workingData: interimData, statements: allStatements, reverted: allReverted };
+  }
   if (options.runStatementsIndividually) {
     // 调用方事务内联执行：补偿语句必须与用户语句同生共死（COMMIT 前生效，失败一起回滚）。
     allStatements.forEach(statement => { engine.run(statement); });
@@ -2556,7 +2714,11 @@ export async function applyParameterizedSqlMutationToTableDataSnapshot_ACU(
     const snapshotCopy = JSON.parse(JSON.stringify(tableData || {})) as TableDataObject_ACU;
     const runtimeSql = rebindSqlMutationIdentifiers_ACU([normalizedSql], snapshotCopy)[0];
     await engine.init();
-    syncBridge.loadFromTableData(snapshotCopy, { strict: true });
+    // 与写入端（loadFromChat / replaceAllData）及 V2 回放 hydrate 同一口径：
+    // hydrate 的输入是当前 canonical 基底（sourceData.ddl 为原串），坏 DDL 下
+    // 若拒绝 fallback，上层 update-orchestrator 整轮 {success:false} 不可降级。
+    // 该 flag 只放宽建表 schema；列/行/约束错误照旧 fail-closed，ddl 不改写。
+    syncBridge.loadFromTableData(snapshotCopy, { strict: true, allowRuntimeDdlFallback: true });
     const result = engine.run(runtimeSql, params);
     const workingData = syncBridge.exportToTableData(resolveSnapshotMate_ACU(snapshotCopy), { strict: true });
     const modifiedTableNames = extractTableNamesFromStatements([runtimeSql]);
@@ -2616,8 +2778,9 @@ export async function applySqlEditsToTableDataSnapshot_ACU(
       { requireKnownTables, requireKnownInsertColumns: true },
     );
     // 先 hydrate 再物化：INSERT…SELECT/WITH 的 SELECT 预执行需要一个已载入快照的引擎。
+    // 口径同上（写入端/回放端一致）：坏 DDL 下允许 runtime fallback，列/行/约束照旧拒绝。
     await engine.init();
-    syncBridge.loadFromTableData(snapshotCopy, { strict: true });
+    syncBridge.loadFromTableData(snapshotCopy, { strict: true, allowRuntimeDdlFallback: true });
     const statements = materializeSystemRowIdsForSqlInserts_ACU(reboundStatements, snapshotCopy, undefined, {
       selectQueryRunner: (sql: string) => engine.query(sql),
     }).filter(Boolean);
@@ -2670,47 +2833,10 @@ export async function applySqlEditsToTableDataSnapshot_ACU(
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * 按分号拆分 SQL 语句（跳过字符串内的分号）
+ * 按分号拆分 SQL 语句：委托 shared/sql-statement-splitter 的唯一实现（R1-05，识别引号与注释）。
  */
 export function splitSqlStatements(sql: string): string[] {
-  const statements: string[] = [];
-  let current = '';
-  let inString = false;
-  let stringChar = '';
-
-  for (let i = 0; i < sql.length; i++) {
-    const char = sql[i];
-
-    if (inString) {
-      current += char;
-      // 检查字符串结束（处理转义的引号 ''）
-      if (char === stringChar) {
-        if (i + 1 < sql.length && sql[i + 1] === stringChar) {
-          // 转义的引号，跳过
-          current += sql[i + 1];
-          i++;
-        } else {
-          inString = false;
-        }
-      }
-    } else if (char === "'" || char === '"') {
-      inString = true;
-      stringChar = char;
-      current += char;
-    } else if (char === ';') {
-      const trimmed = current.trim();
-      if (trimmed) statements.push(trimmed);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-
-  // 最后一条语句（可能没有分号结尾）
-  const trimmed = current.trim();
-  if (trimmed) statements.push(trimmed);
-
-  return statements;
+  return splitSqlStatements_ACU(sql);
 }
 
 

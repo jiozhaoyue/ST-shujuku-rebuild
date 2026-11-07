@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
     oversizedCellWarnChars: 10_000,
     oversizedWriteWarnBytes: 512 * 1024,
   } as Record<string, unknown>,
+  hydrate: vi.fn(),
+  storageMode: 'native' as 'native' | 'sqlite',
 }));
 
 vi.mock('../../../src/shared/utils', () => ({
@@ -36,6 +38,12 @@ vi.mock('../../../src/service/table/table-service', () => ({
 vi.mock('../../../src/service/table/table-storage-strategy', () => ({
   ensureStorageProviderReady_ACU: mocks.ensureProvider,
   reloadStorageProvider: mocks.reload,
+  hydrateStorageProviderFromSnapshot_ACU: mocks.hydrate,
+  getRuntimeLifecycleEpoch_ACU: () => 7,
+}));
+vi.mock('../../../src/service/table/storage-mode', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  getCurrentStorageMode: () => mocks.storageMode,
 }));
 vi.mock('../../../src/service/table/table-write-transaction', () => ({
   runTableWriteTransaction_ACU: mocks.transaction,
@@ -46,8 +54,10 @@ vi.mock('../../../src/service/table/manual-catch-up-provisional-bridge', () => (
 
 import { runSqliteRuntimeMutationCommit_ACU, runTableUpdateCommit_ACU } from '../../../src/service/table/table-update-commit';
 import { logError_ACU, logWarn_ACU } from '../../../src/shared/utils';
+import { captureTableFillTargetGuard_ACU } from '../../../src/service/table/table-fill-target-guard';
 import {
   clearRuntimeOnlyPendingSheets_ACU,
+  markRuntimeOnlyPendingSheets_ACU,
   readRuntimeOnlyPendingSheets_ACU,
   registerRuntimeOnlyPendingFlusher_ACU,
 } from '../../../src/service/table/runtime-only-pending-state';
@@ -137,6 +147,78 @@ describe('runTableUpdateCommit_ACU migration gate', () => {
     expect(apply).not.toHaveBeenCalled();
     expect(mocks.persist).not.toHaveBeenCalled();
     expect(mocks.setCurrentData).not.toHaveBeenCalled();
+  });
+
+  it('AI 等待期间目标楼层换成了另一条回复（滑动 / 重新生成）：拒绝写回，不重试', async () => {
+    const chat: any[] = [
+      { is_user: true, mes: '你好' },
+      { is_user: false, mes: '第一版', swipe_id: 0, send_date: 'd1' },
+    ];
+    const targetGuard = captureTableFillTargetGuard_ACU(chat, () => chat);
+    mocks.migration.mockImplementation(async () => {
+      chat[1].swipe_id = 1;
+      chat[1].mes = '第二版';
+      return { success: true, migrated: false };
+    });
+    mocks.transaction.mockImplementation(async (_options: any, task: any) => task({ runCommit: async (commitTask: any) => commitTask() }, null));
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_target_swiped'),
+      targetMessageIndex: 1,
+      targetGuard,
+    }, async () => ({ success: true, tableData: { mate: { type: 'acu', version: 1 } } as any }));
+
+    expect(result).toMatchObject({
+      success: false,
+      errorCategory: 'precondition',
+      error: expect.stringContaining('目标楼层已换成另一条回复'),
+    });
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
+  it('目标楼层在事务内（应用期间）才被滑动：写回前的核对拦下，不调持久化', async () => {
+    const chat: any[] = [
+      { is_user: true, mes: '你好' },
+      { is_user: false, mes: '第一版', swipe_id: 0, send_date: 'd1' },
+    ];
+    const targetGuard = captureTableFillTargetGuard_ACU(chat, () => chat);
+    mocks.migration.mockResolvedValue({ success: true, migrated: false });
+    mocks.transaction.mockImplementation(async (_options: any, task: any) => task({ runCommit: async (commitTask: any) => commitTask() }, null));
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_target_swiped_in_apply'),
+      targetMessageIndex: 1,
+      targetGuard,
+    }, async () => {
+      chat[1].swipe_id = 1;
+      return { success: true, tableData: { mate: { type: 'acu', version: 1 } } as any };
+    });
+
+    expect(result).toMatchObject({ success: false, errorCategory: 'precondition', error: expect.stringContaining('持久化前') });
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
+  it('apply 改写了写回目标楼层（persist.targetMessageIndex）：核对的是实际写回的那一楼', async () => {
+    const chat: any[] = [
+      { is_user: false, mes: '旧楼', swipe_id: 0, send_date: 'd0' },
+      { is_user: true, mes: '你好' },
+      { is_user: false, mes: '目标', swipe_id: 0, send_date: 'd2' },
+    ];
+    const targetGuard = captureTableFillTargetGuard_ACU(chat, () => chat);
+    mocks.migration.mockResolvedValue({ success: true, migrated: false });
+    mocks.transaction.mockImplementation(async (_options: any, task: any) => task({ runCommit: async (commitTask: any) => commitTask() }, null));
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_target_override'),
+      targetMessageIndex: 2,
+      targetGuard,
+    }, async () => {
+      chat[0].swipe_id = 1; // 实际写回的是 #0，它被滑动了；#2 没变
+      return { success: true, tableData: { mate: { type: 'acu', version: 1 } } as any, persist: { targetMessageIndex: 0 } };
+    });
+
+    expect(result).toMatchObject({ success: false, errorCategory: 'precondition' });
+    expect(mocks.persist).not.toHaveBeenCalled();
   });
 
   it('RuntimeRevision 错误不再分类为 conflict，未知提交错误统一归为 infrastructure', async () => {
@@ -823,3 +905,110 @@ describe('超大字段写入软警告（只警告不拦截）', () => {
     expect(warnText).not.toContain('[数据体积]');
   });
 });
+describe('runTableUpdateCommit_ACU 运行时已变更但未落盘时的收敛', () => {
+  const data: any = {
+    mate: { type: 'acu', version: 1 },
+    sheet_target: { uid: 'sheet_target', name: '目标表', content: [['row_id'], ['r1']] },
+  };
+
+  beforeEach(() => {
+    mocks.currentChatKey = 'chat-a';
+    mocks.currentIsolationKey = 'scope-a';
+    mocks.migration.mockReset().mockResolvedValue({ success: true, migrated: false });
+    mocks.reload.mockReset();
+    mocks.persist.mockReset();
+    mocks.setCurrentData.mockReset();
+    mocks.transaction.mockReset().mockImplementation(async (_options: any, task: any) => task({
+      runCommit: async (commitTask: any) => commitTask(),
+    }, null));
+  });
+
+  it('apply 已改动运行时、随后持久化抛异常：重载运行时，不留下未落盘的孤儿行', async () => {
+    // 曾只在 persist 返回 saved:false 时重载；抛异常（如基线过期）时引擎保留整批行。
+    mocks.persist.mockRejectedValueOnce(new Error('runtime revision conflict: simulated'));
+
+    const result = await runTableUpdateCommit_ACU({ ...options('test_persist_throw'), targetSheetKeys: ['sheet_target'] }, async () => ({ success: true, tableData: data }));
+
+    expect(result.success).toBe(false);
+    expect(mocks.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('apply 声明运行时已改动但返回失败：同样重载运行时', async () => {
+    const result = await runTableUpdateCommit_ACU(options('test_apply_failed_after_mutation'), async () => ({
+      success: false, error: '构建回放操作失败', errorCategory: 'model' as const, runtimeMutated: true,
+    }));
+
+    expect(result.success).toBe(false);
+    expect(mocks.persist).not.toHaveBeenCalled();
+    expect(mocks.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('apply 未改动运行时（如 runtime-only 写回聊天）持久化失败：不得重载，否则冲掉待写回的行', async () => {
+    mocks.persist.mockResolvedValueOnce({ saved: false, error: 'compat readonly gate' });
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_flush_persist_failed'),
+      targetSheetKeys: ['sheet_target'],
+      skipRuntimeOnlyPendingFlush: true,
+      applyMutatesRuntime: false,
+    }, async () => ({ success: true, tableData: data }));
+
+    expect(result.success).toBe(false);
+    expect(mocks.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('块 2A 复审 R2A-04：提交失败回滚保住尚未落盘的运行时写入', () => {
+  const pendingScope = { chatKey: 'chat-a', isolationKey: 'scope-a' };
+  const before: any = {
+    mate: { type: 'acu', version: 1 },
+    sheet_script: { uid: 'sheet_script', name: '脚本表', content: [['row_id'], ['script-row']] },
+    sheet_target: { uid: 'sheet_target', name: '目标表', content: [['row_id'], ['r1']] },
+  };
+  const after: any = JSON.parse(JSON.stringify(before));
+  after.sheet_target.content.push(['r2']);
+
+  beforeEach(() => {
+    mocks.currentChatKey = 'chat-a';
+    mocks.currentIsolationKey = 'scope-a';
+    mocks.migration.mockReset().mockResolvedValue({ success: true, migrated: false });
+    mocks.reload.mockReset();
+    mocks.persist.mockReset().mockResolvedValue({ saved: false, error: 'disk full' });
+    mocks.setCurrentData.mockReset();
+    mocks.hydrate.mockReset().mockResolvedValue({ ok: true, degraded: false, source: 'merged' });
+    mocks.transaction.mockReset().mockImplementation(async (_options: any, task: any) => task({
+      runCommit: async (commitTask: any) => commitTask(),
+    }, JSON.parse(JSON.stringify(before))));
+    registerRuntimeOnlyPendingFlusher_ACU(null);
+    clearRuntimeOnlyPendingSheets_ACU();
+  });
+
+  it('有未落盘的脚本写入时，不整体重载，而是把运行时恢复到本次提交前（含未落盘行）', async () => {
+    mocks.storageMode = 'native';
+    markRuntimeOnlyPendingSheets_ACU(pendingScope, { all: false, sheetKeys: ['sheet_script'] });
+    const result = await runTableUpdateCommit_ACU({ ...options('fill'), targetSheetKeys: ['sheet_target'] }, async () => ({ success: true, tableData: after }));
+    expect(result.success).toBe(false);
+    expect(mocks.reload).not.toHaveBeenCalled();
+    expect(mocks.setCurrentData).toHaveBeenCalledWith(before);
+    expect(readRuntimeOnlyPendingSheets_ACU(pendingScope)?.sheetKeys).toEqual(['sheet_script']);
+  });
+
+  it('SQLite 下用提交前快照重建运行时；重建失败时退回整体重载', async () => {
+    mocks.storageMode = 'sqlite';
+    markRuntimeOnlyPendingSheets_ACU(pendingScope, { all: false, sheetKeys: ['sheet_script'] });
+    await runTableUpdateCommit_ACU({ ...options('fill'), targetSheetKeys: ['sheet_target'] }, async () => ({ success: true, tableData: after }));
+    expect(mocks.hydrate).toHaveBeenCalledWith(expect.objectContaining({ data: before, storageMode: 'sqlite' }));
+    expect(mocks.reload).not.toHaveBeenCalled();
+
+    mocks.hydrate.mockResolvedValueOnce({ ok: false, degraded: false, failureCode: 'provider_init_failed' });
+    await runTableUpdateCommit_ACU({ ...options('fill'), targetSheetKeys: ['sheet_target'] }, async () => ({ success: true, tableData: after }));
+    expect(mocks.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('没有未落盘写入时维持原行为：整体重载', async () => {
+    mocks.storageMode = 'native';
+    await runTableUpdateCommit_ACU({ ...options('fill'), targetSheetKeys: ['sheet_target'] }, async () => ({ success: true, tableData: after }));
+    expect(mocks.reload).toHaveBeenCalledTimes(1);
+  });
+});
+

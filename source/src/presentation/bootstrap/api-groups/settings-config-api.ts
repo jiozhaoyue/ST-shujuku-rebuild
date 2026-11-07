@@ -148,7 +148,8 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                     autoUpdateThreshold: settings_ACU.autoUpdateThreshold ?? 3,
                     autoUpdateFrequency: settings_ACU.autoUpdateFrequency ?? 1,
                     updateBatchSize: settings_ACU.updateBatchSize ?? 2,
-                    autoUpdateTokenThreshold: settings_ACU.autoUpdateTokenThreshold ?? 0
+                    autoUpdateTokenThreshold: settings_ACU.autoUpdateTokenThreshold ?? 0,
+                    tableFillMinResponseLength: settings_ACU.tableFillMinResponseLength ?? 0
                 };
             } catch (e) {
                 logError_ACU('getUpdateConfigParams failed:', e);
@@ -156,7 +157,8 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                     autoUpdateThreshold: 3,
                     autoUpdateFrequency: 1,
                     updateBatchSize: 2,
-                    autoUpdateTokenThreshold: 0
+                    autoUpdateTokenThreshold: 0,
+                    tableFillMinResponseLength: 0
                 };
             }
         },
@@ -181,6 +183,9 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                 }
                 if (typeof params.autoUpdateTokenThreshold === 'number' && params.autoUpdateTokenThreshold >= 0) {
                     patch.autoUpdateTokenThreshold = Math.floor(params.autoUpdateTokenThreshold);
+                }
+                if (typeof params.tableFillMinResponseLength === 'number' && params.tableFillMinResponseLength >= 0) {
+                    patch.tableFillMinResponseLength = Math.floor(params.tableFillMinResponseLength);
                 }
                 const result = setUpdateNumberFields_ACU(patch);
                 if (!result.ok) {
@@ -223,9 +228,16 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                 const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
                 const validKeys = sheetKeys.filter(key => availableKeys.includes(key));
 
+                // R9-16：保存失败时回滚内存并如实返回 false
+                const previous = { tables: settings_ACU.manualSelectedTables, has: settings_ACU.hasManualSelection };
                 settings_ACU.manualSelectedTables = validKeys;
                 settings_ACU.hasManualSelection = true;
-                saveSettingsAndNotify_ACU();
+                if (saveSettingsAndNotify_ACU()?.saved !== true) {
+                    settings_ACU.manualSelectedTables = previous.tables;
+                    settings_ACU.hasManualSelection = previous.has;
+                    logError_ACU('setManualSelectedTables failed: settings save failed');
+                    return false;
+                }
 
                 logDebug_ACU('Manual selected tables updated:', validKeys);
                 return true;
@@ -237,9 +249,15 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
 
         clearManualSelectedTables: function() {
             try {
+                const previous = { tables: settings_ACU.manualSelectedTables, has: settings_ACU.hasManualSelection };
                 settings_ACU.manualSelectedTables = [];
                 settings_ACU.hasManualSelection = false;
-                saveSettingsAndNotify_ACU();
+                if (saveSettingsAndNotify_ACU()?.saved !== true) {
+                    settings_ACU.manualSelectedTables = previous.tables;
+                    settings_ACU.hasManualSelection = previous.has;
+                    logError_ACU('clearManualSelectedTables failed: settings save failed');
+                    return false;
+                }
                 logDebug_ACU('Manual selected tables cleared');
                 return true;
             } catch (e) {

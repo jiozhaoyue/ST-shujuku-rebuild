@@ -11,7 +11,7 @@ async function importManagement() {
   const applyTemplatePresetToCurrent = vi.fn(async () => ({ presetName: '', isDefault: true }));
   const renameTemplatePreset = vi.fn(() => ({ ok: true }));
   const openVisualizerSurface = vi.fn(async () => true);
-  const ensureTemplateRecoveryOrDeleteCurrentIsolationData = vi.fn(async () => ({ success: true, dataWasReset: false }));
+  const ensureTemplateRecoveryReady = vi.fn(async () => ({ success: true, dataWasReset: false }));
   let activeTemplateMode = 'inherit_global';
   const promptFollowGlobalAfterSetDefault = vi.fn(async () => true);
   const runFollowGlobalTemplateFlow = vi.fn(async () => true);
@@ -45,9 +45,11 @@ async function importManagement() {
   }));
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: { currentTemplatePresetName: 'global-A' },
+    currentChatFileIdentifier_ACU: 'chat-a',
+    getCurrentIsolationKey_ACU: () => '',
   }));
   vi.doMock('../../../src/presentation-v2/composables/useTemplateRecoveryGuard', () => ({
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU: ensureTemplateRecoveryOrDeleteCurrentIsolationData,
+    ensureTemplateRecoveryReady_ACU: ensureTemplateRecoveryReady,
   }));
   vi.doMock('../../../src/service/template/chat-scope', () => ({
     sanitizeChatSheetsObject_ACU: (value: any) => value,
@@ -71,7 +73,7 @@ async function importManagement() {
     renameTemplatePreset,
     openVisualizerSurface,
     resolveTemplateForExport,
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData,
+    ensureTemplateRecoveryReady,
     promptFollowGlobalAfterSetDefault,
     runFollowGlobalTemplateFlow,
     setRuntimeSnapshot: (value: any) => { runtimeSnapshot = value; },
@@ -112,6 +114,37 @@ describe('useTablePresetManagement', () => {
     await management.openVisualizer();
 
     expect(openVisualizerSurface).toHaveBeenCalledWith({ source: 'v2-shell' });
+  });
+
+  it('R10B-06：打开/编辑进可视化编辑器前先过页面守卫，拒绝则不切预设也不打开', async () => {
+    const { management, applyTemplatePresetToCurrent, openVisualizerSurface } = await importManagement();
+    const { registerUiCloseGuard } = await import('../../../src/presentation-v2/composables/useUiCloseGuard');
+    const unregister = registerUiCloseGuard(() => false);
+
+    await management.openVisualizer();
+    await management.editPreset('global-B');
+    unregister();
+
+    expect(openVisualizerSurface).not.toHaveBeenCalled();
+    expect(applyTemplatePresetToCurrent).not.toHaveBeenCalled();
+  });
+
+  it('R10A-23：操作在途时拒绝重入，不会并发切两次预设', async () => {
+    const { management, applyTemplatePresetToCurrent } = await importManagement();
+    let release!: () => void;
+    applyTemplatePresetToCurrent.mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve({ success: true, saved: true, runtimeApplied: true } as any);
+    }));
+
+    const first = management.editPreset('global-B');
+    await vi.waitFor(() => expect(applyTemplatePresetToCurrent).toHaveBeenCalledTimes(1));
+    expect(management.busy.value).toBe(true);
+    await management.editPreset('global-B');
+    expect(applyTemplatePresetToCurrent).toHaveBeenCalledTimes(1);
+
+    release();
+    await first;
+    expect(management.busy.value).toBe(false);
   });
 
   it('编辑指定预设时先切换聊天预设，再打开 v2 visualizer', async () => {
@@ -168,16 +201,6 @@ describe('useTablePresetManagement', () => {
     expect(useToastStore().items.at(-1)).toMatchObject({ kind: 'error', text: '目标聊天已切换，已取消模板提交。' });
   });
 
-  it('presetMeta 列表首位包含 runtime 只读项', async () => {
-    const { management } = await importManagement();
-    expect(management.presetMeta.value[0]).toMatchObject({
-      name: '__runtime__',
-      kind: 'runtime',
-      readOnly: true,
-    });
-    expect(management.presetMeta.value.map(item => item.name)).toEqual(['__runtime__', 'global-A', 'global-B']);
-  });
-
   it('exportPreset 对 runtime 项以 runtime scope 解析，文件名为 runtime 前缀', async () => {
     const { management, resolveTemplateForExport } = await importManagement();
     const toast = (await import('../../../src/presentation-v2/stores/toast-store')).useToastStore();
@@ -221,8 +244,8 @@ describe('useTablePresetManagement', () => {
   });
 
   it('editPreset 在恢复守卫失败时不调用切换', async () => {
-    const { management, applyTemplatePresetToCurrent, ensureTemplateRecoveryOrDeleteCurrentIsolationData } = await importManagement();
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData.mockResolvedValueOnce({ success: false, dataWasReset: false });
+    const { management, applyTemplatePresetToCurrent, ensureTemplateRecoveryReady } = await importManagement();
+    ensureTemplateRecoveryReady.mockResolvedValueOnce({ success: false, dataWasReset: false });
 
     await management.editPreset('global-B');
 
@@ -246,6 +269,7 @@ describe('useTablePresetManagement', () => {
     const { useDialogStore } = await import('../../../src/presentation-v2/stores/dialog-store');
     applyTemplatePresetToCurrent
       .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
+      .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
       .mockResolvedValueOnce({ saved: true, mode: 'v2_commit' });
 
     const pending = management.editPreset('global-B');
@@ -254,13 +278,15 @@ describe('useTablePresetManagement', () => {
     await pending;
 
     expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(1, 'global-B', expect.objectContaining({ destructiveChangeConfirmed: false }));
-    expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(2, 'global-B', expect.objectContaining({ destructiveChangeConfirmed: true }));
+    expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(2, 'global-B', expect.objectContaining({ destructiveChangeConfirmed: false }));
+    expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(3, 'global-B', expect.objectContaining({ destructiveChangeConfirmed: true }));
   });
 
   it('setAsDefault 全局切换出现破坏性 blockers 时经确认后重试（S1-3）', async () => {
     const { management, applyTemplatePresetToCurrent } = await importManagement();
     const { useDialogStore } = await import('../../../src/presentation-v2/stores/dialog-store');
     applyTemplatePresetToCurrent
+      .mockResolvedValueOnce({ saved: false, blockers: ['删除列「HP」需要显式确认。'], error: '删除列「HP」需要显式确认。' })
       .mockResolvedValueOnce({ saved: false, blockers: ['删除列「HP」需要显式确认。'], error: '删除列「HP」需要显式确认。' })
       .mockResolvedValueOnce({ saved: true });
 
@@ -274,6 +300,10 @@ describe('useTablePresetManagement', () => {
       destructiveChangeConfirmed: false,
     }));
     expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(2, 'global-B', expect.objectContaining({
+      updateGlobal: true,
+      destructiveChangeConfirmed: false,
+    }));
+    expect(applyTemplatePresetToCurrent).toHaveBeenNthCalledWith(3, 'global-B', expect.objectContaining({
       updateGlobal: true,
       destructiveChangeConfirmed: true,
     }));

@@ -6,6 +6,7 @@
  */
 
 import { logWarn_ACU } from './utils';
+import { mapSqlColumnIdentifiers_ACU } from './sql-identifier-mapper';
 import type { Sheet_ACU } from './models/table-data';
 
 // ═══════════════════════════════════════════════════════════════
@@ -95,21 +96,93 @@ export function parseDDLColumnComments(ddl: string): Map<string, string> {
 
   const body = getCreateTableDefinitionBody_ACU(ddl);
   if (body === null) return comments;
-  // 按行分割（注释是行级概念，标准 SQL 中 `-- 注释` 到行尾）
-  // 而非按 splitColumnDefinitions 分割（逗号在注释之前，会截断注释）
-  const lines = body.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // 匹配 column_name ... -- 注释（行内可能有逗号、CHECK 约束等）
-    const match = trimmed.match(/^([^\s,()]+)\s+.*?--\s*(.+?)\s*,?\s*$/);
-    if (match) {
-      comments.set(match[1], match[2]);
-    }
+  // 注释是行级概念（`-- 注释` 到行尾），归属该行最后一个开始的列定义（R7-07）：
+  // 约定写法 `col TEXT, -- 注释` 里逗号在注释之前；一行多列时注释属于最后一列。
+  // 引号内的 `--`（DEFAULT '--'）不是注释起点。
+  for (const line of scanDdlBodyLines_ACU(body)) {
+    if (!line.owner || line.commentStart < 0) continue;
+    const comment = readDdlLineComment_ACU(body, line);
+    if (comment) comments.set(line.owner, comment);
   }
 
   return comments;
+}
+
+interface DdlBodyLine_ACU {
+  start: number;
+  end: number;
+  /** 本行最后一个开始的列定义的首个 token（原样，含引号）；本行没有列定义开始时为 null。 */
+  owner: string | null;
+  /** 本行引号外 `--` 的位置（相对 body）；没有时为 -1。 */
+  commentStart: number;
+}
+
+/**
+ * 引号 / 括号 / 块注释感知地逐行扫描 CREATE TABLE 括号内的定义体。
+ * 列定义从「体首或顶层逗号之后的第一个非空白字符」开始。
+ */
+function scanDdlBodyLines_ACU(body: string): DdlBodyLine_ACU[] {
+  const lines: DdlBodyLine_ACU[] = [];
+  let lineStart = 0;
+  let owner: string | null = null;
+  let commentStart = -1;
+  let depth = 0;
+  let quote: "'" | '"' | '`' | '[' | null = null;
+  let inBlockComment = false;
+  let expectDefinition = true;
+  const finishLine = (end: number) => {
+    lines.push({ start: lineStart, end, owner, commentStart });
+    lineStart = end + 1;
+    owner = null;
+    commentStart = -1;
+  };
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === '\n' && !quote) {
+      finishLine(index);
+      continue;
+    }
+    if (quote) {
+      if (quote === '[' ? char === ']' : char === quote) {
+        if (quote !== '[' && body[index + 1] === quote) index += 1;
+        else quote = null;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (char === '*' && body[index + 1] === '/') { inBlockComment = false; index += 1; }
+      continue;
+    }
+    if (char === '-' && body[index + 1] === '-') {
+      commentStart = index;
+      const newline = body.indexOf('\n', index);
+      index = (newline < 0 ? body.length : newline) - 1;
+      continue;
+    }
+    if (char === '/' && body[index + 1] === '*') { inBlockComment = true; index += 1; continue; }
+    if (expectDefinition && depth === 0 && !/[\s,]/.test(char)) {
+      let tokenEnd = index;
+      if (char === "'" || char === '"' || char === '`' || char === '[') {
+        const close = char === '[' ? ']' : char;
+        tokenEnd = body.indexOf(close, index + 1);
+        tokenEnd = tokenEnd < 0 ? body.length : tokenEnd + 1;
+      } else {
+        while (tokenEnd < body.length && !/[\s,()]/.test(body[tokenEnd])) tokenEnd += 1;
+      }
+      owner = body.slice(index, tokenEnd);
+      expectDefinition = false;
+    }
+    if (char === "'" || char === '"' || char === '`' || char === '[') { quote = char; continue; }
+    if (char === '(') depth += 1;
+    else if (char === ')') depth = Math.max(0, depth - 1);
+    else if (char === ',' && depth === 0) expectDefinition = true;
+  }
+  finishLine(body.length);
+  return lines;
+}
+
+function readDdlLineComment_ACU(body: string, line: DdlBodyLine_ACU): string {
+  return body.slice(line.commentStart + 2, line.end).trim().replace(/\s*,\s*$/, '').trim();
 }
 
 /**
@@ -231,6 +304,42 @@ export function getRuntimeEffectiveSchema_ACU(sheet: unknown): unknown {
 }
 
 /**
+ * DDL 列解析记忆化。
+ *
+ * getSheetColumnProjection_ACU 被 UI 与生成链 19 处共用，每次调用都要把整条 DDL
+ * 从零重解一遍（逐列分词、注释剥离、DEFAULT 表达式扫描、多趟正则）。而它读到的
+ * 输入只有三样：DDL 串、表头行 content[0]、隐藏列配置 hiddenPhysicalColumns。
+ * 其中只有 DDL 串需要重解析，另两样是逐元素读取，因此：
+ * - 记忆化键＝DDL 串逐字相等（parseDDLColumnInfos_ACU 是 DDL 串的纯函数）；
+ * - 表头行与隐藏列配置每次现读现算，令牌不覆盖的输入一律不省略；
+ * - 只缓存解析产物、不缓存投影结果对象：结果每次新建，调用方之间不共享可变结构
+ *   （本仓 v9.6.6 有过「共享引用被就地改」的事故）。
+ *
+ * 失败路径（非法隐藏列配置）不缓存：照旧每次现算并抛出新的 Error。
+ * 缓存条目数上限固定，超限整表清空后按需重建（表结构是有限集）。
+ */
+const DDL_COLUMN_MEMO_LIMIT_ACU = 128;
+const ddlColumnMemo_ACU = new Map<string, DDLColumnInfo_ACU[]>();
+
+/** 仅供测试：清空 DDL 列解析记忆化（测试隔离 hygiene，非计数）。 */
+export function __resetSheetColumnProjectionMemoForTests_ACU(): void {
+  ddlColumnMemo_ACU.clear();
+}
+
+/** DDL 串 → 列解析产物。空 DDL 不入缓存（解析本身已是空结果，不值得占位）。 */
+function resolveDdlColumnsMemoized_ACU(ddl: string): DDLColumnInfo_ACU[] {
+  if (!ddl) return [];
+  const hit = ddlColumnMemo_ACU.get(ddl);
+  if (hit) {
+    return hit;
+  }
+  const parsed = parseDDLColumnInfos_ACU(ddl);
+  if (ddlColumnMemo_ACU.size >= DDL_COLUMN_MEMO_LIMIT_ACU) ddlColumnMemo_ACU.clear();
+  ddlColumnMemo_ACU.set(ddl, parsed);
+  return parsed;
+}
+
+/**
  * Resolves the persisted physical-column visibility contract without changing
  * the sheet's schema or row layout. Consumers must keep sourceIndex when they
  * project rows; a visible array index is not a physical column index.
@@ -243,7 +352,7 @@ export function getSheetColumnProjection_ACU(sheet: Sheet_ACU): {
   const headers = Array.isArray(sheet?.content?.[0])
     ? sheet.content[0].map(value => String(value ?? ''))
     : [];
-  const ddlColumns = parseDDLColumnInfos_ACU(String(sheet?.sourceData?.ddl || ''));
+  const ddlColumns = resolveDdlColumnsMemoized_ACU(String(sheet?.sourceData?.ddl || ''));
   const rawHidden = sheet?.sourceData?.hiddenPhysicalColumns;
   if (rawHidden !== undefined && !Array.isArray(rawHidden)) {
     throw new Error('hiddenPhysicalColumns 必须是 physical column 字符串数组。');
@@ -297,7 +406,7 @@ export function projectSheetDDLForVisibleColumns_ACU(sheet: Sheet_ACU, ddlOverri
   const projection = getSheetColumnProjection_ACU(sheet);
   if (projection.hiddenPhysicalColumns.length === 0) return ddl;
   const bounds = findCreateTableDefinitionBounds_ACU(ddl);
-  const infos = parseDDLColumnInfos_ACU(ddl);
+  const infos = resolveDdlColumnsMemoized_ACU(ddl);
   if (!bounds || infos.length !== projection.columns.length) {
     throw new Error('无法为隐藏列构建安全的可见 DDL 投影。');
   }
@@ -887,6 +996,56 @@ export function removeDDLColumnAtIndex_ACU(ddl: string, sourceIndex: number): st
   return next;
 }
 
+/**
+ * Appends one business column at the end of a CREATE TABLE statement, keeping every
+ * other authored byte. The physical name is the fallback ASCII identifier for the
+ * header, suffixed (_2, _3…) when it collides with an existing column. Same limits as
+ * removeDDLColumnAtIndex_ACU: one column per line and no table constraints, otherwise
+ * it fails closed and callers must leave the editor draft untouched.
+ */
+export function appendDDLColumn_ACU(ddl: string, header: string): string {
+  const value = String(ddl || '');
+  const displayName = String(header ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+  if (!displayName) throw new Error('列名不能为空。');
+  const bounds = findCreateTableDefinitionBounds_ACU(value);
+  if (!bounds) throw new Error('无法解析 CREATE TABLE 语句，不能安全追加列。');
+  const columns = parseDDLColumnInfos_ACU(value);
+  const body = value.slice(bounds.openingIndex + 1, bounds.closingIndex);
+  const hasTableConstraint = splitColumnDefinitions(body).some(definition =>
+    /^(?:PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)\b/i.test(stripSqlLineComments_ACU(definition).trim()),
+  );
+  if (hasTableConstraint) throw new Error('DDL 含表级约束，不能安全自动追加列。');
+  const lines = body.split('\n');
+  const columnLineIndices = lines
+    .map((line, index) => (/^([^\s,()]+)/.test(stripSqlLineComments_ACU(line).trim()) ? index : -1))
+    .filter(index => index >= 0);
+  if (!columnLineIndices.length || columnLineIndices.length !== columns.length) {
+    throw new Error('DDL 含多行列定义，不能安全自动追加列。');
+  }
+
+  const usedNames = new Set(columns.map(column => canonicalSqlIdentifier_ACU(column.sqlName)));
+  const baseName = mapSqlColumnIdentifiers_ACU(['row_id', displayName]).mappings[1]?.sqlName || 'col';
+  let sqlName = baseName;
+  for (let suffix = 2; usedNames.has(sqlName.toLowerCase()); suffix += 1) sqlName = `${baseName}_${suffix}`;
+
+  const lastLineIndex = columnLineIndices[columnLineIndices.length - 1];
+  const lastLine = lines[lastLineIndex];
+  const lastCode = stripSqlLineComments_ACU(lastLine).replace(/\s+$/, '');
+  if (!lastLine.startsWith(lastCode)) throw new Error('DDL 最后一列含块注释，不能安全自动追加列。');
+  if (!lastCode.endsWith(',')) {
+    lines[lastLineIndex] = `${lastCode},${lastLine.slice(lastCode.length)}`;
+  }
+  const indent = lastLine.match(/^\s*/)?.[0] ?? '  ';
+  lines.splice(lastLineIndex + 1, 0, `${indent}${sqlName} TEXT -- ${displayName}`);
+  const next = `${value.slice(0, bounds.openingIndex + 1)}${lines.join('\n')}${value.slice(bounds.closingIndex)}`;
+  const validation = validateDDLTextAgainstHeaders_ACU(next, [
+    ...columns.map(column => column.sqlName.toLowerCase() === 'row_id' ? 'row_id' : (column.comment || column.sqlName)),
+    displayName,
+  ]);
+  if (!validation.valid) throw new Error(`追加列后的 DDL 非法：${validation.message}`);
+  return next;
+}
+
 function canonicalSqlIdentifier_ACU(value: string): string {
   const raw = String(value || '').trim();
   if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1).replace(/""/g, '"').toLowerCase();
@@ -908,47 +1067,40 @@ function canonicalSqlIdentifier_ACU(value: string): string {
 export function updateDDLColumnComment(ddl: string, columnName: string, newComment: string): string {
   if (!ddl || !columnName || !newComment) return ddl;
 
-  const lines = ddl.split('\n');
-  let found = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (!trimmed) continue;
-
-    // 检查该行是否以目标列名开头（列定义行）
-    const colMatch = trimmed.match(/^([^\s,()]+)\s+/);
-    if (!colMatch || colMatch[1] !== columnName) continue;
-
-    // 找到目标列，替换或添加注释
-    found = true;
-    const line = lines[i];
-
-    // 情况 1：行内已有 `-- 注释`，替换注释内容
-    const commentMatch = line.match(/^(.*?)(--\s*).+?(,?\s*)$/);
-    if (commentMatch) {
-      lines[i] = `${commentMatch[1]}-- ${newComment}${commentMatch[3]}`;
-      break;
-    }
-
-    // 情况 2：行内没有注释，需要添加
-    // 先检查行尾是否有逗号
-    const trailingCommaMatch = line.match(/^(.*?)(,\s*)$/);
-    if (trailingCommaMatch) {
-      // 有逗号：在逗号前插入注释 → `  col TEXT, -- 注释`
-      // 按照项目约定格式：逗号在注释前 → `  col TEXT, -- 注释`
-      lines[i] = `${trailingCommaMatch[1]}, -- ${newComment}`;
-    } else {
-      // 无逗号（最后一列）：直接在行尾添加注释
-      lines[i] = `${line.trimEnd()} -- ${newComment}`;
-    }
-    break;
+  const bounds = findCreateTableDefinitionBounds_ACU(ddl);
+  if (!bounds) {
+    logWarn_ACU(`[Schema] updateDDLColumnComment: 无法解析 CREATE TABLE，DDL 未修改`);
+    return ddl;
+  }
+  const bodyOffset = bounds.openingIndex + 1;
+  const body = ddl.slice(bodyOffset, bounds.closingIndex);
+  // 与 parseDDLColumnComments 同一扫描器（R7-07）：只改注释归属该列的那一行；
+  // 列与别的列同行且不是行内最后一列时，注释无处安放，原样返回而不是挂到错列上。
+  const line = scanDdlBodyLines_ACU(body).find(item => item.owner === columnName);
+  if (!line) {
+    logWarn_ACU(`[Schema] updateDDLColumnComment: 未找到注释归属于列 "${columnName}" 的行，DDL 未修改`);
+    return ddl;
   }
 
-  if (!found) {
-    logWarn_ACU(`[Schema] updateDDLColumnComment: 未找到列 "${columnName}"，DDL 未修改`);
+  let replacement: string;
+  if (line.commentStart >= 0) {
+    // 情况 1：行内已有引号外的 `-- 注释`，只替换注释内容
+    const trailingComma = /,\s*$/.test(body.slice(line.commentStart, line.end)) ? ',' : '';
+    replacement = `${body.slice(line.start, line.commentStart)}-- ${newComment}${trailingComma}`;
+  } else {
+    // 情况 2：行内没有注释。项目约定逗号在注释前 → `  col TEXT, -- 注释`
+    const code = body.slice(line.start, line.end);
+    const trailingCommaMatch = code.match(/^([\s\S]*?)(,\s*)$/);
+    replacement = trailingCommaMatch
+      ? `${trailingCommaMatch[1]}, -- ${newComment}`
+      : `${code.trimEnd()} -- ${newComment}`;
+    // 右括号与该列同行：补换行，否则注释会把右括号吞掉。
+    if (line.end === body.length) replacement += '\n';
   }
 
-  return lines.join('\n');
+  const start = bodyOffset + line.start;
+  const end = bodyOffset + line.end;
+  return `${ddl.slice(0, start)}${replacement}${ddl.slice(end)}`;
 }
 
 // ═══════════════════════════════════════════════════════════════

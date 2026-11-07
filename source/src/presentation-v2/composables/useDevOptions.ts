@@ -11,7 +11,6 @@ export function useDevOptions() {
   const {
     developerOptionsEnabled,
     plotAdvanced,
-    vectorIndexAdvanced,
     warnLogEnabled,
     apiReconfirm,
     promptInspectEnabled,
@@ -22,8 +21,6 @@ export function useDevOptions() {
     setDeveloperOptionsEnabled: (enabled: boolean) => store.setDeveloperOptionsEnabled(enabled),
     plotAdvanced,
     setPlotAdvanced: (enabled: boolean) => store.setPlotAdvanced(enabled),
-    vectorIndexAdvanced,
-    setVectorIndexAdvanced: (enabled: boolean) => store.setVectorIndexAdvanced(enabled),
     warnLogEnabled,
     setWarnLogEnabled: (enabled: boolean) => store.setWarnLogEnabled(enabled),
     apiReconfirm,

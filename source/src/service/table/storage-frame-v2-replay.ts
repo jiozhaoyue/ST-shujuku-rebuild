@@ -17,16 +17,18 @@ import { allocateStableRowId_ACU, createStableRowIdReservation_ACU } from '../..
 import { applySheetSchemaMigrationOperation_ACU } from './table-schema-migration';
 import { canonicalizeDisplayName_ACU, getPhysicalTableNameFromResolvedMap_ACU, getPhysicalTableNameForSheet_ACU, resolvePhysicalTableNames_ACU } from '../../shared/sheet-identity';
 import { parseDDLTableName } from '../../shared/ddl-utils';
+import { isSqlActiveTemplateSheet_ACU } from '../../shared/sql-active-template';
 import { decodeSqlIdentifier_ACU, rebindSqlMutationColumnReferences_ACU, rebindSqlMutationTableReferences_ACU } from '../../shared/sql-mutation-table-rebind';
 import { buildSheetColumnAliasMap_ACU, buildSheetTableAliasMap_ACU, type SheetAliasMapResult_ACU, type SheetColumnAliasMapResult_ACU, type SheetColumnAliasEvidence_ACU } from '../../shared/sql-read-resolver';
 import { auditTableDataForUpgrade_ACU, getTableDataFingerprint_ACU } from './table-data-upgrade-audit';
 import { repairTableDataFromAudit_ACU } from './table-data-repair';
-import { cloneSpv79TransitionData_ACU, compareTransitionCutoffs_ACU, findLatestTransitionCheckpoint_ACU, isAfterSpv79TransitionCutoff_ACU, isEntryAfterSpv79TransitionCutoff_ACU, isFrameArtifactAfterSpv79TransitionCutoff_ACU, reindexSpv79TransitionState_ACU } from './compat-transition-checkpoint';
+import { cloneSpv79TransitionData_ACU, compareTransitionCutoffs_ACU, dedupeCompatTransitionRowIdentities_ACU, findLatestTransitionCheckpoint_ACU, isAfterSpv79TransitionCutoff_ACU, isEntryAfterSpv79TransitionCutoff_ACU, isFrameArtifactAfterSpv79TransitionCutoff_ACU } from './compat-transition-checkpoint';
 import { collectSheetIdentityCanonicals_ACU, mergeLegacySheetIdentities_ACU, type SheetIdentityRemap_ACU } from '../../shared/sheet-identity-merge';
 import { runTableWriteTransaction_ACU } from './table-write-transaction';
 import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
 import { buildReplayOptionsFingerprint_ACU, computeReplayHeadRevisionDigest_ACU, validateV2ReplayEvidenceFresh_ACU } from './v2-replay-session';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
+import { splitSqlStatements_ACU } from '../../shared/sql-statement-splitter';
 
 interface V2FrameRef_ACU {
   messageIndex: number;
@@ -82,7 +84,8 @@ function buildInflightReplayKey_ACU(
   options: LoadTableStateFromFramesV2Options_ACU,
   structureMappingDigest = '',
 ): string | null {
-  if (options.updateRuntimeState) return null;
+  // 与 core 口径一致：只有显式 false 才是纯只读；默认（undefined）有副作用，不得去重。
+  if (options.updateRuntimeState !== false) return null;
   if (Array.isArray(options.captureBoundaries) && options.captureBoundaries.length > 0) return null;
   // entry 观察回调是调用方私有副作用：共享 core 只会触发启动方的回调，不得去重。
   if (typeof options.onEntryApplied === 'function') return null;
@@ -106,6 +109,16 @@ function buildInflightReplayKey_ACU(
 }
 
 export type TableScheduleSummaryV2_ACU = NonNullable<TableCheckpointV2_ACU['scheduleSummary']>;
+
+/**
+ * P1-c：冷回放入口统一使用的让步预算（毫秒）。
+ *
+ * 长聊天冷 hydrate（切聊加载、可视化器打开）是一次同步密集的全量回放，
+ * 在 frame/entry 边界按预算让出事件循环可避免主线程长冻结。
+ * 取 12ms：落在回放文档建议的 8～16ms 区间内，且远小于用户可感知的交互阈值。
+ * 缺省不传 = 永不让出（既有调用方语义不变）；只有显式传参的冷入口才让出。
+ */
+export const COLD_REPLAY_YIELD_BUDGET_MS_ACU = 12;
 
 export type TableReplayBaseKindV2_ACU =
   | 'full_checkpoint'
@@ -233,6 +246,20 @@ export function createLegacyToleranceReport_ACU(): LegacyToleranceReport_ACU {
  */
 export const V2_COMPAT_READONLY_MARKER_ACU = '仅可经兼容宽容回放读出';
 
+/**
+ * 兼容只读态的用户指引（G13-02 统一口径）：按是否含 sheetKey 身份归并分支，
+ * 说明系统的真实行为——不含身份归并的兼容结果由加载路径在后台自动固化为过渡根
+ * （scheduleCompatTransitionFixation_ACU，没有手动固化按钮）；含身份归并的不会
+ * 自动固化，且当前版本没有身份归一化自助修复入口，只能指向真实存在的
+ * 「历史恢复诊断」入口与原始 frame 备份导出。不再指向从未存在过的
+ * 「固化兼容回放为过渡根」按钮或「诊断 V2 数据恢复」分节名。
+ */
+export function buildCompatReadonlyGuidance_ACU(diagnosis?: LegacyToleranceDiagnosis_ACU | null): string {
+  return (diagnosis?.identityRemaps?.length || 0) > 0
+    ? '该历史含 sheetKey 身份归并，不会自动固化，当前版本无法自助修复：请到「数据管理」→「备份与恢复」→「历史恢复诊断」点「诊断」查看，并导出日志与原始 frame 备份反馈。'
+    : '不含身份归并的兼容结果会在重新加载聊天时由后台自动固化为过渡根（没有手动固化按钮），请重载聊天或稍候再重试写入。';
+}
+
 export function buildCompatReadonlyWriteRejectionMessage_ACU(
   scope: string,
   replay: { legacyToleranceDiagnosis?: LegacyToleranceDiagnosis_ACU } | null | undefined,
@@ -240,7 +267,7 @@ export function buildCompatReadonlyWriteRejectionMessage_ACU(
 ): string {
   const strictError = replay?.legacyToleranceDiagnosis?.strictError || '未知错误';
   const suffix = extra ? `；${extra}` : '';
-  return `${scope}检测到聊天历史${V2_COMPAT_READONLY_MARKER_ACU}（严格回放失败：${strictError}），不能继续写入${suffix}；请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。`;
+  return `${scope}检测到聊天历史${V2_COMPAT_READONLY_MARKER_ACU}（严格回放失败：${strictError}），不能继续写入${suffix}；${buildCompatReadonlyGuidance_ACU(replay?.legacyToleranceDiagnosis)}`;
 }
 
 export function isCompatReadonlyWriteRejection_ACU(error: unknown): boolean {
@@ -967,6 +994,35 @@ function applyEventToScheduleSummary_ACU(
   }
 }
 
+/**
+ * 带导入恢复声明的事件应用：changed 沿用覆盖语义；filled 改走 max 合并。
+ *
+ * filled 贡献先按声明钳制（`Math.min(decl, aiFloor)`，与 history 读取侧
+ * v2RestoreUpToAiFloor_ACU 同口径；无合法声明即应用楼层本身），再与既有值取 max——
+ * 同帧多 entry 谁先谁后不得影响前沿（真实 entry 与降级 entry 共存时顺序任意），
+ * 跨帧楼层递增时 max 与原覆盖语义逐字等价。
+ */
+function applyScheduleEventWithRestoreDeclMax_ACU(
+  summary: TableScheduleSummaryV2_ACU,
+  event: Pick<TableMutationLogEntryV2_ACU, 'filledSheetKeys' | 'changedSheetKeys' | 'groupKeys'> | undefined,
+  aiFloor: number,
+  restoreDecl: unknown,
+): void {
+  if (!event) return;
+  for (const sheetKey of event.changedSheetKeys || []) {
+    if (!summary[sheetKey]) summary[sheetKey] = {};
+    summary[sheetKey].lastChangedAiFloor = aiFloor;
+  }
+  const decl = Number(restoreDecl);
+  const effective = Number.isInteger(decl) && decl > 0 ? Math.min(decl, aiFloor) : aiFloor;
+  const filledKeys = [...new Set([...(event.filledSheetKeys || []), ...(event.groupKeys || [])])];
+  for (const sheetKey of filledKeys) {
+    if (!summary[sheetKey]) summary[sheetKey] = {};
+    const prev = summary[sheetKey].lastFilledAiFloor;
+    summary[sheetKey].lastFilledAiFloor = prev === undefined ? effective : Math.max(prev, effective);
+  }
+}
+
 function replayEventForState_ACU(event: Pick<TableMutationLogEntryV2_ACU, 'filledSheetKeys' | 'changedSheetKeys' | 'groupKeys'> | undefined, aiFloor: number): void {
   if (!event) return;
 
@@ -1158,44 +1214,26 @@ function getValidatedTimelineCheckpointsForFrame_ACU(
   return checkpoints.filter(checkpoint => checkpoint.timeline !== undefined);
 }
 
-function splitSqlStatementsForReplay_ACU(sql: string): string[] {
-  const statements: string[] = [];
-  let current = '';
-  let inString = false;
-  let stringChar = '';
-  for (let i = 0; i < sql.length; i += 1) {
-    const char = sql[i];
-    if (inString) {
-      current += char;
-      if (char === stringChar) {
-        if (i + 1 < sql.length && sql[i + 1] === stringChar) {
-          current += sql[i + 1];
-          i += 1;
-        } else {
-          inString = false;
-        }
-      }
-    } else if (char === "'" || char === '"') {
-      inString = true;
-      stringChar = char;
-      current += char;
-    } else if (char === ';') {
-      const trimmed = current.trim();
-      if (trimmed) statements.push(trimmed);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  const tail = current.trim();
-  if (tail) statements.push(tail);
-  return statements;
+// 分句与写入期共用 shared/sql-statement-splitter（R1-05），写入与回放切分口径一致。
+function normalizeSqlStatementForReplay_ACU(statement: string): string {
+  return normalizeStatementValues(normalizeSqlStructure(statement));
 }
 
-function normalizeSqlStatementsForReplay_ACU(statements: string[]): string[] {
+function normalizeSqlStatementsForReplay_ACU(statements: string[], options: { alignedParams?: boolean } = {}): string[] {
+  if (options.alignedParams) {
+    // R2B-10：带参数时每条存储语句对应一组参数（写入期按单条语句绑定执行），不能再分句后整体过滤，
+    // 否则后面的参数全部错位。存储语句切出的不是恰好一条时 fail-closed。
+    return statements.map((statement, index) => {
+      const pieces = splitSqlStatements_ACU(stripHtmlCommentMarkersOutsideSqlLiterals_ACU(String(statement || '')).trim());
+      if (pieces.length !== 1) {
+        throw new Error(`参数化 SQL 回放：第 ${index + 1} 条存储语句切分后为 ${pieces.length} 条，参数无法对齐，已拒绝回放。`);
+      }
+      return normalizeSqlStatementForReplay_ACU(pieces[0]);
+    });
+  }
   return statements
-    .flatMap(statement => splitSqlStatementsForReplay_ACU(stripHtmlCommentMarkersOutsideSqlLiterals_ACU(String(statement || '')).trim()))
-    .map(statement => normalizeStatementValues(normalizeSqlStructure(statement)))
+    .flatMap(statement => splitSqlStatements_ACU(stripHtmlCommentMarkersOutsideSqlLiterals_ACU(String(statement || '')).trim()))
+    .map(normalizeSqlStatementForReplay_ACU)
     .filter(Boolean);
 }
 
@@ -1454,7 +1492,19 @@ async function ensureSqlReplayRuntime_ACU(
   if (!options.legacyDuplicateRowIds) normalizeHistoricalReplayState_ACU(state, 'snapshot');
   await runtime.engine.init();
   if (options.legacyDuplicateRowIds) runtime.syncBridge.loadSpv79LegacyDuplicateRowIdHistory(state);
-  else runtime.syncBridge.loadFromTableData(state, { strict: true });
+  // 回放必须复现写入时的 runtime schema 加载口径：写入端（sql-table-service.ts）一律带
+  // allowRuntimeDdlFallback。回放若拒绝同一回退，写入基底与回放基底必然分叉，
+  // 触发写入守卫（CREATE TABLE near )）并让该聊天的写入探针恒失败。
+  //
+  // 该 flag 在 sync-bridge 里有**两处**放宽边界，不是只有「首条 CREATE TABLE 失败」：
+  // ① resolve 期（sync-bridge.ts:307）：显式 DDL 缺少可用的 row_id INTEGER PRIMARY KEY
+  //    结构时 resolveEffectiveDDL 直接产出 fallback_invalid（见 schema-mapper.ts:128），
+  //    此时不要求 source==='explicit'、也不要求是第 1 条语句失败；
+  // ② 执行期（sync-bridge.ts:353）：source==='explicit' 且首条语句失败才再回退一次。
+  // 两处都只影响建表 schema：行标识与行宽校验在 DDL 之前跑（sync-bridge.ts:139-157）、
+  // 映射计划与 INSERT 串在 runBatch 之前生成、fallback 的 columnMap 覆盖全部表头，
+  // 故行数据 / 约束 / 映射错误照旧 fail-closed，sourceData.ddl 也不改写。
+  else runtime.syncBridge.loadFromTableData(state, { strict: true, allowRuntimeDdlFallback: true });
   if (options.metrics) {
     options.metrics.sqliteHydrateCount += 1;
   }
@@ -1549,6 +1599,48 @@ function registerReplayKeyRedirect_ACU(identity: ReplayIdentityMergeContext_ACU,
   for (const [key, target] of identity.keyRedirects) {
     if (target === fromKey) identity.keyRedirects.set(key, toKey);
   }
+}
+
+/**
+ * 回放 SQL 来自历史聊天，INSERT/UPDATE 的 VALUES 是用户剧情数据，不得进入错误文本（日志 / UI）。
+ * 保留「第 N 条语句失败: <语句摘要> → <SQLite 错误>」结构，下游按该格式解析序号与错误的逻辑不受影响（移植上游 132136a6）。
+ */
+function redactReplaySqlFailureMessage_ACU(message: string): string {
+  const failure = /^([\s\S]*?第 \d+ 条语句失败:\s*)([\s\S]*)\s→\s([\s\S]+)$/.exec(message);
+  if (!failure) return message;
+  const [, prefix, statement, sqliteError] = failure;
+  const head = /^\s*(INSERT\s+(?:OR\s+[A-Za-z]+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+[A-Za-z]+)?|DELETE\s+FROM|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE|DROP\s+TABLE(?:\s+IF\s+EXISTS)?)\s+("(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\]|[^\s(,;]+)/i.exec(statement);
+  const summary = head
+    ? `${head[1].replace(/\s+/g, ' ').toUpperCase()} ${head[2]}`
+    : /^\s*WITH\b/i.test(statement) ? 'WITH …' : 'SQL 语句';
+  return `${prefix}${summary} → ${sqliteError}`;
+}
+
+/**
+ * 休眠表（非首列空业务表头）在 SQL 活动路径中不建表，其历史 sql_sheet_batch 写入严格回放必撞
+ * no such table，整段历史因此只能兼容只读、之后写入全被拒；这些写入已无保留价值，跳过（也不补锚）。
+ * 目标表在当前回放状态中休眠，或缺失且当前模板同 key 表休眠时跳过；含结构 SQL 的 operation、
+ * 以及缺失且模板中也无法确认休眠的目标表，仍按原语义执行（fail-closed）。移植上游 132136a6。
+ */
+function shouldSkipDormantSqlSheetBatchForReplay_ACU(
+  state: TableDataObject_ACU,
+  operation: TableMutationOperationV2_ACU,
+  identity: ReplayIdentityMergeContext_ACU,
+  template: TableDataObject_ACU | null | undefined,
+): boolean {
+  if (!operation || operation.kind !== 'sql_sheet_batch' || typeof operation.sheetKey !== 'string') return false;
+  const statements = Array.isArray(operation.statements) ? operation.statements : [];
+  if (statements.some(statement => /^\s*(CREATE|ALTER|DROP|RENAME)\b/i.test(String(statement || '')))) return false;
+  const resolvedKey = redirectReplaySheetKey_ACU(identity, operation.sheetKey);
+  const sheet = (state as Record<string, unknown>)[resolvedKey] as Sheet_ACU | undefined;
+  if (sheet && typeof sheet === 'object' && !Array.isArray(sheet)) return !isSqlActiveTemplateSheet_ACU(sheet);
+  // 被同名归并的 loser key：数据在 winner 表里，按原语义经别名回放。
+  if (identity.loserKeys.has(operation.sheetKey)) return false;
+  const templateSheet = (template as Record<string, unknown> | null | undefined)?.[operation.sheetKey] as Sheet_ACU | undefined;
+  return !!templateSheet
+    && typeof templateSheet === 'object'
+    && !Array.isArray(templateSheet)
+    && !isSqlActiveTemplateSheet_ACU(templateSheet);
 }
 
 /** 解析规范 key：沿重定向链到底（链在登记时已压平，最多再跳一次）。 */
@@ -1792,7 +1884,9 @@ async function applySqlBatchOperationV2_ACU(
   options: { legacyDuplicateRowIds?: boolean; metrics?: TableReplayMetricsV2_ACU } = {},
   context?: ReplayAliasContext_ACU | null,
 ): Promise<void> {
-  const statements = normalizeSqlStatementsForReplay_ACU(operation.statements || []);
+  const statements = normalizeSqlStatementsForReplay_ACU(operation.statements || [], {
+    alignedParams: Array.isArray(operation.params),
+  });
   if (statements.length === 0) return;
   if (options.metrics) options.metrics.sqlOperationCount += statements.length;
   await ensureSqlReplayRuntime_ACU(runtime, state, options);
@@ -2347,7 +2441,12 @@ export function collectScheduleSummaryFromFramesV2_ACU(
       ? deepClone_ACU(checkpointRef.frame.checkpoint.scheduleSummary || {})
       : {});
   if (!transitionRef && checkpointRef?.frame.checkpoint) {
-    applyEventToScheduleSummary_ACU(summary, checkpointRef.frame.checkpoint.event, checkpointRef.aiFloor);
+    applyScheduleEventWithRestoreDeclMax_ACU(
+      summary,
+      checkpointRef.frame.checkpoint.event,
+      checkpointRef.aiFloor,
+      (checkpointRef.frame.checkpoint as { restoreUpToAiFloor?: unknown }).restoreUpToAiFloor,
+    );
   }
 
   for (const ref of frameRefs) {
@@ -2383,7 +2482,12 @@ export function collectScheduleSummaryFromFramesV2_ACU(
         ref.messageIndex, entry.seq, transitionRef.checkpoint,
       )) continue;
       applyDueIntroductions(entry.seq);
-      applyEventToScheduleSummary_ACU(summary, entry, ref.aiFloor);
+      applyScheduleEventWithRestoreDeclMax_ACU(
+        summary,
+        entry,
+        ref.aiFloor,
+        (entry as { restoreUpToAiFloor?: unknown }).restoreUpToAiFloor,
+      );
     }
     applyDueIntroductions(Number.POSITIVE_INFINITY);
   }
@@ -2614,6 +2718,11 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
                 continue;
               }
               try {
+                if (shouldSkipDormantSqlSheetBatchForReplay_ACU(state, operation, identity, headerOnlyTemplate)) {
+                  const skippedSheetKey = String((operation as { sheetKey?: unknown }).sheetKey ?? '');
+                  logWarn_ACU(`[V2 Replay] 跳过休眠表的历史 SQL 写入：sheetKey=${skippedSheetKey}, messageIndex=${ref.messageIndex}, seq=${entry.seq}, operationIndex=${operationIndex}。`);
+                  continue;
+                }
                 if (options.compatibilityMode !== 'disabled'
                   && operation?.kind === 'sql_sheet_batch'
                   && typeof operation.sheetKey === 'string'
@@ -2652,7 +2761,7 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
                 );
                 appliedAnyOperation = true;
               } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = redactReplaySqlFailureMessage_ACU(error instanceof Error ? error.message : String(error));
                 throw new Error(
                   `[V2 Replay] operation failed: messageIndex=${ref.messageIndex}, seq=${entry.seq}, operationIndex=${operationIndex}, kind=${String((operation as any)?.kind || 'unknown')}: ${message}`,
                 );
@@ -2785,7 +2894,7 @@ async function recoverWithLegacyTolerantReplay_ACU(
   // 提交"的失败信号。Tier-1 宽容回放也是一种兼容修复，纳入同一开关豁免，
   // 保证写门闸的失败信号不被降级链吞掉（读永远宽容，写才严格）。
   if (options.compatibilityMode === 'disabled') throw originalError;
-  const originalMessage = originalError instanceof Error ? originalError.message : String(originalError);
+  const originalMessage = redactReplaySqlFailureMessage_ACU(originalError instanceof Error ? originalError.message : String(originalError));
   let tolerant: LegacyTolerantReplayResult_ACU;
   try {
     tolerant = await replayWithLegacyTolerances_ACU(chat, isolationKey, {
@@ -2794,7 +2903,7 @@ async function recoverWithLegacyTolerantReplay_ACU(
   } catch (tolerantError) {
     logError_ACU(
       `[V2 Compat Replay] Tier-1 兼容回放也失败，保留原始错误。兼容回放错误：`
-      + `${tolerantError instanceof Error ? tolerantError.message : String(tolerantError)}`,
+      + `${redactReplaySqlFailureMessage_ACU(tolerantError instanceof Error ? tolerantError.message : String(tolerantError))}`,
     );
     throw originalError;
   }
@@ -2811,20 +2920,20 @@ async function recoverWithLegacyTolerantReplay_ACU(
   if (chat === getChatArray_ACU() && options.backgroundFixation !== 'skip') {
     scheduleCompatTransitionFixation_ACU(chat, isolationKey);
   }
-  // 返回前尽力把行身份归一为新版契约（与固化根使用同一 reindex 纯函数）：
+  // 返回前尽力把行身份归一为新版契约（与固化根使用同一去重纯函数，保留既有 row_id）：
   // 成功则首次加载与固化后的后续加载看到完全一致的 row_id；失败则原样返回
   // 兼容结果（仍可用，只是该历史无法固化）。
   let resultData = tolerant.data;
   try {
-    const reindexed = reindexSpv79TransitionState_ACU(tolerant.data);
-    const normalization = normalizeCanonicalTableRows_ACU(reindexed);
+    const deduped = dedupeCompatTransitionRowIdentities_ACU(tolerant.data).data;
+    const normalization = normalizeCanonicalTableRows_ACU(deduped);
     if (normalization.errors.length === 0 && normalization.removedRows.length === 0) {
-      resultData = reindexed;
+      resultData = deduped;
     }
-  } catch (reindexError) {
+  } catch (dedupeError) {
     logWarn_ACU(
-      `[V2 Compat Replay] 兼容结果行身份重编号失败，按原始兼容结果返回：`
-      + `${reindexError instanceof Error ? reindexError.message : String(reindexError)}`,
+      `[V2 Compat Replay] 兼容结果行身份去重失败，按原始兼容结果返回：`
+      + `${dedupeError instanceof Error ? dedupeError.message : String(dedupeError)}`,
     );
   }
   return {
@@ -2940,9 +3049,10 @@ export async function loadTableStateFromFramesV2Detailed_ACU(
           sheetCount: Object.keys(shared.data || {}).filter(key => key.startsWith('sheet_')).length,
           replayShareCount: 1,
         });
+        // 返回完整结果（兼容诊断字段是写门闸的判断依据，不能只给 data/baseKind）。
+        const { metrics: _starterMetrics, ...sharedResult } = shared;
         return {
-          data: deepClone_ACU(shared.data),
-          baseKind: shared.baseKind,
+          ...deepClone_ACU(sharedResult),
           metrics: sharedMetrics,
         };
       } finally {
@@ -3072,11 +3182,22 @@ export async function loadTableStateFromFramesV2Detailed_ACU(
  * @returns Map<boundary, TableReplayResultV2_ACU>，key 严格递增，每个结果的
  *   capturedBoundary 标记对应 boundary。
  */
+export interface LoadTableStatesAtBoundariesBatchOptions_ACU {
+  /**
+   * 无帧 boundary（用户消息、未落帧 AI 层、尾部无帧消息）按「≤ boundary 的最后一个帧」参与前向捕获
+   * （移植上游 bb2f221d / #63）。两者处理的帧集合相同，起算根、repair 与损坏帧语义与冷回放一致；
+   * 结果仍按原 boundary 建 key。boundary 之前没有任何帧时保持原值，照旧回退并报错。
+   * 仅只读读取调用方开启；写路径的候选校验维持逐边界原语义。
+   */
+  inheritFramelessBoundaries?: boolean;
+}
+
 export async function loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
   chatArg: any[] | null | undefined,
   isolationKeyArg: string,
   boundaries: readonly number[],
   options: Omit<LoadTableStateFromFramesV2Options_ACU, 'captureBoundaries' | 'maxMessageIndex'> = {},
+  batchOptions: LoadTableStatesAtBoundariesBatchOptions_ACU = {},
 ): Promise<Map<number, TableReplayResultV2_ACU>> {
   const chat = chatArg || getChatArray_ACU();
   if (!Array.isArray(chat) || chat.length === 0) return new Map();
@@ -3092,6 +3213,19 @@ export async function loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
   // 不晚于它的最后一个帧。因此**不做**越界拒绝——超出最大帧的 boundary 等价于
   // 不设上限（处理全量），与既有 maxMessageIndex 语义完全一致。
   const allFrameRefs = getV2FrameRefs_ACU(chat, isolationKey);
+  // 每个 boundary 的捕获目标：默认就是 boundary 本身；开启继承时取 ≤ boundary 的最后一个帧，
+  // 否则无帧 boundary 永远不会被 core 捕获，整批会在一次前向回放后再退回逐次冷回放。
+  const captureTargetOf = new Map<number, number>();
+  for (const boundary of boundaries) {
+    let target = boundary;
+    if (batchOptions.inheritFramelessBoundaries === true) {
+      for (const ref of allFrameRefs) {
+        if (ref.messageIndex > boundary) break;
+        target = ref.messageIndex;
+      }
+    }
+    captureTargetOf.set(boundary, target);
+  }
   // 每个 boundary 的起算 checkpoint：该 boundary 的 frameRefs 中最后一个 full checkpoint。
   // 全部相同才允许前向捕获；否则回退逐次冷 replay。
   const roots = new Map<number, number | null>();
@@ -3106,7 +3240,7 @@ export async function loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
 
   if (allShareRoot) {
     // 前向捕获：单次 replay，captureBoundaries 驱动中间快照。
-    const sorted = [...boundaries].sort((a, b) => a - b);
+    const sorted = [...new Set(captureTargetOf.values())].sort((a, b) => a - b);
     // 调用方传入的可写容器：core 在捕获时写入，此处读回各 boundary 快照。
     // 若不传容器，core 使用内部临时 Map（结果随调用结束丢弃），本函数将读不到
     // 中间快照——因此必须显式传入，杜绝「静默只返回最终态」的错误语义。
@@ -3133,7 +3267,11 @@ export async function loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
     );
     if (missing.length === 0 && invalid.length === 0) {
       const results = new Map<number, TableReplayResultV2_ACU>();
-      for (const boundary of sorted) results.set(boundary, captureSink.get(boundary)!);
+      for (const boundary of [...boundaries].sort((a, b) => a - b)) {
+        const target = captureTargetOf.get(boundary)!;
+        const snapshot = captureSink.get(target)!;
+        results.set(boundary, target === boundary ? snapshot : { ...snapshot, capturedBoundary: boundary });
+      }
       return results;
     }
     // 覆盖不全或有 repair：回退逐次冷 replay（下方共用回退路径）。
@@ -3336,6 +3474,8 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
     return false;
   }
 
+  // 锁外计算 cutoff 与目标楼层（R2B-06）：记下当时的聊天形状，锁内复核，变了就放弃固化。
+  const chatShapeAtPlan = `${chat.length}|${computeReplayHeadRevisionDigest_ACU(chat, isolationKey)}`;
   const tolerant = await replayWithLegacyTolerances_ACU(chat, isolationKey);
   // 身份归并不是可自动固化的容忍项：mergeLegacySheetIdentities_ACU 按模板 key /
   // 稳定 key / 字典序选赢家，同 row_id 直接丢弃 loser 行，不做列身份转换。把这样的
@@ -3348,9 +3488,10 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
       .join('；');
     logWarn_ACU(
       `[V2 Compat Replay] 放弃固化兼容过渡根：兼容结果含 sheetKey 身份归并（${remapSummary}），`
-      + '按 key 优先级的归并不能作为持久权威根；请在数据管理中执行 V2 恢复（身份归一化）。数据仍按兼容读取结果可用。',
+      + '按 key 优先级的归并不能作为持久权威根，且当前版本没有身份归一化自助修复入口；'
+      + '可到「数据管理」→「备份与恢复」→「历史恢复诊断」点「诊断」查看状态，并导出原始 frame 备份反馈。数据仍按兼容读取结果可用。',
     );
-    notifyCompatFixationAbandoned_ACU(isolationKey, 'identity_remaps', `兼容过渡根未固化：本聊天表格历史含 sheetKey 身份归并（${remapSummary}），自动固化已跳过，数据仍可读。请到数据管理执行 V2 恢复做身份归一化。`);
+    notifyCompatFixationAbandoned_ACU(isolationKey, 'identity_remaps', `兼容过渡根未固化：本聊天表格历史含 sheetKey 身份归并（${remapSummary}），自动固化已跳过，数据仍可读。当前版本无法自助修复身份归并，请到「数据管理」的「历史恢复诊断」查看，并导出原始 frame 备份反馈。`);
     return false;
   }
   const existing = findLatestTransitionCheckpoint_ACU(chat, isolationKey);
@@ -3358,15 +3499,15 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
     // 已有过渡根覆盖了同样或更新的历史，无需重复固化。
     return false;
   }
-  const data = reindexSpv79TransitionState_ACU(tolerant.data);
+  const data = dedupeCompatTransitionRowIdentities_ACU(tolerant.data).data;
   const normalization = normalizeCanonicalTableRows_ACU(data);
   const issues = [...normalization.errors, ...normalization.removedRows];
   if (issues.length > 0) {
     logWarn_ACU(
-      `[V2 Compat Replay] 放弃固化兼容过渡根：重编号结果不满足 canonical 行身份契约：`
+      `[V2 Compat Replay] 放弃固化兼容过渡根：去重结果不满足 canonical 行身份契约：`
       + `${formatCanonicalRowIssues_ACU(issues)}。数据仍按兼容读取结果可用，下次加载将继续走兼容回放。`,
     );
-    notifyCompatFixationAbandoned_ACU(isolationKey, 'canonical_failed', '兼容过渡根未固化：重编号结果不满足行身份契约，自动固化已跳过，数据仍可读，下次加载将继续走兼容回放。');
+    notifyCompatFixationAbandoned_ACU(isolationKey, 'canonical_failed', '兼容过渡根未固化：去重结果不满足行身份契约，自动固化已跳过，数据仍可读，下次加载将继续走兼容回放。');
     return false;
   }
   let scheduleSummary: TableScheduleSummaryV2_ACU | undefined;
@@ -3377,6 +3518,7 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
   }
   const tolerances = summarizeLegacyToleranceReport_ACU(tolerant.toleranceReport);
 
+  let abandonedForChatChange = false;
   await runTableWriteTransaction_ACU({
     source: 'system_cleanup',
     reason: 'createCompatTransitionCheckpointFromTolerantReplay',
@@ -3385,6 +3527,12 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
     maintenanceMode: 'exclusive',
     workingDataMode: 'none',
   }, async ctx => ctx.runCommit(async () => {
+    // 等锁期间切了聊天、删/插了楼层或帧有新写入：cutoff.messageIndex 与目标楼层可能已错位，放弃固化。
+    if (getChatArray_ACU() !== chat
+      || `${chat.length}|${computeReplayHeadRevisionDigest_ACU(chat, isolationKey)}` !== chatShapeAtPlan) {
+      abandonedForChatChange = true;
+      return;
+    }
     const target = chat[targetMessageIndex];
     if (!target || target.is_user) throw new Error('兼容过渡 checkpoint 的目标 AI 楼层在提交前已变化。');
     const latest = findLatestTransitionCheckpoint_ACU(chat, isolationKey);
@@ -3424,6 +3572,10 @@ export async function createCompatTransitionCheckpointFromTolerantReplay_ACU(
       throw error;
     }
   }));
+  if (abandonedForChatChange) {
+    logWarn_ACU('[V2 Compat Replay] 放弃固化兼容过渡根：计算期间聊天已变化（切换、删改楼层或有新写入），下次加载重试。数据仍按兼容读取结果可用。');
+    return false;
+  }
   logWarn_ACU(`[V2 Compat Replay] 已把兼容读取结果固化为过渡根：cutoff=${JSON.stringify(tolerant.cutoff)}, tolerances=${tolerances.join(', ')}。后续加载将走严格快路径。`);
   lastFixationAbandonToastKey_ACU = '';
   return true;

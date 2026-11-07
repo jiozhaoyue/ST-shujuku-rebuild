@@ -85,6 +85,7 @@ import {
 import {
   getAllSummaryVectorIndexSnapshotLayers_ACU
 } from './summary-vector-index-state-service';
+import { resolveCurrentSummaryVectorScopeParts_ACU } from './summary-vector-index-scope-resolver';
 import {
     locateSummaryVectorMirrorBase_ACU,
     resolveSummaryVectorMirrorHead_ACU,
@@ -610,6 +611,9 @@ function buildRowIndex_ACU(indexId: string, rows: ChatSummaryVectorIndexRow_ACU[
             rowId: row.rowId,
             rowOrder: row.rowOrder,
             summaryKey: row.rowKey,
+            // 兜底指纹（G10-02）：仅在落盘行自带 sourceFingerprint 缺失时补写 legacy manifest 的 rowIndex，
+            // 全仓没有等值比较消费它。公式与 archive-service 私有版不同（多 rowOrder 字段），
+            // 两者只在各自链内自洽、不可互换；镜像 V2 主链路的内容变化判定走 vectorSourceHash，与此无关。
             sourceFingerprint: row.sourceFingerprint || hashUserInput_ACU([row.rowId, row.rowOrder, row.timeSpan, row.location, row.summary, row.indexCode, row.vectorSourceText].join('\n')),
             indexCode: row.indexCode,
             chunkIds: [...row.chunkIds],
@@ -3374,7 +3378,8 @@ async function tryReadV2MirrorDisplayStats_ACU(): Promise<{
             chat,
             isolationKey,
             sourceTableKey,
-            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref),
+            // 状态展示如实反映盘上文件，不走内存缓存
+            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref, { fresh: true }),
         });
         if (head.status !== 'ok' || !head.checkpoint) return null;
         const chunkCount = [...head.head.values()].reduce((sum, refs) => sum + refs.length, 0);
@@ -3398,11 +3403,23 @@ export async function getSummaryVectorIndexStats_ACU(manifest: ChatSummaryVector
     manifest = normalizeSummaryVectorIndexManifestForRead_ACU(manifest);
     const tempCache = await estimateVectorIndexTempCache_ACU(manifest?.indexId);
     const hotCache = await estimateSummaryVectorHotCache_ACU(manifest?.indexId);
-    const flushTasks = await estimateSummaryVectorFlushTasks_ACU(manifest ? {
-        chatKey: manifest.chatKey,
-        isolationKey: manifest.isolationKey,
-        sourceTableKey: manifest.sourceTableKey,
-    } : undefined);
+    const flushTasks = manifest
+        ? await estimateSummaryVectorFlushTasks_ACU({
+            chatKey: manifest.chatKey,
+            isolationKey: manifest.isolationKey,
+            sourceTableKey: manifest.sourceTableKey,
+        })
+    // manifest 为 null 时按**当前 scope** 统计：list 在无 scope 时匹配全部记录，
+    // 别的 scope 的残留失败任务会被算成当前索引的失败（这正是用户看到的"启动就有 1 失败"）。
+    // 当前 scope 解析不出来时**整段跳过 flush 统计**（全 0）：不能传空串兜底——
+    // list 会把空 isolationKey 归一成 'default'，于是变成"匹配所有 default 隔离的记录"
+    // （任意聊天、任意纪要表），等于又退回全库口径，用户的原始症状照旧出现。
+        : await (async () => {
+            const currentScope = resolveCurrentSummaryVectorScopeParts_ACU();
+            return currentScope
+                ? estimateSummaryVectorFlushTasks_ACU(currentScope)
+                : { total: 0, dirty: 0, queued: 0, flushing: 0, ready: 0, failedRetryable: 0, failedTerminal: 0, lastError: '' };
+        })();
     const cacheTotalBytes = tempCache.bytes + hotCache.bytes;
     const flushTaskFields = {
         flushTaskTotalCount: flushTasks.total,

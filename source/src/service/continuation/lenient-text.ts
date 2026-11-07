@@ -150,3 +150,49 @@ export function parseJsonLenient_ACU(text: string): unknown {
     return undefined;
   }
 }
+
+/** 正文里几乎不会出现的控制字符（换行、回车除外）：多半是 C:\temp 这类单层转义被多解了一层。 */
+const SUSPICIOUS_CONTROL_CHAR_ACU = /[\u0000-\u0009\u000B\u000C\u000E-\u001F]/;
+
+function containsSuspiciousControlChar_ACU(value: unknown): boolean {
+  if (typeof value === 'string') return SUSPICIOUS_CONTROL_CHAR_ACU.test(value);
+  if (Array.isArray(value)) return value.some(containsSuspiciousControlChar_ACU);
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(([key, item]) => SUSPICIOUS_CONTROL_CHAR_ACU.test(key) || containsSuspiciousControlChar_ACU(item));
+  }
+  return false;
+}
+
+/** SQL 字段值的格式归一化：只解码完整 JSON，不补内容；失败保留原值交给领域校验。 */
+export function parseSqlJsonValue_ACU(value: string | number | null): unknown {
+  if (typeof value !== 'string') return value;
+  let text = value.trim();
+  // 支持多包一层 JSON 字符串；不抢救截断结构，也不猜补正文里的引号。
+  for (let depth = 0; depth < 3; depth += 1) {
+    const structured = (text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'));
+    if (!structured && !(text.startsWith('"') && text.endsWith('"'))) break;
+    const parsed = parseJsonLenient_ACU(text);
+    if (parsed !== null && typeof parsed === 'object') return parsed;
+    if (parsed === undefined && structured) {
+      // SQL 单引号内误保留了一层 JSON 字符串转义。按完整字符串解码，而非逐个删反斜杠，
+      // 再严格解析完整容器，保留正文中的引号、路径、换行等真实转义。
+      let escaped = text;
+      for (let layer = 0; layer < 3; layer += 1) {
+        try {
+          escaped = JSON.parse(`"${escaped}"`);
+          const decoded: unknown = JSON.parse(escaped);
+          // 引号多转义、路径反斜杠只转义一层时，解码会把 \t、\b 变成控制字符：宁可保留原值，不悄悄改坏正文。
+          if (decoded !== null && typeof decoded === 'object') {
+            return containsSuspiciousControlChar_ACU(decoded) ? value : decoded;
+          }
+        } catch { /* 无法完整解码时不猜测；仍可尝试剩余的完整编码层。 */ }
+      }
+      break;
+    }
+    if (typeof parsed !== 'string' || parsed === text) break;
+    text = parsed.trim();
+  }
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  return value;
+}

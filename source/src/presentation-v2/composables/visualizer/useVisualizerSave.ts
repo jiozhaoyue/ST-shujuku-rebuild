@@ -8,7 +8,6 @@ import {
   notifyTemplateRuntimeCommitted_ACU
 } from '../../../shared/template-runtime-change';
 import {
-  applySheetOrderNumbers_ACU,
   ensureSheetOrderNumbers_ACU,
   isSummaryOrOutlineTable_ACU,
   logDebug_ACU,
@@ -26,26 +25,16 @@ import {
   currentChatFileIdentifier_ACU,
   currentJsonTableData_ACU,
   getCurrentIsolationKey_ACU,
-  settings_ACU,
   _set_currentJsonTableData_ACU,
 } from '../../../service/runtime/state-manager';
 import {
-  applySummaryIndexSequenceToTable_ACU,
   deleteTableLocksForSheet_ACU,
-  getSummaryIndexColumnIndex_ACU,
   saveTableLocksForSheet_ACU,
   setSpecialIndexLockEnabled_ACU,
 } from '../../../service/runtime/helpers-remaining';
 import {
   getCurrentWorldbookConfig_ACU
 } from '../../../service/settings/settings-readers';
-import {
-  runTableUpdateCommit_ACU
-} from '../../../service/table/table-update-commit';
-import {
-  getLatestAiMessageIndexFromChat_ACU,
-  resolveTableHistoryStateFromChat_ACU,
-} from '../../../service/table/table-history';
 import {
   isSqliteMode
 } from '../../../service/table/storage-mode';
@@ -106,6 +95,7 @@ import {
 import {
   applyVisualizerPendingDataOps_ACU,
   hasVisualizerPendingDataOps_ACU,
+  listVisualizerPendingDataOpSheetKeys_ACU,
   replaceVisualizerTemporaryRowIds_ACU,
 } from '../../../service/visualizer/visualizer-data-ops';
 import {
@@ -115,6 +105,7 @@ import {
   useVisualizerStore,
   type VisualizerLockDraft
 } from '../../stores/visualizer-store';
+import { migrateTableApiPresetOverridesForRenames_ACU } from './table-api-preset-rename';
 
 export interface VisualizerSaveInteractions {
   requestGlobalPresetName?: (defaultName: string) => string | null | Promise<string | null>;
@@ -143,7 +134,8 @@ export interface VisualizerDestructiveSchemaChangeSummary {
 type GlobalTemplateSaveResult =
   | { status: 'saved'; presetName: string }
   | { status: 'unchanged' }
-  | { status: 'cancelled' };
+  | { status: 'cancelled' }
+  | { status: 'context_changed' };
 
 function cloneData<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
@@ -158,31 +150,10 @@ function visualizerDraftBelongsToCurrentChat(visualizer: ReturnType<typeof useVi
     || (!visualizer.draftContextInvalid && visualizer.draftContextKey === currentVisualizerContextKey());
 }
 
-function applySpecialIndexSequenceFromDrafts(
-  data: Record<string, any>,
-  lockDrafts: Record<string, VisualizerLockDraft>,
-): void {
-  Object.keys(data || {}).forEach(sheetKey => {
-    if (!sheetKey.startsWith('sheet_')) return;
-    const table = data[sheetKey];
-    if (!table || !isSummaryOrOutlineTable_ACU(String(table.name || ''))) return;
-    if (lockDrafts[sheetKey]?.specialIndexLocked === false) return;
-    const colIndex = getSummaryIndexColumnIndex_ACU(table);
-    if (colIndex < 0) return;
-    applySummaryIndexSequenceToTable_ACU(table, colIndex);
-  });
-}
-
+// 按编辑器表顺序重排；保留已有 orderNo（允许稀疏），不改写纪要特殊索引列的内容。
 function buildOrderedData(
   tempData: Record<string, any> | null,
   sheetOrder: string[],
-  lockDrafts: Record<string, VisualizerLockDraft>,
-  options: {
-    /** When false, preserve existing orderNo values (sparse holes allowed). Default true. */
-    renumberOrder?: boolean;
-    /** When false, skip summary special-index rewrite that mutates content. Default true. */
-    applySpecialIndex?: boolean;
-  } = {},
 ): Record<string, any> {
   const source = tempData || { mate: { type: 'chatSheets', version: 1 } };
   const orderedData: Record<string, any> = {};
@@ -192,10 +163,6 @@ function buildOrderedData(
   sheetOrder.forEach(key => {
     if (source[key]) orderedData[key] = cloneData(source[key]);
   });
-  const renumberOrder = options.renumberOrder !== false;
-  const applySpecialIndex = options.applySpecialIndex !== false;
-  if (renumberOrder) applySheetOrderNumbers_ACU(orderedData, sheetOrder);
-  if (applySpecialIndex) applySpecialIndexSequenceFromDrafts(orderedData, lockDrafts);
   return orderedData;
 }
 
@@ -316,6 +283,7 @@ function prepareTemplateSheetsForCommit_ACU(
 async function saveGlobalTemplateSnapshot(
   orderedData: Record<string, any>,
   interactions: VisualizerSaveInteractions,
+  contextStillMatches: () => boolean = () => true,
 ): Promise<GlobalTemplateSaveResult> {
   const templateObj: Record<string, any> = {};
   Object.keys(orderedData || {}).forEach(key => {
@@ -365,6 +333,8 @@ async function saveGlobalTemplateSnapshot(
     if (!confirmed) return { status: 'cancelled' };
   }
   if (!finalGlobalPresetName) return { status: 'cancelled' };
+  // R10A-03：命名/覆盖确认期间可能切了聊天；之后的模板切换会作用于「此刻」的聊天。
+  if (!contextStillMatches()) return { status: 'context_changed' };
 
   const preparedSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
   // 比较对象是「目标预设自身」的 templateStr，而不是全局 profile 串：
@@ -390,106 +360,6 @@ async function saveGlobalTemplateSnapshot(
     throw new Error(typeof (applied as any).error === 'string' && (applied as any).error ? (applied as any).error : '模板快照应用失败。');
   }
   return { status: 'saved', presetName: finalGlobalPresetName };
-}
-
-async function saveCurrentDataToChat(
-  sheetKeysToSave: string[],
-  deletedSheetKeys: string[],
-): Promise<'memory-only' | 'saved'> {
-  const chat = getChatArray_ACU();
-  if (!chat.length) return 'memory-only';
-
-  const isolationKey = getCurrentIsolationKey_ACU();
-  const allSheetKeys = sheetKeysToSave.filter(key => !!currentJsonTableData_ACU?.[key]);
-  const latestAiIndex = getLatestAiMessageIndexFromChat_ACU(chat);
-  const bucketByIndex: Record<number, string[]> = {};
-
-  allSheetKeys.forEach(key => {
-    const table = currentJsonTableData_ACU?.[key];
-    const history = resolveTableHistoryStateFromChat_ACU(chat, {
-      sheetKey: key,
-      isSummaryTable: table ? isSummaryOrOutlineTable_ACU(table.name) : false,
-      isolationKey,
-      settings: settings_ACU,
-    });
-    const idx = history.latestDataMessageIndex !== -1
-      ? history.latestDataMessageIndex
-      : latestAiIndex;
-    if (idx === -1) return;
-    if (!bucketByIndex[idx]) bucketByIndex[idx] = [];
-    bucketByIndex[idx].push(key);
-  });
-
-  if (Object.keys(bucketByIndex).length === 0 && latestAiIndex !== -1) {
-    bucketByIndex[latestAiIndex] = [...allSheetKeys];
-  }
-  if (Object.keys(bucketByIndex).length === 0) return 'memory-only';
-
-  for (const [indexStr, keys] of Object.entries(bucketByIndex)) {
-    const idx = Number.parseInt(indexStr, 10);
-    if (Number.isNaN(idx)) continue;
-    const writeSet = keys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
-    const commitResult = await runTableUpdateCommit_ACU<null>({
-      source: 'manual_crud',
-      reason: 'visualizer_v2_save',
-      isolationKey,
-      writeSet,
-      revisionWriteSet: writeSet,
-      initialData: currentJsonTableData_ACU as any,
-      targetMessageIndex: idx,
-      targetSheetKeys: keys,
-      updateGroupKeys: null,
-      trackingSheetKeys: [],
-      trackAsUpdate: false,
-      operations: keys
-        .filter(sheetKey => Boolean((currentJsonTableData_ACU as any)?.[sheetKey]))
-        .map(sheetKey => ({ kind: 'sheet_replace' as const, sheetKey, sheet: (currentJsonTableData_ACU as any)[sheetKey], reason: 'manual_crud' as const })),
-    }, () => ({
-      success: true,
-      value: null,
-      tableData: currentJsonTableData_ACU as any,
-      mutationResult: { changes: keys.length, errors: [] },
-    }));
-    if (!commitResult.success) {
-      logWarn_ACU('[ACU-V2 Visualizer] save commit failed:', commitResult.error);
-    }
-  }
-
-  if (deletedSheetKeys.length > 0) {
-    const result = await purgeSheetKeysFromChatHistoryHard_ACU(deletedSheetKeys);
-    if (result?.changed && isSqliteMode()) {
-      try {
-        await reloadStorageProvider();
-      } catch (error) {
-        logWarn_ACU('[ACU-V2 Visualizer] reloadStorageProvider failed:', error);
-      }
-    }
-  }
-
-  await refreshMergedDataAndNotify_ACU();
-
-  const sourceTableKey = allSheetKeys.find(sheetKey => {
-    const table = currentJsonTableData_ACU?.[sheetKey];
-    return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
-  });
-  if (sourceTableKey && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
-    try {
-      await enqueueSummaryVectorIndexFlush_ACU({
-        sourceTableKey,
-        reason: 'visualizer_v2_save',
-      });
-    } catch (error) {
-      logWarn_ACU('[ACU-V2 Visualizer] summary vector index queue failed:', error);
-    }
-  }
-
-  try {
-    (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
-  } catch (error) {
-    logDebug_ACU('[ACU-V2 Visualizer] table update notification skipped:', error);
-  }
-
-  return 'saved';
 }
 
 export function useVisualizerSave(interactions: VisualizerSaveInteractions = {}) {
@@ -535,6 +405,12 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         toastStore.error('行数据增量与整表删除无法原子提交；请分别保存行数据和删表操作。', { muteable: false });
         return false;
       }
+      // R10A-02：删表要连同模板一起原子提交。数据路径只硬删数据，模板里的表还在，
+      // 重新载入后会以空表回来；markSaved('data') 还会把删除意图从草稿里抹掉。
+      if (deletedSheetKeys.length > 0) {
+        toastStore.error('删除整张表需要连同模板一起提交；请使用「保存模板到当前聊天」完成删表。', { muteable: false });
+        return false;
+      }
       const templateChanges = classifyVisualizerTemplateChanges_ACU(visualizer.templateBaseData, visualizer.tempData || {});
       const deletedSheetKeySet = new Set(deletedSheetKeys);
       const baseOrderWithoutDeleted = (visualizer.templateBaseSheetOrder || []).filter(key => !deletedSheetKeySet.has(key));
@@ -544,11 +420,26 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         || templateChanges.metadataChangedSheetKeys.length > 0
         || templateChanges.mateChanged
         || JSON.stringify(baseOrderWithoutDeleted) !== JSON.stringify(currentOrderWithoutDeleted);
-      if (hasDataChanges && hasPendingTemplateChanges) {
-        toastStore.error('数据保存不能混入未提交的模板变化；请先保存模板，再保存数据。', { muteable: false });
+      const hasLockChanges = visualizer.lockDirty;
+      // R10A-02：markSaved('data') 会把模板基线设成当前草稿，未提交的改表名/改列/调顺序会被当成
+      // 「已保存」吞掉。所以模板改动没保存时，数据路径只单独存行数据（基线只同步这几张表的行），
+      // 锁和结构改动留给模板保存；模板保存又要求先清掉行数据增量，两条路由此分步走通。
+      // 同一张表既改了列又改了行数据，行增量按旧列记录、模板按新列提交，无法分开保存。
+      const dataSheetKeys = listVisualizerPendingDataOpSheetKeys_ACU(visualizer);
+      if (hasPendingTemplateChanges && hasLockChanges && !hasDataChanges) {
+        toastStore.error('锁设置要和未保存的结构改动一起提交；请使用「保存模板到当前聊天」。', { muteable: false });
         return false;
       }
-      const hasLockChanges = visualizer.lockDirty;
+      if (hasPendingTemplateChanges && hasDataChanges) {
+        const structuralSheetKeys = new Set([...templateChanges.addedSheetKeys, ...templateChanges.schemaChangedSheetKeys]);
+        const conflictNames = dataSheetKeys
+          .filter(sheetKey => structuralSheetKeys.has(sheetKey))
+          .map(sheetKey => String(visualizer.templateBaseData?.[sheetKey]?.name || visualizer.tempData?.[sheetKey]?.name || sheetKey));
+        if (conflictNames.length > 0) {
+          toastStore.error(`表「${conflictNames.join('」「')}」同时改了列和行数据，两者无法分开保存：请先撤销其中一类（把列改回原样，或丢弃草稿后分两次编辑）。`, { muteable: false });
+          return false;
+        }
+      }
       const result = hasDataChanges
         ? await applyVisualizerPendingDataOps_ACU(visualizer, saveContextKey)
         : { success: true, changed: false };
@@ -556,7 +447,7 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         toastStore.error(result.error || '数据保存失败。', { muteable: false });
         return false;
       }
-      if (!result.changed && deletedSheetKeys.length === 0 && !hasLockChanges) {
+      if (!result.changed && !hasLockChanges) {
         // 数据路径不负责模板层配置。若检测到仅存在 mate 级配置变更（如全局注入配置），
         // 给出可执行指引，而非误导性的「没有需要保存的」。
         const mateChanged = classifyVisualizerTemplateChanges_ACU(
@@ -570,17 +461,7 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
           { muteable: false });
         return false;
       }
-      if (deletedSheetKeys.length > 0) {
-        const purgeResult = await purgeSheetKeysFromChatHistoryHard_ACU(deletedSheetKeys);
-        if (purgeResult?.changed && isSqliteMode()) {
-          try {
-            await reloadStorageProvider();
-          } catch (error) {
-            logWarn_ACU('[ACU-V2 Visualizer] reloadStorageProvider failed after sheet purge:', error);
-          }
-        }
-      }
-      if (hasLockChanges) saveLockDrafts(visualizer.tableLockDrafts, visualizer.tempData);
+      if (hasLockChanges && !hasPendingTemplateChanges) saveLockDrafts(visualizer.tableLockDrafts, visualizer.tempData);
       try {
         // 阶段 E：行数据保存路径复用 applyVisualizerPendingDataOps_ACU 已完成的
         // post-save canonical replay 结果，避免 merged refresh 内部再整链 replay 一次
@@ -607,11 +488,15 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       try {
         (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
       } catch {}
+      if (hasPendingTemplateChanges) {
+        visualizer.markDataSavedKeepingTemplateDraft(dataSheetKeys);
+        toastStore.success('行数据已保存到当前消息；结构改动还没保存，请再点「保存模板到当前聊天」。', { muteable: false });
+        return true;
+      }
       visualizer.markSaved('data');
       toastStore.success(
-        deletedSheetKeys.length > 0 ? '数据增量、锁设置与删表清理已保存到当前消息。'
-          : result.changed && hasLockChanges ? '数据增量与锁设置已保存到当前消息。'
-            : result.changed ? '数据增量已保存到当前消息。'
+        result.changed && hasLockChanges ? '数据增量与锁设置已保存到当前消息。'
+          : result.changed ? '数据增量已保存到当前消息。'
             : '表格锁设置已保存。',
         { muteable: false },
       );
@@ -753,6 +638,8 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         try {
           (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
         } catch {}
+        // R10A-14：模板提交成功后才把表级 API 预设覆盖从旧表名迁到新表名
+        migrateTableApiPresetOverridesForRenames_ACU(visualizer.templateBaseData, visualizer.tempData);
         if (lockSaveFailed && (visualizer.lockDirty || visualizer.pendingLockChanges.length > 0)) {
           visualizer.markTemplateSavedWithPendingLocks();
         } else {
@@ -768,13 +655,10 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         return true;
       };
       if (hasVisualizerPendingDataOps_ACU(visualizer)) {
-        toastStore.error('存在未保存的数据增量；本次是模板保存，已阻止混合提交。', { muteable: false });
+        toastStore.error('还有没保存的行数据改动：请先点「保存数据到当前消息」，再保存模板。', { muteable: false });
         return false;
       }
-      const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder, visualizer.tableLockDrafts, {
-        renumberOrder: false,
-        applySpecialIndex: false,
-      });
+      const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder);
       const changes = classifyVisualizerTemplateChanges_ACU(
         visualizer.templateBaseData,
         orderedData,
@@ -1167,6 +1051,8 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       try {
         (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
       } catch {}
+      // R10A-14：模板提交成功后才把表级 API 预设覆盖从旧表名迁到新表名
+      migrateTableApiPresetOverridesForRenames_ACU(visualizer.templateBaseData, visualizer.tempData);
       if (lockSaveFailed && (visualizer.lockDirty || visualizer.pendingLockChanges.length > 0)) {
         visualizer.markTemplateSavedWithPendingLocks();
       } else {
@@ -1195,15 +1081,20 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         return false;
       }
       if (hasVisualizerPendingDataOps_ACU(visualizer)) {
-        toastStore.error('存在未保存的数据增量；本次是模板保存，已阻止混合提交。', { muteable: false });
+        toastStore.error('还有没保存的行数据改动：请先点「保存数据到当前消息」，再保存模板。', { muteable: false });
         return false;
       }
-      const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder, visualizer.tableLockDrafts, {
-        renumberOrder: false,
-        applySpecialIndex: false,
-      });
-      const globalTemplateResult = await saveGlobalTemplateSnapshot(orderedData, interactions);
+      const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder);
+      const saveContextKey = currentVisualizerContextKey();
+      const globalTemplateResult = await saveGlobalTemplateSnapshot(
+        orderedData,
+        interactions,
+        () => saveContextStillMatches(saveContextKey),
+      );
       if (globalTemplateResult.status === 'cancelled') return false;
+      if (globalTemplateResult.status === 'context_changed') return rejectChangedSaveContext();
+      // 锁草稿按「此刻」的聊天与隔离键解析作用域，写入前再核对一次。
+      if (!saveContextStillMatches(saveContextKey)) return rejectChangedSaveContext();
       saveLockDrafts(visualizer.tableLockDrafts, visualizer.tempData);
       if (isSqliteMode()) await reloadStorageProvider();
       await refreshMergedDataAndNotify_ACU();

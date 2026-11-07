@@ -121,9 +121,6 @@ vi.mock('../../src/service/settings/settings-service', () => ({
   })),
   setGlobalPlotEnabled_ACU: vi.fn(),
   applyCombinedSettingsImport_ACU: vi.fn(),
-  getDataIsolationHistory_ACU: vi.fn(() => []),
-  removeDataIsolationHistory_ACU: vi.fn(),
-  switchIsolationProfile_ACU: vi.fn(),
   setSummaryVectorIndexMode_ACU: vi.fn(),
 }));
 

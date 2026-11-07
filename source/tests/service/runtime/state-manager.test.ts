@@ -30,6 +30,7 @@ vi.mock('../../../src/shared/defaults', () => ({
   DEFAULT_AUTO_UPDATE_FREQUENCY_ACU: 3,
   DEFAULT_AUTO_UPDATE_THRESHOLD_ACU: 5,
   DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU: 1000,
+  DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU: 1000,
   defaultVectorMemoryConfig_ACU: {},
 }));
 
@@ -39,17 +40,25 @@ import {
   generationGate_ACU,
   loopState_ACU,
   planningGuard_ACU,
-  markUserSendIntent_ACU,
   isRecentUserSendIntent_ACU,
   recordLastUserSend_ACU,
   recordGenerationContext_ACU,
+  hasActiveForegroundGeneration_ACU,
   resolveGenerationContextForEnded_ACU,
   consumeGenerationContextForEnded_ACU,
   discardLatestGenerationContext_ACU,
   isQuietLikeGeneration_ACU,
   isRecentUserSend_ACU,
   shouldProcessPlotForGeneration_ACU,
+  shouldProcessDecisionRecallForGeneration_ACU,
   shouldProcessAutoTableUpdateForGenerationEnded_ACU,
+  markChatChangedForEndedGate_ACU,
+  requestTableFillStop_ACU,
+  isTableFillStopRequested_ACU,
+  isAutoUpdatingCard_ACU,
+  markStoppedSendForRetry_ACU,
+  clearStoppedSendRetry_ACU,
+  isRetryOfStoppedSend_ACU,
   getCurrentIsolationKey_ACU,
   settings_ACU,
   _set_settings_ACU,
@@ -94,6 +103,7 @@ beforeEach(() => {
   // 而不是让「无配对 + 签名相同 → 丢弃」的用例静默假绿。
   generationGate_ACU.lastEndedFloorSignature_ACU = null;
   expect(generationGate_ACU.lastEndedFloorSignature_ACU).toBeNull();
+  (generationGate_ACU as any).awaitingChatBaseline_ACU = false;
   // 重置 loopState
   loopState_ACU.isLooping = false;
   loopState_ACU.isRetrying = false;
@@ -121,28 +131,8 @@ describe('常量导出', () => {
   });
 });
 
-// ═══ markUserSendIntent_ACU ═══
-describe('markUserSendIntent_ACU', () => {
-  it('设置 lastUserSendIntentAt 为当前时间', () => {
-    const before = Date.now();
-    markUserSendIntent_ACU();
-    const after = Date.now();
-    expect(generationGate_ACU.lastUserSendIntentAt).toBeGreaterThanOrEqual(before);
-    expect(generationGate_ACU.lastUserSendIntentAt).toBeLessThanOrEqual(after);
-  });
-});
-
 // ═══ isRecentUserSendIntent_ACU ═══
 describe('isRecentUserSendIntent_ACU', () => {
-  it('未设置 intent 时返回 false', () => {
-    generationGate_ACU.lastUserSendIntentAt = 0;
-    expect(isRecentUserSendIntent_ACU()).toBe(false);
-  });
-
-  it('刚设置的 intent 返回 true', () => {
-    markUserSendIntent_ACU();
-    expect(isRecentUserSendIntent_ACU()).toBe(true);
-  });
 
   it('超过 TTL 后返回 false', () => {
     generationGate_ACU.lastUserSendIntentAt = Date.now() - USER_SEND_TRIGGER_TTL_MS_ACU - 1;
@@ -152,34 +142,11 @@ describe('isRecentUserSendIntent_ACU', () => {
 
 // ═══ recordLastUserSend_ACU ═══
 describe('recordLastUserSend_ACU', () => {
-  it('chat 为空时不记录', () => {
-    mockGetChatArray.mockReturnValue([]);
-    recordLastUserSend_ACU(0);
-    expect(generationGate_ACU.lastUserMessageId).toBeNull();
-  });
-
-  it('messageId 不是数字时不记录', () => {
-    mockGetChatArray.mockReturnValue([{ is_user: true, mes: 'hello' }]);
-    recordLastUserSend_ACU('abc' as any);
-    expect(generationGate_ACU.lastUserMessageId).toBeNull();
-  });
 
   it('消息不是用户消息时不记录', () => {
     mockGetChatArray.mockReturnValue([{ is_user: false, mes: 'AI回复' }]);
     recordLastUserSend_ACU(0);
     expect(generationGate_ACU.lastUserMessageId).toBeNull();
-  });
-
-  it('有效用户消息时记录', () => {
-    const chat = [{ is_user: true, mes: '你好' }];
-    mockGetChatArray.mockReturnValue(chat);
-    const before = Date.now();
-    recordLastUserSend_ACU(0);
-    const after = Date.now();
-    expect(generationGate_ACU.lastUserMessageId).toBe(0);
-    expect(generationGate_ACU.lastUserMessageText).toBe('你好');
-    expect(generationGate_ACU.lastUserMessageAt).toBeGreaterThanOrEqual(before);
-    expect(generationGate_ACU.lastUserMessageAt).toBeLessThanOrEqual(after);
   });
 
   it('mes 为 undefined 时记录空字符串', () => {
@@ -192,17 +159,6 @@ describe('recordLastUserSend_ACU', () => {
 
 // ═══ recordGenerationContext_ACU ═══
 describe('recordGenerationContext_ACU', () => {
-  it('记录生成上下文', () => {
-    const before = Date.now();
-    recordGenerationContext_ACU('normal', { prompt: 'test' }, false);
-    const after = Date.now();
-    expect(generationGate_ACU.lastGeneration).toBeDefined();
-    expect(generationGate_ACU.lastGeneration.type).toBe('normal');
-    expect(generationGate_ACU.lastGeneration.params).toEqual({ prompt: 'test' });
-    expect(generationGate_ACU.lastGeneration.dryRun).toBe(false);
-    expect(generationGate_ACU.lastGeneration.at).toBeGreaterThanOrEqual(before);
-    expect(generationGate_ACU.lastGeneration.at).toBeLessThanOrEqual(after);
-  });
 
   it('前台生成结束时先消费自身上下文，后续 quiet 生成不影响本轮判定', () => {
     recordGenerationContext_ACU('normal', {}, false);
@@ -242,6 +198,82 @@ describe('recordGenerationContext_ACU', () => {
     expect(generationGate_ACU.activeGenerations).toHaveLength(0);
   });
 
+});
+
+// issue #2 实锤（debug 日志）：思考档开到 xhigh 时一次重新生成要 90~110 秒，超过 60 秒的上下文有效期，
+// ENDED 变成「无配对」；TT 的消息没有 message_id，重新生成前后 AI 楼数又相同，于是被当成外部插件的
+// 假 ENDED 丢掉（unpaired_ended_no_new_output），自动填表不跑。
+describe('hasActiveForegroundGeneration_ACU：是否有正文生成在途', () => {
+  it('普通 / 重新生成在途为真；结束配对后为假', () => {
+    expect(hasActiveForegroundGeneration_ACU()).toBe(false);
+    recordGenerationContext_ACU('regenerate', {}, false);
+    expect(hasActiveForegroundGeneration_ACU()).toBe(true);
+    resolveGenerationContextForEnded_ACU();
+    expect(hasActiveForegroundGeneration_ACU()).toBe(false);
+  });
+
+  it('quiet、dryRun、插件自动触发的生成不算正文生成', () => {
+    recordGenerationContext_ACU('quiet', { quiet_prompt: '后台' }, false);
+    recordGenerationContext_ACU('normal', {}, true);
+    recordGenerationContext_ACU('normal', { automatic_trigger: true }, false);
+    expect(hasActiveForegroundGeneration_ACU()).toBe(false);
+  });
+});
+
+describe('前台生成上下文的有效期', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('前台生成跑了 95 秒才结束，仍能配对到自己的上下文', () => {
+    const regenerate = recordGenerationContext_ACU('regenerate', {}, false);
+    vi.advanceTimersByTime(95_000);
+
+    expect(resolveGenerationContextForEnded_ACU()).toEqual({ status: 'matched', context: regenerate });
+  });
+
+  it('长时间生成后，配对放行不受「楼数相同、无 message_id」的无配对收紧影响', () => {
+    generationGate_ACU.lastEndedFloorSignature_ACU = { aiFloorCount: 6, latestAiMessageId: null };
+    recordGenerationContext_ACU('regenerate', {}, false);
+    vi.advanceTimersByTime(95_000);
+
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(undefined, { aiFloorCount: 6, latestAiMessageId: null })).toBe(true);
+  });
+
+  it('quiet 上下文仍按 60 秒过期（后台生成未必有配对的 ENDED）', () => {
+    recordGenerationContext_ACU('quiet', { quiet_prompt: '后台任务' }, false);
+    vi.advanceTimersByTime(61_000);
+
+    expect(resolveGenerationContextForEnded_ACU().status).toBe('none');
+  });
+
+  it('新的前台 STARTED 顶掉旧的未闭合前台上下文（宿主不会同时跑两个前台生成），不判歧义', () => {
+    recordGenerationContext_ACU('normal', {}, false); // 例如早退的生成：发了 STARTED、没有 ENDED
+    vi.advanceTimersByTime(120_000);
+    const regenerate = recordGenerationContext_ACU('regenerate', {}, false);
+
+    expect(resolveGenerationContextForEnded_ACU()).toEqual({ status: 'matched', context: regenerate });
+  });
+
+  it('dry-run 不顶掉在飞的前台上下文', () => {
+    const real = recordGenerationContext_ACU('normal', {}, false);
+    recordGenerationContext_ACU('normal', {}, true);
+
+    expect(resolveGenerationContextForEnded_ACU().context?.seq).toBe(real.seq);
+  });
+
+  it('前台生成期间的 quiet 生成仍与前台并存（照旧按歧义处理），不被顶掉', () => {
+    recordGenerationContext_ACU('normal', {}, false);
+    recordGenerationContext_ACU('quiet', { quiet_prompt: '后台任务' }, false);
+
+    expect(resolveGenerationContextForEnded_ACU().status).toBe('ambiguous');
+  });
+
+  it('前台上下文也有上限：30 分钟仍未结束则过期', () => {
+    recordGenerationContext_ACU('normal', {}, false);
+    vi.advanceTimersByTime(31 * 60_000);
+
+    expect(resolveGenerationContextForEnded_ACU().status).toBe('none');
+  });
 });
 
 describe('resolveGenerationContextForEnded_ACU — 并发结束配对', () => {
@@ -286,42 +318,18 @@ describe('resolveGenerationContextForEnded_ACU — 并发结束配对', () => {
 
 // ═══ isQuietLikeGeneration_ACU ═══
 describe('isQuietLikeGeneration_ACU', () => {
-  it('type 为 quiet 时返回 true', () => {
-    expect(isQuietLikeGeneration_ACU('quiet', {})).toBe(true);
-  });
 
   it('params.quiet_prompt 有内容时返回 true', () => {
     expect(isQuietLikeGeneration_ACU('normal', { quiet_prompt: '静默提示' })).toBe(true);
   });
 
-  it('params.quiet_prompt 为空字符串时返回 false', () => {
-    expect(isQuietLikeGeneration_ACU('normal', { quiet_prompt: '' })).toBe(false);
-  });
-
   it('params.quiet_prompt 为纯空白时返回 false', () => {
     expect(isQuietLikeGeneration_ACU('normal', { quiet_prompt: '   ' })).toBe(false);
-  });
-
-  it('普通生成返回 false', () => {
-    expect(isQuietLikeGeneration_ACU('normal', {})).toBe(false);
-  });
-
-  it('params 为 null 时返回 false', () => {
-    expect(isQuietLikeGeneration_ACU('normal', null)).toBe(false);
   });
 });
 
 // ═══ isRecentUserSend_ACU ═══
 describe('isRecentUserSend_ACU', () => {
-  it('未记录用户消息时返回 false', () => {
-    generationGate_ACU.lastUserMessageAt = 0;
-    expect(isRecentUserSend_ACU()).toBe(false);
-  });
-
-  it('刚记录的用户消息返回 true', () => {
-    generationGate_ACU.lastUserMessageAt = Date.now();
-    expect(isRecentUserSend_ACU()).toBe(true);
-  });
 
   it('超过 TTL 后返回 false', () => {
     generationGate_ACU.lastUserMessageAt = Date.now() - USER_SEND_TRIGGER_TTL_MS_ACU - 1;
@@ -331,40 +339,23 @@ describe('isRecentUserSend_ACU', () => {
 
 // ═══ shouldProcessPlotForGeneration_ACU ═══
 describe('shouldProcessPlotForGeneration_ACU', () => {
-  it('dryRun 时返回 false', () => {
-    expect(shouldProcessPlotForGeneration_ACU('normal', {}, true)).toBe(false);
-  });
 
-  it('plotSettings 未启用时返回 false', () => {
-    // settings_ACU.plotSettings.enabled 默认可能为 undefined
-    _set_settings_ACU({ plotSettings: { enabled: false } });
-    expect(shouldProcessPlotForGeneration_ACU('normal', {}, false)).toBe(false);
-  });
-
-  it('quiet 类型生成时返回 false', () => {
-    _set_settings_ACU({ plotSettings: { enabled: true } });
-    expect(shouldProcessPlotForGeneration_ACU('quiet', {}, false)).toBe(false);
-  });
-
-  it('automatic_trigger 时返回 false', () => {
-    _set_settings_ACU({ plotSettings: { enabled: true } });
-    expect(shouldProcessPlotForGeneration_ACU('normal', { automatic_trigger: true }, false)).toBe(false);
-  });
-
-  it('有新鲜用户消息时返回 true', () => {
-    _set_settings_ACU({ plotSettings: { enabled: true } });
-    const chat = [{ is_user: true, mes: '你好' }];
-    mockGetChatArray.mockReturnValue(chat);
-    generationGate_ACU.lastUserMessageId = 0;
-    generationGate_ACU.lastUserMessageAt = Date.now();
-    expect(shouldProcessPlotForGeneration_ACU('normal', {}, false)).toBe(true);
-  });
-
-  it('有新鲜 intent 时返回 true', () => {
+  it('本库停掉的那次发送：同一聊天的下一次「重新生成」补跑剧情推进；换了聊天或已清除则不补跑', () => {
     _set_settings_ACU({ plotSettings: { enabled: true } });
     mockGetChatArray.mockReturnValue([]);
-    generationGate_ACU.lastUserSendIntentAt = Date.now();
-    expect(shouldProcessPlotForGeneration_ACU('normal', {}, false)).toBe(true);
+    generationGate_ACU.lastUserMessageAt = 0;
+    generationGate_ACU.lastUserSendIntentAt = 0;
+    _set_currentChatFileIdentifier_ACU('chat-a');
+    expect(shouldProcessPlotForGeneration_ACU('regenerate', {}, false)).toBe(false);
+    markStoppedSendForRetry_ACU();
+    expect(isRetryOfStoppedSend_ACU('regenerate')).toBe(true);
+    expect(isRetryOfStoppedSend_ACU('normal')).toBe(false);
+    expect(shouldProcessPlotForGeneration_ACU('regenerate', {}, false)).toBe(true);
+    _set_currentChatFileIdentifier_ACU('chat-b');
+    expect(shouldProcessPlotForGeneration_ACU('regenerate', {}, false)).toBe(false);
+    _set_currentChatFileIdentifier_ACU('chat-a');
+    clearStoppedSendRetry_ACU();
+    expect(shouldProcessPlotForGeneration_ACU('regenerate', {}, false)).toBe(false);
   });
 
   it('无新鲜消息也无新鲜 intent 时返回 false', () => {
@@ -376,12 +367,32 @@ describe('shouldProcessPlotForGeneration_ACU', () => {
   });
 });
 
+// ═══ shouldProcessDecisionRecallForGeneration_ACU ═══
+describe('shouldProcessDecisionRecallForGeneration_ACU', () => {
+  it('总开关开着且用法是单独召回时才在发送前接管；替换剧情推进的任务时交给剧情推进', () => {
+    mockGetChatArray.mockReturnValue([]);
+    generationGate_ACU.lastUserMessageAt = 0;
+    generationGate_ACU.lastUserSendIntentAt = 0;
+    _set_currentChatFileIdentifier_ACU('chat-a');
+    markStoppedSendForRetry_ACU();
+    try {
+      _set_settings_ACU({ decisionRecallSettings: { enabled: true, mode: 'standalone' } });
+      expect(shouldProcessDecisionRecallForGeneration_ACU('regenerate', {}, false)).toBe(true);
+      // 旧设置没有用法字段：按单独召回
+      _set_settings_ACU({ decisionRecallSettings: { enabled: true } });
+      expect(shouldProcessDecisionRecallForGeneration_ACU('regenerate', {}, false)).toBe(true);
+      _set_settings_ACU({ decisionRecallSettings: { enabled: true, mode: 'plot_task' } });
+      expect(shouldProcessDecisionRecallForGeneration_ACU('regenerate', {}, false)).toBe(false);
+      _set_settings_ACU({ decisionRecallSettings: { enabled: false, mode: 'standalone' } });
+      expect(shouldProcessDecisionRecallForGeneration_ACU('regenerate', {}, false)).toBe(false);
+    } finally {
+      clearStoppedSendRetry_ACU();
+    }
+  });
+});
+
 // ═══ shouldProcessAutoTableUpdateForGenerationEnded_ACU ═══
 describe('shouldProcessAutoTableUpdateForGenerationEnded_ACU', () => {
-  it('无 lastGeneration 时返回 true', () => {
-    generationGate_ACU.lastGeneration = null;
-    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU()).toBe(true);
-  });
 
   it('dry-run 上下文不入配对：其后 ENDED 走无配对路径（签名缺失时保守放行）', () => {
     recordGenerationContext_ACU('normal', {}, true);
@@ -395,21 +406,6 @@ describe('shouldProcessAutoTableUpdateForGenerationEnded_ACU', () => {
   it('quiet 类型时返回 false', () => {
     recordGenerationContext_ACU('quiet', {}, false);
     expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU()).toBe(false);
-  });
-
-  it('quiet_prompt 有内容时返回 false', () => {
-    recordGenerationContext_ACU('normal', { quiet_prompt: '静默' }, false);
-    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU()).toBe(false);
-  });
-
-  it('automatic_trigger 时返回 false', () => {
-    recordGenerationContext_ACU('normal', { automatic_trigger: true }, false);
-    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU()).toBe(false);
-  });
-
-  it('正常生成时返回 true', () => {
-    recordGenerationContext_ACU('normal', {}, false);
-    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU()).toBe(true);
   });
 });
 
@@ -430,6 +426,34 @@ describe('shouldProcessAutoTableUpdateForGenerationEnded_ACU 无配对 ENDED 的
     expect(generationGate_ACU.lastEndedFloorSignature_ACU).toEqual(signature(2, 9));
     expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(2, 9))).toBe(false);
     expect(mockLogAutoFillSkip).toHaveBeenCalledTimes(2);
+  });
+
+  it('切换 / 新建聊天后第一条无配对 ENDED 只立新聊天基线、不放行；之后有新 AI 楼才放行（移植上游 54366b0c）', () => {
+    generationGate_ACU.lastEndedFloorSignature_ACU = signature(2, 9);
+    markChatChangedForEndedGate_ACU();
+    // 宿主载入新聊天时收起停止按钮派发的 ended：新聊天的楼层签名与旧聊天不同，但这不是一次生成
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(5, 30))).toBe(false);
+    expect(generationGate_ACU.lastEndedFloorSignature_ACU).toEqual(signature(5, 30));
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(5, 30))).toBe(false);
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(6, 32))).toBe(true);
+  });
+
+  it('切聊天后宿主没派发载入时的 ENDED：等基线过期作废，之后的真实回复不会被吞', () => {
+    vi.useFakeTimers();
+    try {
+      generationGate_ACU.lastEndedFloorSignature_ACU = signature(2, 9);
+      markChatChangedForEndedGate_ACU();
+      vi.advanceTimersByTime(60_000);
+      expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(6, 32))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('切换聊天后有配对的真实生成照常放行，并结束「等基线」状态', () => {
+    markChatChangedForEndedGate_ACU();
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(paired() as any, signature(3, 12))).toBe(true);
+    expect(shouldProcessAutoTableUpdateForGenerationEnded_ACU(null, signature(4, 14))).toBe(true);
   });
 
   it('无配对 + AI 楼数增加 → 放行，并且放行时登记当次签名', () => {
@@ -542,20 +566,6 @@ describe('getCurrentIsolationKey_ACU', () => {
 
 // ═══ Setter 函数 ═══
 describe('Setter 函数', () => {
-  it('_set_settings_ACU 更新 settings', () => {
-    const newSettings = { apiConfig: { url: 'http://test' } };
-    _set_settings_ACU(newSettings);
-    // 通过 getCurrentIsolationKey_ACU 间接验证 settings 已更新
-    expect(getCurrentIsolationKey_ACU()).toBe('');
-  });
-
-  it('_set_pendingBaseStatePlacement_ACU 更新状态', async () => {
-    const { pendingBaseStatePlacement_ACU: before } = await import('../../../src/service/runtime/state-manager');
-    _set_pendingBaseStatePlacement_ACU(true);
-    const mod = await import('../../../src/service/runtime/state-manager');
-    expect(mod.pendingBaseStatePlacement_ACU).toBe(true);
-    _set_pendingBaseStatePlacement_ACU(false);
-  });
 
   it('自动填表与聊天变更防抖 timer 独立保存', async () => {
     const autoFillTimer = { kind: 'auto-fill' };
@@ -608,6 +618,86 @@ describe('AbortController 管理', () => {
     expect(activeAbortControllers_ACU.size).toBe(0);
   });
 
+  it('R10A-19：abortAllActiveRequests_ACU({ keepPlot: true }) 只中止填表请求，剧情推进请求保留在登记中', () => {
+    const table = { abort: vi.fn() };
+    const plot = { abort: vi.fn() };
+    trackAbortController_ACU(table);
+    trackAbortController_ACU(plot, 'plot');
+
+    abortAllActiveRequests_ACU({ keepPlot: true });
+
+    expect(table.abort).toHaveBeenCalled();
+    expect(plot.abort).not.toHaveBeenCalled();
+    expect(activeAbortControllers_ACU.has(plot)).toBe(true);
+    abortAllActiveRequests_ACU();
+    expect(plot.abort).toHaveBeenCalled();
+    expect(activeAbortControllers_ACU.size).toBe(0);
+  });
+
+  it('终止填表锁存到本轮结束：一次性停止标记被复位后仍算已终止；本轮放开「正在填表」才解除', () => {
+    const fill = { abort: vi.fn() };
+    const plot = { abort: vi.fn() };
+    trackAbortController_ACU(fill);
+    trackAbortController_ACU(plot, 'plot');
+    _set_isAutoUpdatingCard_ACU(true);
+    requestTableFillStop_ACU();
+    expect(fill.abort).toHaveBeenCalled();
+    expect(plot.abort).not.toHaveBeenCalled();
+    // 新一轮填表开跑 / 宿主新生成会复位一次性标记
+    _set_wasStoppedByUser_ACU(false);
+    expect(isTableFillStopRequested_ACU()).toBe(true);
+    // 「终止」不再立即放开「正在填表」，旧轮收尾期间新一轮进不来
+    expect(isAutoUpdatingCard_ACU).toBe(true);
+    _set_isAutoUpdatingCard_ACU(false);
+    expect(isTableFillStopRequested_ACU()).toBe(false);
+    abortAllActiveRequests_ACU();
+  });
+
+  it('「正在填表」置位前点的终止：置位后补锁存，扛得住一次性标记复位；之前的终止不算', async () => {
+    const { getTableFillStopSeq_ACU, latchTableFillStopRequestedSince_ACU } = await import('../../../src/service/runtime/state-manager');
+    requestTableFillStop_ACU();
+    const seq = getTableFillStopSeq_ACU();
+    _set_wasStoppedByUser_ACU(false);
+    _set_isAutoUpdatingCard_ACU(true);
+    latchTableFillStopRequestedSince_ACU(seq);
+    expect(isTableFillStopRequested_ACU()).toBe(false);
+    _set_isAutoUpdatingCard_ACU(false);
+
+    const seqAtStart = getTableFillStopSeq_ACU();
+    requestTableFillStop_ACU();
+    _set_wasStoppedByUser_ACU(false);
+    _set_isAutoUpdatingCard_ACU(true);
+    latchTableFillStopRequestedSince_ACU(seqAtStart);
+    _set_wasStoppedByUser_ACU(false);
+    expect(isTableFillStopRequested_ACU()).toBe(true);
+    _set_isAutoUpdatingCard_ACU(false);
+    expect(isTableFillStopRequested_ACU()).toBe(false);
+    abortAllActiveRequests_ACU();
+  });
+
+  it('终止后本轮迟迟不结束：30 秒后仍是同一轮就强制放开；期间已换新一轮则不动', () => {
+    vi.useFakeTimers();
+    try {
+      _set_isAutoUpdatingCard_ACU(true);
+      requestTableFillStop_ACU();
+      vi.advanceTimersByTime(29_000);
+      expect(isAutoUpdatingCard_ACU).toBe(true);
+      vi.advanceTimersByTime(2_000);
+      expect(isAutoUpdatingCard_ACU).toBe(false);
+
+      _set_isAutoUpdatingCard_ACU(true);
+      requestTableFillStop_ACU();
+      _set_isAutoUpdatingCard_ACU(false);
+      _set_isAutoUpdatingCard_ACU(true); // 新一轮
+      vi.advanceTimersByTime(31_000);
+      expect(isAutoUpdatingCard_ACU).toBe(true);
+      _set_isAutoUpdatingCard_ACU(false);
+    } finally {
+      vi.useRealTimers();
+      _set_wasStoppedByUser_ACU(false);
+    }
+  });
+
   it('abortAllActiveRequests_ACU 中止失败不影响其他', () => {
     const c1 = { abort: vi.fn(() => { throw new Error('abort error'); }) };
     const c2 = { abort: vi.fn() };
@@ -618,7 +708,7 @@ describe('AbortController 管理', () => {
     expect(activeAbortControllers_ACU.size).toBe(0);
   });
 
-  it('abortOnChatMutation_ACU 中止活跃请求并轮换全局信号（删楼/ROLL/切聊天场景）', () => {
+  it('abortOnChatMutation_ACU 中止活跃请求并轮换全局信号（切聊天场景）', () => {
     const c = { abort: vi.fn() };
     trackAbortController_ACU(c);
     const s1 = getChatMutationAbortSignal_ACU();

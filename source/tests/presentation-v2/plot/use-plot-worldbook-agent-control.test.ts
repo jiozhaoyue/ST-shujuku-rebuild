@@ -41,6 +41,8 @@ const mockSkillify = vi.fn(async (options: any) => {
   throw new Error('boom');
 });
 
+const mockSkillifyBooks = vi.fn(async (_bookNames: string[], _options: any): Promise<any> => ({ totalCandidates: 0 }));
+
 function createGlobalPromptTemplates() {
   return {
     agentDecisionPromptSegments: [{ role: 'system', content: 'global decision', deletable: false }],
@@ -108,6 +110,7 @@ async function getComposable(options: {
   }));
   vi.doMock('../../../src/service/agent/agent-skillify-service', () => ({
     skillifyCurrentPlotWorldbookSelection_ACU: mockSkillify,
+    skillifyWorldbookEntries_ACU: mockSkillifyBooks,
   }));
   vi.doMock('../../../src/service/agent/agent-worldbook-skill-meta', () => ({
     clearWorldbookSkillMetaBlocks_ACU: mockClearSkillMeta,
@@ -155,6 +158,7 @@ describe('usePlotWorldbookAgentControl', () => {
     mockRefreshSnapshot.mockClear();
     mockWriteControl.mockReset();
     mockSkillify.mockClear();
+    mockSkillifyBooks.mockReset();
     mockTakeover.mockClear();
     mockRestore.mockClear();
     mockClearSkillMeta.mockClear();
@@ -259,6 +263,20 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(toast.warning).toHaveBeenCalledWith('请先勾选要 Skill 化的世界书条目。', { muteable: false });
   });
 
+  it('R10A-17：连点 Skill 化只弹一次确认、只跑一批', async () => {
+    mockSkillify.mockImplementation(async () => ({ totalCandidates: 1, updated: 1, skipped: 0, failed: 0 }));
+    const c = await getComposable();
+
+    const [first, second] = await Promise.all([
+      c.skillifySelected([{ bookName: '角色A世界书', uid: 2 }]),
+      c.skillifySelected([{ bookName: '角色A世界书', uid: 2 }]),
+    ]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect(dialog.confirm).toHaveBeenCalledTimes(1);
+    expect(mockSkillify).toHaveBeenCalledTimes(1);
+  });
+
   it('skillifySelected 非空选择时透传 selectedEntries 并复用 Skill 化流程', async () => {
     mockSkillify.mockImplementation(async (options: any) => {
       options.onProgress?.({ phase: 'collecting' });
@@ -271,12 +289,37 @@ describe('usePlotWorldbookAgentControl', () => {
 
     expect(result).toBe(true);
     expect(dialog.confirm).toHaveBeenCalledTimes(1);
+    // R10B-05：确认框写明将处理的条目数
+    expect(JSON.stringify(dialog.confirm.mock.calls[0][0])).toContain('1 条');
     expect(mockSkillify).toHaveBeenCalledWith(expect.objectContaining({
       selectedEntries: [{ bookName: '角色A世界书', uid: 2 }],
       maxConcurrency: 3,
       maxAiRetries: 2,
       overwriteManual: false,
     }));
+  });
+
+  it('skillifyBooks 对指定世界书 Skill 化（常用世界书用），确认框写明书名，不沿用整库续跑游标', async () => {
+    mockSkillifyBooks.mockResolvedValue({ totalCandidates: 2, totalMatched: 2, selectedForRun: 2, remaining: 0, truncated: false, updated: 2, skipped: 0, failed: 0, results: [] });
+    const c = await getComposable();
+
+    const result = await c.skillifyBooks(['战斗技能']);
+
+    expect(result).toBe(true);
+    expect(JSON.stringify(dialog.confirm.mock.calls[0][0])).toContain('战斗技能');
+    expect(mockSkillify).not.toHaveBeenCalled();
+    expect(mockSkillifyBooks).toHaveBeenCalledWith(['战斗技能'], expect.objectContaining({
+      cursor: undefined,
+      maxConcurrency: 3,
+      maxAiRetries: 2,
+      overwriteManual: false,
+    }));
+  });
+
+  it('skillifyBooks 没给书时不调用服务', async () => {
+    const c = await getComposable();
+    expect(await c.skillifyBooks([])).toBe(false);
+    expect(mockSkillifyBooks).not.toHaveBeenCalled();
   });
 
   it('setAgentDecisionConcurrency 保存高于旧上限的独立决策并发数', async () => {
@@ -317,24 +360,6 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(mockWriteControl).not.toHaveBeenCalled();
   });
 
-  it('skillifyAll 成功更新 Skill 后在 Agent 模式同步物理接管并刷新 snapshot', async () => {
-    mockSkillify.mockImplementation(async (options: any) => {
-      options.onProgress?.({ phase: 'collecting' });
-      options.onProgress?.({ phase: 'complete', current: 1, total: 1, updated: 1, skipped: 0, failed: 0 });
-      return { totalCandidates: 1, updated: 1, skipped: 0, failed: 0 };
-    });
-    const activeSnapshot = { active: true, selectionSignature: 'sig', createdAt: 1, books: { '角色A世界书': [{ uid: 1 }] } };
-    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_disabled', failed: 0 });
-    mockRefreshSnapshot.mockResolvedValue(activeSnapshot);
-    const c = await getComposable();
-
-    const result = await c.skillifyAll();
-
-    expect(result).toBe(true);
-    expect(mockTakeover).toHaveBeenCalledTimes(1);
-    expect(c.snapshot.value).toEqual(activeSnapshot);
-  });
-
   it('syncAgentWorldbookTakeoverAfterSkillChange 在非 Agent 模式不触发物理接管', async () => {
     const c = await getComposable();
     await c.setMode('passive');
@@ -346,19 +371,6 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(result).toBe(false);
     expect(mockTakeover).not.toHaveBeenCalled();
     expect(mockRefreshSnapshot).toHaveBeenCalledTimes(1);
-  });
-
-  it('syncAgentWorldbookTakeoverAfterSkillChange 在 Agent 模式触发物理接管并刷新 snapshot', async () => {
-    const activeSnapshot = { active: true, selectionSignature: 'sig', createdAt: 1, books: { '角色A世界书': [{ uid: 1 }] } };
-    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_disabled', failed: 0 });
-    mockRefreshSnapshot.mockResolvedValue(activeSnapshot);
-    const c = await getComposable();
-
-    const result = await c.syncAgentWorldbookTakeoverAfterSkillChange();
-
-    expect(result).toBe(true);
-    expect(mockTakeover).toHaveBeenCalledTimes(1);
-    expect(c.snapshot.value).toEqual(activeSnapshot);
   });
 
   it('syncAgentWorldbookTakeoverAfterSkillChange 刷新配置失败时不抛出且不触发物理接管', async () => {
@@ -471,15 +483,103 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(toast.success).toHaveBeenCalledWith('已清理并初始化 Agent 世界书状态；Agent 模式已关闭，下次使用时会重新初始化。', { muteable: false });
   });
 
+  /**
+   * 部分失败但**确实改动了条目**时，restore 仍必须报告「有变更」。
+   *
+   * 调用方 WorldbookAgentControlBar.runRestore 用返回值决定要不要 emit
+   * current-worldbook-changed，AgentPage 靠它跑 refreshAll 刷新世界书编辑区的
+   * 条目与三个计数（关闭 Skill 数 / 蓝灯数 / 二合一数）。一旦这里返回 false，
+   * 用户点「清理并初始化」后编辑器就滞后：世界书已被改过，界面还显示旧状态。
+   *
+   * 对照组：同族的 clearSkillMeta 在部分失败时返回 `result.cleared > 0`
+   * （改了刷、没改不刷），setMode 在 warning 分支也返回 true。restore 曾是
+   * 唯一按「有无失败」而非「有无改动」返回的，导致部分成功时不刷新。
+   */
+  it('restore 部分失败但已恢复部分条目时仍报告有变更，使世界书编辑区刷新', async () => {
+    const c = await getComposable();
+    mockRestore.mockResolvedValue({
+      updated: true,
+      reason: 'native_worldbook_trigger_restore_failed',
+      restored: 3,
+      skipped: 0,
+      failed: 2,
+    });
+
+    await expect(c.restore()).resolves.toBe(true);
+
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('部分世界书条目恢复失败'), { muteable: false });
+  });
+
+  /**
+   * 「写入已成功、回读校验失败」这一形态：restored=0，但世界书已被改写。
+   * 服务层把它计入 changed（agent-worldbook-takeover.ts:1539 的
+   * changed = restored + failed + stateWriteFailed + cleaned），所以 updated=true。
+   * 若调用层按 restored>0 判断，编辑区就会漏这次刷新 —— 即用户报告的滞后。
+   */
+  it('restore 写入成功但回读校验失败（restored=0）时同样报告已改动', async () => {
+    const c = await getComposable();
+    mockRestore.mockResolvedValue({
+      updated: true,
+      reason: 'native_worldbook_trigger_restore_failed',
+      restored: 0,
+      skipped: 0,
+      failed: 4,
+    });
+
+    await expect(c.restore()).resolves.toBe(true);
+  });
+
+  /**
+   * 「只清理了快照/内部条目」也是改动：cleaned>0 同样计入 changed。
+   * 此时 restored=0、failed=0，走全成功分支但 updated 为 true。
+   */
+  it('restore 仅清理旧快照/内部条目（restored=0）时报告已改动', async () => {
+    const c = await getComposable();
+    mockRestore.mockResolvedValue({
+      updated: true,
+      reason: 'legacy_artifacts_cleaned',
+      restored: 0,
+      skipped: 0,
+      failed: 0,
+    });
+
+    await expect(c.restore()).resolves.toBe(true);
+  });
+
+  /**
+   * 全成功但没有任何条目改动时：仍返回 true（既有行为）。
+   *
+   * 即使世界书内容没变，restore 也已经把 mode 置为 disabled 并关掉了 Agent 接管，
+   * 编辑区可用性与三个计数都要跟着重算，故这里必须刷新。锁住这条是为了防止
+   * 后续把「部分失败分支改成按 updated 判断」时误伤全成功路径。
+   */
+  it('restore 无条目改动但已关闭 Agent 模式时仍刷新编辑区', async () => {
+    const c = await getComposable();
+    mockRestore.mockResolvedValue({
+      updated: false,
+      reason: 'no_active_snapshot',
+      restored: 0,
+      skipped: 0,
+      failed: 0,
+    });
+
+    await expect(c.restore()).resolves.toBe(true);
+
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('没有可恢复的 Agent 快照'), { muteable: false });
+  });
+
   it('restore 恢复失败时保留 legacy snapshot，避免丢失恢复依据', async () => {
     const c = await getComposable();
     const settings = (c as any).__settings;
     mockRestore.mockImplementation(async () => {
       expect(settings.plotSettings.agentWorldbookControlSnapshot).toBeDefined();
-      return { updated: true, reason: 'native_worldbook_trigger_restore_failed', skipped: 0, failed: 1 };
+      return { updated: true, reason: 'native_worldbook_trigger_restore_failed', restored: 0, skipped: 0, failed: 1 };
     });
 
-    await expect(c.restore()).resolves.toBe(false);
+    // updated=true 表示世界书已被改写（服务层 changed = restored + failed + … > 0，
+    // 见 agent-worldbook-takeover.ts:1539），故必须返回 true 触发编辑区刷新；
+    // 本用例真正要守的是下面的 snapshot 保留。
+    await expect(c.restore()).resolves.toBe(true);
 
     expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'disabled', enabled: false });
     expect(mockRestore).toHaveBeenCalledWith({ cleanupMode: 'full' });
@@ -731,47 +831,6 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(second).toEqual([{ role: 'system', content: 'built-in decision', deletable: false }]);
     expect(mockGetPromptTemplates).not.toHaveBeenCalled();
     expect(mockWriteControl).not.toHaveBeenCalled();
-  });
-
-  it('retains the cursor for an unchanged scope and reuses it for the next Skillify batch', async () => {
-    mockSkillify
-      .mockResolvedValueOnce({
-        totalCandidates: 1,
-        totalMatched: 2,
-        selectedForRun: 1,
-        remaining: 1,
-        truncated: true,
-        nextCursor: { bookName: '角色A世界书', uid: 'entry-1' },
-        updated: 0,
-        skipped: 1,
-        failed: 0,
-        results: [],
-      })
-      .mockResolvedValueOnce({
-        totalCandidates: 1,
-        totalMatched: 1,
-        selectedForRun: 1,
-        remaining: 0,
-        truncated: false,
-        nextCursor: { bookName: '角色A世界书', uid: 'entry-2' },
-        updated: 0,
-        skipped: 1,
-        failed: 0,
-        results: [],
-      });
-    const c = await getComposable();
-
-    await expect(c.skillifyAll()).resolves.toBe(false);
-    expect(c.skillifyCursor.value).toEqual({ bookName: '角色A世界书', uid: 'entry-1' });
-    expect(c.skillifyBatchStats.value).toEqual({ totalMatched: 2, selectedForRun: 1, remaining: 1, truncated: true });
-
-    await c.refresh();
-    expect(c.skillifyCursor.value).toEqual({ bookName: '角色A世界书', uid: 'entry-1' });
-
-    await expect(c.skillifyAll()).resolves.toBe(false);
-    expect(mockSkillify.mock.calls[1][0]).toMatchObject({ cursor: { bookName: '角色A世界书', uid: 'entry-1' } });
-    expect(c.skillifyCursor.value).toBeUndefined();
-    expect(c.skillifyBatchStats.value).toEqual({ totalMatched: 1, selectedForRun: 1, remaining: 0, truncated: false });
   });
 
   it('clears the cursor and batch statistics when the selection signature changes', async () => {

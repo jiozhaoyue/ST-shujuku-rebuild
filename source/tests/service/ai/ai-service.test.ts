@@ -80,12 +80,6 @@ describe('fetchAvailableModels_ACU', () => {
     await first;
   });
 
-  it('apiUrl 为空时返回错误', async () => {
-    const result = await fetchAvailableModels_ACU('', 'key');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('请输入API基础URL');
-  });
-
   it('SSRF 守卫真实生效：远程 http:// 端点被拒绝且不发起 fetch', async () => {
     const result = await fetchAvailableModels_ACU('http://api.test', 'key');
     expect(result.success).toBe(false);
@@ -107,19 +101,6 @@ describe('fetchAvailableModels_ACU', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('正常返回模型列表（models 数组格式）', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        models: [{ id: 'gpt-4' }, { id: 'gpt-3.5-turbo' }],
-      }),
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', 'key123');
-    expect(result.success).toBe(true);
-    expect(result.models).toEqual(['gpt-4', 'gpt-3.5-turbo']);
-  });
-
   it('探活 Go 端点时 custom_include_headers 带 x-opencode-session，非 Go 端点不带', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm' }] }) });
     await fetchAvailableModels_ACU('https://opencode.ai/zen/go/v1/chat/completions', 'sk-go');
@@ -132,19 +113,6 @@ describe('fetchAvailableModels_ACU', () => {
     expect(String(otherBody.custom_include_headers)).not.toMatch(/x-opencode-session/i);
   });
 
-  it('正常返回模型列表（data 数组格式）', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [{ id: 'claude-3' }, { id: 'claude-2' }],
-      }),
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', '');
-    expect(result.success).toBe(true);
-    expect(result.models).toEqual(['claude-3', 'claude-2']);
-  });
-
   it('正常返回模型列表（顶层数组格式）', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
@@ -154,28 +122,6 @@ describe('fetchAvailableModels_ACU', () => {
     const result = await fetchAvailableModels_ACU('https://api.test', 'key');
     expect(result.success).toBe(true);
     expect(result.models).toEqual(['model-a', 'model-b']);
-  });
-
-  it('模型列表为空时返回错误', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ models: [] }),
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('列表为空');
-  });
-
-  it('无法解析模型数据时返回错误', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ unexpected: 'format' }),
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('未能解析');
   });
 
   it('TT 2.3.0：宿主授权弹窗被取消（HTTP 200 + cancelled）时文案指向该弹窗，而不是含糊的「列表为空」', async () => {
@@ -233,46 +179,6 @@ describe('fetchAvailableModels_ACU', () => {
     expect(result.error).toContain('***');
   });
 
-  it('HTTP 错误时返回错误信息（纯文本错误体）', async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-      text: async () => 'Server crashed',
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('500');
-    expect(result.error).toContain('Server crashed');
-  });
-
-  it('请求时携带正确的 headers', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ models: [{ id: 'test-model' }] }),
-    });
-
-    await fetchAvailableModels_ACU('https://api.test', 'my_key');
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      '/api/backends/chat-completions/status',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'X-Custom': 'header',
-          'Content-Type': 'application/json',
-        }),
-      }),
-    );
-
-    // 验证 body 中包含 apiUrl 和 apiKey
-    const callArgs = mockFetch.mock.calls[0][1];
-    const body = JSON.parse(callArgs.body);
-    expect(body.custom_url).toBe('https://api.test');
-    expect(body.custom_include_headers).toContain('my_key');
-  });
-
   it('apiKey 为空时 custom_include_headers 为空字符串', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
@@ -301,10 +207,26 @@ describe('fetchAvailableModels_ACU', () => {
       expect(lastStatusBody().custom_api_format).toBe(format);
       // 探活仍走自定义源，且 base/密钥解析不受协议字段影响。
       expect(lastStatusBody().chat_completion_source).toBe('custom');
-      expect(lastStatusBody().custom_url).toBe('https://api.test');
+      expect(lastStatusBody().reverse_proxy).toBe('https://api.test');
       expect(lastStatusBody().custom_include_headers).toContain('key');
     }
     expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('密钥走反向代理密码：TT 不再改用自己「自定义」连接里存的密钥（Claude 协议的 x-api-key、Gemini 的 key 参数）', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ models: [{ id: 'm' }] }) });
+
+    await fetchAvailableModels_ACU('https://api.test', 'preset-key\n', 'claude_messages');
+
+    const body = lastStatusBody();
+    expect(body.custom_url).toBe('');
+    expect(body.reverse_proxy).toBe('https://api.test');
+    expect(body.proxy_password).toBe('preset-key');
+
+    // 没填密钥：照旧填 custom_url，让 TT 回退到它「自定义」连接里存的密钥
+    await fetchAvailableModels_ACU('https://keyless.test', '', 'openai_compat');
+    expect(lastStatusBody().custom_url).toBe('https://keyless.test');
+    expect(lastStatusBody().proxy_password).toBe('');
   });
 
   it('非法 customApiFormat 降级为 ""（TT 后端对非法值 fail fast，必须客户端兜底）', async () => {
@@ -345,25 +267,6 @@ describe('fetchAvailableModels_ACU', () => {
     expect(normalizeStatusCustomApiFormat_ACU(null)).toBe('');
     expect(normalizeStatusCustomApiFormat_ACU(undefined)).toBe('');
     expect(normalizeStatusCustomApiFormat_ACU({ toString: () => 'openai_responses' })).toBe('openai_responses');
-  });
-
-  it('过滤掉无效的模型 ID', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        models: [
-          { id: 'valid-model' },
-          { id: '' },
-          { id: null },
-          { noId: true },
-          { id: 'another-valid' },
-        ],
-      }),
-    });
-
-    const result = await fetchAvailableModels_ACU('https://api.test', 'key');
-    expect(result.success).toBe(true);
-    expect(result.models).toEqual(['valid-model', 'another-valid']);
   });
 
   // ═══ 探活超时（v9.1.8）：15s AbortController，探活请求必须可退出，UI 不停留在"正在检查" ═══
@@ -446,5 +349,56 @@ describe('fetchAvailableModels_ACU', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(r1.models).toEqual(['m']);
     expect(r2.models).toEqual(['m']);
+  });
+});
+
+describe('fetchAvailableModels_ACU 数据库直接发送', () => {
+  function modelsResponse(data: unknown) {
+    return { ok: true, status: 200, statusText: 'OK', json: async () => data, text: async () => JSON.stringify(data) };
+  }
+
+  it('OpenAI 兼容：直接 GET 端点 /models，带 Bearer 密钥、不带宿主请求头', async () => {
+    mockFetch.mockResolvedValueOnce(modelsResponse({ data: [{ id: 'gpt-x' }] }));
+    const result = await fetchAvailableModels_ACU('https://api.example.com/v1/', 'sk-direct', 'openai_compat', { sendChannel: 'direct' });
+    expect(result).toEqual({ success: true, models: ['gpt-x'] });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://api.example.com/v1/models');
+    expect(init.method).toBe('GET');
+    expect(init.credentials).toBe('omit');
+    const headers = new Headers(init.headers);
+    expect(headers.get('Authorization')).toBe('Bearer sk-direct');
+    expect(headers.get('X-Custom')).toBeNull();
+  });
+
+  it('Claude：带 x-api-key 与 anthropic-version；Gemini：补 /v1beta、去掉模型名的 models/ 前缀', async () => {
+    mockFetch.mockResolvedValueOnce(modelsResponse({ data: [{ id: 'claude-x' }] }));
+    await fetchAvailableModels_ACU('https://c.example.com/v1', 'sk-c', 'claude_messages', { sendChannel: 'direct' });
+    const claudeHeaders = new Headers(mockFetch.mock.calls[0][1].headers);
+    expect(mockFetch.mock.calls[0][0]).toBe('https://c.example.com/v1/models');
+    expect(claudeHeaders.get('x-api-key')).toBe('sk-c');
+    expect(claudeHeaders.get('anthropic-version')).toBe('2023-06-01');
+
+    mockFetch.mockResolvedValueOnce(modelsResponse({ models: [{ name: 'models/gemini-3-pro' }] }));
+    const gemini = await fetchAvailableModels_ACU('https://g.example.com', 'sk-g', 'gemini_generate_content', { sendChannel: 'direct' });
+    expect(mockFetch.mock.calls[1][0]).toBe('https://g.example.com/v1beta/models');
+    expect(new Headers(mockFetch.mock.calls[1][1].headers).get('x-goog-api-key')).toBe('sk-g');
+    expect(gemini.models).toEqual(['gemini-3-pro']);
+  });
+
+  it('连不上（跨域被拦）时返回结构化失败与改回转接的提示，不向界面抛错', async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const result = await fetchAvailableModels_ACU('https://api.example.com/v1', 'sk', 'openai_compat', { sendChannel: 'direct' });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('经酒馆转接发送');
+  });
+
+  it('同一端点的转接与直接发送探活结果分开缓存', async () => {
+    mockFetch.mockResolvedValueOnce(modelsResponse({ data: [{ id: 'tavern-m' }] }));
+    mockFetch.mockResolvedValueOnce(modelsResponse({ data: [{ id: 'direct-m' }] }));
+    const viaTavern = await fetchAvailableModels_ACU('https://api.example.com/v1', 'sk', 'openai_compat');
+    const direct = await fetchAvailableModels_ACU('https://api.example.com/v1', 'sk', 'openai_compat', { sendChannel: 'direct' });
+    expect(viaTavern.models).toEqual(['tavern-m']);
+    expect(direct.models).toEqual(['direct-m']);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });

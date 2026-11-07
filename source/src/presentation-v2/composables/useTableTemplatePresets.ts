@@ -2,36 +2,32 @@ import { computed, getCurrentScope, onScopeDispose, ref } from 'vue';
 import {
   applyTemplateSnapshotToScope_ACU,
   applyTemplatePresetToCurrent_ACU,
-  deleteTemplatePreset_ACU,
   getActiveTemplatePresetMeta_ACU,
   ensureUniqueTemplatePresetName_ACU,
   getDefaultTemplateSnapshot_ACU,
-  getTemplatePreset_ACU,
-  listTemplatePresetNames_ACU,
-  normalizeTemplateForPresetSave_ACU,
+  readTemplatePresetLibrarySnapshot_ACU,
   getRuntimeTemplateSnapshot_ACU,
   parseImportedTemplateData_ACU,
   resolveActiveTemplatePresetName_ACU,
   resolveTemplateForExport_ACU,
-  renameTemplatePreset_ACU,
   upsertTemplatePreset_ACU,
 } from '../../service/template/template-preset-service';
 import {
-  buildChatSheetGuideDataFromTemplateObj_ACU,
   getCurrentChatTemplateScopeState_ACU,
   listChatTemplateArchiveEntries_ACU,
   sanitizeChatSheetsObject_ACU,
   sanitizeTemplateSnapshotForChat_ACU,
 } from '../../service/template/chat-scope';
-import { deleteLocalDataInChatCore_ACU } from '../../service/chat/chat-service';
 import { settings_ACU } from '../../service/runtime/state-manager';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU, sanitizeFilenameComponent_ACU } from '../../shared/template-preset-utils';
 import { deriveTemplatePresetNameForImport_ACU } from '../../shared/template-preset-utils';
 import { useDialogStore } from '../stores/dialog-store';
 import { useToastStore } from '../stores/toast-store';
-import { ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } from './useTemplateRecoveryGuard';
+import { ensureTemplateRecoveryReady_ACU } from './useTemplateRecoveryGuard';
 import { promptFollowGlobalAfterSetDefault_ACU, runFollowGlobalTemplateFlow_ACU } from './templateFollowGlobalFlow';
+import { applyTemplateWithDestructiveConfirm_ACU } from './template-destructive-confirm';
+import { downloadJsonToHost_ACU } from '../bootstrap/host-download';
 
 export type TemplateScope = 'global' | 'chat' | 'runtime';
 
@@ -44,7 +40,6 @@ const CHAT_GLOBAL_PRESET_VALUE_PREFIX = 'global:';
 const CHAT_SNAPSHOT_PRESET_VALUE_PREFIX = 'snapshot:';
 const RUNTIME_PRESET_VALUE = 'runtime:current';
 
-const RUNTIME_SENTINEL_NAME = '__runtime__';
 
 function encodeChatPresetValue(kind: ChatPresetSelectionKind, name: string): string {
   return `${kind === 'snapshot' ? CHAT_SNAPSHOT_PRESET_VALUE_PREFIX : CHAT_GLOBAL_PRESET_VALUE_PREFIX}${encodeURIComponent(name || '')}`;
@@ -65,17 +60,7 @@ function decodeChatPresetValue(value: string): { kind: ChatPresetSelectionKind; 
   return { kind: 'global', name: normalized };
 }
 
-function isRuntimePresetValue(value: string): boolean {
-  return String(value || '') === RUNTIME_PRESET_VALUE;
-}
 
-function isRuntimeSentinelName(name: string): boolean {
-  return String(name || '') === RUNTIME_SENTINEL_NAME;
-}
-
-function buildRuntimePresetItem(meta?: string): PresetItem {
-  return { value: RUNTIME_PRESET_VALUE, label: '当前生效模板（内存）', meta };
-}
 
 function defaultPresetItem(label: string, meta?: string, value = ''): PresetItem {
   return { value, label, meta };
@@ -97,6 +82,46 @@ function formatSheetCountMeta(templateSource: unknown): string | undefined {
   return count ? `${count} 张表` : undefined;
 }
 
+/**
+ * 预设表数量记忆化：按预设名缓存，命中条件是模板串逐字相同。
+ *
+ * 之所以比对模板串而不是 updatedAt：表数量是模板串的纯函数，内容相同即结果相同，
+ * 这样即便某条写入路径没有 updatedAt 也绝不会返回陈旧计数。缓存跨 refresh 复用
+ * （面板每次操作后都会 refresh），条目数上限固定，清空后按需重建。
+ */
+const PRESET_SHEET_COUNT_CACHE_LIMIT_ACU = 64;
+const presetSheetCountCache_ACU = new Map<string, { templateStr: string; count: number | null }>();
+
+function cachedPresetSheetCountMeta(name: string, templateStr: string): string | undefined {
+  const hit = presetSheetCountCache_ACU.get(name);
+  if (!hit || hit.templateStr !== templateStr) {
+    if (presetSheetCountCache_ACU.size >= PRESET_SHEET_COUNT_CACHE_LIMIT_ACU) presetSheetCountCache_ACU.clear();
+    presetSheetCountCache_ACU.set(name, { templateStr, count: countTemplateSheets(templateStr) });
+  }
+  const count = presetSheetCountCache_ACU.get(name)!.count;
+  return count ? `${count} 张表` : undefined;
+}
+
+/** 预设库读视图：一次 refresh 取一次库快照，之后列表/表数量/偏离判定全部复用它。 */
+interface PresetLibraryView_ACU {
+  names: string[];
+  templateStrOf(name: string): string | null;
+  sheetCountMetaOf(name: string): string | undefined;
+}
+
+function createPresetLibraryView_ACU(): PresetLibraryView_ACU {
+  const snapshot = readTemplatePresetLibrarySnapshot_ACU();
+  const entryOf = (name: string) => snapshot.byName.get(name) || null;
+  return {
+    names: snapshot.names,
+    templateStrOf: (name: string) => entryOf(name)?.templateStr || null,
+    sheetCountMetaOf: (name: string) => {
+      const templateStr = entryOf(name)?.templateStr;
+      return templateStr ? cachedPresetSheetCountMeta(name, templateStr) : undefined;
+    },
+  };
+}
+
 function formatArchiveMeta(entry: TemplateArchiveEntry): string | undefined {
   const parts = [formatSheetCountMeta(entry?.templateStr)].filter(Boolean) as string[];
   const source = String(entry?.presetName || '').trim();
@@ -111,25 +136,6 @@ function readFileText(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('读取模板文件失败'));
     reader.readAsText(file, 'UTF-8');
   });
-}
-
-function downloadJson(jsonData: Record<string, any>, filename: string): void {
-  const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function isStaleRevisionConflict(result: unknown): boolean {
-  return !!result
-    && typeof result === 'object'
-    && (result as { saved?: unknown }).saved === false
-    && /^V2 stale_revision_conflict(?:\b|:)/.test(String((result as { error?: unknown }).error || ''));
 }
 
 function formatTemplateOperationError(error: unknown): string {
@@ -156,12 +162,13 @@ function formatTemplateOperationError(error: unknown): string {
 function computeChatSnapshotDiff(
   snapshotTemplateStr: unknown,
   presetName: string,
+  library: PresetLibraryView_ACU,
 ): { differs: boolean; reason: 'diverged' | 'library_preset_missing' | null } {
   const chatSanitized = sanitizeTemplateSnapshotForChat_ACU(snapshotTemplateStr || null);
   if (!chatSanitized?.templateStr) return { differs: false, reason: null };
   let librarySanitized: { templateStr?: string } | null;
   if (presetName) {
-    const libraryStr = getTemplatePreset_ACU(presetName)?.templateStr;
+    const libraryStr = library.templateStrOf(presetName);
     if (!libraryStr) return { differs: true, reason: 'library_preset_missing' };
     librarySanitized = sanitizeTemplateSnapshotForChat_ACU(libraryStr);
   } else {
@@ -171,19 +178,6 @@ function computeChatSnapshotDiff(
   return chatSanitized.templateStr === librarySanitized.templateStr
     ? { differs: false, reason: null }
     : { differs: true, reason: 'diverged' };
-}
-
-function resolveGuideDataForPresetSelection(selection: { kind: ChatPresetSelectionKind; name: string }): Record<string, any> | null {
-  const normalized = normalizeTemplatePresetSelectionValue_ACU(selection.name);
-  const chatScopeState = selection.kind === 'snapshot' ? getCurrentChatTemplateScopeState_ACU() : null;
-  if (chatScopeState?.guideData && typeof chatScopeState.guideData === 'object') return chatScopeState.guideData;
-  const snapshot = selection.kind === 'snapshot' && chatScopeState?.templateStr
-    ? chatScopeState.templateStr
-    : (normalized ? getTemplatePreset_ACU(normalized)?.templateStr : getDefaultTemplateSnapshot_ACU()?.templateObj);
-  const templateObj = typeof snapshot === 'string'
-    ? safeJsonParse_ACU(snapshot, null)
-    : snapshot;
-  return buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
 }
 
 export function useTableTemplatePresets() {
@@ -212,7 +206,7 @@ export function useTableTemplatePresets() {
   const isChatOverridden = computed(() => activeTemplateScope.value === 'chat');
 
   function buildChatPresetItems(
-    globalNames: string[],
+    library: PresetLibraryView_ACU,
     _currentGlobalPreset: string,
     activeMeta: ReturnType<typeof getActiveTemplatePresetMeta_ACU>,
     runtimeItem: PresetItem | null,
@@ -225,13 +219,13 @@ export function useTableTemplatePresets() {
       items.push(runtimeItem);
       seen.add(RUNTIME_PRESET_VALUE);
     }
-    for (const name of globalNames) {
+    for (const name of library.names) {
       const normalized = normalizeTemplatePresetSelectionValue_ACU(name);
       if (!normalized) continue;
       const value = encodeChatPresetValue('global', normalized);
       if (seen.has(value)) continue;
       seen.add(value);
-      items.push({ value, label: `${normalized}（全局预设）`, meta: formatSheetCountMeta(getTemplatePreset_ACU(normalized)?.templateStr) });
+      items.push({ value, label: `${normalized}（全局预设）`, meta: library.sheetCountMetaOf(normalized) });
     }
     chatSnapshotDiffersFromLibrary.value = false;
     if (activeMeta.mode === 'chat_override') {
@@ -244,7 +238,7 @@ export function useTableTemplatePresets() {
       if (!seen.has(value)) {
         seen.add(value);
         // S3-8：快照内容偏离库中同名预设时在标签处明示，避免同名不同内容的静默混淆。
-        const diff = computeChatSnapshotDiff(currentScope?.templateStr, normalized);
+        const diff = computeChatSnapshotDiff(currentScope?.templateStr, normalized, library);
         chatSnapshotDiffersFromLibrary.value = diff.differs;
         const divergenceSuffix = diff.reason === 'diverged' ? '（内容已偏离库预设）' : '';
         const metaParts = [formatSheetCountMeta(currentScope?.templateStr)].filter(Boolean) as string[];
@@ -269,7 +263,7 @@ export function useTableTemplatePresets() {
     return encodeChatPresetValue('global', currentGlobalPreset || '');
   }
 
-  function computeRuntimeViews(): { item: PresetItem | null; available: boolean; differsFromLibrary: boolean } {
+  function computeRuntimeViews(library: PresetLibraryView_ACU): { item: PresetItem | null; available: boolean; differsFromLibrary: boolean } {
     const runtimeSnapshot = getRuntimeTemplateSnapshot_ACU();
     if (!runtimeSnapshot?.templateStr || !runtimeSnapshot?.templateObj) {
       return { item: null, available: false, differsFromLibrary: false };
@@ -281,36 +275,34 @@ export function useTableTemplatePresets() {
     };
 
     const activeName = normalizeTemplatePresetSelectionValue_ACU(resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true }));
-    let libraryStr: string | null = null;
-    if (activeName) {
-      libraryStr = getTemplatePreset_ACU(activeName)?.templateStr || null;
-    } else {
-      libraryStr = getDefaultTemplateSnapshot_ACU()?.templateStr || null;
-    }
+    const libraryStr: string | null = activeName
+      ? library.templateStrOf(activeName)
+      : (getDefaultTemplateSnapshot_ACU()?.templateStr || null);
     const differsFromLibrary = libraryStr != null && runtimeSnapshot.templateStr !== libraryStr;
     return { item, available: true, differsFromLibrary };
   }
 
   function refresh(): void {
-    const nextGlobalNames = listTemplatePresetNames_ACU();
+    // 一次 refresh 只取一次库快照：列表名、每个预设的表数量、runtime/快照偏离判定都复用它。
+    const library = createPresetLibraryView_ACU();
     const nextChatArchives = listChatTemplateArchiveEntries_ACU();
     const nextSelectedGlobal = normalizeTemplatePresetSelectionValue_ACU(
       getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
     );
     const activeMeta = getActiveTemplatePresetMeta_ACU();
-    const runtimeViews = computeRuntimeViews();
+    const runtimeViews = computeRuntimeViews(library);
     runtimeTemplateItem.value = runtimeViews.item;
     runtimeTemplateAvailable.value = runtimeViews.available;
     runtimeDiffersFromLibrary.value = runtimeViews.differsFromLibrary;
     const nextItems = buildChatPresetItems(
-      nextGlobalNames,
+      library,
       nextSelectedGlobal,
       activeMeta,
       runtimeViews.item,
     );
     const nextSelectedChat = resolveSelectedChatPresetValue(activeMeta, nextSelectedGlobal);
 
-    globalPresetNames.value = nextGlobalNames;
+    globalPresetNames.value = library.names;
     chatArchiveEntries.value = nextChatArchives;
     selectedGlobalPreset.value = nextSelectedGlobal;
     selectedGlobalPresetValue.value = encodeChatPresetValue('global', nextSelectedGlobal || '');
@@ -393,40 +385,25 @@ export function useTableTemplatePresets() {
     });
   }
 
-  async function ensureTemplateSwitchCanProceed(guideData: Record<string, any> | null): Promise<boolean> {
-    const recoveryGuard = await ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU(guideData, 'switch-template');
+  async function ensureTemplateSwitchCanProceed(): Promise<boolean> {
+    const recoveryGuard = await ensureTemplateRecoveryReady_ACU('switch-template');
     return recoveryGuard.success;
   }
 
   async function applyChatTemplateWithDestructiveConfirmation(
     apply: (destructiveChangeConfirmed: boolean) => Promise<any>,
   ): Promise<any> {
-    const applyWithSingleStaleRetry = async (destructiveChangeConfirmed: boolean): Promise<any> => {
-      const firstAttempt = await apply(destructiveChangeConfirmed);
-      // stale revision 表示本次计划的 read-plan-commit 窗口已失效。重新进入 service
-      // 才会读取新基线；其它 V2 历史错误绝不能通过重试伪装成可恢复状态。
-      if (!isStaleRevisionConflict(firstAttempt)) return firstAttempt;
-      if (templateOperationController.signal.aborted) return firstAttempt;
-      return apply(destructiveChangeConfirmed);
-    };
-
-    const firstResult = await applyWithSingleStaleRetry(false);
-    if (!firstResult || firstResult.saved !== false || !Array.isArray(firstResult.blockers) || firstResult.blockers.length === 0) {
-      return firstResult;
-    }
-    const destructiveBlockers = firstResult.blockers.filter((blocker: unknown) => (
-      typeof blocker === 'string' && /删除(?:表|列).+需要显式确认/.test(blocker)
-    ));
-    if (destructiveBlockers.length === 0) return firstResult;
-    const confirmed = await dialogStore.confirm({
-      title: '确认破坏性模板变更',
-      message: `此模板变更会删除现有表或列：\n${destructiveBlockers.join('\n')}`,
-      dangerMessage: '确认后将按 V2 原子提交执行。删除的数据只能通过聊天备份或 checkpoint 恢复。',
-      confirmLabel: '确认删除并继续',
-      cancelLabel: '取消',
-      confirmVariant: 'danger',
+    return applyTemplateWithDestructiveConfirm_ACU(apply, {
+      signal: templateOperationController.signal,
+      confirm: destructiveBlockers => dialogStore.confirm({
+        title: '确认破坏性模板变更',
+        message: `此模板变更会删除现有表或列：\n${destructiveBlockers.join('\n')}`,
+        dangerMessage: '确认后将按 V2 原子提交执行。删除的数据只能通过聊天备份或 checkpoint 恢复。',
+        confirmLabel: '确认删除并继续',
+        cancelLabel: '取消',
+        confirmVariant: 'danger',
+      }),
     });
-    return confirmed ? applyWithSingleStaleRetry(true) : firstResult;
   }
 
   async function selectChatPreset(name: string): Promise<void> {
@@ -434,8 +411,7 @@ export function useTableTemplatePresets() {
     const normalized = normalizeTemplatePresetSelectionValue_ACU(selection.name);
     if (selection.kind === 'runtime') return;
     await run(async () => {
-      const guideData = resolveGuideDataForPresetSelection(selection);
-      const canProceed = await ensureTemplateSwitchCanProceed(guideData);
+      const canProceed = await ensureTemplateSwitchCanProceed();
       if (!canProceed) return;
       const result = await applyChatTemplateWithDestructiveConfirmation(destructiveChangeConfirmed => applyTemplatePresetToCurrent_ACU(normalized, {
         source: selection.kind === 'snapshot' ? 'v2_table_chat_select_snapshot' : 'v2_table_chat_select_global',
@@ -475,13 +451,7 @@ export function useTableTemplatePresets() {
       if (!selectedArchiveKey) return;
       const archive = archives.find((entry: TemplateArchiveEntry) => String(entry.archiveKey || '').trim() === selectedArchiveKey);
       if (!archive) throw new Error('找不到选择的历史模板归档。');
-      const guideData = archive.guideData && typeof archive.guideData === 'object'
-        ? archive.guideData
-        : buildChatSheetGuideDataFromTemplateObj_ACU(
-          typeof archive.templateStr === 'string' ? safeJsonParse_ACU(archive.templateStr, null) : archive.templateStr,
-          { stripSeedRows: false },
-        );
-      const canProceed = await ensureTemplateSwitchCanProceed(guideData);
+      const canProceed = await ensureTemplateSwitchCanProceed();
       if (!canProceed) return;
       const result = await applyChatTemplateWithDestructiveConfirmation(destructiveChangeConfirmed => applyTemplateSnapshotToScope_ACU(archive.templateStr, {
         scope: 'chat',
@@ -504,112 +474,6 @@ export function useTableTemplatePresets() {
     });
   }
 
-  async function saveGlobalAs(): Promise<void> {
-    const current = selectedGlobalPreset.value;
-    const raw = await dialogStore.prompt({
-      title: '另存为全局模板预设',
-      message: '请输入要另存为的全局模板预设名称。',
-      label: '预设名称',
-      defaultValue: current ? `${current}_副本` : '新模板预设',
-      confirmLabel: '另存为',
-    });
-    if (!raw) return;
-    const requested = raw.trim();
-    if (!requested) return;
-    await run(async () => {
-      const normalizedTemplate = normalizeTemplateForPresetSave_ACU();
-      if (!normalizedTemplate) throw new Error('无法解析当前模板。');
-      const finalName = ensureUniqueTemplatePresetName_ACU(requested);
-      if (finalName !== requested) {
-        const confirmed = await dialogStore.confirm({
-          title: '预设名已存在',
-          message: `预设名已存在，将自动另存为「${finalName}」。是否继续？`,
-          confirmLabel: '继续保存',
-        });
-        if (!confirmed) return;
-      }
-      if (!upsertTemplatePreset_ACU(finalName, normalizedTemplate.templateStr)) throw new Error('无法写入全局模板预设。');
-      const result = await applyTemplatePresetToCurrent_ACU(finalName, {
-        source: 'v2_table_global_save_as',
-        updateGlobal: true,
-        save: true,
-        persistChatScope: false,
-        signal: templateOperationController.signal,
-      });
-      if (!result) throw new Error('另存后切换全局模板预设失败。');
-      if (typeof result === 'object' && result.saved === false) {
-        throw new Error(typeof result.error === 'string' && result.error ? result.error : '另存后切换全局模板预设失败。');
-      }
-      message.value = null;
-      toast.success(`已另存为全局模板预设「${finalName}」。`);
-    });
-  }
-
-  async function renameGlobalPreset(): Promise<void> {
-    const oldName = selectedGlobalPreset.value;
-    if (!oldName) {
-      message.value = { kind: 'warning', text: '默认预设不能重命名。' };
-      return;
-    }
-    const preset = getTemplatePreset_ACU(oldName);
-    if (!preset?.templateStr) {
-      message.value = { kind: 'warning', text: '找不到当前选中的全局模板预设。' };
-      return;
-    }
-    const raw = await dialogStore.prompt({
-      title: '重命名全局模板预设',
-      message: `将全局模板预设「${oldName}」重命名为：`,
-      label: '预设名称',
-      defaultValue: oldName,
-      confirmLabel: '重命名',
-    });
-    if (!raw) return;
-    const newName = raw.trim();
-    if (!newName) return;
-    await run(async () => {
-      const renamed = renameTemplatePreset_ACU(oldName, newName);
-      if (!renamed.ok) throw new Error(renamed.error || '重命名全局模板预设失败。');
-      try {
-        if (selectedGlobalPreset.value === oldName) {
-          const result = await applyTemplatePresetToCurrent_ACU(newName, {
-            source: 'v2_table_global_rename',
-            updateGlobal: true,
-            save: true,
-            persistChatScope: false,
-            signal: templateOperationController.signal,
-          });
-          if (!result || (typeof result === 'object' && 'saved' in result && result.saved === false)) {
-            throw new Error('重命名后切换全局模板预设失败。');
-          }
-        }
-      } catch (error) {
-        const rollback = renameTemplatePreset_ACU(newName, oldName);
-        if (!rollback.ok) throw new Error(`${error instanceof Error ? error.message : String(error)}；回滚重命名失败：${rollback.error || '未知错误'}`);
-        throw error;
-      }
-      message.value = null;
-    });
-  }
-
-  async function deleteGlobalPreset(): Promise<void> {
-    const name = selectedGlobalPreset.value;
-    if (!name) {
-      message.value = { kind: 'warning', text: '默认预设不能删除。' };
-      return;
-    }
-    const confirmed = await dialogStore.confirm({
-      title: '删除全局模板预设',
-      message: `确定要删除全局模板预设「${name}」吗？此操作不可撤销。`,
-      confirmLabel: '删除预设',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-    await run(() => {
-      if (!deleteTemplatePreset_ACU(name)) throw new Error('删除失败或全局模板预设不存在。');
-      message.value = null;
-    });
-  }
-
   async function importPresetForCurrentChat(file: File): Promise<void> {
     await run(async () => {
       const content = await readFileText(file);
@@ -620,9 +484,7 @@ export function useTableTemplatePresets() {
       });
       if (!baseName) throw new Error('无法确定导入预设名称。');
       const finalName = ensureUniqueTemplatePresetName_ACU(baseName);
-      const canProceed = await ensureTemplateSwitchCanProceed(
-        buildChatSheetGuideDataFromTemplateObj_ACU(prepared.templateObj, { stripSeedRows: false }),
-      );
+      const canProceed = await ensureTemplateSwitchCanProceed();
       if (!canProceed) return;
       const result = await applyChatTemplateWithDestructiveConfirmation(destructiveChangeConfirmed => applyTemplateSnapshotToScope_ACU(prepared.templateStr, {
         scope: 'chat',
@@ -666,7 +528,7 @@ export function useTableTemplatePresets() {
       : (scope === 'chat'
         ? `TavernDB_template_chat_${safeName}.json`
         : `TavernDB_template_runtime_${safeName}.json`);
-    downloadJson(sanitized, filename);
+    downloadJsonToHost_ACU(filename, sanitized);
     message.value = null;
     toast.success(scope === 'global' ? '全局模板已导出。' : (scope === 'chat' ? '当前聊天模板已导出。' : '当前生效模板已导出。'));
   }
@@ -692,9 +554,6 @@ export function useTableTemplatePresets() {
     selectChatPreset,
     followGlobalTemplate,
     restoreArchivedChatTemplate,
-    saveGlobalAs,
-    renameGlobalPreset,
-    deleteGlobalPreset,
     importPresetForCurrentChat,
     exportTemplate,
   };

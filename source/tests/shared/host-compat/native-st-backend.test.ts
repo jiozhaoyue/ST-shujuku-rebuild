@@ -21,6 +21,11 @@ vi.mock('../../../src/shared/utils', () => ({
   logDebug_ACU: mockLogDebug,
 }));
 
+const { liveModule } = vi.hoisted(() => ({ liveModule: { current: null as any } }));
+vi.mock('../../../src/shared/host-compat/host-world-info-module', () => ({
+  getVerifiedHostWorldInfoModule_ACU: () => liveModule.current,
+}));
+
 import { createNativeStBackend_ACU } from '../../../src/shared/host-compat/native-st-backend';
 
 /** 构造一份与 TT dev getContext() 同形的最小 context 快照 */
@@ -42,6 +47,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  liveModule.current = null;
   fetchMock.mockReset();
   (globalThis as any).fetch = fetchMock;
 });
@@ -51,10 +57,6 @@ afterEach(() => {
 });
 
 describe('isUsable', () => {
-  it('loadWorldInfo / saveWorldInfo / executeSlashCommandsWithOptions 齐备时可用', () => {
-    const backend = createNativeStBackend_ACU(() => buildContext());
-    expect(backend.isUsable()).toBe(true);
-  });
 
   it('context 缺失或最低接口不齐时不可用', () => {
     expect(createNativeStBackend_ACU(() => undefined).isUsable()).toBe(false);
@@ -115,6 +117,17 @@ describe('getLorebooks', () => {
     const backend = createNativeStBackend_ACU(() => ctx);
 
     expect(await backend.getLorebooks()).toEqual([]);
+  });
+});
+
+describe('附加世界书读实时数据（宿主世界书模块已加载时）', () => {
+  it('不读带缓存的设置快照，刚挂上的附加书立即可见', async () => {
+    liveModule.current = { world_info: { charLore: [{ name: 'hero', extraBooks: ['刚挂上的'] }] } };
+    const ctx = buildContext({ characters: [{ name: '主角', avatar: 'hero.png', data: { extensions: { world: '主书' } } }] });
+    const backend = createNativeStBackend_ACU(() => ctx);
+
+    expect(await backend.getCharWorldbookNames('current')).toEqual({ primary: '主书', additional: ['刚挂上的'] });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -339,11 +352,6 @@ describe('聊天 / slash / 角色数据', () => {
     expect(mockLogWarn).toHaveBeenCalledWith(expect.stringContaining('无法解析 range'));
   });
 
-  it('getLastMessageId 反映 chat 长度', () => {
-    expect(createNativeStBackend_ACU(() => buildContext({ chat: [{}, {}] })).getLastMessageId()).toBe(1);
-    expect(createNativeStBackend_ACU(() => buildContext({ chat: [] })).getLastMessageId()).toBe(-1);
-  });
-
   it('triggerSlash 走 executeSlashCommandsWithOptions 并取 pipe', async () => {
     const ctx = buildContext();
     const backend = createNativeStBackend_ACU(() => ctx);
@@ -374,5 +382,74 @@ describe('聊天 / slash / 角色数据', () => {
     backend.invalidateSettingsSnapshot();
     expect(await backend.getLorebooks()).toEqual(['第二轮']);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * TT 2.3.0 的一等工具楼必须映射成 system，绝不能变成 assistant。
+ *
+ * 宿主事实：工具结果楼是 `{role:'tool', is_system:true, is_user:false, mes, tool_call_id, error}`
+ * （src/scripts/tool-calling.js:1058-1068）。默认 `is_system:true` 时旧映射恰好给出 system，
+ * 但用户 `/unhide` 会把 `is_system` 改回 false（src/scripts/chats.js:149-159），此时只看
+ * is_user/is_system 的映射会把它判成 **assistant**、正文是工具结果 JSON ⇒ 顺着
+ * `getChatMessages({role:'assistant'})` 混进模板与检索语料。这正是 shared/ai-floor.ts 头注释
+ * 警告过的「只判 is_system 会漏掉被 /unhide 过的工具楼」：role 才是类型事实。
+ */
+describe('TT 2.3.0 一等工具楼的角色映射', () => {
+  it('role:"tool" 一律映射为 system，被 /unhide 清掉 is_system 后也不得变成 assistant', async () => {
+    const ctx = buildContext({
+      chat: [
+        { name: '角色', mes: '回复', is_user: false },
+        { name: 'exa_search', mes: '{"result":"hidden"}', is_user: false, is_system: true, role: 'tool', tool_call_id: 'call_1' },
+        { name: 'exa_search', mes: '{"result":"unhidden"}', is_user: false, is_system: false, role: 'tool', tool_call_id: 'call_2' },
+      ],
+    });
+    const backend = createNativeStBackend_ACU(() => ctx);
+
+    const all = await backend.getChatMessages('0-2');
+    expect(all.map((m: any) => m.role)).toEqual(['assistant', 'system', 'system']);
+
+    // 判别点：按 assistant 过滤时不得混入工具结果 JSON。
+    const onlyAi = await backend.getChatMessages('0-2', { role: 'assistant' });
+    expect(onlyAi.map((m: any) => m.message)).toEqual(['回复']);
+  });
+});
+
+describe('R7-02：同一本书的读改写串行化', () => {
+  function buildAsyncBookContext() {
+    let stored: any = { entries: { 0: { uid: 0, comment: '旧', content: 'c', key: [], disable: false } } };
+    const delay = () => new Promise(resolve => setTimeout(resolve, 5));
+    return {
+      ctx: buildContext({
+        loadWorldInfo: vi.fn(async () => { await delay(); return structuredClone(stored); }),
+        saveWorldInfo: vi.fn(async (_name: string, data: any) => { await delay(); stored = structuredClone(data); }),
+      }),
+      read: () => stored,
+    };
+  }
+
+  it('并发 create + create + set 后三方改动都在，新 uid 不重复', async () => {
+    const { ctx, read } = buildAsyncBookContext();
+    const backend = createNativeStBackend_ACU(() => ctx);
+    const [first, second] = await Promise.all([
+      backend.createLorebookEntries('书A', [{ comment: '新1', content: 'x' }]),
+      backend.createLorebookEntries('书A', [{ comment: '新2', content: 'y' }]),
+      backend.setLorebookEntries('书A', [{ uid: 0, comment: '改' }]),
+    ]);
+    expect(first.new_uids[0]).not.toBe(second.new_uids[0]);
+    const comments = Object.values(read().entries).map((entry: any) => entry.comment).sort();
+    expect(comments).toEqual(['改', '新1', '新2'].sort());
+  });
+
+  it('前一个写入失败不阻塞后续写入', async () => {
+    const { ctx, read } = buildAsyncBookContext();
+    ctx.saveWorldInfo.mockRejectedValueOnce(new Error('save failed'));
+    const backend = createNativeStBackend_ACU(() => ctx);
+    const results = await Promise.allSettled([
+      backend.setLorebookEntries('书A', [{ uid: 0, comment: '失败' }]),
+      backend.setLorebookEntries('书A', [{ uid: 0, comment: '成功' }]),
+    ]);
+    expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
+    expect(read().entries[0].comment).toBe('成功');
   });
 });

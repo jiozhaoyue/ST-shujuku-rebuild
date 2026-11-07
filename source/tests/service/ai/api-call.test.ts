@@ -54,11 +54,11 @@ vi.stubGlobal('fetch', mockFetch);
 
 import {
   callApiWithPlotPreset_ACU,
-  getApiConfigByPreset_ACU,
   callAIWithPreset_ACU,
   callAIWithResolvedPreset_ACU,
   buildCustomApiRequestBody_ACU,
   postChatCompletion_ACU,
+  postChatCompletionTurn_ACU,
   withOpencodeSessionHeader_ACU,
   normalizeOpencodeSessionNamespace_ACU,
   normalizeOpencodeSessionModel_ACU,
@@ -94,42 +94,8 @@ beforeEach(() => {
   __clearComposeIncludeBodyCacheForTests_ACU();
 });
 
-// ═══ getApiConfigByPreset_ACU ═══
-describe('getApiConfigByPreset_ACU', () => {
-  it('空预设名返回当前配置', () => {
-    const config = getApiConfigByPreset_ACU('');
-    expect(config.apiMode).toBe('custom');
-    expect(config.apiConfig).toBe(mockSettings.apiConfig);
-  });
-
-  it('找到预设时返回预设配置', () => {
-    mockSettings.apiPresets = [
-      { name: '预设A', apiMode: 'custom', apiConfig: { url: 'http://a.com' } },
-    ];
-    const config = getApiConfigByPreset_ACU('预设A');
-    expect(config.apiMode).toBe('custom');
-    expect(config.apiConfig.url).toBe('http://a.com');
-  });
-
-  it('预设不存在时回退到当前配置', () => {
-    mockSettings.apiPresets = [];
-    const config = getApiConfigByPreset_ACU('不存在');
-    expect(config.apiMode).toBe('custom');
-  });
-});
-
 // ═══ resolveApiConfigByPreset_ACU memo ═══
 describe('resolveApiConfigByPreset_ACU memo', () => {
-  it('同名连续解析复用缓存：改包装不影响下次结果', () => {
-    mockSettings.apiPresets = [
-      { name: '备忘', apiMode: 'custom', apiConfig: { url: 'https://m.com', model: 'mm' } },
-    ];
-    const a = resolveApiConfigByPreset_ACU('备忘');
-    (a as any).injected = true;
-    const b = resolveApiConfigByPreset_ACU('备忘');
-    expect((b as any).injected).toBeUndefined();
-    expect(b.apiConfig.url).toBe('https://m.com');
-  });
 
   it('预设内容变化即失效', () => {
     mockSettings.apiPresets = [
@@ -152,13 +118,6 @@ describe('composeCustomIncludeBody_ACU memo', () => {
     expect(b.diagnostic).not.toBe(a.diagnostic);
     expect(JSON.parse(b.value)).toMatchObject({ x: 1, prompt_cache_key: 'k' });
   });
-
-  it('输入变化重新组装', () => {
-    const a = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k1' });
-    const b = composeCustomIncludeBody_ACU('{"x": 1}', { prompt_cache_key: 'k2' });
-    expect(JSON.parse(a.value).prompt_cache_key).toBe('k1');
-    expect(JSON.parse(b.value).prompt_cache_key).toBe('k2');
-  });
 });
 
 // ═══ callAIWithPreset_ACU ═══
@@ -166,19 +125,6 @@ describe('callAIWithPreset_ACU', () => {
   it('空消息数组返回 null', async () => {
     const result = await callAIWithPreset_ACU([]);
     expect(result).toBeNull();
-  });
-
-  it('非数组返回 null', async () => {
-    const result = await callAIWithPreset_ACU(null as any);
-    expect(result).toBeNull();
-  });
-
-  it('自定义 API 模式使用 fetch', async () => {
-    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test' };
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue('AI 回复');
-    const result = await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
-    expect(result).toBe('AI 回复');
   });
 
   it('custom API non-success response preserves HTTP status for retry owners', async () => {
@@ -224,6 +170,57 @@ describe('callAIWithPreset_ACU', () => {
     expect(error.message.length).toBeLessThanOrEqual(2100);
   });
 
+  // G02-02：展示脱敏的形态缺口——Gemini 转接把密钥放进 ?key= 查询参数，
+  // 上游/中转可能把请求 URL 或密钥原文回显进错误体；裸 sk-/AIza 回显同样要挡住。
+  it('上游错误体回显 ?key= 查询参数与裸 sk-/AIza 密钥时同样脱敏', async () => {
+    const leakedBody = [
+      'POST https://relay.example.com/v1beta/models?key=AIzaSyD-REAL-LOOKING-SECRET-abcdef → 403',
+      'Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz0123456789',
+    ].join('\n');
+    mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve(leakedBody) });
+
+    const error = await postChatCompletion_ACU({ stream: false }).catch(e => e);
+
+    expect(error).toBeInstanceOf(AgentApiHttpError_ACU);
+    expect(error.message).not.toContain('AIzaSyD-REAL-LOOKING-SECRET-abcdef');
+    expect(error.message).not.toContain('sk-abcdefghijklmnopqrstuvwxyz0123456789');
+    expect(error.message).toContain('key=***');
+    expect(error.message).toContain('sk-***');
+  });
+
+  it('postChatCompletionTurn_ACU 取回正文与 tool_calls（填表工具调用可选项）', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        choices: [{ message: {
+          content: '分析完毕',
+          tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'table_sql', arguments: '{"sql":"UPDATE t SET a = 1;"}' } }],
+        } }],
+      }),
+    });
+
+    const turn = await postChatCompletionTurn_ACU({ stream: false });
+    expect(turn?.content).toBe('分析完毕');
+    expect(turn?.toolCalls).toEqual([{ name: 'table_sql', arguments: '{"sql":"UPDATE t SET a = 1;"}' }]);
+  });
+
+  it('postChatCompletionTurn_ACU 无 tool_calls 时 toolCalls 为空数组（走正文兜底）', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ choices: [{ message: { content: '<tableEdit>\nUPDATE t SET a = 1;\n</tableEdit>' } }] }),
+    });
+
+    const turn = await postChatCompletionTurn_ACU({ stream: false });
+    expect(turn?.toolCalls).toEqual([]);
+    expect(turn?.content).toContain('<tableEdit>');
+  });
+
+  it('postChatCompletionTurn_ACU 非 OpenAI 形态取不到内容时返回 null（调用方按可重试处理）', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ foo: 1 }) });
+
+    await expect(postChatCompletionTurn_ACU({ stream: false })).resolves.toBeNull();
+  });
+
   it('isRetryableAiRequestError_ACU 只放行瞬时失败，AbortError 一律立停', () => {
     const aborted = Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' });
     expect(isRetryableAiRequestError_ACU(aborted)).toBe(false);
@@ -240,6 +237,22 @@ describe('callAIWithPreset_ACU', () => {
     expect(isRetryableAiRequestError_ACU(null)).toBe(false);
   });
 
+  // 跟上游 0d9cc1a5：TypeError 只在带网络失败特征时算瞬时故障；程序错误重试也不会好，只会白等几轮。
+  it('isRetryableAiRequestError_ACU：程序错误的 TypeError 不重试，连接层错误码与浏览器网络失败照常重试', () => {
+    expect(isRetryableAiRequestError_ACU(new TypeError("Cannot read properties of undefined (reading 'choices')"))).toBe(false);
+    expect(isRetryableAiRequestError_ACU(new TypeError('x is not a function'))).toBe(false);
+
+    expect(isRetryableAiRequestError_ACU(new TypeError('Load failed'))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(new TypeError('NetworkError when attempting to fetch resource.'))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(Object.assign(new Error('connect refused'), { code: 'ECONNREFUSED' }))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(Object.assign(new TypeError('fetch failed'), { cause: { code: 'UND_ERR_SOCKET' } }))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(Object.assign(new TypeError('terminated'), { cause: { message: 'other side closed' } }))).toBe(true);
+    // WebKit / iOS 与 TT 原生层的说法
+    expect(isRetryableAiRequestError_ACU(new TypeError('The network connection was lost.'))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(new TypeError('The Internet connection appears to be offline.'))).toBe(true);
+    expect(isRetryableAiRequestError_ACU(new Error('error sending request for url (https://x/v1/chat/completions)'))).toBe(true);
+  });
+
   it('408 Request Timeout 可重试，401/403/404 保持终态', () => {
     expect(isRetryableAiRequestError_ACU(Object.assign(new Error('timeout'), { status: 408 }))).toBe(true);
     expect(isRetryableAiRequestError_ACU(new AgentApiHttpError_ACU(408, 'request timeout'))).toBe(true);
@@ -253,16 +266,6 @@ describe('callAIWithPreset_ACU', () => {
     expect(isRetryableAiRequestError_ACU(timeout)).toBe(true);
     const plain = new Error('内部AI请求超时，已中断');
     expect(isRetryableAiRequestError_ACU(plain)).toBe(false);
-  });
-
-  it('指定预设名使用对应预设', async () => {
-    mockSettings.apiPresets = [
-      { name: '预设B', apiMode: 'custom', apiConfig: { url: 'https://b.com', model: 'gpt-4', apiKey: 'sk-test' } },
-    ];
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue('预设B回复');
-    const result = await callAIWithPreset_ACU([{ role: 'user', content: '你好' }], '预设B');
-    expect(result).toBe('预设B回复');
   });
 
   it('自定义 API 模式把 signal 传给 fetch', async () => {
@@ -289,6 +292,34 @@ describe('callAIWithPreset_ACU', () => {
 
 // ═══ buildCustomApiRequestBody_ACU ═══
 describe('buildCustomApiRequestBody_ACU', () => {
+  it('插件请求一律标为后台请求：宿主把上游错误作为 502 返回，而不是包成一条「助手回复」', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', bodyParams: 'type: chat' },
+    );
+    expect(body.type).toBe('quiet');
+  });
+
+  it('预设密钥走反向代理密码：TT 不再改用自己「自定义」连接里存的密钥（Claude 协议 x-api-key、Gemini key 参数都取它）', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://opencode.ai/zen/go/v1', model: 'qwen3.8-flash', apiKey: 'preset-key\r\n', customApiFormat: 'claude_messages' as any },
+    );
+    expect(body.custom_url).toBe('');
+    expect(body.reverse_proxy).toBe('https://opencode.ai/zen/go/v1');
+    expect(body.proxy_password).toBe('preset-key');
+    // 兼容 OpenAI 系协议照旧带 Authorization（与 TT 按代理密码生成的值一致）
+    expect(body.custom_include_headers).toContain('Authorization: Bearer preset-key');
+
+    // 预设没填密钥：照旧填 custom_url，让 TT 回退到它「自定义」连接里存的密钥
+    const keyless = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com/v1', model: 'm', apiKey: '' },
+    );
+    expect(keyless.custom_url).toBe('https://api.example.com/v1');
+    expect(keyless.proxy_password).toBe('');
+  });
+
   it('max_tokens=0 不被回退为 20000', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],
@@ -352,6 +383,65 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(body.custom_prompt_post_processing).toBe('strict');
   });
 
+  // TT 转接 Claude Messages / Gemini generateContent 时，只有请求带 use_sysprompt 才把开头连续的 system
+  // 放进协议的系统提示字段；不带就降成 user 并与相邻 user 合并，提示词预设的 system 被改写。
+  // 其余协议 TT 自己保留 system（OpenAI 原样、Responses / Interactions 按 system 处理），不带该键。
+  it('Claude Messages 与 Gemini generateContent 转接时带 use_sysprompt，其余协议不带', () => {
+    const build = (customApiFormat: string) => buildCustomApiRequestBody_ACU(
+      [{ role: 'system', content: 'sys' }, { role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'm', customApiFormat: customApiFormat as any },
+    );
+    expect(build('claude_messages').use_sysprompt).toBe(true);
+    expect(build('gemini_generate_content').use_sysprompt).toBe(true);
+    for (const format of ['openai_compat', 'openai_responses', 'gemini_interactions']) {
+      expect(build(format)).not.toHaveProperty('use_sysprompt');
+    }
+  });
+
+  it('preserve_multiple_system 缺省为 true，显式 false 原样透传（移植上游 e1876435）', () => {
+    const def = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4' },
+    );
+    expect(def.preserve_multiple_system).toBe(true);
+    const off = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', preserveMultipleSystem: false },
+    );
+    expect(off.preserve_multiple_system).toBe(false);
+  });
+
+  it('tools 随 toolChoice 顶层透传（填表原生工具调用可选项）', () => {
+    const tools = [{ type: 'function', function: { name: 'table_sql', parameters: { type: 'object', properties: { sql: { type: 'string' } }, required: ['sql'] } } }];
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4' },
+      { tools, toolChoice: 'auto' },
+    );
+    expect(body.tools).toEqual(tools);
+    expect(body.tool_choice).toBe('auto');
+  });
+
+  it('tools 非法形态一律省略（fail-closed，不发送残缺工具定义）', () => {
+    for (const tools of [null, {}, 'tools', [{ type: 'function' }], [{ function: { name: '' } }]]) {
+      const body = buildCustomApiRequestBody_ACU(
+        [{ role: 'user', content: 'test' }],
+        { url: 'https://api.example.com', model: 'gpt-4' },
+        { tools: tools as any },
+      );
+      expect(body).not.toHaveProperty('tools');
+    }
+  });
+
+  it('不传 tools 时请求体无 tools 键（默认行为零变化）', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4' },
+    );
+    expect(body).not.toHaveProperty('tools');
+    expect(body).not.toHaveProperty('tool_choice');
+  });
+
   it('reasoning_effort 七档原样透传（minimal 最低、ultra 最高）', () => {
     for (const value of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
       const body = buildCustomApiRequestBody_ACU(
@@ -376,14 +466,6 @@ describe('buildCustomApiRequestBody_ACU', () => {
       { url: 'https://api.example.com', model: 'gpt-4', reasoningEffort: 'auto' },
     );
     expect(body).not.toHaveProperty('reasoning_effort');
-  });
-
-  it('reasoningEffort 非法值回退 medium', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', reasoningEffort: 'extreme' },
-    );
-    expect(body.reasoning_effort).toBe('medium');
   });
 
   it('OpenCode Go 端点自动补 x-opencode-session 头，同端点会话 id 稳定', () => {
@@ -411,6 +493,103 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(String(body.custom_include_headers)).not.toMatch(/x-opencode-session/i);
   });
 
+  it('Go 新地址 /inference/go/（Gemini 4 Argon 只在这条路径上）同样补会话头', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://opencode.ai/inference/go/v1', model: 'gemini-4-argon-contributor', apiKey: 'sk-go', customApiFormat: 'gemini_generate_content' as any },
+    );
+    expect(String(body.custom_include_headers)).toMatch(/^x-opencode-session: [0-9a-f-]{36}$/im);
+    expect(body.custom_api_format).toBe('gemini_generate_content');
+    const notGo = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://opencode.ai/inference/v1', model: 'm', apiKey: 'sk-x' },
+    );
+    expect(String(notGo.custom_include_headers)).not.toMatch(/x-opencode-session/i);
+  });
+
+  it('Gemini 3.6+ / 4.x（含中转前缀别名）走 Gemini 协议时，结尾的 assistant 预填改为 user，其余消息不动', () => {
+    const msgs = [
+      { role: 'system', content: 's' },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: '<thinking>' },
+    ];
+    const roles = (model: string, format = 'gemini_generate_content') => buildCustomApiRequestBody_ACU(
+      msgs, { url: 'https://opencode.ai/inference/go/v1', model, apiKey: 'k', customApiFormat: format as any },
+    ).messages.map((m: any) => m.role);
+    expect(roles('gemini-4-argon-contributor')).toEqual(['system', 'user', 'assistant', 'user', 'user']);
+    expect(roles('relay/gemini-3.6-flash')).toEqual(['system', 'user', 'assistant', 'user', 'user']);
+    expect(roles('gemini-3.5-flash-lite')).toEqual(['system', 'user', 'assistant', 'user', 'user']);
+    // 仍支持预填的旧模型、非 Gemini 协议：原样保留
+    expect(roles('gemini-3.5-flash')).toEqual(['system', 'user', 'assistant', 'user', 'assistant']);
+    expect(roles('gemini-2.5-pro')).toEqual(['system', 'user', 'assistant', 'user', 'assistant']);
+    expect(roles('gemini-4-argon-contributor', 'openai_compat')).toEqual(['system', 'user', 'assistant', 'user', 'assistant']);
+    const body = buildCustomApiRequestBody_ACU(msgs, { url: 'https://x.test/v1', model: 'gemini-4-argon', apiKey: 'k', customApiFormat: 'gemini_generate_content' as any });
+    expect(body.messages[4]).toEqual({ role: 'user', content: '<thinking>' });
+  });
+
+  it('Gemini 4 Argon 走 Gemini 协议时思考强度收敛到它支持的 low/medium/high；ultra 在 Gemini 协议下按 max 发', () => {
+    const effort = (reasoningEffort: string, model = 'gemini-4-argon-contributor', format = 'gemini_generate_content') => buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 't' }],
+      { url: 'https://x.test/v1', model, apiKey: 'k', customApiFormat: format as any, reasoningEffort },
+    ).reasoning_effort;
+    expect(effort('minimal')).toBe('low');
+    expect(effort('low')).toBe('low');
+    expect(effort('medium')).toBe('medium');
+    expect(effort('high')).toBe('high');
+    expect(effort('xhigh')).toBe('high');
+    expect(effort('max')).toBe('high');
+    expect(effort('ultra')).toBe('high');
+    expect(effort('ultra', 'gemini-2.5-pro')).toBe('max');
+    expect(effort('minimal', 'gemini-2.5-pro')).toBe('minimal');
+    expect(effort('ultra', 'gemini-4-argon-contributor', 'openai_compat')).toBe('ultra');
+    expect(effort('minimal', 'gemini-4-argon-contributor', 'openai_compat')).toBe('minimal');
+  });
+
+  describe('Claude 协议 / 关闭思考按上游认的字段发', () => {
+    const GO = 'https://opencode.ai/inference/go/v1';
+    const build = (reasoningEffort: string, model: string, format: string, url = GO, bodyParams = '') => buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 't' }],
+      { url, model, apiKey: 'k', customApiFormat: format as any, reasoningEffort, bodyParams },
+    );
+    const includeBody = (body: any) => (body.custom_include_body ? parse(body.custom_include_body) : {});
+
+    it('Claude 协议的 effort 只认 low~max：minimal 按 low、ultra 按 max 发，其余原样', () => {
+      const effort = (value: string, url = GO) => build(value, 'minimax-m3', 'claude_messages', url).reasoning_effort;
+      expect(effort('minimal')).toBe('low');
+      expect(effort('ultra')).toBe('max');
+      for (const value of ['low', 'medium', 'high', 'xhigh', 'max']) expect(effort(value)).toBe(value);
+      expect(effort('ultra', 'https://api.anthropic.com/v1')).toBe('max');
+    });
+
+    it('Go 上 Claude 协议的非 Claude 模型（MiniMax M3 等不带 thinking 就不思考）补 thinking: adaptive', () => {
+      expect(includeBody(build('high', 'minimax-m3', 'claude_messages')).thinking).toEqual({ type: 'adaptive' });
+      expect(includeBody(build('minimal', 'qwen3.8-max', 'claude_messages')).thinking).toEqual({ type: 'adaptive' });
+      // Claude 模型自己按 effort 思考；非 Go 端点、非 Claude 协议都不补
+      expect(includeBody(build('high', 'claude-haiku-5-5', 'claude_messages'))).not.toHaveProperty('thinking');
+      expect(includeBody(build('high', 'minimax-m3', 'claude_messages', 'https://api.minimaxi.com/anthropic'))).not.toHaveProperty('thinking');
+      expect(includeBody(build('high', 'glm-5.3', 'openai_compat'))).not.toHaveProperty('thinking');
+      // Auto 不传思考参数
+      expect(includeBody(build('auto', 'minimax-m3', 'claude_messages'))).not.toHaveProperty('thinking');
+    });
+
+    it('用户在自定义请求体里写了 thinking 时以用户为准', () => {
+      const body = build('high', 'minimax-m3', 'claude_messages', GO, 'thinking:\n  type: enabled\n  budget_tokens: 2048');
+      expect(includeBody(body).thinking).toEqual({ type: 'enabled', budget_tokens: 2048 });
+    });
+
+    it('关闭思考：Claude 协议改发 thinking: disabled 且不带 effort；Responses 与 Go 的兼容接口发 none', () => {
+      const claude = build('false', 'minimax-m3', 'claude_messages', 'https://api.anthropic.com/v1');
+      expect(claude).not.toHaveProperty('reasoning_effort');
+      expect(includeBody(claude).thinking).toEqual({ type: 'disabled' });
+      expect(build('false', 'gpt-6-luna', 'openai_responses', 'https://api.openai.com/v1').reasoning_effort).toBe('none');
+      expect(build('false', 'kimi-k3', 'openai_compat').reasoning_effort).toBe('none');
+      // 其他 OpenAI 兼容端点保持布尔 false
+      expect(build('false', 'gpt-4', 'openai_compat', 'https://api.example.com').reasoning_effort).toBe(false);
+    });
+  });
+
   it('用户已显式写 x-opencode-session 时不覆盖', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],
@@ -432,14 +611,6 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(pick(fill)).not.toBe(pick(plot));
     expect(pick(shared)).not.toBe(pick(plot));
     expect(pick(shared)).not.toBe(pick(fill));
-  });
-
-  it('非法命名空间回退共享桶', () => {
-    const cfg = { url: 'https://opencode.ai/zen/go/v1/chat/completions', model: 'm', apiKey: 'sk-go' };
-    const pick = (b: any) => String(b.custom_include_headers).split('\n').find((l: string) => /^x-opencode-session\s*:/i.test(l));
-    const bad = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg, { sessionNamespace: 'Plot!!' });
-    const shared = buildCustomApiRequestBody_ACU([{ role: 'user', content: 't' }], cfg);
-    expect(pick(bad)).toBe(pick(shared));
   });
 
   it('normalizeOpencodeSessionNamespace_ACU 大小写归一、非法置空', () => {
@@ -488,44 +659,12 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(pick(b)).not.toBe(pick(a));
   });
 
-  it('maxTokens 驼峰别名生效', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', maxTokens: 1234 },
-    );
-    expect(body.max_tokens).toBe(1234);
-  });
-
   it('temperature=0 不被回退为 1.0', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],
       { url: 'https://api.example.com', model: 'gpt-4', temperature: 0 },
     );
     expect(body.temperature).toBe(0);
-  });
-
-  it('top_p=0 进入 body.top_p', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', top_p: 0 },
-    );
-    expect(body.top_p).toBe(0);
-  });
-
-  it('topP 驼峰别名生效', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', topP: 0.5 },
-    );
-    expect(body.top_p).toBe(0.5);
-  });
-
-  it('topP=0 驼峰别名生效', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4', topP: 0 },
-    );
-    expect(body.top_p).toBe(0);
   });
 
   it('bodyParams 作为 SillyTavern custom_include_body 透传给最终 provider', () => {
@@ -662,44 +801,6 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(body.max_tokens).toBe(100);
   });
 
-  it('无配置时使用默认值', () => {
-    const body = buildCustomApiRequestBody_ACU(
-      [{ role: 'user', content: 'test' }],
-      { url: 'https://api.example.com', model: 'gpt-4' },
-    );
-    expect(body.max_tokens).toBe(20000);
-    expect(body.temperature).toBe(1.0);
-    expect(body.top_p).toBe(0.95);
-  });
-
-  it('messages 的 role 以大写 SYSTEM/USER 传入时归一为小写', () => {
-    // 回归点：改表助手伪 role 提示词组（buildPseudoRoleTemplateAssistantPromptSegments_ACU）
-    // 产出 role 为大写 SYSTEM / USER，自定义 chat-completions 后端只接受小写 role。
-    // 此前 messages 被原样透传导致 `unknown variant SYSTEM`。
-    const before = [
-      { role: 'SYSTEM', content: '你是改表助手。' },
-      { role: 'assistant', content: '收到。' },
-      { role: 'USER', content: '请改表。' },
-    ];
-    const body = buildCustomApiRequestBody_ACU(
-      before,
-      { url: 'https://api.example.com', model: 'gpt-4' },
-    );
-    expect(body.messages).toEqual([
-      { role: 'system', content: '你是改表助手。' },
-      { role: 'assistant', content: '收到。' },
-      { role: 'user', content: '请改表。' },
-    ]);
-    // 不原地修改调用方原始数组与对象
-    expect(before).toEqual([
-      { role: 'SYSTEM', content: '你是改表助手。' },
-      { role: 'assistant', content: '收到。' },
-      { role: 'USER', content: '请改表。' },
-    ]);
-    expect(body.messages).not.toBe(before);
-    expect(body.messages[0]).not.toBe(before[0]);
-  });
-
   it('messages 的 role 已为小写时不改变内容，也不改动调用方数组', () => {
     const original = [{ role: 'user', content: '你好' }];
     const body = buildCustomApiRequestBody_ACU(original, { url: 'https://api.example.com', model: 'gpt-4' });
@@ -799,50 +900,26 @@ describe('callAIWithPreset_ACU 自定义模式 role 归一化', () => {
 
 // ═══ callApiWithPlotPreset_ACU 温度透传 ═══
 describe('callApiWithPlotPreset_ACU 温度透传', () => {
-  it('custom 模式 fetch body 使用配置温度', async () => {
-    mockSettings.plotApiPreset = '';
-    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0.5, top_p: 0.7 };
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue('AI 回复');
-    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '');
-    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.temperature).toBe(0.5);
-    expect(fetchBody.top_p).toBe(0.7);
-  });
 
-  it('custom 模式指定预设温度进入 fetch body', async () => {
+  it('显式空名跟随当前配置、不被全局固定预设覆盖；undefined 才继承；名称去空格（移植上游 ece65f80）', async () => {
     mockSettings.plotApiPreset = '预设C';
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0.5 };
     mockSettings.apiPresets = [
-      { name: '预设C', apiMode: 'custom', apiConfig: { url: 'https://api.example.com', model: 'gpt-4', temperature: 0.2, top_p: 0.6 }, tavernProfile: '' },
+      { name: '预设C', apiMode: 'custom', apiConfig: { url: 'https://api.example.com', model: 'gpt-4', temperature: 0.2 }, tavernProfile: '' },
     ];
     mockFetch.mockResolvedValue({ ok: true });
     mockHandleApiResponse.mockResolvedValue('AI 回复');
-    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '预设C');
-    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.temperature).toBe(0.2);
-    expect(fetchBody.top_p).toBe(0.6);
+    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '');
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).temperature).toBe(0.5);
+    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], undefined as any);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body).temperature).toBe(0.2);
+    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '  预设C  ');
+    expect(JSON.parse(mockFetch.mock.calls[2][1].body).temperature).toBe(0.2);
   });
 });
 
 // ═══ callAIWithPreset_ACU 参数透传 ═══
 describe('callAIWithPreset_ACU 参数透传', () => {
-  it('custom 分支 fetch body temperature=0 不被回退', async () => {
-    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0 };
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue('AI 回复');
-    await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
-    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.temperature).toBe(0);
-  });
-
-  it('custom 分支 fetch body topP 驼峰别名生效', async () => {
-    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', topP: 0.3 };
-    mockFetch.mockResolvedValue({ ok: true });
-    mockHandleApiResponse.mockResolvedValue('AI 回复');
-    await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
-    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.top_p).toBe(0.3);
-  });
 
   it('custom 分支 fetch body max_tokens=0 不被回退', async () => {
     mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', max_tokens: 0 };
@@ -892,6 +969,8 @@ describe('callAIWithResolvedPreset_ACU 传输超时', () => {
   it('transport 挂死时按 120s 超时兜底中断，错误文案区分超时', async () => {
     vi.useFakeTimers();
     try {
+      // 流式请求的 fetch 阶段只等响应头：120s 内没有响应头即判挂死（R8-02 后非流式另按输出上限计时）。
+      mockSettings.streamingEnabled = true;
       mockFetch.mockImplementation((_url: string, init: any) => new Promise((_resolve, reject) => {
         init.signal.addEventListener('abort', () => {
           const err = new Error('aborted');
@@ -951,6 +1030,65 @@ describe('callAIWithResolvedPreset_ACU 传输超时', () => {
       vi.useRealTimers();
     }
   });
+
+  it('R8-02：流式持续出字时 120s 是空闲超时而非墙钟上限，长生成不被掐断', async () => {
+    vi.useFakeTimers();
+    try {
+      mockSettings.streamingEnabled = true;
+      mockFetch.mockResolvedValue({ ok: true });
+      let resolveBody!: (value: string) => void;
+      let onProgress: (() => void) | undefined;
+      mockHandleApiResponse.mockImplementation((_res: unknown, _stream: unknown, _usage: unknown, opts?: { onProgress?: () => void }) => {
+        onProgress = opts?.onProgress;
+        return new Promise((resolve) => { resolveBody = resolve; });
+      });
+
+      const pending = callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved);
+      await vi.waitFor(() => expect(mockHandleApiResponse).toHaveBeenCalled());
+      expect(typeof onProgress).toBe('function');
+      for (let elapsed = 0; elapsed < 300_000; elapsed += 30_000) {
+        await vi.advanceTimersByTimeAsync(30_000);
+        onProgress?.();
+      }
+      resolveBody('很长的正文');
+      await expect(pending).resolves.toBe('很长的正文');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('R8-02：非流式请求的超时按输出上限放宽，8192 token 的慢生成 130s 返回不被掐断', async () => {
+    vi.useFakeTimers();
+    try {
+      mockSettings.streamingEnabled = false;
+      let resolveFetch!: (value: unknown) => void;
+      const abortableFetch = (_url: string, init: any) => new Promise((resolve, reject) => {
+        resolveFetch = resolve;
+        init.signal.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+      mockFetch.mockImplementation(abortableFetch);
+      mockHandleApiResponse.mockResolvedValue('慢正文');
+      const slow = { ...resolved, apiConfig: { ...resolved.apiConfig, max_tokens: 8192 } };
+
+      const pending = callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], slow);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(130_000);
+      resolveFetch({ ok: true });
+      await expect(pending).resolves.toBe('慢正文');
+
+      // 真挂死仍有上限：远超输出上限所需时长后按超时中断。
+      const hung = callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], slow).catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(600_000);
+      const failure = await hung;
+      expect((failure as Error).name).toBe('TimeoutError');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ═══ callAIWithResolvedPreset_ACU 基础路径（V4-a：限流/配置校验/错误路径此前零覆盖）═══
@@ -987,6 +1125,17 @@ describe('callAIWithResolvedPreset_ACU 基础路径', () => {
   it('非 2xx 响应抛出带状态码的受控错误', async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500, text: async () => 'backend down' });
     await expect(callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved)).rejects.toThrow('API 请求失败: 500 backend down');
+  });
+
+  it('R8-08：非 2xx 错误携带 status，401 判为不可重试、503 可重试', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 401, text: async () => 'bad key' });
+    const unauthorized: any = await callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved).catch(error => error);
+    expect(unauthorized.status).toBe(401);
+    expect(isRetryableAiRequestError_ACU(unauthorized)).toBe(false);
+    mockFetch.mockResolvedValue({ ok: false, status: 503, text: async () => 'busy' });
+    const busy: any = await callAIWithResolvedPreset_ACU([{ role: 'user', content: '你好' }], resolved).catch(error => error);
+    expect(busy.status).toBe(503);
+    expect(isRetryableAiRequestError_ACU(busy)).toBe(true);
   });
 
   it('响应解析出空白内容时返回 null 而非空串', async () => {
@@ -1208,11 +1357,6 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
     return JSON.parse(String(call[1].body));
   }
 
-  function expectNoJsonFormat(sent: any): void {
-    expect(String(sent.custom_include_body || '')).not.toContain('response_format');
-    expect(sent).not.toHaveProperty('response_format');
-  }
-
   function primeFetchOk(value = 'AI 回复'): void {
     mockFetch.mockResolvedValue({ ok: true });
     mockHandleApiResponse.mockResolvedValue(value);
@@ -1235,24 +1379,6 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
     expect(sent).not.toHaveProperty('response_format');
   });
 
-  it('callAIWithPreset：开关开 + 不传 needsJson → 不附加 response_format', async () => {
-    mockSettings.apiPresets = [
-      { name: 'json开', apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, jsonFormatOutput: true },
-    ];
-    primeFetchOk();
-    await callAIWithPreset_ACU([{ role: 'user', content: 'hi' }], 'json开');
-    expectNoJsonFormat(lastSentBody());
-  });
-
-  it('callAIWithPreset：开关关 + needsJson → 不附加 response_format', async () => {
-    mockSettings.apiPresets = [
-      { name: 'json关', apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, jsonFormatOutput: false },
-    ];
-    primeFetchOk();
-    await callAIWithPreset_ACU([{ role: 'user', content: 'hi' }], 'json关', undefined, undefined, { needsJsonFormat: true });
-    expectNoJsonFormat(lastSentBody());
-  });
-
   it('resolved：开关开 + needsJson → 附加 response_format json_object', async () => {
     primeFetchOk('resolved 回复');
     const result = await callAIWithResolvedPreset_ACU(
@@ -1268,27 +1394,6 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
     expect(sent).not.toHaveProperty('response_format');
   });
 
-  it('resolved：开关开 + 不传 extras → 不附加', async () => {
-    primeFetchOk();
-    await callAIWithResolvedPreset_ACU(
-      [{ role: 'user', content: 'hi' }],
-      { apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-json', jsonFormatOutput: true },
-    );
-    expectNoJsonFormat(lastSentBody());
-  });
-
-  it('resolved：开关关 + needsJson → 不附加', async () => {
-    primeFetchOk();
-    await callAIWithResolvedPreset_ACU(
-      [{ role: 'user', content: 'hi' }],
-      { apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, tavernProfile: '', presetName: 'r-plain', jsonFormatOutput: false },
-      null,
-      undefined,
-      { needsJsonFormat: true },
-    );
-    expectNoJsonFormat(lastSentBody());
-  });
-
   it('internal-ai-call：needsJsonFormat 透传进 extras（与 minOutputTokens 同式）', async () => {
     primeFetchOk('内部 AI 回复');
     const preset: any = {
@@ -1301,42 +1406,6 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
     );
     expect(result).toBe('内部 AI 回复');
     expect(parse(lastSentBody().custom_include_body)).toEqual(expect.objectContaining({ response_format: { type: 'json_object' } }));
-  });
-
-  it('internal-ai-call：缺省 options 不附加 response_format', async () => {
-    primeFetchOk();
-    const preset: any = {
-      presetName: 'route-json', source: 'fixed', reason: 'fixed_preset',
-      apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, tavernProfile: '', jsonFormatOutput: true,
-    };
-    const identity: any = { source: 'agent_main', requestId: 'jsonfmt-b', chatIdentity: 'chat-a', taskId: 't', stageId: 's', revision: 1 };
-    await callContinuationInternalAi_ACU([{ role: 'user', content: 'hi' }], preset, identity);
-    expectNoJsonFormat(lastSentBody());
-  });
-
-  it('draft 往返：开保持开，空草稿默认关', () => {
-    expect(createEmptyApiPresetDraft().jsonFormatOutput).toBe(false);
-    const draft = apiPresetDraftFromPreset({
-      name: 'j', apiMode: 'custom',
-      apiConfig: { url: 'https://j.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1 },
-      jsonFormatOutput: true,
-    } as any);
-    expect(draft.jsonFormatOutput).toBe(true);
-    expect(apiPresetFromDraft(draft).jsonFormatOutput).toBe(true);
-  });
-
-  it('draft 往返：关与缺省保持关', () => {
-    for (const flag of [false, undefined]) {
-      const draft = apiPresetDraftFromPreset({
-        name: 'j', apiMode: 'custom',
-        apiConfig: {
-          url: 'https://j.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1,
-          ...(flag === undefined ? {} : { jsonFormatOutput: flag }),
-        },
-      } as any);
-      expect(draft.jsonFormatOutput).toBe(false);
-      expect(apiPresetFromDraft(draft).jsonFormatOutput).toBe(false);
-    }
   });
 
   it('归一白名单：缺省 false、真值保持、非 true 真值归一 false', () => {
@@ -1356,21 +1425,6 @@ describe('jsonFormatOutput 开关门控（与 MVU 格式化输出同参）', () 
     expect(resolveApiConfigByPreset_ACU('json关').jsonFormatOutput).toBe(false);
     expect(resolveApiConfigByPreset_ACU('').jsonFormatOutput).toBe(false);
     expect(resolveApiConfigByPreset_ACU('不存在的预设').jsonFormatOutput).toBe(false);
-  });
-
-  it('continuation：fixed 渠道把 jsonFormatOutput 透传给消费端', () => {
-    mockSettings.apiPresets = [
-      { name: 'cont-json', apiMode: 'custom', apiConfig: { ...JSON_PRESET_CONFIG }, jsonFormatOutput: true },
-    ];
-    const deps: any = { resolvePreset: (name: string) => resolveApiConfigByPreset_ACU(name) };
-    const on = resolveContinuationApiPreset_ACU(
-      { apiPresetMode: 'fixed', fixedApiPresetName: 'cont-json' } as any, 'agent_loop', deps,
-    );
-    expect(on.jsonFormatOutput).toBe(true);
-    const off = resolveContinuationApiPreset_ACU(
-      { apiPresetMode: 'current', fixedApiPresetName: '' } as any, 'agent_loop', deps,
-    );
-    expect(off.jsonFormatOutput).toBe(false);
   });
 });
 

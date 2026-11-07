@@ -8,8 +8,8 @@
  */
 
 import { ContinuationValidationError_ACU, createContinuationError_ACU } from '../model';
-import { parseJsonLenient_ACU, salvageTruncatedJson_ACU, stripReasoningBlocks_ACU } from '../lenient-text';
-import { parseRestrictedSqlDml_ACU, type RestrictedSqlStatement_ACU, type RestrictedSqlValue_ACU } from '../../../shared/restricted-sql-dml';
+import { parseJsonLenient_ACU, parseSqlJsonValue_ACU, salvageTruncatedJson_ACU, stripReasoningBlocks_ACU } from '../lenient-text';
+import { parseRestrictedSqlDml_ACU, parseRestrictedSqlDmlTolerant_ACU, type RestrictedSqlStatement_ACU, type RestrictedSqlValue_ACU } from '../../../shared/restricted-sql-dml';
 import { normalizeUserRequirementLines_ACU } from './agent-user-requirements';
 import {
   AGENT_CHRONOLOGY_PRECISIONS_ACU,
@@ -39,6 +39,7 @@ import {
   type AgentSearchScope_ACU,
   type AgentStoryArcDeltaItem_ACU,
   type AgentStoryArcPatch_ACU,
+  type AgentModuleWriterRole_ACU,
   type AgentSubagentName_ACU,
   type AgentToolCall_ACU,
   type AgentWebRefPatch_ACU,
@@ -592,10 +593,52 @@ export function parseAgentMainAction_ACU(payload: Record<string, unknown>, allow
     if (!reason) failProtocol_ACU('block 动作必须提供 reason');
     return { kind: 'block', thought, reason, unresolved: readTextList_ACU(payload.unresolved) };
   }
+  if (action === 'correct_materials') {
+    const allowed = ['action', 'thought', 'reason', 'sql', 'settlementStartIndex', 'userMessageId'];
+    if (Object.keys(payload).some(key => !allowed.includes(key))) failProtocol_ACU('correct_materials 含未声明的参数');
+    const reason = readText_ACU(payload.reason).trim();
+    const sql = readText_ACU(payload.sql).trim();
+    const start = payload.settlementStartIndex;
+    const user = payload.userMessageId;
+    if (!reason || (!sql && start === undefined)) {
+      // 报出各字段实际状态：模型常把 SQL 写进 thought 或给空串，只说「必须提供」它看不出错在哪（上游 231a5f80）。
+      const state = (value: unknown): string => value === undefined ? 'missing'
+        : value === null ? 'null' : typeof value !== 'string' ? `type:${typeof value}`
+          : value.trim() ? 'nonempty' : 'empty';
+      failProtocol_ACU(`correct_materials 必须提供 reason 与 sql 或 settlementStartIndex；实际字段状态：reason=${state(payload.reason)}，sql=${state(payload.sql)}，settlementStartIndex=${start === undefined ? 'missing' : typeof start}。`
+        + 'reason 与 sql 必须是动作顶层的非空字符串；思考文字不算参数。'
+        + '没有业务纠正时使用 open_round，不用空 SQL 或虚构追溯起点。');
+    }
+    if (payload.sql !== undefined && (typeof payload.sql !== 'string' || !sql)) failProtocol_ACU('sql 必须是非空字符串');
+    if (start !== undefined && (typeof start !== 'number' || !Number.isInteger(start) || start < 0)) failProtocol_ACU('settlementStartIndex 必须是非负整数');
+    if (start !== undefined && (typeof user !== 'number' || !Number.isInteger(user) || user < 1)) failProtocol_ACU('改变追溯起点必须引用真实用户消息 userMessageId');
+    if (start === undefined && user !== undefined) failProtocol_ACU('userMessageId 只能随 settlementStartIndex 提供');
+    return { kind: 'correct_materials', thought, reason,
+      ...(sql ? { sql } : {}),
+      ...(start !== undefined ? { settlementStartIndex: start as number, userMessageId: user as number } : {}),
+    };
+  }
+  if (action === 'adjust_progress') {
+    const allowed = ['action', 'thought', 'reason', 'stageId', 'revision', 'nextTurnId', 'completeStage'];
+    if (Object.keys(payload).some(key => !allowed.includes(key))) failProtocol_ACU('adjust_progress 含未声明的参数');
+    const reason = readText_ACU(payload.reason).trim();
+    const stageId = readText_ACU(payload.stageId).trim();
+    const revision = payload.revision;
+    const nextTurnId = payload.nextTurnId;
+    const completeStage = payload.completeStage;
+    if (!reason || !stageId) failProtocol_ACU('adjust_progress 必须提供非空 reason 与 stageId');
+    if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 1) failProtocol_ACU('revision 必须是正整数');
+    if (nextTurnId !== undefined && (typeof nextTurnId !== 'string' || !nextTurnId.trim())) failProtocol_ACU('nextTurnId 必须是非空轮次 ID');
+    if (completeStage !== undefined && typeof completeStage !== 'boolean') failProtocol_ACU('completeStage 必须是布尔值');
+    if ((nextTurnId !== undefined) === (completeStage !== undefined)) failProtocol_ACU('nextTurnId 与 completeStage 必须且只能给一项');
+    return { kind: 'adjust_progress', thought, reason, stageId, revision: revision as number,
+      ...(typeof nextTurnId === 'string' ? { nextTurnId: nextTurnId.trim() } : { completeStage: completeStage as boolean }),
+    };
+  }
   if (action === 'read' || action === 'search') {
     return { kind: 'tools', thought, calls: [parseAgentToolCall_ACU(payload)] };
   }
-  failProtocol_ACU(`action 必须是 read / search / delegate / open_round / finalize / block 之一；总纲与阶段大纲由 open_round 固定工作流维护，实际收到：${action || '(空)'}`);
+  failProtocol_ACU(`action 必须是 read / search / delegate / open_round / correct_materials / adjust_progress / finalize / block 之一；总纲修改可用 correct_materials 或 delegate arc-architect，阶段大纲修改单独 delegate outline-architect，实际收到：${action || '(空)'}`);
 }
 
 export function parseAgentComposerOutput_ACU(payload: Record<string, unknown>): AgentComposerOutput_ACU {
@@ -989,15 +1032,31 @@ function sqlColumnName_ACU(value: string): string {
   return value.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
+/** 只将已声明的 SQL 列或领域字段名归一化，未知列仍由原白名单拒绝。 */
+function canonicalSqlColumn_ACU(table: string, column: string): string {
+  const allowed = CONTINUATION_SQL_COLUMNS_ACU[table];
+  if (!allowed || allowed.has(column)) return column;
+  return [...allowed].find(key => key.replace(/_/g, '') === column
+    || FIELD_SQL_COLUMNS_ACU[table]?.[key]?.toLowerCase() === column) ?? column;
+}
+
+function normalizeContinuationSqlStatement_ACU(statement: RestrictedSqlStatement_ACU): RestrictedSqlStatement_ACU {
+  const normalize = (values: Record<string, RestrictedSqlValue_ACU>): Record<string, RestrictedSqlValue_ACU> => {
+    const result: Record<string, RestrictedSqlValue_ACU> = {};
+    for (const [column, value] of Object.entries(values)) {
+      const key = canonicalSqlColumn_ACU(statement.table, column);
+      if (Object.prototype.hasOwnProperty.call(result, key)) failProtocol_ACU(`SQL 同一栏目不能通过不同别名重复写入：${statement.table}.${key}`);
+      result[key] = value;
+    }
+    return result;
+  };
+  if (statement.kind === 'insert') return { ...statement, values: normalize(statement.values) };
+  if (statement.kind === 'update') return { ...statement, values: normalize(statement.values), where: normalize(statement.where) };
+  return { ...statement, where: normalize(statement.where) };
+}
+
 function sqlProtocolValue_ACU(value: RestrictedSqlValue_ACU): unknown {
-  if (typeof value !== 'string') return value;
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try { return JSON.parse(trimmed); } catch { /* 普通文本按原值保留 */ }
-  }
-  if (trimmed === 'true') return true;
-  if (trimmed === 'false') return false;
-  return value;
+  return parseSqlJsonValue_ACU(value);
 }
 
 function sqlRecord_ACU(values: Record<string, RestrictedSqlValue_ACU>, omitted: readonly string[] = []): Record<string, unknown> {
@@ -1015,7 +1074,8 @@ function requireSqlText_ACU(value: RestrictedSqlValue_ACU | undefined, field: st
 function continuationSqlDelta_ACU(statements: readonly RestrictedSqlStatement_ACU[], role: 'maintainer' | 'researcher'): Record<string, unknown> {
   const delta: Record<string, unknown> = { expectedRevisions: {} };
   const revisions = delta.expectedRevisions as Record<string, number>;
-  for (const statement of statements) {
+  for (const rawStatement of statements) {
+    const statement = normalizeContinuationSqlStatement_ACU(rawStatement);
     if (role === 'maintainer' && statement.table !== 'hooks' && statement.table !== 'info_gap' && statement.table !== 'story_arc' && statement.table !== 'chronology' && statement.table !== 'constraint_proposals') failProtocol_ACU(`维护类角色无权写入 ${statement.table}`);
     if (role === 'researcher' && statement.table !== 'web_refs') failProtocol_ACU(`web-researcher 只允许写入 web_refs，实际收到：${statement.table}`);
     if (statement.kind !== 'delete') {
@@ -1338,6 +1398,8 @@ export interface AgentModuleSqlFieldIntent_ACU {
 export interface AgentModuleSqlFieldRejection_ACU {
   path: string;
   reason: string;
+  /** 只关联后续纠错，不参与写入；目标必须唯一匹配且所有对应栏目均有确认回执。 */
+  repairTarget?: { module: AgentWritableModule_ACU; column: string; value: RestrictedSqlValue_ACU; fields: string[] };
 }
 
 export interface AgentModuleSqlFieldParseResult_ACU {
@@ -1365,21 +1427,42 @@ const FIELD_SQL_COLUMNS_ACU: Readonly<Record<string, Readonly<Record<string, str
  * 与 constraint_proposals 提案表不在逐栏路径——前者只走整行事务，后者 TT 未建表，
  * 命中即逐条拒绝并说明改走整行/提案通道）。
  */
-const FIELD_SQL_ROLE_TABLES_ACU: Readonly<Partial<Record<AgentSubagentName_ACU, readonly string[]>>> = {
+const FIELD_SQL_ROLE_TABLES_ACU: Readonly<Partial<Record<AgentModuleWriterRole_ACU, readonly string[]>>> = {
   'arc-architect': ['story_arc'],
   'hook-cognition-maintainer': ['hooks', 'info_gap', 'chronology'],
   'web-researcher': ['web_refs'],
+  main: ['hooks', 'info_gap', 'chronology', 'story_arc'],
 };
 
 /** 一次性解析语法；语句/栏目错误归入拒绝清单，合法栏保留供提交入口独立领域校验。 */
-export function parseAgentModuleSqlFieldWrites_ACU(sql: string, role: AgentSubagentName_ACU): AgentModuleSqlFieldParseResult_ACU {
-  let statements: RestrictedSqlStatement_ACU[];
-  try { statements = parseRestrictedSqlDml_ACU(sql); }
-  catch (error) { failProtocol_ACU(`受限 SQL 解析失败：${error instanceof Error ? error.message : String(error)}`); }
-  if (!statements.length) failProtocol_ACU('受限 SQL 不允许空写集');
-  const result: AgentModuleSqlFieldParseResult_ACU = { intents: [], rejected: [], constraintProposals: [] };
+export function parseAgentModuleSqlFieldWrites_ACU(sql: string, role: AgentModuleWriterRole_ACU): AgentModuleSqlFieldParseResult_ACU {
+  const parsed = parseRestrictedSqlDmlTolerant_ACU(sql);
+  if (!parsed.statements.length && !parsed.rejected.length) failProtocol_ACU('受限 SQL 不允许空写集');
   const allowed = FIELD_SQL_ROLE_TABLES_ACU[role] ?? [];
-  statements.forEach((statement, index) => {
+  const result: AgentModuleSqlFieldParseResult_ACU = { intents: [], rejected: parsed.rejected.map(item => {
+    const target = item.repairTarget;
+    const module = target && allowed.includes(target.table)
+      ? CONTINUATION_SQL_TABLE_MODULE_ACU[target.table as keyof typeof CONTINUATION_SQL_TABLE_MODULE_ACU] : undefined;
+    const columns = target ? FIELD_SQL_COLUMNS_ACU[target.table] : undefined;
+    const column = target ? canonicalSqlColumn_ACU(target.table, target.column) : '';
+    const field = column === 'id' ? 'id' : columns?.[column];
+    const fields = target ? [...new Set(target.columns.map(key => columns?.[canonicalSqlColumn_ACU(target.table, key)])
+      .filter((key): key is string => !!key))] : [];
+    const identifiable = module && field && ['id', 'summary', 'topic', 'title', 'anchor'].includes(field)
+      && typeof target?.value === 'string' && !!target.value.trim() && fields.length > 0;
+    return {
+      path: `sql[${item.index}]`, reason: `受限 SQL 解析失败，该语句未写入：${item.reason}`,
+      ...(identifiable ? { repairTarget: { module, column: field, value: target!.value, fields } } : {}),
+    };
+  }), constraintProposals: [] };
+  parsed.statements.forEach((rawStatement, position) => {
+    const index = parsed.statementIndexes[position];
+    let statement: RestrictedSqlStatement_ACU;
+    try { statement = normalizeContinuationSqlStatement_ACU(rawStatement); }
+    catch (error) {
+      result.rejected.push({ path: `sql[${index}].${rawStatement.table}`, reason: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     const path = `sql[${index}].${statement.table}`;
     const reject = (field: string, reason: string) => result.rejected.push({ path: `${path}${field ? `.${field}` : ''}`, reason });
     if (statement.table === 'constraint_proposals') {
@@ -1413,7 +1496,7 @@ export function parseAgentModuleSqlFieldWrites_ACU(sql: string, role: AgentSubag
         continue;
       }
       const field = columns[column];
-      if (!field) { reject(column, '栏目不在逐栏写入白名单'); continue; }
+      if (!field) { reject(column, `栏目不在逐栏写入白名单；${statement.table} 可写 SQL 列：${Object.keys(columns).join(', ')}`); continue; }
       if (field === 'pageRef') {
         if (typeof raw !== 'string' || !raw.trim()) reject(column, 'page_ref 必须是本次抓取的非空页面句柄');
         else pageRef = raw.trim();

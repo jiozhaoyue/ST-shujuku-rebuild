@@ -1,16 +1,12 @@
 import { createEmbeddings_ACU } from '../../data/gateways/vector-embedding-gateway';
 import { createRerankScores_ACU } from '../../data/gateways/vector-rerank-gateway';
-import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU } from '../runtime/state-manager';
-import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
-import { commitVectorMetadataPatch_ACU } from './summary-vector-index-chat-commit';
-import { loadVectorIndexRegistry_ACU, readVectorIndexJsonFile_ACU } from '../../data/storage/vector-index-st-files-storage';
+import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
-import { normalizeSummaryVectorIndexScope_ACU, normalizeSummaryVectorIsolationKey_ACU } from '../../shared/summary-vector-index-scope';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { callAIWithPreset_ACU } from '../ai/api-call';
 import { allowUnsafeApiEndpointsEnabled_ACU, getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { globalMeta_ACU } from '../../data/repositories/profile-repo';
-import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../worldbook/injection-engine';
+import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, restoreFullSummaryIndexContent_ACU } from '../worldbook/injection-engine';
 import {
     createLorebookEntries_ACU,
     getLorebookEntries_ACU,
@@ -26,21 +22,17 @@ import {
 import { resolveSummaryVectorMirrorHead_ACU } from './summary-vector-mirror-resolver';
 import {
     decodeSummaryVectorMirrorVector_ACU,
+    getSummaryVectorMirrorPackCacheHitCount_ACU,
     loadSummaryVectorMirrorManifest_ACU,
     loadSummaryVectorMirrorPack_ACU,
+    SUMMARY_VECTOR_MIRROR_PACK_READ_CONCURRENCY_ACU,
 } from './summary-vector-mirror-storage';
+import { mapWithBoundedConcurrency_ACU } from '../../shared/bounded-concurrency';
+import { startRuntimePerformanceSpan_ACU } from '../../shared/runtime-performance';
 import { buildCurrentSummaryVectorEmbeddingIdentity_ACU } from './summary-vector-mirror-writer';
-import {
-    logSummaryVectorIndexIdentityEvent_ACU,
-    validateSingleFileSnapshotIdentity_ACU,
-    type VectorIndexSingleSnapshotBlob_ACU,
-} from './summary-vector-index-storage-service';
 import type {
     ChatSummaryVectorIndexChunk_ACU,
-    ChatSummaryVectorIndexManifest_ACU,
     ChatSummaryVectorIndexRow_ACU,
-    ChatSummaryVectorIndexState_ACU,
-    SummaryVectorIndexSnapshotLayer_ACU,
     SummaryVectorMirrorHeadResult_ACU,
 } from './summary-vector-index-types';
 import {
@@ -62,6 +54,11 @@ export interface SummaryVectorIndexRuntimeOptions_ACU {
      * 第一次调用已登记签名，不绕过的话补跑会被当作重复钩子触发直接去重掉。
      */
     bypassDedupe?: boolean;
+    /**
+     * 发送租约：这次发送是否仍有效（未停止生成、未切走聊天）。返回 false 后迟到的召回结果不再写世界书，
+     * 否则会把上一次发送、甚至另一个聊天的召回结果写进当前世界书。
+     */
+    isActive?: () => boolean;
 }
 
 export interface SummaryVectorIndexRuntimeResult_ACU {
@@ -353,10 +350,11 @@ function buildSummaryIndexOverwriteContent_ACU(candidates: SummaryIndexSelectedC
     return lines.join('\n');
 }
 
-async function upsertOriginalSummaryIndexEntry_ACU(content: string): Promise<void> {
-    if (!isWorldbookApiAvailable_ACU()) return;
+/** 返回 false 表示这次发送已失效、未写入。 */
+async function upsertOriginalSummaryIndexEntry_ACU(content: string, isActive: () => boolean): Promise<boolean> {
+    if (!isWorldbookApiAvailable_ACU()) return true;
     const targetLorebook = await getInjectionTargetLorebook_ACU();
-    if (!targetLorebook) return;
+    if (!targetLorebook) return true;
 
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const comment = `${getIsolationPrefix_ACU()}TavernDB-ACU-CustomExport-纪要索引`;
@@ -374,12 +372,17 @@ async function upsertOriginalSummaryIndexEntry_ACU(content: string): Promise<voi
         prevent_recursion: true,
     };
 
+    // 读世界书也要等待：写入前最后再核对一次这次发送仍有效
+    if (!isActive()) return false;
     if (existing?.uid != null) {
         await setLorebookEntries_ACU(targetLorebook, [{ ...nextEntry, uid: existing.uid }]);
     } else {
         await createLorebookEntries_ACU(targetLorebook, [nextEntry]);
     }
+    return true;
 }
+
+const SEND_CANCELLED_RESULT_ACU: SummaryVectorIndexRuntimeResult_ACU = { success: false, skipped: true, reason: 'send_cancelled' };
 
 interface LiveSummaryVectorRows_ACU {
     summaryKey: string;
@@ -454,10 +457,22 @@ async function materializeSummaryVectorMirrorHead_ACU(
     contentMismatchedRowIds: Set<string>;
 }> {
     const packByHash = new Map<string, Awaited<ReturnType<typeof loadSummaryVectorMirrorPack_ACU>>>();
-    for (const packRef of head.packRefs) {
-        const pack = await loadSummaryVectorMirrorPack_ACU(packRef);
+    // 有界并发读取（上游 a43d0569，内容寻址 pack 另有内存缓存）；失败语义不变：读不到的 pack 跳过。
+    // 耗时计入性能诊断：慢于阈值时总会记一条警告，开启性能诊断后每次都记。
+    const cacheHitsBefore = getSummaryVectorMirrorPackCacheHitCount_ACU();
+    const packLoadSpan = startRuntimePerformanceSpan_ACU('vector-mirror-pack-load', { settings: settings_ACU });
+    const loadedPacks = await mapWithBoundedConcurrency_ACU(
+        head.packRefs, SUMMARY_VECTOR_MIRROR_PACK_READ_CONCURRENCY_ACU, (packRef) => loadSummaryVectorMirrorPack_ACU(packRef),
+    );
+    head.packRefs.forEach((packRef, index) => {
+        const pack = loadedPacks[index];
         if (pack) packByHash.set(packRef.packHash, pack);
-    }
+    });
+    packLoadSpan.end({
+        packCount: head.packRefs.length,
+        packCacheHitCount: getSummaryVectorMirrorPackCacheHitCount_ACU() - cacheHitsBefore,
+        packMissingCount: loadedPacks.filter((pack) => !pack).length,
+    });
     const rows: ChatSummaryVectorIndexRow_ACU[] = [];
     const chunks: ChatSummaryVectorIndexChunk_ACU[] = [];
     const incompleteRowIds = new Set<string>();
@@ -511,256 +526,68 @@ async function materializeSummaryVectorMirrorHead_ACU(
     return { rows, chunks, incompleteRowIds, contentMismatchedRowIds };
 }
 
-function isSingleFileSnapshotManifest_ACU(manifest: ChatSummaryVectorIndexManifest_ACU | null | undefined): manifest is ChatSummaryVectorIndexManifest_ACU {
-    if (!manifest) return false;
-    const explicitMode = manifest.snapshot?.mode;
-    if (explicitMode) return explicitMode === 'single_file_snapshot';
-    const manifestPath = normalizeText_ACU(manifest.manifestFile);
-    return !!manifestPath && manifest.rowsFile === manifestPath && manifest.tombstoneFile === manifestPath;
+// 交火开着时导出不回写纪要索引正文；本轮没接管（门槛未到、镜像缺失、配置无效等）就回填完整正文，
+// 否则剧情推进 $5 和正文读到的一直是条目第一次创建时的旧内容。
+// 去重：同一次发送的前一次触发已处理；作废：这次发送不再继续；全局关闭：导出本身就会刷新正文；
+// 没检索到 / 没选上：只在纪要已过门槛时出现，回填会把整份大索引塞进去，保留上一轮交火结果。
+const SKIPS_KEEPING_SUMMARY_INDEX_CONTENT_ACU = new Set([
+    'deduped', 'send_cancelled', 'summary_vector_index_disabled', 'no_candidates', 'no_selected_rows',
+]);
+
+/** 发送内容为空时还没走到门槛判断：纪要不到门槛才回填，过了门槛同样保留上一轮结果。 */
+export function shouldRestoreFullSummaryIndexAfterSkip_ACU(reason: string | undefined, isBelowMinRows: () => boolean): boolean {
+    const key = String(reason || '');
+    if (SKIPS_KEEPING_SUMMARY_INDEX_CONTENT_ACU.has(key)) return false;
+    if (key === 'empty_user_input') return isBelowMinRows();
+    return true;
 }
 
-async function selectRealignSnapshotFromDisk_ACU(manifest: ChatSummaryVectorIndexManifest_ACU): Promise<{
-    path: string;
-    blob: VectorIndexSingleSnapshotBlob_ACU;
-} | null> {
-    const currentPath = normalizeText_ACU(manifest.manifestFile || manifest.files?.[0]?.path);
-    const isV2 = !!manifest.storageIdentity;
-    const currentStorageRevision = Number(manifest.storageIdentity?.revision || 0);
-    const currentSnapshotRevision = Number(manifest.snapshot?.revision || 0);
-    if (isV2 && (!Number.isInteger(currentStorageRevision) || currentStorageRevision < 1
-        || currentStorageRevision !== currentSnapshotRevision)) {
-        return null;
-    }
-    const currentRevision = isV2 ? currentStorageRevision : currentSnapshotRevision;
-    const expectedScope = normalizeSummaryVectorIndexScope_ACU({
-        chatKey: manifest.chatKey,
-        isolationKey: manifest.isolationKey,
-        sourceTableKey: manifest.sourceTableKey,
-    });
-    let registeredFiles: Array<{ path?: string; publicationState?: string }> = [{ path: currentPath }];
-    if (isV2) {
-        try {
-            const registry = await loadVectorIndexRegistry_ACU();
-            registeredFiles = Array.isArray(registry.files)
-                ? registry.files.filter((file) => file?.publicationState === 'published')
-                : [];
-        } catch {
-            return null;
-        }
-    }
-    const candidates: Array<{ path: string; blob: VectorIndexSingleSnapshotBlob_ACU; revision: number; writeGeneration: string }> = [];
-
-    for (const file of registeredFiles) {
-        const path = normalizeText_ACU(file?.path);
-        if (!path) continue;
-        try {
-            const loaded = await readVectorIndexJsonFile_ACU<VectorIndexSingleSnapshotBlob_ACU>(path);
-            const blob = loaded.data;
-            const diskManifest = blob?.manifest;
-            if (!loaded.ok || !blob || blob.schema !== 'single_file_snapshot' || !diskManifest || diskManifest.status !== 'ready') continue;
-            const diskScope = normalizeSummaryVectorIndexScope_ACU({
-                chatKey: diskManifest.chatKey,
-                isolationKey: diskManifest.isolationKey,
-                sourceTableKey: diskManifest.sourceTableKey,
-            });
-            if (diskScope.chatKey !== expectedScope.chatKey
-                || diskScope.isolationKey !== expectedScope.isolationKey
-                || diskScope.sourceTableKey !== expectedScope.sourceTableKey) continue;
-            if (isV2 && (diskManifest.chatKey !== expectedScope.chatKey
-                || diskManifest.isolationKey !== expectedScope.isolationKey
-                || diskManifest.sourceTableKey !== expectedScope.sourceTableKey
-                || !blob.storageIdentity)) continue;
-            validateSingleFileSnapshotIdentity_ACU(diskManifest, blob, path);
-            const revision = Number(diskManifest.storageIdentity?.revision ?? diskManifest.snapshot?.revision);
-            const writeGeneration = normalizeText_ACU(diskManifest.storageIdentity?.writeGeneration);
-            if (!Number.isInteger(revision) || revision < 1 || revision < currentRevision || (isV2 && !writeGeneration)) continue;
-            candidates.push({ path, blob, revision, writeGeneration });
-        } catch {
-            // 单个 registry 对象不可信时继续审阅同 scope 的其他 published 候选。
-        }
-    }
-    if (candidates.length === 0) return null;
-    const newestRevision = Math.max(...candidates.map((candidate) => candidate.revision));
-    const newestCandidates = candidates.filter((candidate) => candidate.revision === newestRevision);
-    if (newestCandidates.length !== 1) {
-        logWarn_ACU('[交火模式纪要索引] realign 拒绝同 canonical scope、同 revision 的多个 writeGeneration 候选:', {
-            scope: expectedScope,
-            revision: newestRevision,
-            paths: newestCandidates.map((candidate) => candidate.path),
-        });
-        return null;
-    }
-    return newestCandidates[0];
-}
-
-async function tryRealignSummaryVectorIndexPointerFromDisk_ACU(params: {
-    state: ChatSummaryVectorIndexState_ACU;
-    latestLayer: SummaryVectorIndexSnapshotLayer_ACU | null;
-    liveRows: LiveSummaryVectorRows_ACU | null;
-}): Promise<ChatSummaryVectorIndexState_ACU | null> {
-    const manifest = params.state.manifest || null;
-    if (!manifest || !isSingleFileSnapshotManifest_ACU(manifest)) return null;
-    const selected = await selectRealignSnapshotFromDisk_ACU(manifest);
-    if (!selected) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'reader_unreadable', {
-            manifest,
-            path: normalizeText_ACU(manifest.manifestFile || manifest.files?.[0]?.path),
-        });
-        logWarn_ACU('[交火模式纪要索引] 未找到可验证且不回退 revision 的 single_file_snapshot 对齐候选。');
-        return null;
-    }
-    const { path: snapshotPath, blob } = selected;
-    const blobManifest = blob.manifest;
-    if (blob.schema !== 'single_file_snapshot' || !blobManifest || blobManifest.snapshot?.mode !== 'single_file_snapshot') {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'snapshot_shape_rejected', {
-            manifest,
-            path: snapshotPath,
-        });
-        return null;
-    }
-    // V2 object identity is immutable. A raw empty key whose canonical scope is
-    // default is a known malformed write, not a legacy record that may be repointed.
-    const blobScope = normalizeSummaryVectorIndexScope_ACU({
-        chatKey: blob.chatKey,
-        isolationKey: blob.isolationKey,
-        sourceTableKey: blob.sourceTableKey,
-    });
-    const embeddedScope = normalizeSummaryVectorIndexScope_ACU({
-        chatKey: blobManifest.chatKey,
-        isolationKey: blobManifest.isolationKey,
-        sourceTableKey: blobManifest.sourceTableKey,
-    });
-    if (blob.storageIdentity && (blob.isolationKey !== blobScope.isolationKey || blobManifest.isolationKey !== embeddedScope.isolationKey)) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'noncanonical_scope_rejected', {
-            manifest: blobManifest,
-            path: snapshotPath,
-            error: 'V2 单文件快照包含非 canonical isolationKey；拒绝将非 canonical 对象写回聊天指针。',
-        });
-        return null;
-    }
+/** 按实时纪要表判断是否不到召回门槛；读不到时按「已过门槛」处理，保留现有正文。 */
+function isLiveSummaryBelowMinRows_ACU(): boolean {
     try {
-        // realign 是写 pointer 的自愈入口，不能维护一套缩水校验；必须复用正式 reader 契约。
-        validateSingleFileSnapshotIdentity_ACU(blobManifest, blob, snapshotPath);
-    } catch (error) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'identity_validation_failed', {
-            manifest: blobManifest,
-            path: snapshotPath,
-            error,
-        });
-        logWarn_ACU('[交火模式纪要索引] single_file_snapshot 指针对齐身份校验失败，拒绝 repoint:', error);
-        return null;
+        const liveRows = buildLiveSummaryVectorRows_ACU();
+        if (!liveRows) return false;
+        return liveRows.rows.length < getEffectiveSummaryVectorIndexConfig_ACU().summaryIndexKeywordMinRows;
+    } catch {
+        return false;
     }
-    const isV2 = !!blob.storageIdentity;
-    const scopeMatches = (isV2
-        ? blobManifest.sourceTableKey === manifest.sourceTableKey
-            && blobManifest.chatKey === manifest.chatKey
-            && blobManifest.isolationKey === manifest.isolationKey
-        : normalizeText_ACU(blobManifest.sourceTableKey) === normalizeText_ACU(manifest.sourceTableKey)
-            && normalizeText_ACU(blobManifest.chatKey) === normalizeText_ACU(manifest.chatKey)
-            && normalizeSummaryVectorIsolationKey_ACU(blobManifest.isolationKey) === normalizeSummaryVectorIsolationKey_ACU(manifest.isolationKey))
-        && (!params.latestLayer || (isV2
-            ? blobManifest.isolationKey === normalizeSummaryVectorIsolationKey_ACU(params.latestLayer.isolationKey)
-            : normalizeSummaryVectorIsolationKey_ACU(blobManifest.isolationKey) === normalizeSummaryVectorIsolationKey_ACU(params.latestLayer.isolationKey)))
-        && (!params.liveRows || normalizeText_ACU(blob.sourceTableKey) === params.liveRows.summaryKey);
-    if (!scopeMatches) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'scope_mismatch', { manifest: blobManifest, path: snapshotPath });
-        return null;
-    }
-    if (blobManifest.status !== 'ready') {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'not_ready', { manifest: blobManifest, path: snapshotPath });
-        return null;
-    }
-    if (normalizeText_ACU(blobManifest.manifestFile) !== snapshotPath
-        || normalizeText_ACU(blobManifest.rowsFile) !== snapshotPath
-        || normalizeText_ACU(blobManifest.tombstoneFile) !== snapshotPath) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'canonical_path_mismatch', { manifest: blobManifest, path: snapshotPath });
-        return null;
-    }
-    const currentRevision = Number(manifest.snapshot?.revision || 0);
-    const diskRevision = Number(blobManifest.snapshot?.revision || 0);
-    if (diskRevision < currentRevision) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'revision_stale', { manifest: blobManifest, path: snapshotPath });
-        return null;
-    }
-    const activeRowKeys = new Set(blobManifest.snapshot?.activeRowKeys || []);
-    const diskRows = (Array.isArray(blob.rows) ? blob.rows : [])
-        .filter((row) => row && row.status !== 'removed' && (activeRowKeys.size === 0 || activeRowKeys.has(row.rowKey)));
-    const reconciledDiskRows = filterRowsByLiveSummaryTable_ACU(diskRows, params.liveRows);
-    const reconciledRows = reconciledDiskRows.rows;
-    const alignedManifest: ChatSummaryVectorIndexManifest_ACU = {
-        ...blobManifest,
-        manifestFile: snapshotPath,
-        rowsFile: snapshotPath,
-        tombstoneFile: snapshotPath,
-        status: 'ready',
-    };
-    const alignedState: ChatSummaryVectorIndexState_ACU = {
-        ...params.state,
-        version: params.state.version || 1,
-        backend: 'st-files',
-        status: 'ready',
-        indexId: alignedManifest.indexId,
-        snapshotMessageId: alignedManifest.snapshotMessageId || normalizeText_ACU(blob.snapshotMessageId),
-        sourceTableKey: alignedManifest.sourceTableKey,
-        sourceTableName: alignedManifest.sourceTableName || normalizeText_ACU(blob.sourceTableName),
-        indexedAt: alignedManifest.indexedAt || normalizeText_ACU(blob.indexedAt) || new Date().toISOString(),
-        rowCount: reconciledRows.length || alignedManifest.rowCount,
-        chunkCount: alignedManifest.chunkCount,
-        skippedRowCount: alignedManifest.skippedRowCount,
-        rows: reconciledRows,
-        manifest: alignedManifest,
-    };
-    delete alignedState.chunks;
-    const layer = params.latestLayer;
-    const chat = getChatArray_ACU();
-    const message = layer ? chat[layer.messageIndex] : null;
-    if (!layer || !message) return null;
-    const previousManifest = readIsolatedTagData_ACU(message, layer.isolationKey)
-        ?.summaryVectorIndexManifest
-        || layer.tagData?.summaryVectorIndexManifest
-        || null;
-    const expectedIndexId = previousManifest?.indexId || (layer.tagData?.summaryVectorIndexState?.manifest?.indexId) || undefined;
+}
+
+async function restoreFullSummaryIndexAfterSkip_ACU(options: SummaryVectorIndexRuntimeOptions_ACU, reason: string | undefined): Promise<void> {
     try {
-        await commitVectorMetadataPatch_ACU(message, layer.isolationKey, {
-            summaryVectorIndexState: alignedState,
-            summaryVectorIndexManifest: alignedManifest,
-        }, {
-            expectedIndexId,
-        });
+        const restored = await restoreFullSummaryIndexContent_ACU(() => options.isActive?.() !== false);
+        if (restored) logDebug_ACU(`[交火模式纪要索引] 本轮跳过（${reason || 'unknown'}），已回填完整纪要索引。`);
     } catch (error) {
-        logSummaryVectorIndexIdentityEvent_ACU('warn', 'realign', 'strict_save_failed', { manifest: alignedManifest, path: snapshotPath, error });
-        logWarn_ACU('[交火模式纪要索引] 磁盘 pointer 对齐严格保存失败，已回滚内存状态:', error);
-        return null;
+        logWarn_ACU('[交火模式纪要索引] 回填完整纪要索引失败:', error instanceof Error ? error.message : String(error));
     }
-    logSummaryVectorIndexIdentityEvent_ACU('debug', 'realign', 'accepted', { manifest: alignedManifest, path: snapshotPath });
-    logWarn_ACU(`[交火模式纪要索引] 已从 single_file_snapshot 磁盘文件对齐索引指针：indexId=${alignedManifest.indexId}, revision=${diskRevision}`);
-    return alignedState;
 }
 
-// T5：query embedding 失败时的降级路径 —— 仅注入最近固定行，不依赖向量检索。
-// 仅在 recentFixedRows 非空时调用；调用方负责确认 recentFixedRows.length > 0。
-async function injectRecentFixedRowsOnly_ACU(recentFixedRows: ChatSummaryVectorIndexRow_ACU[]): Promise<SummaryVectorIndexRuntimeResult_ACU> {
-    const selected = recentFixedRows
-        .map((row): SummaryIndexSelectedCandidate_ACU => ({ kind: 'recent_fixed', row }))
-        .sort((left, right) => (Number(left.row.rowOrder) || 0) - (Number(right.row.rowOrder) || 0));
-    const content = buildSummaryIndexOverwriteContent_ACU(selected);
-    await upsertOriginalSummaryIndexEntry_ACU(content);
-    return {
-        success: true,
-        reason: 'query_embedding_failed_recent_fixed_only',
-        keywordCount: 0,
-        candidateCount: 0,
-        injectedCount: selected.length,
-        denseCandidateCount: 0,
-        sparseCandidateCount: 0,
-        fusionCandidateCount: 0,
-    };
-}
-
+// 向量模型上下文较小（如 512 token）时，长消息整段送去会被拒；截短后重试一次。
+const EMBEDDING_QUERY_RETRY_MAX_CHARS_ACU = 300;
 
 export async function processSummaryVectorIndexBeforeGeneration_ACU(
     options: SummaryVectorIndexRuntimeOptions_ACU = {},
 ): Promise<SummaryVectorIndexRuntimeResult_ACU> {
+    try {
+        const result = await runSummaryVectorRecall_ACU(options);
+        // 失败或这次发送已作废：放掉 8 秒去重签名，否则马上重发同一句会被当成「已召回过」直接放行
+        if ((result.success !== true && result.skipped !== true) || result.reason === 'send_cancelled') {
+            resetSummaryVectorIndexRuntimeDedupeState_ACU();
+        }
+        if (result.skipped === true && shouldRestoreFullSummaryIndexAfterSkip_ACU(result.reason, isLiveSummaryBelowMinRows_ACU)) {
+            await restoreFullSummaryIndexAfterSkip_ACU(options, result.reason);
+        }
+        return result;
+    } catch (error) {
+        resetSummaryVectorIndexRuntimeDedupeState_ACU();
+        throw error;
+    }
+}
+
+async function runSummaryVectorRecall_ACU(
+    options: SummaryVectorIndexRuntimeOptions_ACU,
+): Promise<SummaryVectorIndexRuntimeResult_ACU> {
+    const isActive = (): boolean => options.isActive?.() !== false;
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const globalEnabled = globalMeta_ACU?.summaryVectorIndexModeGlobal === true;
     if (!globalEnabled) {
@@ -902,36 +729,39 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
     // 较早的行（不参与排序的候选池）
     const olderRows = rows.filter((row) => !recentFixedRowKeys.has(row.rowKey));
 
-    // T5：query embedding 失败不中断宿主生成。generateKeywords/createEmbeddings 抛异常或返回空向量时，
-    // 若存在最近固定行（recentFixedRows），降级为仅注入固定行（不依赖向量），继续原始生成；
-    // 否则保持原行为（空向量返回 empty_query_embedding；异常穿透给上层 init.ts 的 try/catch 兜底）。
+    // query embedding（含关键词 AI）失败即本次召回失败，由发送层停止这次生成（移植上游 2adf068b）：
+    // 宁可不发，也不带着残缺的记忆发。不再降级为只注入最近固定行。
     let keywords: string[] = [];
     let queryText = '';
     let queryVector: number[] | Float32Array = [];
     try {
         keywords = await generateKeywords_ACU(config, userInput);
         queryText = [userInput, keywords.join('，')].filter(Boolean).join('\n关键词：');
-        const embeddings = await createEmbeddings_ACU({
+        const embedQuery = async (input: string) => (await createEmbeddings_ACU({
             endpoint: config.embeddingEndpoint,
             apiKey: config.embeddingApiKey,
             model: config.embeddingModel,
-            input: [queryText],
+            input: [input],
             allowUnsafeEndpoint: allowUnsafeApiEndpointsEnabled_ACU(),
-        });
-        queryVector = embeddings[0]?.embedding || [];
+        }))[0]?.embedding || [];
+        try {
+            queryVector = await embedQuery(queryText);
+        } catch (error) {
+            // 输入本身过长被向量模型拒绝时，同一条长消息每次都会失败、永远发不出去：截短重试一次
+            if (queryText.length <= EMBEDDING_QUERY_RETRY_MAX_CHARS_ACU || !isActive()) throw error;
+            logWarn_ACU('[交火模式纪要索引] query embedding 失败，截短查询后重试一次:', error);
+            // 整条查询（含 AI 关键词）一起截到上限：只截用户输入时，关键词撑长的查询重试仍与首次逐字相同
+            const shortQuery = queryText.slice(0, EMBEDDING_QUERY_RETRY_MAX_CHARS_ACU);
+            queryVector = await embedQuery(shortQuery);
+        }
         if (queryVector.length === 0) {
-            if (recentFixedRows.length > 0) {
-                logWarn_ACU('[交火模式纪要索引] query embedding 返回空向量，降级为仅注入最近固定行:', userInput);
-                return await injectRecentFixedRowsOnly_ACU(recentFixedRows);
-            }
-            return { success: false, skipped: true, reason: 'empty_query_embedding' };
+            logWarn_ACU('[交火模式纪要索引] query embedding 返回空向量，本次召回失败:', userInput);
+            return { success: false, reason: 'empty_query_embedding' };
         }
     } catch (error) {
-        if (recentFixedRows.length > 0) {
-            logWarn_ACU('[交火模式纪要索引] query embedding 失败，降级为仅注入最近固定行，继续原始生成:', error);
-            return await injectRecentFixedRowsOnly_ACU(recentFixedRows);
-        }
-        throw error;
+        if (!isActive()) return SEND_CANCELLED_RESULT_ACU;
+        logWarn_ACU('[交火模式纪要索引] query embedding 失败，本次召回失败:', error);
+        return { success: false, reason: 'query_embedding_failed' };
     }
 
     // 只对较早行的 chunks 做向量匹配
@@ -1005,7 +835,7 @@ export async function processSummaryVectorIndexBeforeGeneration_ACU(
     }
 
     const content = buildSummaryIndexOverwriteContent_ACU(selected);
-    await upsertOriginalSummaryIndexEntry_ACU(content);
+    if (!isActive() || !(await upsertOriginalSummaryIndexEntry_ACU(content, isActive))) return SEND_CANCELLED_RESULT_ACU;
     logDebug_ACU(
         `[交火模式纪要索引] 已覆盖原概要索引条目：${selected.length} 条（其中固定注入 ${recentFixedRows.length} 条，排序选取 ${selected.length - recentFixedRows.length} 条），关键词 ${keywords.length} 个（关键词 AI ${keywordGenerationEnabled ? '开' : '关'}），rerank=${rerank.status}${rerank.documentCount ? `（${rerank.documentCount} 条 documents）` : ''}，输出顺序按纪要表原 rowOrder。`,
     );

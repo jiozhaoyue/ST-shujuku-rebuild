@@ -21,6 +21,8 @@ import {
 } from '../../data/storage/tavern-storage';
 import {
   hashUserInput_ACU,
+  logDebug_ACU,
+  logError_ACU,
   logWarn_ACU
 } from '../../shared/utils';
 import {
@@ -61,6 +63,9 @@ import {
   writeAgentWorldbookStateToWorldbook_ACU,
 } from './agent-worldbook-config-meta';
 import { runExclusiveAgentWorldbookOperation_ACU } from './agent-worldbook-operation-lock';
+import { getAgentWorldbookRuntimeRevision_ACU, resetAgentWorldbookRuntime_ACU, setAgentWorldbookNativeFallback_ACU } from './agent-worldbook-runtime-state';
+import { restoreAgentWorldbookSnapshotEntries_ACU } from './agent-worldbook-snapshot-restore';
+import { decideAgentWorldbookEntryRestore_ACU, doesAgentTakeoverCommentHashMatch_ACU, hasAgentTakeoverMetaBlock_ACU, isAgentWorldbookEntryRestored_ACU, selectRestorableSnapshotEntries_ACU, type AgentWorldbookRestorePatch_ACU } from './agent-worldbook-restore-core';
 
 export interface AgentWorldbookTakeoverEntryUpdate_ACU {
   bookName: string;
@@ -219,6 +224,27 @@ function isFinalGenerationBlueLightEntry_ACU(entry: Record<string, any>): boolea
   // SillyTavern constant worldbook entries are blue lights whenever enabled; keys do not affect triggering.
   return entry?.enabled !== false
     && String(entry?.type || '').trim().toLowerCase() === 'constant';
+}
+
+/**
+ * 收回正文绿灯，回到接管基线：关掉开关，并把放行时改成的常驻类型还原成接管前的类型。
+ * 只关开关会留下常驻类型（Agent 页的「常量」、原生编辑器的蓝灯），新聊天里看着还是上一聊天放行过的那批。
+ * 已关但仍是常驻的条目（旧版本收回时留下的）同样还原；接管前本就常驻或没记下接管前类型的不动类型。
+ */
+function buildGreenlightReleasePatch_ACU(
+  snapshot: AgentWorldbookControlSnapshot_ACU,
+  bookName: string,
+  entry: Record<string, any>,
+): Record<string, any> | null {
+  const patch: Record<string, any> = {};
+  if (isFinalGenerationBlueLightEntry_ACU(entry)) patch.enabled = false;
+  const previousType = getSnapshotEntryForBookAndUid_ACU(snapshot, bookName, entry?.uid)?.previousType;
+  if (typeof previousType === 'string' && previousType.trim() !== ''
+    && previousType.trim().toLowerCase() !== 'constant'
+    && String(entry?.type || '').trim().toLowerCase() === 'constant') {
+    patch.type = previousType;
+  }
+  return Object.keys(patch).length > 0 ? { uid: entry.uid, ...patch } : null;
 }
 
 function buildFinalGreenlightKey_ACU(bookName: string, uid: unknown): string {
@@ -385,37 +411,8 @@ function stripTakeoverMetaBlock_ACU(comment: unknown): string {
   return stripAgentTakeoverMetaBlockStrict_ACU(comment);
 }
 
-function hasTakeoverMetaBlock_ACU(comment: unknown): boolean {
-  return new RegExp(createAgentTakeoverMetaPattern_ACU().source).test(normalizeCommentText_ACU(comment));
-}
-
-function hasUnsupportedTakeoverMetaBlock_ACU(comment: unknown): boolean {
-  const text = normalizeCommentText_ACU(comment);
-  const pattern = createAgentTakeoverMetaPattern_ACU();
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text))) {
-    try {
-      const meta = JSON.parse(match[1].trim()) as Record<string, unknown>;
-      if (meta.version !== 1 || meta.kind !== 'agent_worldbook_takeover') return true;
-    } catch {
-      return true;
-    }
-  }
-  return false;
-}
-
 function normalizeTakeoverComparableComment_ACU(comment: unknown): string {
   return stripWorldbookSkillMetaBlock_ACU(stripTakeoverMetaBlock_ACU(comment));
-}
-
-function doesTakeoverSnapshotCommentHashMatch_ACU(snapshotCommentHash: string | undefined, currentComment: string): boolean {
-  if (!snapshotCommentHash) return true;
-  const strippedComment = stripTakeoverMetaBlock_ACU(currentComment);
-  const comparableComment = stripWorldbookSkillMetaBlock_ACU(strippedComment);
-
-  return hashUserInput_ACU(comparableComment) === snapshotCommentHash
-    // Legacy snapshots created before Skill metadata was excluded from the comparable comment stored hashes that kept Skill metadata.
-    || hashUserInput_ACU(strippedComment) === snapshotCommentHash;
 }
 
 function parseTakeoverMetaFromComment_ACU(comment: unknown): AgentWorldbookTakeoverMeta_ACU | null {
@@ -495,6 +492,8 @@ export function setPlotAgentWorldbookSnapshot_ACU(snapshot: AgentWorldbookContro
  * 持久 state 仍由下一次按当前角色绑定刷新时读取，不能在这里删除或改写世界书条目。
  */
 export function resetPlotAgentWorldbookSessionSnapshot_ACU(): void {
+  // 运行期开关 / 原生回退属于上一会话；revision 递增使在途的旧配置读取作废（上游 1.3.6）。
+  resetAgentWorldbookRuntime_ACU();
   setAgentWorldbookSnapshotState_ACU(buildInactiveSnapshot_ACU());
   preTakeoverSnapshotResolutionPromisesBySignature_ACU.clear();
   plotAgentWorldbookSnapshotHydrated_ACU = false;
@@ -614,8 +613,8 @@ async function backfillMissingTakeoverMeta_ACU(snapshot: AgentWorldbookControlSn
         const snapshotEntry = snapshotEntriesByUid.get(String(entry?.uid));
         if (!snapshotEntry) return [];
         const currentComment = normalizeCommentText_ACU(entry?.comment);
-        if (hasTakeoverMetaBlock_ACU(currentComment)
-          || !doesTakeoverSnapshotCommentHashMatch_ACU(snapshotEntry.commentHash, currentComment)
+        if (hasAgentTakeoverMetaBlock_ACU(currentComment)
+          || !doesAgentTakeoverCommentHashMatch_ACU(snapshotEntry.commentHash, currentComment)
           || (entry?.enabled !== false && !isFinalGenerationBlueLightEntry_ACU(entry))) return [];
         return [{
           uid: entry.uid,
@@ -949,85 +948,66 @@ async function disableTakeoverCandidates_ACU(
   return { disabled, failed, report };
 }
 
-async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapshot_ACU): Promise<{ restored: number; skipped: number; failed: number; report: AgentWorldbookEntryPatchReport_ACU }> {
+/**
+ * options.assertCurrent：每次读写前后校验作用域，取消 / 会话失效时立刻抛出、不再写入（Agent 失败恢复用）。
+ * options.required：宿主读写 API 缺失时失败而不是静默跳过。
+ */
+async function restoreSnapshotEntries_ACU(
+  snapshot: AgentWorldbookControlSnapshot_ACU,
+  options: { assertCurrent?: () => void; required?: boolean } = {},
+): Promise<{ restored: number; skipped: number; failed: number; report: AgentWorldbookEntryPatchReport_ACU; missing: AgentWorldbookTakeoverEntryUpdate_ACU[] }> {
+  const assertCurrent = options.assertCurrent || (() => {});
+  const readEntries = options.required ? getLorebookEntriesRequired_ACU : getLorebookEntries_ACU;
+  const writeEntries = options.required ? setLorebookEntriesRequired_ACU : setLorebookEntries_ACU;
   let restored = 0;
   let skipped = 0;
   let failed = 0;
   const report: AgentWorldbookEntryPatchReport_ACU = { applied: [], failed: [] };
+  // 宿主已确认不存在的条目：无可恢复对象，直接视为完成并从账本剔除，否则接管永远无法收敛。
+  const missing: AgentWorldbookTakeoverEntryUpdate_ACU[] = [];
+  const skipMessages: Record<string, string> = {
+    unsupported_meta: '包含不受支持的接管元数据版本',
+    missing_comment_hash: '缺少 comment 指纹，避免覆盖用户修改',
+    comment_changed: 'comment 已变化，避免覆盖用户修改',
+  };
 
   for (const [bookName, snapshotEntries] of Object.entries(snapshot.books || {})) {
     const normalizedBookName = String(bookName || '').trim();
-    const entriesToRestore = Array.isArray(snapshotEntries)
-      ? snapshotEntries.filter(entry => entry.takeoverStatus !== 'pending') : [];
+    // 逐条目决策与「已恢复」判定走共用核心（R4-07），与 scope 变更路径同口径。
+    const entriesToRestore = selectRestorableSnapshotEntries_ACU(snapshotEntries);
     if (!normalizedBookName || entriesToRestore.length === 0) continue;
-    const patches: any[] = [];
+    const patches: AgentWorldbookRestorePatch_ACU[] = [];
     let currentEntriesRead = false;
     try {
-      const currentEntries = await getLorebookEntries_ACU(normalizedBookName);
+      assertCurrent();
+      const currentEntries = await readEntries(normalizedBookName);
+      assertCurrent();
       currentEntriesRead = true;
       const currentByUid = new Map((currentEntries || []).map(entry => [String(entry?.uid), entry]));
       for (const snapshotEntry of entriesToRestore) {
-        if (!hasValidWorldbookUid_ACU(snapshotEntry?.uid)) {
-          logWarn_ACU(
-            `[Agent世界书] 跳过恢复世界书条目：${normalizedBookName} 中存在无效 uid。`,
-            snapshotEntry?.uid,
-          );
+        const decision = decideAgentWorldbookEntryRestore_ACU(snapshotEntry, currentByUid.get(String(snapshotEntry?.uid)), { missingCommentHash: 'skip', metaStripMode: 'strict' });
+        if (decision.kind === 'invalid_uid') {
+          logWarn_ACU(`[Agent世界书] 跳过恢复世界书条目：${normalizedBookName} 中存在无效 uid。`, snapshotEntry?.uid);
           skipped += 1;
-          continue;
-        }
-        const currentEntry = currentByUid.get(String(snapshotEntry.uid));
-        if (!currentEntry) {
-          logWarn_ACU(`[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${snapshotEntry.uid} 当前条目不存在。`);
+        } else if (decision.kind === 'missing') {
+          logWarn_ACU(`[Agent世界书] 世界书条目 ${normalizedBookName}#${decision.uid} 已被删除，从接管账本移除。`);
+          missing.push({ bookName: normalizedBookName, uid: decision.uid });
+        } else if (decision.kind === 'skip') {
+          logWarn_ACU(`[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${decision.uid} ${skipMessages[decision.reason]}。`);
           skipped += 1;
-          continue;
+        } else {
+          patches.push(decision.patch);
         }
-        const currentComment = typeof currentEntry.comment === 'string' ? currentEntry.comment : '';
-        if (hasUnsupportedTakeoverMetaBlock_ACU(currentComment)) {
-          logWarn_ACU(
-            `[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${snapshotEntry.uid} 包含不受支持的接管元数据版本。`,
-          );
-          skipped += 1;
-          continue;
-        }
-        const strippedComment = stripTakeoverMetaBlock_ACU(currentComment);
-        if (!snapshotEntry.commentHash) {
-          logWarn_ACU(
-            `[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${snapshotEntry.uid} 缺少 comment 指纹，避免覆盖用户修改。`,
-          );
-          skipped += 1;
-          continue;
-        }
-        if (!doesTakeoverSnapshotCommentHashMatch_ACU(snapshotEntry.commentHash, currentComment)) {
-          logWarn_ACU(
-            `[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${snapshotEntry.uid} comment 已变化，避免覆盖用户修改。`,
-          );
-          skipped += 1;
-          continue;
-        }
-        patches.push({
-          uid: snapshotEntry.uid,
-          comment: strippedComment,
-          enabled: snapshotEntry.previousEnabled !== false,
-          keys: Array.isArray(snapshotEntry.previousKeys) ? snapshotEntry.previousKeys : [],
-          type: snapshotEntry.previousType,
-        });
       }
       if (patches.length > 0) {
-        await setLorebookEntries_ACU(normalizedBookName, patches);
-        const patchedEntriesByUid = new Map((await getLorebookEntries_ACU(normalizedBookName) || []).map(entry => [String(entry?.uid), entry]));
-        for (const patch of patches) {
-          const currentEntry = patchedEntriesByUid.get(String(patch.uid));
-          // [L5] keys 按集合比较（长度相同 + 逐元素 includes），不再依赖 JSON.stringify 的数组顺序。
-          const snapshotKeys = Array.isArray(patch.keys) ? patch.keys.map((key: unknown) => String(key)) : [];
-          const currentKeys = Array.isArray(currentEntry?.keys) ? (currentEntry.keys as unknown[]).map((key: unknown) => String(key)) : [];
-          const keysMatch = currentKeys.length === snapshotKeys.length && snapshotKeys.every((key: string) => currentKeys.includes(key));
-          const restoredEntry = currentEntry
-            && currentEntry.enabled === patch.enabled
-            && currentEntry.type === patch.type
-            && keysMatch
-            && !hasTakeoverMetaBlock_ACU(currentEntry.comment);
-          const update = { bookName: normalizedBookName, uid: patch.uid };
-          if (restoredEntry) {
+        assertCurrent();
+        await writeEntries(normalizedBookName, patches);
+        assertCurrent();
+        const patchedEntriesByUid = new Map((await readEntries(normalizedBookName) || []).map(entry => [String(entry?.uid), entry]));
+        assertCurrent();
+        for (const restorePatch of patches) {
+          const update = { bookName: normalizedBookName, uid: restorePatch.uid };
+          if (isAgentWorldbookEntryRestored_ACU(patchedEntriesByUid.get(String(restorePatch.uid)), restorePatch)) {
             restored += 1;
             report.applied.push(update);
           } else {
@@ -1037,9 +1017,12 @@ async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapsho
         }
       }
     } catch (error) {
+      // 取消 / 会话失效不是「恢复失败」：原样抛出，交给调用方按取消处理。
+      assertCurrent();
+      if (['aborted', 'scope_changed'].includes(classifyLorebookReadError_ACU(error))) throw error;
       logWarn_ACU(`[Agent世界书] 恢复世界书条目失败：${normalizedBookName}`, error);
       const failedUpdates = currentEntriesRead
-        ? patches.map(patch => ({ bookName: normalizedBookName, uid: patch.uid }))
+        ? patches.map(restorePatch => ({ bookName: normalizedBookName, uid: restorePatch.uid }))
         : entriesToRestore
           .filter(entry => hasValidWorldbookUid_ACU(entry?.uid))
           .map(entry => ({ bookName: normalizedBookName, uid: entry.uid }));
@@ -1048,7 +1031,7 @@ async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapsho
     }
   }
 
-  return { restored, skipped, failed, report };
+  return { restored, skipped, failed, report, missing };
 }
 
 async function collectRecoveredPendingSnapshotUpdates_ACU(
@@ -1062,8 +1045,13 @@ async function collectRecoveredPendingSnapshotUpdates_ACU(
     const entriesByUid = new Map((entries || []).map(entry => [String(entry?.uid), entry]));
     for (const snapshotEntry of pendingEntries) {
       const entry = entriesByUid.get(String(snapshotEntry.uid));
-      if (!entry || hasTakeoverMetaBlock_ACU(entry.comment)) continue;
-      if (!snapshotEntry.commentHash || !doesTakeoverSnapshotCommentHashMatch_ACU(snapshotEntry.commentHash, String(entry.comment || ''))) continue;
+      if (!entry) {
+        // 条目已删除：没有可恢复对象，视为已完成。
+        recovered.push({ bookName, uid: snapshotEntry.uid });
+        continue;
+      }
+      if (hasAgentTakeoverMetaBlock_ACU(entry.comment)) continue;
+      if (!snapshotEntry.commentHash || !doesAgentTakeoverCommentHashMatch_ACU(snapshotEntry.commentHash, String(entry.comment || ''))) continue;
       const previousKeys = Array.isArray(snapshotEntry.previousKeys) ? snapshotEntry.previousKeys : [];
       const keys = Array.isArray(entry.keys) ? entry.keys : [];
       if (entry.enabled !== (snapshotEntry.previousEnabled !== false)
@@ -1075,27 +1063,118 @@ async function collectRecoveredPendingSnapshotUpdates_ACU(
   return recovered;
 }
 
-export function writeFinalGenerationGreenlights_ACU(greenlights: unknown): Promise<boolean> {
-  return runExclusiveAgentWorldbookOperation_ACU(() => writeFinalGenerationGreenlightsExclusive_ACU(greenlights));
+/**
+ * Agent 本轮处理失败（上游 1.3.6）：按持久接管快照把受控条目恢复成接管前的原生状态，并进入原生回退，
+ * 正文与剧情都改用原始世界书；普通剧情继续。内存快照与兼容设置不能替代持久快照，也不能据此改写条目。
+ * 取消 / 会话失效原样抛出；配置在决策期间已变化时放弃恢复，不覆盖新配置。
+ * quiet：Agent 只是本轮没给出可用决策（如范围里没有候选条目）而非出错——恢复照做，
+ * 没有需要恢复的接管时不弹提示，避免每轮刷屏。
+ */
+export async function recoverAgentWorldbookAfterFailure_ACU(error: unknown, options: {
+  phase: string;
+  assertCurrent: () => void;
+  reportWarning?: (text: string) => void;
+  expectedRevision?: number;
+  quiet?: boolean;
+}): Promise<void> {
+  const { assertCurrent } = options;
+  const expectedRevision = options.expectedRevision ?? getAgentWorldbookRuntimeRevision_ACU();
+  const supersededError = new Error('AgentWorldbookConfigurationChanged');
+  const assertRecoveryCurrent = () => {
+    assertCurrent();
+    if (expectedRevision !== getAgentWorldbookRuntimeRevision_ACU()) throw supersededError;
+  };
+  assertCurrent();
+  if (['aborted', 'scope_changed'].includes(classifyLorebookReadError_ACU(error))) throw error;
+  const log = options.quiet ? logDebug_ACU : logError_ACU;
+  log('[Agent世界书] 本轮处理失败，恢复原生世界书状态。', {
+    phase: options.phase, error: summarizeLorebookRuntimeError_ACU(error) || { category: 'unknown' },
+  });
+  let incomplete = false;
+  let superseded = false;
+  let snapshotActive = false;
+  try {
+    await runExclusiveAgentWorldbookOperation_ACU(async () => {
+      assertRecoveryCurrent();
+      setAgentWorldbookNativeFallback_ACU(true);
+      const state = await readAgentWorldbookStateFromWorldbooks_ACU();
+      assertRecoveryCurrent();
+      const snapshot = state.snapshot;
+      if (snapshot.active !== true) return;
+      snapshotActive = true;
+      const bookNames = normalizeBookNamesForTakeover_ACU(await resolveAgentWorldbookScopeBookNames_ACU(state.control.worldbookScope));
+      assertRecoveryCurrent();
+      if (snapshot.selectionSignature !== buildWorldbookSelectionSignature_ACU(bookNames)) {
+        incomplete = true;
+        return;
+      }
+      const result = await restoreSnapshotEntries_ACU(snapshot, { assertCurrent: assertRecoveryCurrent, required: true });
+      assertRecoveryCurrent();
+      incomplete = result.skipped > 0 || result.failed > 0;
+      setPlotAgentWorldbookSnapshot_ACU(snapshot);
+    });
+  } catch (recoveryError) {
+    assertCurrent();
+    superseded = recoveryError === supersededError;
+    if (['aborted', 'scope_changed'].includes(classifyLorebookReadError_ACU(recoveryError))) throw recoveryError;
+    incomplete = true;
+    logError_ACU('[Agent世界书] 原生条目恢复未完成，已保留持久快照。', {
+      phase: 'recover_native_state',
+      error: superseded ? { category: 'configuration_changed' } : (summarizeLorebookRuntimeError_ACU(recoveryError) || { category: 'unknown' }),
+    });
+  }
+  assertCurrent();
+  if (options.quiet && !superseded && !incomplete && !snapshotActive) return;
+  try {
+    options.reportWarning?.(superseded
+      ? 'Agent 世界书配置已变化，旧决策已丢弃，未覆盖新配置；普通剧情继续。'
+      : incomplete
+        ? 'Agent 世界书处理失败，部分原始状态未能恢复；已保留快照，请检查 Agent 世界书。普通剧情继续。'
+        : 'Agent 世界书处理失败，已按持久快照恢复原始状态；普通剧情继续。');
+  } catch {
+    // 通知失败不能改变 Agent 与剧情的隔离边界。
+  }
 }
 
-async function writeFinalGenerationGreenlightsExclusive_ACU(greenlights: unknown): Promise<boolean> {
-  let snapshot = getPlotAgentWorldbookSnapshot_ACU();
-  let snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(snapshot);
-  if (snapshotUidSetByBook.size === 0) {
-    // 内存快照可能因刷新页面/会话切换被清空，回退到持久账本快照重建后再判定。
-    // 刻意不用完整 refresh：其 comment 扫描与 merge 会把账本写入失败场景下的
-    // pending 条目调和成 applied 并污染内存缓存，破坏"账本未确认不消费绿灯"的恢复不变量。
-    const selectionSignature = buildWorldbookSelectionSignature_ACU(await resolveTakeoverBookNames_ACU());
-    snapshot = await readPlotAgentWorldbookStateSnapshotOnly_ACU(selectionSignature);
-    snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(snapshot);
-    if (snapshotUidSetByBook.size === 0) return false;
-  }
+/**
+ * 写入本轮正文绿灯：按完整集合一次写到位——放行的开启并改为常驻，其余受控条目关闭并还原接管前类型。
+ * 每轮开头不再单独清一遍绿灯（上游 1.3.6）：完整写入本身就会收回上一轮放行的条目。
+ * 返回本轮完整选择是否已应用（状态本就一致也算成功）；任何一处对不上都返回 false，由调用方走原生恢复。
+ * 以持久快照为准；与上游不同，pending 条目（接管尚未改动过）与注释被改过的条目不让整轮失败：
+ * 前者仍是原生状态、不在受控集合里，后者照常开关——两者在我方都不会自行收敛，卡死会让 Agent 每轮都退回原生。
+ */
+export function writeFinalGenerationGreenlights_ACU(greenlights: unknown, options: {
+  assertCurrent?: () => void;
+  expectedRevision?: number;
+} = {}): Promise<boolean> {
+  const expectedRevision = options.expectedRevision ?? getAgentWorldbookRuntimeRevision_ACU();
+  return runExclusiveAgentWorldbookOperation_ACU(() => writeFinalGenerationGreenlightsExclusive_ACU(greenlights, {
+    assertCurrent: options.assertCurrent, expectedRevision,
+  }));
+}
 
+async function writeFinalGenerationGreenlightsExclusive_ACU(greenlights: unknown, options: {
+  assertCurrent?: () => void;
+  expectedRevision: number;
+}): Promise<boolean> {
+  const isCurrent = () => {
+    options.assertCurrent?.();
+    return options.expectedRevision === getAgentWorldbookRuntimeRevision_ACU();
+  };
+  if (!isCurrent()) return false;
+  const state = await readAgentWorldbookStateFromWorldbooks_ACU();
+  if (!isCurrent()) return false;
+  const bookNames = normalizeBookNamesForTakeover_ACU(await resolveAgentWorldbookScopeBookNames_ACU(state.control.worldbookScope));
+  if (!isCurrent()) return false;
+  const snapshot = state.snapshot;
+  if (snapshot.active !== true || snapshot.selectionSignature !== buildWorldbookSelectionSignature_ACU(bookNames)) return false;
   const normalizedGreenlights = normalizeAgentWorldbookRefs_ACU(greenlights);
+  if (!Array.isArray(greenlights) || normalizedGreenlights.length !== greenlights.length) return false;
+  const snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(snapshot);
   const allowedKeySet = buildAllowedFinalGreenlightKeySet_ACU(normalizedGreenlights, snapshotUidSetByBook);
+  if (allowedKeySet.size !== normalizedGreenlights.length) return false;
 
-  const patchResult = await patchSnapshotEntries_ACU(snapshotUidSetByBook, (bookName, entry) => {
+  const buildPatch = (bookName: string, entry: Record<string, any>): Record<string, any> | null => {
     if (!hasValidWorldbookUid_ACU(entry?.uid)) return null;
     const isAllowed = allowedKeySet.has(buildFinalGreenlightKey_ACU(bookName, entry.uid));
     if (isAllowed) {
@@ -1105,7 +1184,7 @@ async function writeFinalGenerationGreenlightsExclusive_ACU(greenlights: unknown
       const shouldRestoreLegacyClearedKeys = liveKeys.length === 0
         && previousKeys.length > 0
         && !!snapshotEntry?.commentHash
-        && doesTakeoverSnapshotCommentHashMatch_ACU(snapshotEntry.commentHash, String(entry?.comment || ''));
+        && doesAgentTakeoverCommentHashMatch_ACU(snapshotEntry.commentHash, String(entry?.comment || ''));
       if (isFinalGenerationBlueLightEntry_ACU(entry) && !shouldRestoreLegacyClearedKeys) return null;
       return {
         uid: entry.uid,
@@ -1113,31 +1192,43 @@ async function writeFinalGenerationGreenlightsExclusive_ACU(greenlights: unknown
         ...(shouldRestoreLegacyClearedKeys ? { keys: [...previousKeys] } : {}),
       };
     }
-    if (entry.enabled === false) return null;
-    return { uid: entry.uid, enabled: false };
-  }, { readContext: undefined });
+    // 未放行的一律关掉（含非常驻的开启条目），放行时改成的常驻类型一并还原
+    const releasePatch = buildGreenlightReleasePatch_ACU(snapshot, bookName, entry);
+    if (entry.enabled === false) return releasePatch;
+    return { ...releasePatch, uid: entry.uid, enabled: false };
+  };
 
-  return patchResult.patched > 0;
-}
-
-export async function readFinalGenerationGreenlights_ACU(): Promise<AgentWorldbookFinalGreenlightRef_ACU[]> {
-  const snapshot = getPlotAgentWorldbookSnapshot_ACU();
-  const snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(snapshot);
-  const greenlights: AgentWorldbookFinalGreenlightRef_ACU[] = [];
-  const seen = new Set<string>();
-
-  for (const [bookName, uidSet] of snapshotUidSetByBook.entries()) {
-    const entries = await getLorebookEntries_ACU(bookName);
-    for (const entry of entries || []) {
-      if (!hasValidWorldbookUid_ACU(entry?.uid) || !uidSet.has(String(entry.uid)) || !isFinalGenerationBlueLightEntry_ACU(entry)) continue;
-      const key = buildFinalGreenlightKey_ACU(bookName, entry.uid);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      greenlights.push({ bookName, uid: entry.uid });
+  // 先把所有书读完、算好补丁再动手：选中条目已不在世界书里时整轮不写，避免只写一半。
+  const patchesByBook = new Map<string, Record<string, any>[]>();
+  for (const [bookName, uidSet] of snapshotUidSetByBook) {
+    if (!isCurrent()) return false;
+    const selected = normalizedGreenlights.filter(ref => ref.bookName === bookName);
+    let entries: any[];
+    try {
+      entries = await getLorebookEntriesRequired_ACU(bookName);
+    } catch (error) {
+      if (!isCurrent()) return false;
+      if (classifyLorebookReadError_ACU(error) === 'lorebook_not_found' && selected.length === 0) continue;
+      throw error;
     }
+    if (!isCurrent()) return false;
+    const controlledEntries = (entries || []).filter(entry => uidSet.has(String(entry?.uid)));
+    const liveUids = new Set(controlledEntries.map(entry => String(entry.uid)));
+    if (selected.some(ref => !liveUids.has(String(ref.uid)))) return false;
+    const patches = controlledEntries.map(entry => buildPatch(bookName, entry)).filter(Boolean) as Record<string, any>[];
+    if (patches.length > 0) patchesByBook.set(bookName, patches);
   }
-
-  return greenlights;
+  for (const [bookName, patches] of patchesByBook) {
+    if (!isCurrent()) return false;
+    await setLorebookEntriesRequired_ACU(bookName, patches);
+    if (!isCurrent()) return false;
+    const confirmed = new Map((await getLorebookEntriesRequired_ACU(bookName) || []).map(entry => [String(entry?.uid), entry]));
+    if (!isCurrent()) return false;
+    // 宿主没有完整应用补丁（静默丢字段 / 只写了一部分）：本轮选择不算生效。
+    if (patches.some(patch => Object.entries(patch).some(([key, value]) =>
+      key !== 'uid' && JSON.stringify(confirmed.get(String(patch.uid))?.[key]) !== JSON.stringify(value)))) return false;
+  }
+  return isCurrent();
 }
 
 export interface ClearFinalGenerationGreenlightsResult_ACU {
@@ -1231,10 +1322,11 @@ async function clearFinalGenerationGreenlightsExclusive_ACU(
 
   let patched = 0;
   try {
-    const patchResult = await patchSnapshotEntries_ACU(snapshotUidSetByBook, (_bookName, entry) => {
-      if (!isFinalGenerationBlueLightEntry_ACU(entry)) return null;
-      return { uid: entry.uid, enabled: false };
-    }, { readContext });
+    const patchResult = await patchSnapshotEntries_ACU(
+      snapshotUidSetByBook,
+      (bookName, entry) => buildGreenlightReleasePatch_ACU(snapshot, bookName, entry),
+      { readContext },
+    );
     patched = patchResult.patched;
     staleFromRefresh = [...new Set([...staleFromRefresh, ...patchResult.staleBookNames])];
   } catch (error) {
@@ -1271,6 +1363,73 @@ async function clearFinalGenerationGreenlightsExclusive_ACU(
   };
 }
 
+/**
+ * 切换聊天时收回上一聊天的正文绿灯。绿灯直接写在世界书条目上（开启 + 常驻），世界书又是所有聊天
+ * 共用的，平时要到下一轮剧情推进开头才收回，于是删聊天 / 新开聊天后新聊天会一直显示并沿用上一聊天
+ * 的开关。须在 resetPlotAgentWorldbookSessionSnapshot_ACU 之前调用：同步取走切换前的内存快照
+ * （换了角色卡时那批书不在新作用域里），入队后先按它收回，再按当前聊天的作用域收回一遍
+ * （页面刷新后内存快照为空的情况）。关掉亮着的绿灯并把类型还原回接管前（见 buildGreenlightReleasePatch_ACU），
+ * 不动关键词、Skill 信息和接管账本；失败只告警，下一轮剧情推进开头还会再清。
+ */
+export function releaseFinalGenerationGreenlightsForChatSwitch_ACU(options: { includeCurrentScope: boolean }): Promise<void> {
+  const previousSnapshot = getPlotAgentWorldbookSnapshot_ACU();
+  const previousUidSetByBook = buildSnapshotUidSetByBook_ACU(previousSnapshot);
+  return runExclusiveAgentWorldbookOperation_ACU(async () => {
+    let previousPatched = 0;
+    if (previousUidSetByBook.size > 0) {
+      try {
+        previousPatched = (await patchSnapshotEntries_ACU(
+          previousUidSetByBook,
+          (bookName, entry) => buildGreenlightReleasePatch_ACU(previousSnapshot, bookName, entry),
+        )).patched;
+      } catch (error) {
+        logWarn_ACU('[Agent世界书] 切换聊天时收回上一聊天的正文绿灯失败，下一轮剧情推进开头会再清一次。', error);
+      }
+    }
+    if (!options.includeCurrentScope) {
+      logDebug_ACU(`[Agent世界书] 切换聊天收回正文绿灯：上一聊天改回 ${previousPatched} 条`);
+      return;
+    }
+    const result = await clearFinalGenerationGreenlightsExclusive_ACU();
+    if (result.status === 'failed') {
+      logWarn_ACU('[Agent世界书] 切换聊天时清理当前聊天的正文绿灯失败，下一轮剧情推进开头会再清一次。', result.error);
+      return;
+    }
+    logDebug_ACU(`[Agent世界书] 切换聊天收回正文绿灯：上一聊天改回 ${previousPatched} 条，当前作用域 ${result.status}（改回 ${result.patched} 条）`);
+  });
+}
+
+/**
+ * 作用域里多挂了书（挂载常用世界书，或在宿主里给角色卡加了附加世界书）：账本签名对不上新书单，
+ * 旧书单下关掉的条目新账本认不出，退出接管也找不回，会永久关着。账本来自本卡自己的状态条目，
+ * 只要账本里的书都还在作用域里，就先按旧账本把条目恢复，接管再按新书单重来。
+ * 书被移出作用域或整个换了书单（如换角色卡）时不动，保持原口径；恢复不完整时保留旧账本，下次再试。
+ */
+async function restoreTakeoverAfterScopeGrew_ACU(resolvedBookNames: string[], selectionSignature: string): Promise<void> {
+  let previous: AgentWorldbookControlSnapshot_ACU;
+  try {
+    previous = (await readAgentWorldbookStateFromWorldbooks_ACU()).snapshot;
+  } catch (error) {
+    logWarn_ACU('[Agent世界书] 读取接管账本失败，跳过作用域变化后的恢复。', error);
+    return;
+  }
+  if (previous?.active !== true || !previous.selectionSignature || previous.selectionSignature === selectionSignature) return;
+  const ledgerBookNames = Object.keys(previous.books || {}).map(name => String(name || '').trim()).filter(Boolean);
+  const scope = new Set(resolvedBookNames);
+  if (ledgerBookNames.length === 0 || !ledgerBookNames.every(name => scope.has(name))) return;
+  const restore = await restoreAgentWorldbookSnapshotEntries_ACU(previous, resolvedBookNames, { allowSignatureMismatch: true });
+  if (restore.failed > 0 || restore.skipped > 0) {
+    logWarn_ACU(`[Agent世界书] 作用域多了书之后按旧账本恢复不完整（恢复 ${restore.restored}、跳过 ${restore.skipped}、失败 ${restore.failed}），保留旧账本下次再试。`);
+    return;
+  }
+  try {
+    await writeAgentWorldbookStateToWorldbook_ACU({ snapshot: buildInactiveSnapshot_ACU(selectionSignature) });
+  } catch (error) {
+    logWarn_ACU('[Agent世界书] 作用域多了书之后已恢复条目，但清空旧账本失败。', error);
+  }
+  logDebug_ACU(`[Agent世界书] 作用域多了书：已按旧账本恢复 ${restore.restored} 条，接管按新书单重来。`);
+}
+
 export function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbookTakeoverResult_ACU> {
   return runExclusiveAgentWorldbookOperation_ACU(() => takeoverWorldbookGreenlightsExclusive_ACU());
 }
@@ -1296,6 +1455,7 @@ async function takeoverWorldbookGreenlightsExclusive_ACU(): Promise<AgentWorldbo
     };
   }
 
+  await restoreTakeoverAfterScopeGrew_ACU(resolvedBookNames, selectionSignature);
   // 已在 takeover 独占锁内：账本迁移写沿用外层串行保证，禁止重入锁。
   const existingSnapshot = await readAndMaybeCachePlotAgentWorldbookSnapshot_ACU(
     resolvedBookNames,
@@ -1431,6 +1591,7 @@ async function restoreWorldbookGreenlightsExclusive_ACU(options: {
   const cleanupMode = options.cleanupMode || 'full';
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
+  if (cleanupMode === 'full') await restoreTakeoverAfterScopeGrew_ACU(resolvedBookNames, selectionSignature);
   // restore 已在 operation-lock 内，读账本时的迁移写不得再次入锁（锁不可重入）。
   const worldbookSnapshot = await readPlotAgentWorldbookSnapshotFromStateOrLegacy_ACU(
     resolvedBookNames,
@@ -1480,10 +1641,11 @@ async function restoreWorldbookGreenlightsExclusive_ACU(options: {
   // [M4] let：清理阶段失败会计入 failed（见下方 deleteInternalEntriesByComment 的 try/catch）。
   let restoreResult = shouldRestoreSnapshot && (cleanupMode !== 'full' || restoreUpdates.length === 0 || pendingSnapshotPersisted)
     ? await restoreSnapshotEntries_ACU(snapshot)
-    : { restored: 0, skipped: 0, failed: 0, report: { applied: [], failed: [] } };
+    : { restored: 0, skipped: 0, failed: 0, report: { applied: [], failed: [] }, missing: [] };
   const completedRestoreUpdates = [
     ...recoveredPendingUpdates,
     ...restoreResult.report.applied,
+    ...restoreResult.missing,
   ];
   const remainingBooks = shouldRestoreSnapshot
     ? excludeSnapshotEntriesByUpdates_ACU(restorePendingSnapshot.books, completedRestoreUpdates)

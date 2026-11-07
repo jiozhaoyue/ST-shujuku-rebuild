@@ -4,10 +4,12 @@ import { saveSettings_ACU } from "../../service/settings/settings-service";
 import { setFeatureApiPreset_ACU } from "../../service/settings/feature-preset-reference-service";
 import { setUpdateNumberFields_ACU, setTableContextRules_ACU, setCharCardPrompt_ACU } from "../../service/settings/settings-write-service";
 import { getCurrentStorageMode } from "../../service/table/storage-mode";
+import { buildTableFillDefaultPromptSegments_ACU } from "../../service/ai/prompt-builder/table-fill-tools";
 import {
   DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
   DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
   DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+  DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU,
 } from "../../shared/defaults";
 import {
   DEFAULT_CHAR_CARD_PROMPT_ACU,
@@ -20,6 +22,7 @@ import {
   normalizePositiveInteger_ACU,
 } from "../../shared/utils";
 import { useToastStore } from "../stores/toast-store";
+import { downloadJsonToHost_ACU } from '../bootstrap/host-download';
 
 type MessageKind = "info" | "success" | "warning" | "error";
 
@@ -60,6 +63,7 @@ export type NumberSettingKey =
   | "skipUpdateFloors"
   | "retainRecentLayers"
   | "autoUpdateTokenThreshold"
+  | "tableFillMinResponseLength"
   | "tableMaxRetries";
 
 export interface FormFillSettingsState {
@@ -67,6 +71,15 @@ export interface FormFillSettingsState {
   tableApiPreset: Ref<string>;
   tableEditLastPairOnly: Ref<boolean>;
   discardUnauthorizedTableEditsEnabled: Ref<boolean>;
+  nativeToolsEnabled: Ref<boolean>;
+  /**
+   * 工具开关的锁定原因（非空即 UI 应置灰）。提示词被手动编辑过时返回说明文案：
+   * 自定义主段不会被工具版覆盖（运行时只逐字替换默认主段），开着工具等于要求模型
+   * 调用一个用户提示词里根本没提的东西。
+   */
+  nativeToolsLockedReason: ComputedRef<string>;
+  /** UI 置灰判据：锁定且当前是关闭态（已开启时必须留可关的出口）。 */
+  nativeToolsDisabled: ComputedRef<boolean>;
   extractRules: Ref<FormFillRulePair[]>;
   excludeRules: Ref<FormFillRulePair[]>;
   promptSegments: Ref<FormFillPromptSegment[]>;
@@ -81,6 +94,7 @@ export interface FormFillSettingsState {
   ) => void;
   setTableEditLastPairOnly: (value: boolean) => void;
   setDiscardUnauthorizedTableEditsEnabled: (value: boolean) => void;
+  setNativeToolsEnabled: (value: boolean) => void;
   setExtractRules: (rules: FormFillRulePair[]) => void;
   setExcludeRules: (rules: FormFillRulePair[]) => void;
   addPromptSegment: (position: "top" | "bottom") => void;
@@ -119,10 +133,10 @@ const NUMBER_FIELD_META: Array<Omit<FormFillNumberField, "value">> = [
   },
   {
     key: "maxConcurrentGroups",
-    label: "最大并发数",
+    label: "最大并发更新组数",
     min: 1,
     step: 1,
-    hint: "同时处理的表格组数，默认为1。",
+    hint: "同时填表的表格分组数，默认 1。大于 1 时多个分组会同时调用填表 API，越大越快，但 API 压力和排查难度也越高。",
   },
   {
     key: "skipUpdateFloors",
@@ -140,10 +154,17 @@ const NUMBER_FIELD_META: Array<Omit<FormFillNumberField, "value">> = [
   },
   {
     key: "autoUpdateTokenThreshold",
-    label: "AI 回复最小长度",
+    label: "正文回复最小长度",
     min: 0,
     step: 1,
-    hint: "低于此值跳过自动填表。",
+    hint: "最新一条 AI 正文短于此值时，跳过这一层的自动填表。0 为不限制。",
+  },
+  {
+    key: "tableFillMinResponseLength",
+    label: "填表 AI 回复最小长度",
+    min: 0,
+    step: 1,
+    hint: "填表模型的回复短于此值时按失败重试。0 为不限制。",
   },
   {
     key: "tableMaxRetries",
@@ -162,6 +183,7 @@ const FALLBACKS: Record<NumberSettingKey, number> = {
   skipUpdateFloors: 0,
   retainRecentLayers: 100,
   autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+  tableFillMinResponseLength: DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU,
   tableMaxRetries: 3,
 };
 
@@ -276,17 +298,51 @@ function preparePromptForSave(
   }));
 }
 
-function currentDefaultPromptSegments(): FormFillPromptSegment[] {
+/** 按开关取两套默认提示词之一。toolEnabled 为 true 时主段切换为要求调用 table_sql 的工具版。 */
+function currentDefaultPromptSegmentsFor_ACU(toolEnabled: boolean): FormFillPromptSegment[] {
   const defaults =
     getCurrentStorageMode() === "sqlite"
       ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU
       : DEFAULT_CHAR_CARD_PROMPT_ACU;
-  return normalizePromptSegments(defaults);
+  return normalizePromptSegments(
+    buildTableFillDefaultPromptSegments_ACU(defaults as any[], toolEnabled),
+  );
+}
+
+function currentDefaultPromptSegments(): FormFillPromptSegment[] {
+  // 正文/工具两套默认主段必须随填表工具开关对齐：开关关着时编辑器若展示要求调用
+  // 工具的默认提示词，用户看到的与实际发出的不一致（上游同批修正此项）。
+  return currentDefaultPromptSegmentsFor_ACU(settings_ACU.tableFillNativeToolsEnabled === true);
+}
+
+/**
+ * 设置里持久化的提示词可能是「另一套开关状态」下的默认（用户开关前后保存过一次）。
+ * 整份逐段指纹等于另一套默认时按当前开关归一，否则一律视为用户自定义。
+ * 不归一会让开关开启后每次重载都误判「已自定义」，切换开关也不再跟随默认。
+ * 只比对整份、不只看主段：只看主段会吞掉用户对 B 段/追加段的改写。
+ */
+function normalizeStoredPromptAgainstCurrentDefault_ACU(value: unknown): unknown {
+  if (!Array.isArray(value) || value.length === 0) return value;
+  const toolEnabled = settings_ACU.tableFillNativeToolsEnabled === true;
+  // 整份逐段比对：只看主段会吞掉用户对 B 段或新增段的改写（判据命中后整份被替换）。
+  const bodyDefaultFingerprint = JSON.stringify(
+    preparePromptForSave(currentDefaultPromptSegmentsFor_ACU(false)),
+  );
+  const toolDefaultFingerprint = JSON.stringify(
+    preparePromptForSave(currentDefaultPromptSegmentsFor_ACU(true)),
+  );
+  const storedFingerprint = JSON.stringify(preparePromptForSave(normalizePromptSegments(value)));
+  const otherFingerprint = toolEnabled ? bodyDefaultFingerprint : toolDefaultFingerprint;
+  // 存储值逐字等于「与当前开关不一致的那套默认」→ 用户没改写，只是开关变了，按当前开关归一。
+  return storedFingerprint === otherFingerprint
+    ? currentDefaultPromptSegments()
+    : value;
 }
 
 function currentPromptSource(): unknown {
   const value = settings_ACU.charCardPrompt;
-  return Array.isArray(value) && value.length > 0 ? value : currentDefaultPromptSegments();
+  if (!Array.isArray(value) || value.length === 0) return currentDefaultPromptSegments();
+  return normalizeStoredPromptAgainstCurrentDefault_ACU(value);
 }
 
 function promptFingerprint(segments: FormFillPromptSegment[]): string {
@@ -302,6 +358,9 @@ export function useFormFillSettings(): FormFillSettingsState {
   );
   const discardUnauthorizedTableEditsEnabled = ref(
     settings_ACU.discardUnauthorizedTableEditsEnabled !== false,
+  );
+  const nativeToolsEnabled = ref(
+    settings_ACU.tableFillNativeToolsEnabled === true,
   );
   const extractRules = ref<FormFillRulePair[]>([]);
   const excludeRules = ref<FormFillRulePair[]>([]);
@@ -321,6 +380,19 @@ export function useFormFillSettings(): FormFillSettingsState {
       ? "default"
       : "custom",
   );
+  const nativeToolsLockedReason = computed<string>(() => {
+    if (promptTemplateMode.value === "default") return "";
+    // 只锁「开启」方向：已开启时必须允许用户关掉，否则改写过提示词就会卡在
+    // 「开着工具但改不了提示词、也关不掉工具」的死角。
+    // 正常路径下保存自定义提示词会自动关闭开关，走不到「已开启 + 自定义」这一支；
+// 但旧版本已把开关开着落盘的设置仍会进来（加载时），必须在这里给出出路。
+    return nativeToolsEnabled.value
+      ? "提示词已自定义，可关闭本开关；如需开启，请在「表格」页载入默认提示词并保存。"
+      : "提示词已自定义，开关不可用；如需开启，请在「表格」页载入默认提示词并保存。";
+  });
+  const nativeToolsDisabled = computed<boolean>(
+    () => promptTemplateMode.value !== "default" && nativeToolsEnabled.value !== true,
+  );
 
   function refresh(): void {
     const nextValues = { ...FALLBACKS } as Record<NumberSettingKey, number>;
@@ -333,6 +405,7 @@ export function useFormFillSettings(): FormFillSettingsState {
     tableApiPreset.value = String(settings_ACU.tableApiPreset || "");
     tableEditLastPairOnly.value = settings_ACU.tableEditLastPairOnly !== false;
     discardUnauthorizedTableEditsEnabled.value = settings_ACU.discardUnauthorizedTableEditsEnabled !== false;
+    nativeToolsEnabled.value = settings_ACU.tableFillNativeToolsEnabled === true;
     extractRules.value = normalizeRules(
       settings_ACU.tableContextExtractRules,
       settings_ACU.tableContextExtractTags || "",
@@ -343,8 +416,11 @@ export function useFormFillSettings(): FormFillSettingsState {
       settings_ACU.tableContextExcludeTags || "",
       "exclude",
     );
-    promptSegments.value = normalizePromptSegments(currentPromptSource());
-    promptDirty.value = false;
+    // R10A-12：提示词是全局设置；切聊天等页面级 refresh 不得把未保存的编辑换回已保存版本
+    // （dirty 被清零后关闭守卫也会失效）。放弃编辑走 resetPrompt / 关闭页面。
+    if (!promptDirty.value) {
+      promptSegments.value = normalizePromptSegments(currentPromptSource());
+    }
   }
 
   function setTableApiPreset(value: string): void {
@@ -398,6 +474,27 @@ export function useFormFillSettings(): FormFillSettingsState {
   function setDiscardUnauthorizedTableEditsEnabled(value: boolean): void {
     discardUnauthorizedTableEditsEnabled.value = !!value;
     settings_ACU.discardUnauthorizedTableEditsEnabled = discardUnauthorizedTableEditsEnabled.value;
+    saveSettings_ACU();
+    message.value = null;
+  }
+
+  function setNativeToolsEnabled(value: boolean): void {
+    // 提示词已自定义时不允许「开启」：自定义主段不会被工具版覆盖，等于要求模型调用
+    // 一个用户提示词里没提的东西。关闭方向不拦——否则「开着工具 + 改写过提示词」
+    // 会变成既改不了提示词也关不掉工具的死角。UI 已置灰，这里再挡程序化调用。
+    if (value === true && nativeToolsDisabled.value) {
+      message.value = { kind: "warning", text: nativeToolsLockedReason.value, scope: "settings" };
+      return;
+    }
+    // 先按切换前的默认判定是否仍是默认提示词，再改开关：比对基准变了就判不准。
+    const wasDefault = promptTemplateMode.value === "default";
+    nativeToolsEnabled.value = value === true;
+    settings_ACU.tableFillNativeToolsEnabled = nativeToolsEnabled.value;
+    // 仍用默认提示词时跟随切换到对应默认主段；用户改写过的提示词原样保留。
+    if (wasDefault) {
+      promptSegments.value = currentDefaultPromptSegments();
+      promptDirty.value = false;
+    }
     saveSettings_ACU();
     message.value = null;
   }
@@ -492,14 +589,57 @@ export function useFormFillSettings(): FormFillSettingsState {
   }
 
   function savePrompt(): void {
+    // 工具版默认主段不得落进设置：运行时只在开关开启时按 mainSlot A 替换主段，
+    // 一旦把「必须调用 table_sql」写进 charCardPrompt，关掉开关后提示词仍在要求
+    // 调用未挂载的工具 → 填表退化。用户在工具版下改写过主段则原样保留（用户负责）。
+    //
+    // 判据按内容而非开关：导出→关开关→导入 的路径会让缓冲区带着工具版主段进入保存，
+    // 此时开关已是关闭态，若用开关门控就会原样落盘。
     const prepared = preparePromptForSave(promptSegments.value);
+    let bufferAfterSave = prepared;
+    const bodyDefaultMain = currentDefaultPromptSegmentsFor_ACU(false).find(
+      (segment: FormFillPromptSegment) => segment.mainSlot === "A" || segment.isMain,
+    );
+    const toolDefaultMain = currentDefaultPromptSegmentsFor_ACU(true).find(
+      (segment: FormFillPromptSegment) => segment.mainSlot === "A" || segment.isMain,
+    );
+    const mainIndex = prepared.findIndex(
+      (segment: FormFillPromptSegment) => segment.mainSlot === "A" || segment.isMain,
+    );
+    if (bodyDefaultMain && toolDefaultMain && mainIndex >= 0
+      && prepared[mainIndex].content === String(toolDefaultMain.content ?? '')) {
+      // 落盘：主段回落正文版（其余段保留用户的改写/追加）。
+      const persisted = prepared.map((segment, index) => (index === mainIndex ? { ...bodyDefaultMain } : segment));
+      // 缓冲区：主段换回当前开关下的工具版，其余段保持用户编辑后的内容。
+      bufferAfterSave = prepared.map((segment, index) => (
+        index === mainIndex
+          ? { ...toolDefaultMain }
+          : { ...segment }
+      ));
+      prepared.length = 0;
+      prepared.push(...persisted);
+    }
     const result = setCharCardPrompt_ACU(clone(prepared));
     if (!result.ok) {
       message.value = { kind: "error", text: result.message || "提示词保存失败。", scope: "prompt" };
       return;
     }
-    promptSegments.value = prepared;
+    // 缓冲区回填「当前开关下的生效提示词」，不是刚落盘的正文版：否则编辑器显示的
+    // 与实际发出的不一致，且 mode 翻成 custom 后切开关不再跟随默认。
+    promptSegments.value = bufferAfterSave;
     promptDirty.value = false;
+    // 自定义提示词与工具提交互斥（自定义主段不会被工具版覆盖）。与其留一个亮着
+    // 又点不动的开关，不如在保存这一刻直接把开关落到关闭——用户看到的是「开关已关
+    // 且因提示词已自定义而不可用」，而不是「开关还开着却灰了」这种自相矛盾的状态。
+    if (
+      nativeToolsEnabled.value
+      && settings_ACU.tableFillNativeToolsEnabled === true
+      && promptTemplateMode.value !== "default"
+    ) {
+      nativeToolsEnabled.value = false;
+      settings_ACU.tableFillNativeToolsEnabled = false;
+      saveSettings_ACU();
+    }
     message.value = null;
     toast.success("提示词已保存");
   }
@@ -533,20 +673,7 @@ export function useFormFillSettings(): FormFillSettingsState {
 
   function exportPrompt(): void {
     try {
-      const text = JSON.stringify(
-        preparePromptForSave(promptSegments.value),
-        null,
-        2,
-      );
-      const blob = new Blob([text], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "acu-form-fill-prompt.json";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadJsonToHost_ACU("acu-form-fill-prompt.json", preparePromptForSave(promptSegments.value));
       message.value = null;
       toast.success("提示词 JSON 已导出");
     } catch (error: any) {
@@ -565,10 +692,13 @@ export function useFormFillSettings(): FormFillSettingsState {
     tableApiPreset,
     tableEditLastPairOnly,
     discardUnauthorizedTableEditsEnabled,
+    nativeToolsEnabled,
     extractRules,
     excludeRules,
     promptSegments,
     promptTemplateMode,
+    nativeToolsLockedReason,
+    nativeToolsDisabled,
     message,
     promptDirty,
     refresh,
@@ -577,6 +707,7 @@ export function useFormFillSettings(): FormFillSettingsState {
     setNumbers,
     setTableEditLastPairOnly,
     setDiscardUnauthorizedTableEditsEnabled,
+    setNativeToolsEnabled,
     setExtractRules,
     setExcludeRules,
     addPromptSegment,

@@ -4,35 +4,38 @@
  */
 
 import {
-  _set_currentEditablePlotPresetState_ACU,
-  _set_activePlotEditorSettings_ACU,
-  _set_currentPlotTaskEditorId_ACU
-} from '../../../service/plot/plot-state';
-import {
+  showHostSurfaceToast_ACU,
   showToastr_ACU
 } from '../../theme/toast';
 import {
   jQuery_API_ACU
 } from '../../dom-utils';
-import {
-  toastr_API_ACU
-} from '../../../shared/host-api';
 
 
 
 import {
-  escapeHtml_ACU,
-  renderToastActionButton_ACU
+  escapeHtml_ACU
 } from '../../../shared/html-helpers';
+import {
+  ensureHostDialogStylesInjected_ACU,
+  renderOptimizationReviewDialog_ACU
+} from '../../theme/host-dialog';
 import {
   logDebug_ACU
 } from '../../../shared/utils';
 
 import {
-  _set_optimizationProgressToast_ACU,
-  _set_contentOptimizationAbortRequested_ACU
-} from '../../../service/optimization/content-optimization';
-
+  CHAT_MESSAGE_TARGET_CHANGED_MESSAGE_ACU,
+  captureChatMessageWriteTarget_ACU,
+  isChatMessageWriteTargetCurrent_ACU,
+  type ChatMessageWriteTarget_ACU
+} from '../../../service/chat/chat-message-write-target';
+import {
+  getChatArray_ACU
+} from '../../../data/gateways/chat-gateway';
+import {
+  currentChatFileIdentifier_ACU
+} from '../../../service/runtime/state-manager';
 
 // 循环 import — 运行时安全
 import {
@@ -46,108 +49,20 @@ import {
     const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
     const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
     
-    const dialogHtml = `
-      <div class="acu-optimization-dialog acu-dialog-classic" data-tt-mobile-surface="free-window" style="
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--acu-bg-0, #24221f);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-        border: 1px solid var(--acu-border, #36332e);
-        border-radius: 2px;
-        padding: 20px;
-        max-width: 800px;
-        width: calc(100% - 20px);
-        max-height: calc(90vh - 20px);
-        overflow-y: auto;
-        z-index: 100000;
-        color: var(--acu-text, #c1b9ad);
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        box-sizing: border-box;
-      ">
-        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
-        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
-        ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: var(--acu-text-mute, #6a6055); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
-        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${result.optimizations.map((opt: any, i: number) => `
-            <div class="optimization-item" style="
-              background: rgba(0, 0, 0, 0.2);
-              border-radius: 1px;
-              padding: 12px;
-              margin-bottom: 8px;
-              border-left: 2px solid var(--acu-border, #36332e);
-            ">
-              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '…' : ''}
-              </div>
-              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
-                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
-              </div>
-              <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '…' : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
-          <button id="acu-opt-cancel" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">取消优化</button>
-          ${!isLastLoop ? `
-          <button id="acu-opt-skip" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">跳过本轮</button>
-          ` : ''}
-          <button id="acu-opt-reoptimize" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-accent, #7d4940);
-            background: transparent;
-            color: var(--acu-accent, #7d4940);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">🔄 重新优化</button>
-          <button id="acu-opt-apply" style="
-            padding: 8px 16px;
-            border: none;
-            background: var(--acu-accent, #7d4940);
-            color: var(--acu-bg-0, #24221f);
-            border-radius: 1px;
-            cursor: pointer;
-            font-weight: 600;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">${applyButtonText}</button>
-        </div>
-      </div>
-      <div id="acu-opt-backdrop" data-tt-mobile-surface="backdrop" style="
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        z-index: 99999;
-      "></div>
-    `;
+    const dialogHtml = renderOptimizationReviewDialog_ACU({
+      title: '正文替换建议',
+      summaryHtml: escapeHtml_ACU(String(result.summary || '')),
+      meta: result.totalLoops > 1 ? `第 ${result.currentLoop}/${result.totalLoops} 轮` : undefined,
+      optimizations: result.optimizations,
+      buttons: [
+        { id: 'acu-opt-cancel', label: '取消优化', variant: 'ghost' },
+        ...(!isLastLoop ? [{ id: 'acu-opt-skip', label: '跳过本轮', variant: 'ghost' as const }] : []),
+        { id: 'acu-opt-reoptimize', label: '重新优化', variant: 'soft', icon: 'fa-solid fa-rotate-right' },
+        { id: 'acu-opt-apply', label: applyButtonText, variant: 'primary' },
+      ],
+    });
     
+    ensureHostDialogStylesInjected_ACU();
     jQuery_API_ACU('body').append(dialogHtml);
     
     // 绑定取消事件
@@ -191,8 +106,18 @@ import {
       // 如果是最后一轮，先应用优化
       if (isLastLoop) {
         logDebug_ACU(`[正文优化] 准备调用 replaceChatMessage_ACU...`);
-        const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
+        const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, {
+          originalContent: getOriginalContent_ACU(messageIndex) || originalContent,
+          expected: result.writeTarget,
+        });
         logDebug_ACU(`[正文优化] replaceChatMessage_ACU 返回: ${success}`);
+        // R9-01：对话框打开期间楼层被滑动/删除或聊天已切换：结果作废，关闭对话框并结束本次优化。
+        if (!success && result.writeTarget !== undefined && !isChatMessageWriteTargetCurrent_ACU(result.writeTarget)) {
+          jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+          showToastr_ACU('warning', CHAT_MESSAGE_TARGET_CHANGED_MESSAGE_ACU);
+          callback('cancel');
+          return;
+        }
         if (!success) {
           jQuery_API_ACU(this).prop('disabled', false).text(applyButtonText);
           showToastr_ACU('error', '应用失败');
@@ -208,115 +133,28 @@ import {
   }
   
   /**
-   * 显示优化结果摘要
-   */
-  export function showOptimizationDiff_ACU(messageIndex: number, result: any) {
-    const message = `正文替换完成，共 ${result.optimizations.length} 处改进`;
-    const reoptButtonHtml = renderToastActionButton_ACU('acu-opt-toast-reoptimize', '🔄 重新优化', 'var(--acu-accent, #7d4940)', '1px', '0.85em');
-    const html = result.summary
-      ? `<div>${message}${reoptButtonHtml}<br><small style="opacity:0.7">${result.summary}</small></div>`
-      : `<div>${message}${reoptButtonHtml}</div>`;
-    const toast = showToastr_ACU('success', html, {
-      timeOut: 10000,
-      extendedTimeOut: 3000,
-      tapToDismiss: false,
-      escapeHtml: false,
-      onShown: function() {
-        jQuery_API_ACU('#acu-opt-toast-reoptimize').off('click.acu_reopt').on('click.acu_reopt', async function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
-          if (toast && toastr_API_ACU) toastr_API_ACU.clear(toast);
-          await reoptimizeMessage_ACU(messageIndex);
-        });
-      }
-    });
-  }
-  
-  /**
    * 自动链只读结果对话框：内容已由自动流程写回，这里只展示对比（原文/修改方案/优化），
    * 不提供「应用」按钮。用于 showDiff 开启 + 非无感模式的自动替换收尾；
-   * 与 showOptimizationDiff_ACU 的 toast 不同，DOM 对话框不受静默提示框拦截。
+   * DOM 对话框不受静默提示框拦截。
+   *
+   * G01-01：writeTarget 仅由「查看对比」toast 的延迟入口传入（toast 出现时同步捕获的楼层身份快照）；
+   * 非无感模式的同步入口不传——模态遮罩挡住聊天操作，楼号无法位移。「重新优化」前按快照复核身份。
    */
-  export function showOptimizationResultDialog_ACU(messageIndex: number, result: any) {
+  export function showOptimizationResultDialog_ACU(messageIndex: number, result: any, writeTarget?: ChatMessageWriteTarget_ACU) {
     const optimizations = Array.isArray(result?.optimizations) ? result.optimizations : [];
-    const dialogHtml = `
-      <div class="acu-optimization-dialog acu-dialog-classic" data-tt-mobile-surface="free-window" style="
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--acu-bg-0, #24221f);
-        border: 1px solid var(--acu-border, #36332e);
-        border-radius: 2px;
-        padding: 20px;
-        max-width: 800px;
-        width: calc(100% - 20px);
-        max-height: calc(90vh - 20px);
-        overflow-y: auto;
-        z-index: 100000;
-        color: var(--acu-text, #c1b9ad);
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        box-sizing: border-box;
-      ">
-        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换完成</h3>
-        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">共 ${optimizations.length} 处改进${result?.summary ? `，${escapeHtml_ACU(String(result.summary))}` : ''}</p>
-        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${optimizations.map((opt: any) => `
-            <div class="optimization-item" style="
-              background: rgba(0, 0, 0, 0.2);
-              border-radius: 1px;
-              padding: 12px;
-              margin-bottom: 8px;
-              border-left: 2px solid var(--acu-border, #36332e);
-            ">
-              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(String(opt?.original || '').substring(0, 200))}${String(opt?.original || '').length > 200 ? '…' : ''}
-              </div>
-              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
-                <strong>修改方案：</strong>${escapeHtml_ACU(String(opt?.plan || opt?.reason || '未说明'))}
-              </div>
-              <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(String(opt?.optimized || '').substring(0, 200))}${String(opt?.optimized || '').length > 200 ? '…' : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
-          <button id="acu-opt-result-reoptimize" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-accent, #7d4940);
-            background: transparent;
-            color: var(--acu-accent, #7d4940);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">🔄 重新优化</button>
-          <button id="acu-opt-result-close" style="
-            padding: 8px 16px;
-            border: none;
-            background: var(--acu-accent, #7d4940);
-            color: var(--acu-bg-0, #24221f);
-            border-radius: 1px;
-            cursor: pointer;
-            font-weight: 600;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">关闭</button>
-        </div>
-      </div>
-      <div id="acu-opt-backdrop" data-tt-mobile-surface="backdrop" style="
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        z-index: 99999;
-      "></div>
-    `;
+    const dialogHtml = renderOptimizationReviewDialog_ACU({
+      title: '正文替换完成',
+      icon: 'fa-solid fa-circle-check',
+      summaryHtml: `共 ${optimizations.length} 处改进${result?.summary ? `，${escapeHtml_ACU(String(result.summary))}` : ''}`,
+      optimizations,
+      buttons: [
+        { id: 'acu-opt-result-reoptimize', label: '重新优化', variant: 'soft', icon: 'fa-solid fa-rotate-right' },
+        { id: 'acu-opt-result-close', label: '关闭', variant: 'primary' },
+      ],
+    });
 
     jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+    ensureHostDialogStylesInjected_ACU();
     jQuery_API_ACU('body').append(dialogHtml);
 
     jQuery_API_ACU('#acu-opt-result-close, #acu-opt-backdrop').on('click', function() {
@@ -324,10 +162,62 @@ import {
     });
 
     jQuery_API_ACU('#acu-opt-result-reoptimize').on('click', async function() {
-      jQuery_API_ACU(this).prop('disabled', true).text('优化中…');
+      let targetIndex = messageIndex;
+      // G01-01：toast 是 8 秒非模态提示，「查看对比」点开本框期间可能已删楼/切聊天，裸楼号会指错楼层
+      // 甚至指到另一个聊天。按快照的 message_id 重定位并复核聊天身份；找不到或不一致即放弃重新优化。
+      if (writeTarget) {
+        targetIndex = relocateResultDialogTargetIndex_ACU(writeTarget);
+        if (targetIndex < 0) {
+          jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+          showToastr_ACU('warning', OPTIMIZATION_RESULT_TARGET_CHANGED_MESSAGE_ACU);
+          return;
+        }
+      }
+      jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
       jQuery_API_ACU('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-      logDebug_ACU(`[正文优化] 结果对话框点击重新优化，messageIndex=${messageIndex}`);
-      await reoptimizeMessage_ACU(messageIndex);
+      logDebug_ACU(`[正文优化] 结果对话框点击重新优化，messageIndex=${targetIndex}`);
+      await reoptimizeMessage_ACU(targetIndex);
+    });
+  }
+
+  /** 「重新优化」前目标楼层身份复核不通过时的提示（G01-01）。 */
+  export const OPTIMIZATION_RESULT_TARGET_CHANGED_MESSAGE_ACU = '楼层已变化（被删除或已切换聊天），本次「重新优化」已取消。';
+
+  /**
+   * G01-01：按 toast 出现时捕获的快照重定位目标楼层（同 getLastOptimizedMessageIndex_ACU 的思路）：
+   * 聊天已切换直接拒绝；有 message_id 按 id 找当前位置（上方删楼导致位移时仍能找对）；
+   * 找不到（楼层已删）或没有 id 且原对象已不在原下标时返回 -1，由调用方提示「楼层已变化」并放弃。
+   */
+  function relocateResultDialogTargetIndex_ACU(target: ChatMessageWriteTarget_ACU): number {
+    if (String(currentChatFileIdentifier_ACU || '') !== target.chatIdentity) return -1;
+    const chat = getChatArray_ACU();
+    if (!Array.isArray(chat)) return -1;
+    if (target.messageId != null) {
+      return chat.findIndex((message: any) => !!message && message.message_id === target.messageId);
+    }
+    const at = chat[target.messageIndex];
+    return at && at === target.message ? target.messageIndex : -1;
+  }
+
+  /**
+   * 无感模式 + 显示优化对比的完成提示：内容已写回，不弹模态框打扰，提示里给「查看对比」入口，
+   * 点开即只读结果对话框。用户主动开了对比，所以不受静默提示框拦截。
+   */
+  export function showOptimizationResultToast_ACU(messageIndex: number, result: any, text: string) {
+    // G01-01：提示出现的此刻（写回刚收尾）同步捕获楼层身份快照，随「查看对比」交给结果对话框复核；
+    // 捕获不到说明楼层已不在（理论不可达），退回普通完成提示，不给无法复核的延迟入口。
+    const writeTarget = captureChatMessageWriteTarget_ACU(messageIndex);
+    if (!writeTarget) {
+      showToastr_ACU('success', text);
+      return;
+    }
+    showHostSurfaceToast_ACU({
+      kind: 'success',
+      text,
+      action: {
+        label: '查看对比',
+        onClick: () => showOptimizationResultDialog_ACU(messageIndex, result, writeTarget),
+      },
     });
   }
 

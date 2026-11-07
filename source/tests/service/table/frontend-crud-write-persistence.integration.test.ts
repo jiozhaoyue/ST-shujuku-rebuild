@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: vi.fn(() => mocks.chat),
   saveChatToHost_ACU: mocks.saveChat,
+  saveChatToHostCoalesced_ACU: mocks.saveChat,
   saveChatToHostStrict_ACU: mocks.saveChatStrict,
   registerPostChatSaveListener_ACU: vi.fn(),
 }));
@@ -242,5 +243,46 @@ describe('前端 CRUD 写入的真实持久化链路', () => {
     const frame = (readIsolatedTagData_ACU(mocks.chat[0], '') as any).storageFrame;
     expect(frame.logEntries.some((entry: any) => entry.source === 'system'
       && entry.operations.some((operation: any) => operation.kind === 'sheet_replace' && operation.sheetKey === 'sheet_tong_shi'))).toBe(true);
+  });
+
+  it('手动单条 SQL 提交只做一次全库导出：复用 executeMutation 本次已发布的 syncedView', async () => {
+    const bridge = (mocks.provider as any).syncBridge;
+    const originalExport = bridge.exportToTableData.bind(bridge);
+    let exportCount = 0;
+    bridge.exportToTableData = (...args: any[]) => { exportCount += 1; return originalExport(...args); };
+    let committed: any;
+    try {
+      committed = await frontendInsertRow('导出计数', '30');
+    } finally {
+      bridge.exportToTableData = originalExport;
+    }
+
+    expect(committed.success).toBe(true);
+    // 旧行为：executeMutation 内部已全库导出并发布视图，随后 getCurrentData() 又导一遍。
+    expect(exportCount).toBe(1);
+    // 复用不得改变行视图：提交结果与 provider 视图一致（mapValue = content.length - 1）。
+    expect(committed.value).toBe(1);
+    expect(committed.tableData.sheet_tong_shi.content).toEqual([
+      ['row_id', 'name', 'affection'],
+      ['1', '导出计数', '30'],
+    ]);
+    expect(mocks.provider.getCurrentData()!.sheet_tong_shi.content).toEqual(committed.tableData.sheet_tong_shi.content);
+    // 帧落盘与回放语义不变。
+    const replay = await loadTableStateFromFramesV2Detailed_ACU(mocks.chat, '', { maxMessageIndex: 0, updateRuntimeState: false });
+    expect(replay?.data?.sheet_tong_shi?.content).toEqual([
+      ['row_id', 'name', 'affection'],
+      ['1', '导出计数', '30'],
+    ]);
+  });
+
+  it('SQL 失败的提交路径语义不变：返回 mutationResult 错误且聊天帧不新增', async () => {
+    const failed = await frontendInsertRow('坏列', '30', { sql: 'INSERT INTO `tongshizhuangtaibiao` (`no_such_column`) VALUES (?, ?);' });
+
+    expect(failed.success).toBe(false);
+    expect(failed.error).toContain('no_such_column');
+    expect(mocks.provider.getCurrentData()!.sheet_tong_shi.content).toEqual([
+      ['row_id', 'name', 'affection'],
+    ]);
+    expect(mocks.chat[0].TavernDB_ACU_IsolatedData).toBeUndefined();
   });
 });

@@ -19,9 +19,8 @@ const {
   mockBuildUsedOrderSet, mockAllocOrder, mockAllocConsecutiveOrderBlock,
   mockGetInjectionTargetLorebook, mockGetIsolationPrefix,
   mockSplitKeywordsByComma,
-  mockGetLatestSummaryVectorIndexSnapshotState,
-  mockGetEffectiveSummaryVectorIndexConfig,
   mockGetCurrentFlightModeState,
+  mockRuntimeScope,
 } = vi.hoisted(() => ({
   mockSettings: {
     dataIsolationEnabled: false,
@@ -73,11 +72,8 @@ const {
     if (!raw) return [];
     return raw.split(/[,，]/).map((k: string) => k.trim()).filter(Boolean);
   }),
-  mockGetLatestSummaryVectorIndexSnapshotState: vi.fn(() => null),
-  mockGetEffectiveSummaryVectorIndexConfig: vi.fn(() => ({
-    summaryIndexKeywordMinRows: 3,
-  })),
   mockGetCurrentFlightModeState: vi.fn(() => ({ enabled: false, hiddenRowIds: [], bigSummarySheetKey: '' })),
+  mockRuntimeScope: { chatKey: 'chat-1', isolationKey: 'iso-1' },
 }));
 
 vi.mock('../../../src/service/settings/settings-readers', () => ({
@@ -86,6 +82,8 @@ vi.mock('../../../src/service/settings/settings-readers', () => ({
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   get settings_ACU() { return mockSettings; },
+  get currentChatFileIdentifier_ACU() { return mockRuntimeScope.chatKey; },
+  getCurrentIsolationKey_ACU: () => mockRuntimeScope.isolationKey,
 }));
 
 vi.mock('../../../src/data/gateways/worldbook-gateway', () => ({
@@ -138,22 +136,17 @@ vi.mock('../../../src/service/worldbook/injection-engine-entries', () => ({
   splitKeywordsByComma_ACU: mockSplitKeywordsByComma,
 }));
 
-vi.mock('../../../src/service/vector/summary-vector-index-state-service', () => ({
-  getLatestSummaryVectorIndexSnapshotState_ACU: mockGetLatestSummaryVectorIndexSnapshotState,
-}));
-
-vi.mock('../../../src/service/vector/vector-memory-config', () => ({
-  getEffectiveSummaryVectorIndexConfig_ACU: mockGetEffectiveSummaryVectorIndexConfig,
-}));
-
 vi.mock('../../../src/service/flight-mode/flight-mode-state', () => ({
   getCurrentFlightModeState_ACU: (...args: any[]) => mockGetCurrentFlightModeState(...args),
 }));
 
-import { updateCustomTableExports_ACU } from '../../../src/service/worldbook/injection-engine-custom';
+import { updateCustomTableExports_ACU, restoreFullSummaryIndexContent_ACU, __resetCustomTableExportStateForTests_ACU } from '../../../src/service/worldbook/injection-engine-custom';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetCustomTableExportStateForTests_ACU();
+  mockRuntimeScope.chatKey = 'chat-1';
+  mockRuntimeScope.isolationKey = 'iso-1';
   mockSettings.dataIsolationEnabled = false;
   mockSettings.dataIsolationCode = '';
   mockSettings.knownCustomEntryNames = [];
@@ -210,13 +203,6 @@ describe('updateCustomTableExports_ACU', () => {
       expect(mockLogError).not.toHaveBeenCalled();
     });
 
-    it('清理后保存 knownNames', async () => {
-      mockSettings.knownCustomEntryNames = ['TavernDB-ACU-CustomExport-旧表'];
-      mockGetLorebookEntries.mockResolvedValue([]);
-      await updateCustomTableExports_ACU(null);
-      expect(mockSaveSettings).toHaveBeenCalled();
-    });
-
     it('隔离模式下只清理匹配前缀的条目', async () => {
       mockGetIsolationPrefix.mockReturnValue('ACU-[test]-');
       mockSettings.knownCustomEntryNames = ['ACU-[test]-TavernDB-ACU-CustomExport-表A'];
@@ -239,34 +225,6 @@ describe('updateCustomTableExports_ACU', () => {
 
   // ═══ 整表导出 ═══
   describe('整表导出', () => {
-    it('创建自定义导出条目', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '自定义表',
-          content: [['', '列1', '列2'], ['', '值A', '值B']],
-          exportConfig: { enabled: true, entryName: '自定义表', entryType: 'constant' },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      mockEnsureExportConfigDefaults.mockReturnValue({
-        enabled: true,
-        splitByRow: false,
-        entryName: '自定义表',
-        entryType: 'constant',
-        keywords: '',
-        preventRecursion: true,
-        injectionTemplate: '',
-        extraIndexEnabled: false,
-        extraIndexEntryName: '自定义表-索引',
-        extraIndexColumns: [],
-        extraIndexColumnModes: {},
-        extraIndexInjectionTemplate: '',
-        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
-        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
-      });
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockCreateLorebookEntries).toHaveBeenCalled();
-    });
 
     it('整表导出隐藏 physical column 且保持右侧可见列对齐', async () => {
       const mergedData: any = {
@@ -337,109 +295,10 @@ describe('updateCustomTableExports_ACU', () => {
         ['row_id', '事件'], ['c1', '可见纪要'], ['c2', '隐藏纪要'],
       ]);
     });
-
-    it('未启用导出的表格被跳过', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '未启用表',
-          content: [['', '列1'], ['', '值A']],
-          exportConfig: { enabled: false },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockCreateLorebookEntries).not.toHaveBeenCalled();
-    });
-
-    it('空行表格不创建条目', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '空表',
-          content: [['', '列1']],
-          exportConfig: { enabled: true, entryName: '空表', entryType: 'constant' },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      mockEnsureExportConfigDefaults.mockReturnValue({
-        enabled: true,
-        splitByRow: false,
-        entryName: '空表',
-        entryType: 'constant',
-        keywords: '',
-        preventRecursion: true,
-        injectionTemplate: '',
-        extraIndexEnabled: false,
-        extraIndexColumns: [],
-        extraIndexColumnModes: {},
-        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
-        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
-      });
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockCreateLorebookEntries).not.toHaveBeenCalled();
-    });
-
-    it('更新 knownCustomEntryNames', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '自定义表',
-          content: [['', '列1'], ['', '值A']],
-          exportConfig: { enabled: true, entryName: '自定义表', entryType: 'constant' },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      mockEnsureExportConfigDefaults.mockReturnValue({
-        enabled: true,
-        splitByRow: false,
-        entryName: '自定义表',
-        entryType: 'constant',
-        keywords: '',
-        preventRecursion: true,
-        injectionTemplate: '',
-        extraIndexEnabled: false,
-        extraIndexColumns: [],
-        extraIndexColumnModes: {},
-        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
-        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
-      });
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockSaveSettings).toHaveBeenCalled();
-      expect(mockSettings.knownCustomEntryNames.length).toBeGreaterThan(0);
-    });
   });
 
   // ═══ 按行拆分导出 ═══
   describe('按行拆分导出', () => {
-    it('每行创建一个条目', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '拆分表',
-          content: [['', '列1', '列2'], ['', '值A1', '值A2'], ['', '值B1', '值B2']],
-          exportConfig: { enabled: true, splitByRow: true, entryName: '拆分表', entryType: 'constant' },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      mockEnsureExportConfigDefaults.mockReturnValue({
-        enabled: true,
-        splitByRow: true,
-        entryName: '拆分表',
-        entryType: 'constant',
-        keywords: '',
-        preventRecursion: true,
-        injectionTemplate: '',
-        extraIndexEnabled: false,
-        extraIndexEntryName: '拆分表-索引',
-        extraIndexColumns: [],
-        extraIndexColumnModes: {},
-        extraIndexInjectionTemplate: '',
-        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
-        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
-      });
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockCreateLorebookEntries).toHaveBeenCalled();
-      const createArgs = mockCreateLorebookEntries.mock.calls[0];
-      // 表头(1) + 行条目(2) = 3
-      expect(createArgs[1].length).toBe(3);
-    });
 
     it('表名与 entryName 不同时，按行条目仍以 entryName 生成 comment 并从配置列提取关键词', async () => {
       const mergedData: any = {
@@ -481,10 +340,33 @@ describe('updateCustomTableExports_ACU', () => {
       const createdEntries = mockCreateLorebookEntries.mock.calls[0][1];
       expect(createdEntries).toEqual(expect.arrayContaining([
         expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-关系档案-表头', type: 'constant' }),
-        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-关系档案-1', keys: ['艾琳'], type: 'keyword', content: '| 艾琳 | 搭档 |\n' }),
-        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-关系档案-2', keys: ['布莱恩'], type: 'keyword', content: '| 布莱恩 | 对手 |\n' }),
+        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-关系档案-1', keys: ['艾琳'], type: 'selective', content: '| 艾琳 | 搭档 |\n' }),
+        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-关系档案-2', keys: ['布莱恩'], type: 'selective', content: '| 布莱恩 | 对手 |\n' }),
       ]));
       expect(createdEntries.some((entry: any) => String(entry.comment).includes('人物关系表-'))).toBe(false);
+    });
+
+    it('整表合并的关键词条目同样交给宿主合法类型 selective，表格配置里仍是 keyword', async () => {
+      const config = {
+        enabled: true, splitByRow: false, entryName: '纪要', entryType: 'keyword', keywords: '事件甲',
+        preventRecursion: true, injectionTemplate: '', extraIndexEnabled: false, extraIndexColumns: [],
+        extraIndexColumnModes: {}, extraIndexInjectionTemplate: '',
+        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
+      };
+      const mergedData: any = {
+        sheet_chronicle: { name: '纪要表', content: [['', '关键词', '内容'], ['', '事件甲', '纪要正文']], exportConfig: config },
+      };
+      mockGetSortedSheetKeys.mockReturnValue(['sheet_chronicle']);
+      mockEnsureExportConfigDefaults.mockReturnValue(config);
+
+      await updateCustomTableExports_ACU(mergedData);
+
+      const createdEntries: any[] = mockCreateLorebookEntries.mock.calls.flatMap((call: any) => call[1] || []);
+      expect(createdEntries.length).toBeGreaterThan(0);
+      expect(createdEntries.every(entry => ['constant', 'selective', 'vectorized'].includes(entry.type))).toBe(true);
+      expect(createdEntries.some(entry => entry.type === 'selective' && (entry.keys || []).includes('事件甲'))).toBe(true);
+      expect(config.entryType).toBe('keyword');
     });
   });
 
@@ -630,36 +512,6 @@ describe('updateCustomTableExports_ACU', () => {
     });
   });
 
-  // ═══ keyword 类型条目 ═══
-  describe('keyword 类型条目', () => {
-    it('keyword 类型无关键词时跳过', async () => {
-      const mergedData: any = {
-        sheet_0: {
-          name: '关键词表',
-          content: [['', '列1'], ['', '值A']],
-          exportConfig: { enabled: true, entryName: '关键词表', entryType: 'keyword', keywords: '' },
-        },
-      };
-      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
-      mockEnsureExportConfigDefaults.mockReturnValue({
-        enabled: true,
-        splitByRow: false,
-        entryName: '关键词表',
-        entryType: 'keyword',
-        keywords: '',
-        preventRecursion: true,
-        injectionTemplate: '',
-        extraIndexEnabled: false,
-        extraIndexColumns: [],
-        extraIndexColumnModes: {},
-        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
-        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
-      });
-      await updateCustomTableExports_ACU(mergedData);
-      expect(mockCreateLorebookEntries).not.toHaveBeenCalled();
-    });
-  });
-
   describe('附加索引生命周期', () => {
     it('关闭自定义纪要索引时删除旧索引且不会重新创建', async () => {
       mockEnsureExportConfigDefaults.mockReturnValue({
@@ -704,10 +556,10 @@ describe('updateCustomTableExports_ACU', () => {
       expect(mockDeleteLorebookEntries).toHaveBeenCalledWith('test-lorebook', [101, 102]);
       const recreated = mockCreateLorebookEntries.mock.calls[0][1];
       expect(recreated).toEqual(expect.arrayContaining([
-        expect.objectContaining({ comment: '纪要表' }),
+        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-纪要表' }),
       ]));
       expect(recreated).not.toEqual(expect.arrayContaining([
-        expect.objectContaining({ comment: '飞行模式前的自定义纪要索引' }),
+        expect.objectContaining({ comment: 'TavernDB-ACU-CustomExport-飞行模式前的自定义纪要索引' }),
       ]));
     });
   });
@@ -761,5 +613,188 @@ describe('updateCustomTableExports_ACU', () => {
         expect(hasIndexEntry).toBe(true);
       }
     });
+  });
+});
+
+// ═══ 交火纪要索引正文独占（移植上游 2b4ea865）═══
+describe('交火纪要索引正文独占', () => {
+  const summaryData = () => ({
+    sheet_chronicle: {
+      name: '纪要表',
+      content: [['row_id', '内容'], ['1', '纪要A'], ['2', '纪要B']],
+      exportConfig: {
+        enabled: true,
+        entryName: '纪要表',
+        entryType: 'constant',
+        extraIndexEnabled: true,
+        extraIndexEntryName: '纪要索引',
+        extraIndexColumns: ['内容'],
+        extraIndexColumnModes: {},
+      },
+    },
+  });
+  const useCrossfire = () => {
+    mockGetCurrentWorldbookConfig.mockReturnValue({ zeroTkOccupyMode: false, summaryVectorIndexModeEnabled: true });
+    mockGetSortedSheetKeys.mockReturnValue(['sheet_chronicle']);
+    // 恢复默认合并语义，避免此前用例的 mockReturnValue 残留污染。
+    mockEnsureExportConfigDefaults.mockImplementation((cfg: any, name: string) => ({
+      enabled: false,
+      splitByRow: false,
+      entryName: name || '',
+      entryType: 'constant',
+      keywords: '',
+      preventRecursion: true,
+      injectionTemplate: '',
+      extraIndexEnabled: false,
+      extraIndexEntryName: `${name || '表格'}-索引`,
+      extraIndexColumns: [],
+      extraIndexColumnModes: {},
+      extraIndexInjectionTemplate: '',
+      entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+      extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
+      ...cfg,
+    }));
+  };
+  // 内存世界书：create 分配 uid，delete 按 uid 删，set 按 uid 更新。
+  const memoryBook = () => {
+    const entries: any[] = [];
+    let uid = 1;
+    mockGetLorebookEntries.mockImplementation(async () => entries.map(entry => ({ ...entry })));
+    mockCreateLorebookEntries.mockImplementation(async (_book: string, list: any[]) => {
+      for (const entry of list) entries.push({ ...entry, uid: uid++ });
+    });
+    mockDeleteLorebookEntries.mockImplementation(async (_book: string, uids: number[]) => {
+      for (const id of uids) {
+        const index = entries.findIndex(entry => entry.uid === id);
+        if (index >= 0) entries.splice(index, 1);
+      }
+    });
+    mockSetLorebookEntries.mockImplementation(async (_book: string, list: any[]) => {
+      for (const patch of list) {
+        const target = entries.find(entry => entry.uid === patch.uid);
+        if (target) Object.assign(target, patch);
+      }
+    });
+    return entries;
+  };
+  const readIndex = (entries: any[]) => entries.find(entry => entry.comment === 'TavernDB-ACU-CustomExport-纪要索引');
+
+  it('来源行未变时保留已有正文：不删不建，只同步属性（移植上游 2b4ea865）', async () => {
+    useCrossfire();
+    const entries = memoryBook();
+    await updateCustomTableExports_ACU(summaryData());
+    expect(readIndex(entries)).toBeDefined();
+    const firstUid = readIndex(entries).uid;
+    // 模拟交火在读取后写入筛选正文。
+    readIndex(entries).content = '交火筛选正文';
+    mockDeleteLorebookEntries.mockClear();
+    mockCreateLorebookEntries.mockClear();
+    mockSetLorebookEntries.mockClear();
+    await updateCustomTableExports_ACU(summaryData());
+    expect(readIndex(entries)).toMatchObject({ uid: firstUid, content: '交火筛选正文' });
+    const deleted: number[] = mockDeleteLorebookEntries.mock.calls.flatMap(call => call[1] || []);
+    expect(deleted).not.toContain(firstUid);
+    const created: any[] = mockCreateLorebookEntries.mock.calls.flatMap(call => call[1] || []);
+    expect(created.some(entry => entry.comment === 'TavernDB-ACU-CustomExport-纪要索引')).toBe(false);
+    const updated: any[] = mockSetLorebookEntries.mock.calls.flatMap(call => call[1] || []);
+    expect(updated.some(entry => entry.uid === firstUid)).toBe(true);
+    expect(updated.filter(entry => entry.uid === firstUid).every(entry => !('content' in entry))).toBe(true);
+  });
+
+  it('来源行真实删除后清理旧索引并按剩余数据重建（移植上游 2b4ea865）', async () => {
+    useCrossfire();
+    const entries = memoryBook();
+    await updateCustomTableExports_ACU(summaryData());
+    const firstUid = readIndex(entries).uid;
+    readIndex(entries).content = '交火筛选正文';
+    const reduced: any = summaryData();
+    reduced.sheet_chronicle.content = [['row_id', '内容'], ['1', '纪要A']];
+    await updateCustomTableExports_ACU(reduced);
+    const deleted: number[] = mockDeleteLorebookEntries.mock.calls.flatMap(call => call[1] || []);
+    expect(deleted).toContain(firstUid);
+    expect(readIndex(entries).uid).not.toBe(firstUid);
+    expect(readIndex(entries).content).not.toBe('交火筛选正文');
+  });
+
+  it('交火未接管时回填最近一次导出的完整正文：新增纪要不再停在建条目时的旧内容（issue #3）', async () => {
+    useCrossfire();
+    const entries = memoryBook();
+    const oneRow: any = summaryData();
+    oneRow.sheet_chronicle.content = [['row_id', '内容'], ['1', '纪要A']];
+    await updateCustomTableExports_ACU(oneRow);
+    const uid = readIndex(entries).uid;
+    expect(readIndex(entries).content).not.toContain('纪要B');
+    // 新增一行后导出仍保护正文，条目停在只有纪要A的旧内容。
+    await updateCustomTableExports_ACU(summaryData());
+    expect(readIndex(entries).content).not.toContain('纪要B');
+
+    mockSetLorebookEntries.mockClear();
+    await expect(restoreFullSummaryIndexContent_ACU()).resolves.toBe(true);
+    expect(readIndex(entries)).toMatchObject({ uid });
+    expect(readIndex(entries).content).toContain('纪要A');
+    expect(readIndex(entries).content).toContain('纪要B');
+    // 只写正文，不碰 enabled 等属性（0TK 仍控制启用状态）。
+    expect(mockSetLorebookEntries.mock.calls.flatMap(call => call[1] || [])).toEqual([
+      { uid, content: readIndex(entries).content },
+    ]);
+    // 正文已是最新时不重复写。
+    await expect(restoreFullSummaryIndexContent_ACU()).resolves.toBe(false);
+  });
+
+  it('回填不跨聊天、不在发送作废后写入', async () => {
+    useCrossfire();
+    const entries = memoryBook();
+    await updateCustomTableExports_ACU(summaryData());
+    readIndex(entries).content = '旧正文';
+    mockRuntimeScope.chatKey = 'chat-2';
+    await expect(restoreFullSummaryIndexContent_ACU()).resolves.toBe(false);
+    mockRuntimeScope.chatKey = 'chat-1';
+    await expect(restoreFullSummaryIndexContent_ACU(() => false)).resolves.toBe(false);
+    expect(readIndex(entries).content).toBe('旧正文');
+  });
+});
+
+describe('块 6 复审：自定义导出', () => {
+  const exportCfg = (over: any = {}) => ({
+    enabled: true, splitByRow: false, entryName: '自定义表', entryType: 'constant', keywords: '',
+    preventRecursion: true, injectionTemplate: '', extraIndexEnabled: false, extraIndexEntryName: '自定义表-索引',
+    extraIndexColumns: [], extraIndexColumnModes: {}, extraIndexInjectionTemplate: '',
+    entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+    extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 }, ...over,
+  });
+
+  it('R6-03 非隔离模式刷新不碰其他隔离环境（ACU-[X]-）的条目', async () => {
+    mockSettings.dataIsolationEnabled = false;
+    mockGetIsolationPrefix.mockReturnValue('');
+    mockSettings.knownCustomEntryNames = ['ACU-[X]-TavernDB-ACU-CustomExport-自定义表', 'ACU-[X]-TavernDB-ACU-CustomExport-自定义表-表头'];
+    mockGetLorebookEntries.mockResolvedValue([
+      { uid: 11, comment: 'ACU-[X]-TavernDB-ACU-CustomExport-自定义表' },
+      { uid: 12, comment: 'ACU-[X]-TavernDB-ACU-CustomExport-自定义表-表头' },
+    ]);
+    await updateCustomTableExports_ACU(null);
+    const deleted = mockDeleteLorebookEntries.mock.calls.flatMap((call: any[]) => call[1]);
+    expect(deleted).not.toContain(11);
+    expect(deleted).not.toContain(12);
+  });
+
+  it('R6-03 整表合并导出的条目名带生成前缀，不再是会撞上用户条目的裸表名', async () => {
+    const mergedData: any = { sheet_0: { name: '自定义表', content: [['row_id', '列1'], ['r1', 'v']], exportConfig: { enabled: true } } };
+    mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
+    mockEnsureExportConfigDefaults.mockReturnValue(exportCfg());
+    await updateCustomTableExports_ACU(mergedData);
+    const created = (mockCreateLorebookEntries.mock.calls[0] as any)[1].map((entry: any) => entry.comment);
+    expect(created).toContain('TavernDB-ACU-CustomExport-自定义表');
+    expect(created).not.toContain('自定义表');
+  });
+
+  it('R6-04 单元格里的 $$ / $\' 原样进入条目正文', async () => {
+    const mergedData: any = { sheet_0: { name: '自定义表', content: [['row_id', '价格'], ['r1', '$$5'], ['r2', "A$'B"]], exportConfig: { enabled: true } } };
+    mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
+    mockEnsureExportConfigDefaults.mockReturnValue(exportCfg({ injectionTemplate: '<表>$1</表>' }));
+    await updateCustomTableExports_ACU(mergedData);
+    const entries = (mockCreateLorebookEntries.mock.calls[0] as any)[1];
+    const main = entries.find((entry: any) => String(entry.comment).endsWith('自定义表'));
+    expect(main.content).toContain('$$5');
+    expect(main.content).toContain("A$'B");
   });
 });

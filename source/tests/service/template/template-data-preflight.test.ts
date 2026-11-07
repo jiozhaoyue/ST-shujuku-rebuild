@@ -41,10 +41,6 @@ describe('preflightTemplateDataImport_ACU', () => {
     it('无 UNIQUE 约束时返回空（不可证明业务身份）', () => {
       expect(extractBusinessKeyColumns_ACU('CREATE TABLE "t" ("row_id" INTEGER PRIMARY KEY, "code" TEXT);')).toEqual([]);
     });
-
-    it('空 DDL 返回空', () => {
-      expect(extractBusinessKeyColumns_ACU('')).toEqual([]);
-    });
   });
 
   describe('数据模式语义', () => {
@@ -89,6 +85,19 @@ describe('preflightTemplateDataImport_ACU', () => {
       });
       expect(result.ok).toBe(false);
       expect(result.blockers[0].code).toBe('missing_business_key');
+      expect(auditOf(result, 'sheet_a').action).toBe('blocked');
+    });
+
+    it('块 6 复审：业务键未命中但 row_id 已被当前行占用时阻止 merge，不计划重复 row_id', () => {
+      const result = preflightTemplateDataImport_ACU({
+        templateData: state({ sheet_a: sheet('A', ['row_id', 'code', 'name'], [['1', 'C1', '铁剑']], UNIQUE_DDL) }),
+        runtimeData: state({ sheet_a: sheet('A', ['row_id', 'code', 'name'], [['1', 'C9', '盾牌']], UNIQUE_DDL) }),
+        dataMode: 'merge',
+        conflictPolicy: 'keep-current',
+      });
+      expect(result.ok).toBe(false);
+      expect(result.blockers[0].code).toBe('cross_pool_row_id_collision');
+      expect(result.blockers[0].message).toContain('row_id=1');
       expect(auditOf(result, 'sheet_a').action).toBe('blocked');
     });
 

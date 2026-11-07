@@ -318,10 +318,41 @@ describe('useVisualizerSave', () => {
 
     const saved = await useVisualizerSave().saveToChat();
 
-    expect(saved).toBe(false);
+    // 结构没变的表可以先单独存行数据；改名仍留在草稿里等模板保存，不被当成已保存吞掉
+    expect(saved).toBe(true);
+    expect(runtimeMock.getCurrentData().sheet_test_vz2.content[1][2]).toBe('数据已改');
     expect(store.dirty).toBe(true);
     expect(store.templateBaseData?.sheet_test_vz2.name).toBe('角色状态');
-    expect(toastMock.error).toHaveBeenCalledWith(expect.stringContaining('模板'), { muteable: false });
+    expect(store.tempData.sheet_test_vz2.name).toBe('模板改名未保存');
+    const { hasVisualizerPendingDataOps_ACU } = await import('../../../src/service/visualizer/visualizer-data-ops');
+    expect(hasVisualizerPendingDataOps_ACU(store)).toBe(false);
+    expect(toastMock.success).toHaveBeenCalledWith(expect.stringContaining('保存模板到当前聊天'), { muteable: false });
+  });
+
+  it('同一张表既改了结构又改了行数据：数据保存说明无法分开保存，模板保存的提示也不再互相指向对方', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    const initialData = {
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet(),
+    };
+    store.loadSnapshot(initialData, ['sheet_test_vz2'], 'chat-a::iso-test');
+    runtimeMock._set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(initialData)));
+    store.updateCell(0, 1, '数据已改');
+    store.tempData.sheet_test_vz2.content[0][1] = '状态（改名）';
+    store.setDirty(true);
+
+    const save = useVisualizerSave();
+    expect(await save.saveToChat()).toBe(false);
+    const dataMessage = String(toastMock.error.mock.calls.at(-1)?.[0] || '');
+    expect(dataMessage).toContain('角色状态');
+    expect(dataMessage).toContain('撤销');
+    expect(dataMessage).not.toContain('请先保存模板');
+
+    expect(await save.saveTemplateToCurrentChat()).toBe(false);
+    expect(String(toastMock.error.mock.calls.at(-1)?.[0] || '')).toContain('保存数据到当前消息');
+    expect(runtimeMock.getCurrentData().sheet_test_vz2.content[1][2]).not.toBe('数据已改');
   });
 
   it('聊天身份变化后拒绝把旧聊天草稿写入当前聊天', async () => {
@@ -429,6 +460,31 @@ describe('useVisualizerSave', () => {
     expect(serviceMock.runTableUpdateCommit_ACU).not.toHaveBeenCalled();
     expect(store.dirty).toBe(true);
     expect(store.lastSavedTarget).toBe('template-global');
+  });
+
+  // R10A-03：确认覆盖全局预设期间切了聊天，不能把模板切换与旧聊天的锁草稿落到新聊天。
+  it('R10A-03：保存到全局确认期间切换聊天时不写预设、不切模板、不写锁', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet('切聊天测试表'),
+    }, ['sheet_test_vz2']);
+    store.setDirty(true);
+
+    const saved = await useVisualizerSave({
+      confirmOverwriteGlobalPreset: vi.fn(async () => {
+        runtimeMock.setCurrentChatIdentity('chat-b');
+        return true;
+      }),
+    }).saveToGlobal();
+    runtimeMock.setCurrentChatIdentity('chat-a');
+
+    expect(saved).toBe(false);
+    expect(serviceMock.upsertTemplatePreset_ACU).not.toHaveBeenCalled();
+    expect(serviceMock.applyTemplatePresetToCurrent_ACU).not.toHaveBeenCalled();
+    expect(store.lastSavedTarget).toBeNull();
   });
 
   it('保存到全局：目标预设不存在时视为有变化，必须落库', async () => {
@@ -1810,7 +1866,8 @@ describe('useVisualizerSave', () => {
     expect(store.dirty).toBe(true);
   });
 
-  it('只删除整张表且没有行级增量时仍会执行硬删除清理', async () => {
+  // R10A-02：删表必须和模板一起提交；数据路径只硬删数据会留下模板里的空表，重新载入后表又回来。
+  it('R10A-02：只删除整张表时数据保存拒绝并引导改用模板保存，不单独硬删', async () => {
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
     const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
     const store = useVisualizerStore();
@@ -1827,13 +1884,38 @@ describe('useVisualizerSave', () => {
 
     const saved = await useVisualizerSave().saveToChat();
 
-    expect(saved).toBe(true);
+    expect(saved).toBe(false);
+    expect(toastMock.error).toHaveBeenCalledWith(expect.stringContaining('保存模板到当前聊天'), { muteable: false });
     expect(serviceMock.runTableUpdateCommit_ACU).not.toHaveBeenCalled();
-    expect(serviceMock.purgeSheetKeysFromChatHistoryHard_ACU).toHaveBeenCalledWith(['sheet_delete']);
-    expect(serviceMock.refreshMergedDataAndNotify_ACU).toHaveBeenCalled();
-    expect(store.deletedSheetKeys).toEqual([]);
-    expect(store.dirty).toBe(false);
-    expect(store.lastSavedTarget).toBe('data');
+    expect(serviceMock.purgeSheetKeysFromChatHistoryHard_ACU).not.toHaveBeenCalled();
+    expect(store.deletedSheetKeys).toEqual(['sheet_delete']);
+    expect(store.dirty).toBe(true);
+  });
+
+  // R10A-02：只有锁改动时也不能把未提交的模板改动（改表名等）吸收进基线。
+  it('R10A-02：锁改动混有未提交的模板改名时数据保存拒绝，模板基线不变', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet('原表名'),
+    }, ['sheet_test_vz2']);
+    store.loadLockDrafts({
+      sheet_test_vz2: { rows: [], cols: [], cells: [], specialIndexLocked: true },
+    });
+    store.tempData!.sheet_test_vz2.name = '新表名';
+    store.setDirty(true);
+    store.toggleRowLock('sheet_test_vz2', 0);
+
+    const saved = await useVisualizerSave().saveToChat();
+
+    expect(saved).toBe(false);
+    expect(toastMock.error).toHaveBeenCalledWith(expect.stringContaining('保存模板到当前聊天'), { muteable: false });
+    expect(serviceMock.saveTableLocksForSheet_ACU).not.toHaveBeenCalled();
+    expect(store.templateBaseData?.sheet_test_vz2?.name).toBe('原表名');
+    expect(store.dirty).toBe(true);
+    expect(store.lockDirty).toBe(true);
   });
 
 it('仅修改表格锁时保存锁草稿，不创建 V2 行级 operation log', async () => {

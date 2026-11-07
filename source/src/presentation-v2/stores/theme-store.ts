@@ -117,7 +117,12 @@ function isSafeTokenValue(value: unknown): value is string {
   if (!trimmed || trimmed.length > MAX_TOKEN_VALUE_LENGTH) return false;
   if (/[;{}<>!]/.test(trimmed)) return false;
   if (trimmed.includes('/*') || trimmed.includes('*/')) return false;
-  if (/url\s*\(/i.test(trimmed)) return false;
+  // R10B-16：反斜杠转义可把 url 写成「\75 rl(」绕过字面匹配，token 里一律不收转义
+  if (trimmed.includes('\\')) return false;
+  // 能让界面加载外部资源的函数（含带前缀的 image-set）一律拒绝
+  if (/(?:^|[^a-z-])(?:-[a-z]+-)?(?:url|image-set|image|src|cross-fade|element|paint)\s*\(/i.test(trimmed)) return false;
+  // 协议地址或协议相对地址（字体名等正常引号内容不会出现）
+  if (/[a-z][a-z0-9+.-]*:\/\/|["']\s*\/\//i.test(trimmed)) return false;
   return true;
 }
 
@@ -215,6 +220,12 @@ function readInitialThemeState(): InitialThemeState {
   const { customThemes, builtinOverridesByCustomId } = sanitizePersistedCustomThemes(persisted?.customThemes);
   const activeId = normalizePersistedActiveThemeId(persisted?.activeId, customThemes, builtinOverridesByCustomId);
   return { activeId, customThemes };
+}
+
+/** 不建 store 直接读出已保存的生效主题：启动时给面板外的宿主浮层上色用。 */
+export function readPersistedActiveTheme_ACU(): AcuV2Theme {
+  const { activeId, customThemes } = readInitialThemeState();
+  return findThemeById(activeId, customThemes) ?? ACU_V2_BUILTIN_THEMES[0];
 }
 
 function buildPersistedTheme(state: ThemeState): PersistedTheme {

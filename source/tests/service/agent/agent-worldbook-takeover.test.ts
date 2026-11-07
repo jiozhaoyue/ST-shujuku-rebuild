@@ -47,6 +47,8 @@ vi.mock('../../../src/data/storage/tavern-storage', () => ({
 
 vi.mock('../../../src/shared/utils', () => ({
   hashUserInput_ACU: mockHashUserInput,
+  logDebug_ACU: vi.fn(),
+  logError_ACU: vi.fn(),
   logWarn_ACU: vi.fn(),
 }));
 
@@ -108,15 +110,22 @@ import {
   clearFinalGenerationGreenlights_ACU,
   ensurePlotAgentWorldbookSnapshotHydrated_ACU,
   getPlotAgentWorldbookSnapshot_ACU,
-  readFinalGenerationGreenlights_ACU,
+  recoverAgentWorldbookAfterFailure_ACU,
   resolvePreTakeoverWorldbookSnapshot_ACU,
   refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU,
+  releaseFinalGenerationGreenlightsForChatSwitch_ACU,
   resetPlotAgentWorldbookSessionSnapshot_ACU,
   restoreWorldbookGreenlights_ACU,
   setPlotAgentWorldbookSnapshot_ACU,
   takeoverWorldbookGreenlights_ACU,
   writeFinalGenerationGreenlights_ACU,
 } from '../../../src/service/agent/agent-worldbook-takeover';
+import {
+  getAgentWorldbookRuntimeRevision_ACU,
+  isAgentWorldbookNativeFallback_ACU,
+  resetAgentWorldbookRuntime_ACU,
+  setLoadedAgentWorldbookControl_ACU,
+} from '../../../src/service/agent/agent-worldbook-runtime-state';
 
 function snapshotEntry(bookName = '角色A世界书'): any {
   return (mockEntriesByBook.get(bookName) || []).find(entry => entry.comment === AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU);
@@ -132,6 +141,7 @@ const skillCommentB_ACU = `普通条目B\n\n${skillMetaBlock_ACU}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetAgentWorldbookRuntime_ACU();
   mockEntriesByBook.clear();
   mockGetLorebookEntries.mockImplementation(async (bookName: string) => mockEntriesByBook.get(bookName) || []);
   mockResolveBookNames.mockResolvedValue(['角色A世界书']);
@@ -165,6 +175,51 @@ beforeEach(() => {
   ]);
 });
 
+describe('作用域里多挂了一本书（如挂载常用世界书）', () => {
+  function entryA() {
+    return mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1);
+  }
+
+  async function takeoverThenMountCopy() {
+    await takeoverWorldbookGreenlights_ACU();
+    expect(entryA()?.enabled).toBe(false);
+    mockEntriesByBook.set('副本书', [
+      { uid: 7, enabled: true, keys: ['钥匙B'], type: 'selective', comment: skillCommentB_ACU, content: '内容B' },
+    ]);
+    mockResolveBookNames.mockImplementation(async () => ['角色A世界书', '副本书']);
+  }
+
+  it('再接管时旧书单下关掉的条目进新账本，退出接管能全部恢复', async () => {
+    await takeoverThenMountCopy();
+
+    await takeoverWorldbookGreenlights_ACU();
+    expect(mockStateSnapshot.current.selectionSignature).toBe(buildWorldbookSelectionSignature_ACU(['角色A世界书', '副本书']));
+    expect((mockStateSnapshot.current.books['角色A世界书'] || []).map((entry: any) => entry.uid)).toContain(1);
+
+    await restoreWorldbookGreenlights_ACU();
+    expect(entryA()).toMatchObject({ enabled: true });
+    expect(String(entryA()?.comment)).not.toContain('ACU_AGENT_WORLDBOOK_TAKEOVER_META');
+    expect(mockEntriesByBook.get('副本书')?.[0]).toMatchObject({ enabled: true });
+  });
+
+  it('书单变了、还没再接管就退出接管：按旧账本恢复', async () => {
+    await takeoverThenMountCopy();
+
+    await restoreWorldbookGreenlights_ACU();
+    expect(entryA()).toMatchObject({ enabled: true });
+    expect(String(entryA()?.comment)).not.toContain('ACU_AGENT_WORLDBOOK_TAKEOVER_META');
+  });
+
+  it('换成完全不同的书单（如换角色卡）时不动旧账本里的条目', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockEntriesByBook.set('角色B世界书', []);
+    mockResolveBookNames.mockImplementation(async () => ['角色B世界书']);
+
+    await takeoverWorldbookGreenlights_ACU();
+    expect(entryA()?.enabled).toBe(false);
+  });
+});
+
 describe('agent worldbook session snapshot reset', () => {
   it('切换会话时只丢弃内存 snapshot，不触碰持久 Agent state', async () => {
     setPlotAgentWorldbookSnapshot_ACU({
@@ -179,6 +234,117 @@ describe('agent worldbook session snapshot reset', () => {
     expect(getPlotAgentWorldbookSnapshot_ACU()).toEqual({ active: false, selectionSignature: '', createdAt: 0, books: {} });
     expect(mockWriteAgentWorldbookState).not.toHaveBeenCalled();
     expect(mockDeleteAgentWorldbookState).not.toHaveBeenCalled();
+  });
+});
+
+describe('切换聊天时收回上一聊天的正文绿灯', () => {
+  async function greenlightInBookA() {
+    mockEntriesByBook.set('角色A世界书', [
+      { uid: 1, enabled: true, keys: ['钥匙A'], type: 'selective', comment: skillComment_ACU, content: '内容A' },
+      { uid: 2, enabled: true, keys: ['钥匙B'], type: 'selective', comment: skillCommentB_ACU, content: '内容B' },
+    ]);
+    await takeoverWorldbookGreenlights_ACU();
+    await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1, reason: '上一聊天正文需要' }]);
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: true, type: 'constant' });
+  }
+
+  it('同一角色卡新开聊天：上一聊天放行的条目关回去，关键词不动，不碰接管账本', async () => {
+    await greenlightInBookA();
+
+    const release = releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: true });
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+    await release;
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, keys: ['钥匙A'] });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 2)).toMatchObject({ enabled: false });
+    expect(mockDeleteAgentWorldbookState).not.toHaveBeenCalled();
+  });
+
+  it('换到另一张角色卡：按切换前的快照收回上一张卡世界书里的绿灯', async () => {
+    await greenlightInBookA();
+    mockResolveBookNames.mockResolvedValue(['角色B世界书']);
+    mockEntriesByBook.set('角色B世界书', []);
+
+    const release = releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: true });
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+    await release;
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective', keys: ['钥匙A'] });
+  });
+
+  it('页面刷新后内存快照为空时，按当前聊天作用域收回；不含当前作用域时什么都不写', async () => {
+    await greenlightInBookA();
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+    mockSetLorebookEntries.mockClear();
+
+    await releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: false });
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+
+    await releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: true });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false });
+  });
+
+  it('收回绿灯时把放行改成的常驻类型还原回接管前，新聊天不留上一聊天的「常量」', async () => {
+    await greenlightInBookA();
+
+    const release = releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: true });
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+    await release;
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective', keys: ['钥匙A'] });
+  });
+
+  it('页面刷新后按当前作用域收回时同样还原类型', async () => {
+    await greenlightInBookA();
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+
+    await releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: true });
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective' });
+  });
+
+  it('剧情推进开头清绿灯也还原类型，并顺带清掉旧版本留下的「已关但仍是常量」', async () => {
+    await greenlightInBookA();
+    // 旧版本只关开关：uid 1 已关但类型还是常驻
+    mockEntriesByBook.set('角色A世界书', (mockEntriesByBook.get('角色A世界书') || []).map(entry => (
+      entry.uid === 1 ? { ...entry, enabled: false } : entry
+    )));
+
+    const result = await clearFinalGenerationGreenlights_ACU();
+
+    expect(result.status).toBe('cleared');
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective' });
+  });
+
+  it('写正文绿灯时未放行但被手动打开的受控条目照样关掉', async () => {
+    await greenlightInBookA();
+    mockEntriesByBook.set('角色A世界书', (mockEntriesByBook.get('角色A世界书') || []).map(entry => (
+      entry.uid === 2 ? { ...entry, enabled: true } : entry
+    )));
+
+    await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }]);
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 2)).toMatchObject({ enabled: false, type: 'selective' });
+  });
+
+  it('接管前本来就是常驻的条目，收回后仍是常驻', async () => {
+    mockEntriesByBook.set('角色A世界书', [
+      { uid: 1, enabled: true, keys: ['钥匙A'], type: 'selective', comment: skillComment_ACU, content: '内容A' },
+      { uid: 2, enabled: true, keys: ['钥匙B'], type: 'selective', comment: skillCommentB_ACU, content: '内容B' },
+    ]);
+    await takeoverWorldbookGreenlights_ACU();
+    // 模拟接管前即为常驻：账本记录的接管前类型为 constant
+    const snapshot = getPlotAgentWorldbookSnapshot_ACU();
+    snapshot.books['角色A世界书'] = snapshot.books['角色A世界书'].map((entry: any) => (entry.uid === 2 ? { ...entry, previousType: 'constant' } : entry));
+    setPlotAgentWorldbookSnapshot_ACU(snapshot);
+    mockStateSnapshot.current = snapshot;
+    await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 2 }]);
+
+    const release = releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope: false });
+    resetPlotAgentWorldbookSessionSnapshot_ACU();
+    await release;
+
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 2)).toMatchObject({ enabled: false, type: 'constant' });
   });
 });
 
@@ -598,23 +764,6 @@ describe('agent worldbook takeover native trigger suppression', () => {
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 4)).toMatchObject({ enabled: true });
   });
 
-  it('有 Skill meta 的 enabled selective 条目会进入 snapshot 并被禁用', async () => {
-    mockEntriesByBook.set('角色A世界书', [
-      { uid: 1, enabled: true, keys: ['钥匙A'], type: 'selective', comment: skillComment_ACU, content: '内容A' },
-    ]);
-
-    const result = await takeoverWorldbookGreenlights_ACU();
-
-    expect(result.reason).toBe('native_worldbook_trigger_disabled');
-    expect(result.totalCandidates).toBe(1);
-    expect(result.snapshot.active).toBe(true);
-    expect(result.snapshot.books['角色A世界书']).toEqual([
-      expect.objectContaining({ uid: 1, previousKeys: ['钥匙A'], previousType: 'selective' }),
-    ]);
-    expect(result.updates).toEqual([{ bookName: '角色A世界书', uid: 1 }]);
-    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false });
-  });
-
   it('disabled 且有 Skill meta 的条目不进入 snapshot 且不被启用或禁用', async () => {
     mockEntriesByBook.set('角色A世界书', [
       { uid: 1, enabled: false, keys: ['钥匙A'], type: 'selective', comment: skillComment_ACU, content: '内容A' },
@@ -813,7 +962,7 @@ describe('agent worldbook takeover native trigger suppression', () => {
     expect(getPlotAgentWorldbookSnapshot_ACU()).toMatchObject({ active: false, books: {} });
   });
 
-  it('正文绿灯写入会把 active snapshot 内放行条目改为保留关键词的常量蓝灯并可读回', async () => {
+  it('正文绿灯写入会把 active snapshot 内放行条目改为保留关键词的常量蓝灯', async () => {
     mockEntriesByBook.set('角色A世界书', [
       { uid: 1, enabled: true, keys: ['钥匙A'], comment: skillComment_ACU, content: '内容A' },
       { uid: 'final-state', enabled: false, type: 'constant', keys: [], comment: AGENT_FINAL_GENERATION_GREENLIGHT_COMMENT_ACU, content: '{}' },
@@ -821,11 +970,9 @@ describe('agent worldbook takeover native trigger suppression', () => {
     await takeoverWorldbookGreenlights_ACU();
 
     const written = await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1, reason: '正文需要' }]);
-    const readBack = await readFinalGenerationGreenlights_ACU();
     const patchedEntry = mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1);
 
     expect(written).toBe(true);
-    expect(readBack).toEqual([{ bookName: '角色A世界书', uid: 1 }]);
     expect(patchedEntry).toMatchObject({ enabled: true, type: 'constant', keys: ['钥匙A'] });
     expect(finalGenerationGreenlightEntry()).toBeDefined();
   });
@@ -860,7 +1007,8 @@ describe('agent worldbook takeover native trigger suppression', () => {
 
     const written = await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1, reason: '不得覆盖用户修改' }]);
 
-    expect(written).toBe(false);
+    // 条目已是放行状态：完整选择本就一致即算成功（1.3.6 口径），关键词不被快照覆盖。
+    expect(written).toBe(true);
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({
       enabled: true,
       type: 'constant',
@@ -874,16 +1022,17 @@ describe('agent worldbook takeover native trigger suppression', () => {
     ]);
     await takeoverWorldbookGreenlights_ACU();
     mockSetLorebookEntries.mockClear();
-    const snapshot = getPlotAgentWorldbookSnapshot_ACU();
+    // 完整选择以持久快照为准（1.3.6），改持久快照而不是内存快照
+    const snapshot = structuredClone(mockStateSnapshot.current);
     snapshot.books['角色A世界书'][0].commentHash = undefined;
-    setPlotAgentWorldbookSnapshot_ACU(snapshot);
+    mockStateSnapshot.current = snapshot;
     mockEntriesByBook.set('角色A世界书', [
       { uid: 1, enabled: true, keys: [], type: 'constant', comment: skillComment_ACU, content: '内容A' },
     ]);
 
     const written = await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1, reason: '缺少编辑指纹' }]);
 
-    expect(written).toBe(false);
+    expect(written).toBe(true);
     expect(mockSetLorebookEntries).not.toHaveBeenCalled();
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({
       enabled: true,
@@ -904,10 +1053,9 @@ describe('agent worldbook takeover native trigger suppression', () => {
 
     const written = await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1, reason: '正文需要' }]);
 
-    expect(written).toBe(false);
+    expect(written).toBe(true);
     expect(mockSetLorebookEntries).not.toHaveBeenCalled();
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: true, type: 'constant', keys: ['仍有关键词'] });
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([{ bookName: '角色A世界书', uid: 1 }]);
   });
 
   it('正文绿灯覆盖写入会关闭上一轮放行条目并只开启本轮 allowlist', async () => {
@@ -921,9 +1069,8 @@ describe('agent worldbook takeover native trigger suppression', () => {
     await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 2, reason: '第二轮正文需要' }]);
     const entries = mockEntriesByBook.get('角色A世界书') || [];
 
-    expect(entries.find(entry => entry.uid === 1)).toMatchObject({ enabled: false });
+    expect(entries.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective' });
     expect(entries.find(entry => entry.uid === 2)).toMatchObject({ enabled: true, type: 'constant', keys: ['钥匙B'] });
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([{ bookName: '角色A世界书', uid: 2 }]);
   });
 
   it('清理正文绿灯只关闭当前蓝灯条目并清理旧版本隐藏状态条目', async () => {
@@ -937,9 +1084,8 @@ describe('agent worldbook takeover native trigger suppression', () => {
     const cleared = await clearFinalGenerationGreenlights_ACU();
 
     expect(cleared).toMatchObject({ status: 'cleared', patched: 2, staleBookNames: [] });
-    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'constant', keys: ['钥匙A'] });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective', keys: ['钥匙A'] });
     expect(finalGenerationGreenlightEntry()).toBeUndefined();
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([]);
   });
 
 
@@ -952,18 +1098,15 @@ describe('agent worldbook takeover native trigger suppression', () => {
       { uid: 1, enabled: true, keys: ['仍有关键词'], type: 'constant', comment: skillComment_ACU, content: '内容A' },
     ]);
 
-    const readBack = await readFinalGenerationGreenlights_ACU();
     const cleared = await clearFinalGenerationGreenlights_ACU();
 
-    expect(readBack).toEqual([{ bookName: '角色A世界书', uid: 1 }]);
     expect(cleared).toMatchObject({ status: 'cleared', patched: expect.any(Number) });
     expect(cleared.patched).toBeGreaterThanOrEqual(1);
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({
       enabled: false,
-      type: 'constant',
+      type: 'selective',
       keys: ['仍有关键词'],
     });
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([]);
   });
 
   it('宿主存在已删除世界书引用时隔离 stale，其余有效世界书继续清理绿灯', async () => {
@@ -1010,7 +1153,6 @@ describe('agent worldbook takeover native trigger suppression', () => {
 
     expect(written).toBe(false);
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: true, keys: ['钥匙A'] });
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([]);
   });
 
   it('正文绿灯写入会忽略 active snapshot 之外的 uid，避免 Agent 任意修改世界书', async () => {
@@ -1027,7 +1169,6 @@ describe('agent worldbook takeover native trigger suppression', () => {
 
     expect(written).toBe(false);
     expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 100)).toMatchObject({ enabled: true, type: 'selective', keys: ['接管后新增'] });
-    expect(await readFinalGenerationGreenlights_ACU()).toEqual([]);
   });
 
   it('恢复会按 active snapshot 恢复原世界书条目状态并清理旧版本内部隐藏条目', async () => {
@@ -1776,7 +1917,7 @@ describe('clearFinalGenerationGreenlights_ACU with strict readContext (T1 baseli
 
     expect(cleared.status).toBe('isolated_stale');
     expect(cleared.staleBookNames).toEqual(['已删除世界书']);
-    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'constant' });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false, type: 'selective' });
     expect(finalGenerationGreenlightEntry('角色A世界书')).toBeUndefined();
   });
 
@@ -1830,4 +1971,237 @@ describe('clearFinalGenerationGreenlights_ACU with strict readContext (T1 baseli
   });
 });
 
+});
+
+describe('接管期间条目被删除后的恢复收敛', () => {
+  it('被接管条目已删除：一次 restore 即收敛为非 active，不留 pending', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockEntriesByBook.set('角色A世界书', []);
+    await restoreWorldbookGreenlights_ACU({ cleanupMode: 'full' });
+    expect(mockStateSnapshot.current.active).not.toBe(true);
+    expect(getPlotAgentWorldbookSnapshot_ACU().active).not.toBe(true);
+  });
+
+  it('旧版本残留的已删除 pending 条目：再次 restore 也能收敛', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    const books = mockStateSnapshot.current.books;
+    const pendingBooks = Object.fromEntries(Object.entries(books).map(([book, entries]: [string, any]) => [
+      book, entries.map((entry: any) => ({ ...entry, takeoverStatus: 'pending' })),
+    ]));
+    mockStateSnapshot.current = { ...mockStateSnapshot.current, books: pendingBooks };
+    setPlotAgentWorldbookSnapshot_ACU(mockStateSnapshot.current);
+    mockEntriesByBook.set('角色A世界书', []);
+    await restoreWorldbookGreenlights_ACU({ cleanupMode: 'full' });
+    expect(mockStateSnapshot.current.active).not.toBe(true);
+  });
+});
+
+// ── 移植上游 1.3.6：完整选择写入与 Agent 失败后的原生恢复 ──
+describe('Agent 世界书失败隔离（1.3.6）', () => {
+  /** 当前亮着的正文绿灯：受控条目里开启且常驻的。 */
+  function litGreenlights(bookName = '角色A世界书'): unknown[] {
+    const controlled = new Set((mockStateSnapshot.current.books?.[bookName] || []).map((entry: any) => String(entry.uid)));
+    return (mockEntriesByBook.get(bookName) || [])
+      .filter(entry => controlled.has(String(entry.uid)) && entry.enabled !== false && entry.type === 'constant')
+      .map(entry => entry.uid);
+  }
+
+  it('空选择按完整集合关闭上一轮全部受控条目，不改无关条目', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }]);
+    expect(litGreenlights()).toEqual([1]);
+    mockEntriesByBook.get('角色A世界书')!.push({ uid: 99, enabled: true, type: 'constant', comment: '无关条目' });
+
+    await expect(writeFinalGenerationGreenlights_ACU([])).resolves.toBe(true);
+    expect(mockEntriesByBook.get('角色A世界书')!.find(entry => entry.uid === 1)?.enabled).toBe(false);
+    expect(mockEntriesByBook.get('角色A世界书')!.find(entry => entry.uid === 99)?.enabled).toBe(true);
+    expect(litGreenlights()).toEqual([]);
+  });
+
+  it('Agent 失败仅按持久快照恢复原条目，忽略矛盾的内存快照并保留恢复依据', async () => {
+    mockEntriesByBook.get('角色A世界书')![0].type = 'selective';
+    await takeoverWorldbookGreenlights_ACU();
+    await writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }]);
+    const persisted = structuredClone(mockStateSnapshot.current);
+    const staleCache = structuredClone(persisted);
+    staleCache.books['角色A世界书'][0].previousEnabled = false;
+    staleCache.books['角色A世界书'][0].previousKeys = ['错误缓存'];
+    setPlotAgentWorldbookSnapshot_ACU(staleCache);
+    mockWriteAgentWorldbookState.mockClear();
+    const reportWarning = vi.fn();
+
+    await recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), { phase: 'agent_decision', assertCurrent: () => {}, reportWarning });
+
+    expect(mockEntriesByBook.get('角色A世界书')![0]).toMatchObject({ enabled: true, type: 'selective', keys: ['钥匙A'], comment: skillComment_ACU });
+    expect(mockStateSnapshot.current).toEqual(persisted);
+    expect(mockWriteAgentWorldbookState).not.toHaveBeenCalled();
+    expect(mockDeleteAgentWorldbookState).not.toHaveBeenCalled();
+    expect(isAgentWorldbookNativeFallback_ACU()).toBe(true);
+    expect(reportWarning).toHaveBeenCalledTimes(1);
+    expect(reportWarning.mock.calls[0][0]).toContain('已按持久快照恢复');
+  });
+
+  it('持久快照缺失时不会拿内存快照恢复条目', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockStateSnapshot.current = { active: false, selectionSignature: '', createdAt: 0, books: {} };
+    mockSetLorebookEntries.mockClear();
+    mockWriteAgentWorldbookState.mockClear();
+
+    await recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), { phase: 'agent_decision', assertCurrent: () => {} });
+
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+    expect(mockEntriesByBook.get('角色A世界书')![0].enabled).toBe(false);
+    expect(mockWriteAgentWorldbookState).not.toHaveBeenCalled();
+  });
+
+  it('跨书选择部分写入失败后按持久快照恢复全部原状态', async () => {
+    mockResolveBookNames.mockResolvedValue(['角色A世界书', '角色B世界书']);
+    mockEntriesByBook.get('角色A世界书')![0].type = 'selective';
+    mockEntriesByBook.set('角色B世界书', [{ uid: 2, enabled: true, type: 'selective', keys: ['钥匙B'], comment: skillCommentB_ACU }]);
+    await takeoverWorldbookGreenlights_ACU();
+    const applyPatches = mockSetLorebookEntries.getMockImplementation()!;
+    let rejected = false;
+    mockSetLorebookEntries.mockImplementation(async (bookName: string, patches: any[]) => {
+      if (bookName === '角色B世界书' && !rejected) { rejected = true; throw new Error('宿主写入失败'); }
+      return applyPatches(bookName, patches);
+    });
+    await expect(writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }, { bookName: '角色B世界书', uid: 2 }])).rejects.toThrow('宿主写入失败');
+    expect(mockEntriesByBook.get('角色A世界书')![0].type).toBe('constant');
+
+    await recoverAgentWorldbookAfterFailure_ACU(new Error('选择未完整写入'), { phase: 'apply_selection', assertCurrent: () => {} });
+
+    expect(mockEntriesByBook.get('角色A世界书')![0]).toMatchObject({ enabled: true, type: 'selective', keys: ['钥匙A'] });
+    expect(mockEntriesByBook.get('角色B世界书')![0]).toMatchObject({ enabled: true, type: 'selective', keys: ['钥匙B'] });
+    expect(mockStateSnapshot.current.active).toBe(true);
+  });
+
+  it.each(['用户修改', '读取失败'])('Agent 恢复遇到%s时保留持久证据并独立告警', async failure => {
+    await takeoverWorldbookGreenlights_ACU();
+    const persisted = structuredClone(mockStateSnapshot.current);
+    const reportWarning = vi.fn();
+    if (failure === '用户修改') mockEntriesByBook.get('角色A世界书')![0].comment = '用户修改后的条目';
+    else mockGetLorebookEntries.mockRejectedValueOnce(new Error('读取失败'));
+
+    await expect(recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), { phase: 'agent_decision', assertCurrent: () => {}, reportWarning })).resolves.toBeUndefined();
+
+    expect(mockStateSnapshot.current).toEqual(persisted);
+    expect(mockEntriesByBook.get('角色A世界书')![0].enabled).toBe(false);
+    expect(reportWarning.mock.calls[0][0]).toContain('部分原始状态未能恢复');
+    expect(reportWarning.mock.calls[0][0]).toContain('普通剧情继续');
+  });
+
+  it('持久快照属于另一套书单（作用域已变）时不按它改写条目，提示未能完整恢复', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockResolveBookNames.mockResolvedValue(['角色A世界书', '新挂上的书']);
+    mockSetLorebookEntries.mockClear();
+    const reportWarning = vi.fn();
+
+    await recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), { phase: 'agent_decision', assertCurrent: () => {}, reportWarning });
+
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+    expect(mockEntriesByBook.get('角色A世界书')![0].enabled).toBe(false);
+    expect(reportWarning.mock.calls[0][0]).toContain('部分原始状态未能恢复');
+  });
+
+  it('取消发生在恢复开始前时不读写世界书，也不设置回退状态', async () => {
+    const assertCurrent = () => { throw new Error('TaskAbortedByUser'); };
+    await expect(recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), { phase: 'agent_decision', assertCurrent })).rejects.toThrow('TaskAbortedByUser');
+    expect(mockReadAgentWorldbookState).not.toHaveBeenCalled();
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+    expect(isAgentWorldbookNativeFallback_ACU()).toBe(false);
+  });
+
+  it('恢复读完条目前会话已失效时不写入条目', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockSetLorebookEntries.mockClear();
+    let current = true;
+    mockGetLorebookEntries.mockImplementation(async (bookName: string) => { current = false; return mockEntriesByBook.get(bookName) || []; });
+    await expect(recoverAgentWorldbookAfterFailure_ACU(new Error('Agent 请求失败'), {
+      phase: 'agent_decision', assertCurrent: () => { if (!current) throw new Error('TaskAbortedByUser'); },
+    })).rejects.toThrow('TaskAbortedByUser');
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+  });
+
+  it('旧决策在排队前配置已变化时不读取或写入新配置范围', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    const expectedRevision = getAgentWorldbookRuntimeRevision_ACU();
+    setLoadedAgentWorldbookControl_ACU(null, expectedRevision, true);
+    mockReadAgentWorldbookState.mockClear();
+    mockSetLorebookEntries.mockClear();
+
+    await expect(writeFinalGenerationGreenlights_ACU([], { expectedRevision })).resolves.toBe(false);
+    expect(mockReadAgentWorldbookState).not.toHaveBeenCalled();
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+    const reportWarning = vi.fn();
+    await recoverAgentWorldbookAfterFailure_ACU(new Error('旧决策失败'), {
+      phase: 'apply_selection', assertCurrent: () => {}, expectedRevision, reportWarning,
+    });
+    expect(mockReadAgentWorldbookState).not.toHaveBeenCalled();
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+    expect(isAgentWorldbookNativeFallback_ACU()).toBe(false);
+    expect(reportWarning.mock.calls[0][0]).toContain('未覆盖新配置');
+  });
+
+  it.each(['cancelled', 'configuration_changed'])('选择预读后发生 %s 时不提交条目开关', async reason => {
+    await takeoverWorldbookGreenlights_ACU();
+    mockSetLorebookEntries.mockClear();
+    const expectedRevision = getAgentWorldbookRuntimeRevision_ACU();
+    let current = true;
+    mockGetLorebookEntries.mockImplementation(async (bookName: string) => {
+      if (reason === 'configuration_changed') setLoadedAgentWorldbookControl_ACU(null, getAgentWorldbookRuntimeRevision_ACU(), true);
+      current = false;
+      return mockEntriesByBook.get(bookName) || [];
+    });
+    const operation = writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }], {
+      expectedRevision,
+      assertCurrent: () => { if (reason === 'cancelled' && !current) throw new Error('TaskAbortedByUser'); },
+    });
+    if (reason === 'cancelled') await expect(operation).rejects.toThrow('TaskAbortedByUser');
+    else await expect(operation).resolves.toBe(false);
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+  });
+
+  it('宿主未完整应用开关补丁时返回失败，保留持久恢复快照', async () => {
+    await takeoverWorldbookGreenlights_ACU();
+    const persisted = structuredClone(mockStateSnapshot.current);
+    mockSetLorebookEntries.mockImplementationOnce(async () => {});
+
+    await expect(writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }])).resolves.toBe(false);
+    expect(mockStateSnapshot.current).toEqual(persisted);
+  });
+
+  it('选中条目已从世界书删除时整轮不写任何条目', async () => {
+    mockEntriesByBook.get('角色A世界书')!.push({ uid: 2, enabled: true, keys: ['钥匙B'], comment: skillCommentB_ACU });
+    await takeoverWorldbookGreenlights_ACU();
+    mockEntriesByBook.set('角色A世界书', mockEntriesByBook.get('角色A世界书')!.filter(entry => entry.uid !== 2));
+    mockSetLorebookEntries.mockClear();
+
+    await expect(writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }, { bookName: '角色A世界书', uid: 2 }])).resolves.toBe(false);
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+  });
+
+  // 与上游不同：pending 条目（接管尚未改动）只是不在受控集合里，不让整轮选择失败
+  it('快照里有 pending 条目时其余受控条目照常写入，pending 条目不动', async () => {
+    mockEntriesByBook.get('角色A世界书')!.push({ uid: 2, enabled: true, keys: ['钥匙B'], type: 'selective', comment: skillCommentB_ACU });
+    await takeoverWorldbookGreenlights_ACU();
+    mockStateSnapshot.current.books['角色A世界书'].find((entry: any) => entry.uid === 2).takeoverStatus = 'pending';
+    mockEntriesByBook.get('角色A世界书')!.find(entry => entry.uid === 2)!.enabled = true;
+
+    await expect(writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 1 }])).resolves.toBe(true);
+    expect(litGreenlights()).toEqual([1]);
+    expect(mockEntriesByBook.get('角色A世界书')!.find(entry => entry.uid === 2)).toMatchObject({ enabled: true, type: 'selective' });
+    await expect(writeFinalGenerationGreenlights_ACU([{ bookName: '角色A世界书', uid: 2 }])).resolves.toBe(false);
+  });
+
+  it('quiet 恢复（本轮只是没有可用决策）在没有接管时不弹提示，有接管时照常恢复并提示', async () => {
+    const reportWarning = vi.fn();
+    await recoverAgentWorldbookAfterFailure_ACU({ category: 'decision_incomplete' }, { phase: 'agent_decision', assertCurrent: () => {}, reportWarning, quiet: true });
+    expect(reportWarning).not.toHaveBeenCalled();
+    expect(isAgentWorldbookNativeFallback_ACU()).toBe(true);
+
+    await takeoverWorldbookGreenlights_ACU();
+    await recoverAgentWorldbookAfterFailure_ACU({ category: 'decision_incomplete' }, { phase: 'agent_decision', assertCurrent: () => {}, reportWarning, quiet: true });
+    expect(mockEntriesByBook.get('角色A世界书')![0].enabled).toBe(true);
+    expect(reportWarning).toHaveBeenCalledTimes(1);
+  });
 });

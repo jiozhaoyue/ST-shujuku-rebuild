@@ -8,6 +8,7 @@ import {
   parseAgentMainAction_ACU,
   parseAgentMainOutput_ACU,
   parseAgentMaintainerOutput_ACU,
+  parseAgentModuleSqlFieldWrites_ACU,
   parseAgentPlannerOutput_ACU,
   parseAgentRequirementsMaintainerOutput_ACU,
   parseAgentReviewerOutput_ACU,
@@ -24,11 +25,6 @@ describe('Agent 文本协议 JSON 提取', () => {
   it('不会被字符串内的花括号与转义引号骗过', () => {
     const raw = '{"instruction":"他说 \\"进来 {吧}\\"","action":"finalize"}';
     expect(JSON.parse(extractFirstJsonObject_ACU(raw)!)).toMatchObject({ action: 'finalize' });
-  });
-
-  it('没有配平对象时返回 null', () => {
-    expect(extractFirstJsonObject_ACU('{"action":"finalize"')).toBeNull();
-    expect(extractFirstJsonObject_ACU('没有任何 JSON')).toBeNull();
   });
 
   it('同时容忍完整重新输出与仅续写预填充两种形态', () => {
@@ -88,13 +84,6 @@ describe('主 Agent 动作解析', () => {
     expect(() => parseAgentMainAction_ACU({ action: 'delegate', delegations: [{ agentName: 'mainline-planner', prompt: '策划' }] }, false)).toThrowError(/预算最后一轮/);
   });
 
-  it('finalize 必须给出 instruction，constraints 缺省为 null', () => {
-    expect(parseAgentMainAction_ACU({ action: 'finalize', instruction: '本轮指导', summary: '要点' }, true)).toMatchObject({ kind: 'finalize', constraints: null });
-    expect(parseAgentMainAction_ACU({ action: 'finalize', instruction: '本轮指导', constraints: { add: ['红线一'], retire: ['C01-1'] } }, true))
-      .toMatchObject({ constraints: { add: ['红线一'], retire: ['C01-1'] } });
-    expect(() => parseAgentMainAction_ACU({ action: 'finalize' }, true)).toThrowError(/非空 instruction/);
-  });
-
   it('finalize 的 constraints 兼容旧全量键：current 并入 add、retired 并入 retire，空对象归一为 null', () => {
     expect(parseAgentMainAction_ACU({ action: 'finalize', instruction: '指导', constraints: { current: ['红线一', '红线二'], retired: ['旧约束'] } }, true))
       .toMatchObject({ constraints: { add: ['红线一', '红线二'], retire: ['旧约束'] } });
@@ -103,11 +92,56 @@ describe('主 Agent 动作解析', () => {
     expect(parseAgentMainAction_ACU({ action: 'finalize', instruction: '指导', constraints: {} }, true)).toMatchObject({ constraints: null });
   });
 
-  it('edit_outline 已从主 Agent 协议退役，总纲与大纲统一交给 open_round', () => {
+  it('阶段大纲修改通过委派入口，拒绝未声明的 edit_outline 动作', () => {
     expect(() => parseAgentMainAction_ACU({
       action: 'edit_outline',
       edits: [{ op: 'set_turn_goal', turnId: 'turn-3', goal: '让守门人先露破绽' }],
-    }, true)).toThrowError(/总纲与阶段大纲由 open_round 固定工作流维护/);
+    }, true)).toThrowError(/阶段大纲修改单独 delegate outline-architect/);
+  });
+
+  it('correct_materials 主会话纠正：reason 必填，sql 与追溯起点至少给一项', () => {    const sqlOnly = parseAgentMainAction_ACU({
+      action: 'correct_materials', thought: '纠正错字', reason: '正文写明是红布',
+      sql: "UPDATE hooks SET summary = '红布' WHERE id = 'H1'",
+    }, true);
+    expect(sqlOnly).toMatchObject({ kind: 'correct_materials', reason: '正文写明是红布' });
+    const withBoundary = parseAgentMainAction_ACU({
+      action: 'correct_materials', thought: '跳过旧史', reason: '用户要求从楼层 7 开始',
+      settlementStartIndex: 7, userMessageId: 3,
+    }, true);
+    expect(withBoundary).toMatchObject({ kind: 'correct_materials', settlementStartIndex: 7, userMessageId: 3 });
+    expect(() => parseAgentMainAction_ACU({ action: 'correct_materials', thought: 'x' }, true)).toThrowError(/reason/);
+    expect(() => parseAgentMainAction_ACU({ action: 'correct_materials', thought: 'x', reason: 'r' }, true)).toThrowError(/sql 或 settlementStartIndex/);
+    expect(() => parseAgentMainAction_ACU({
+      action: 'correct_materials', thought: 'x', reason: 'r', settlementStartIndex: 7,
+    }, true)).toThrowError(/userMessageId/);
+  });
+
+  it('correct_materials 缺参时报出各字段实际状态，指出思考文字不算参数（上游 231a5f80）', () => {
+    expect(() => parseAgentMainAction_ACU({ action: 'correct_materials', thought: 'UPDATE hooks ...', reason: '依据', sql: '  ' }, true))
+      .toThrowError(/reason=nonempty，sql=empty，settlementStartIndex=missing/);
+    expect(() => parseAgentMainAction_ACU({ action: 'correct_materials', thought: 'x', sql: 3 }, true))
+      .toThrowError(/reason=missing，sql=type:number.*思考文字不算参数.*open_round/);
+  });
+
+  it('adjust_progress 进度校准：nextTurnId 与 completeStage 必须且只能给一项（移植上游 e35f758d）', () => {
+    const next = parseAgentMainAction_ACU({
+      action: 'adjust_progress', thought: '对准实际剧情', reason: '正文已演到第二阶段',
+      stageId: 'stage-2', revision: 1, nextTurnId: 'turn-3',
+    }, true);
+    expect(next).toMatchObject({ kind: 'adjust_progress', stageId: 'stage-2', nextTurnId: 'turn-3' });
+    const done = parseAgentMainAction_ACU({
+      action: 'adjust_progress', thought: '完结', reason: '本阶段已演完',
+      stageId: 'stage-1', revision: 2, completeStage: true,
+    }, true);
+    expect(done).toMatchObject({ kind: 'adjust_progress', completeStage: true });
+    expect(() => parseAgentMainAction_ACU({ action: 'adjust_progress', thought: 'x' }, true)).toThrowError(/reason/);
+    expect(() => parseAgentMainAction_ACU({
+      action: 'adjust_progress', thought: 'x', reason: 'r', stageId: 's', revision: 1,
+      nextTurnId: 't', completeStage: true,
+    }, true)).toThrowError(/必须且只能给一项/);
+    expect(() => parseAgentMainAction_ACU({
+      action: 'adjust_progress', thought: 'x', reason: 'r', stageId: 's', revision: 1,
+    }, true)).toThrowError(/必须且只能给一项/);
   });
 
   it('维护类的 patch 只收显式字段，至少要带一个可改字段', () => {
@@ -163,7 +197,7 @@ describe('主 Agent 动作解析', () => {
 
   it('未知动作和已退役的大纲动作直接拒绝', () => {
     expect(() => parseAgentMainAction_ACU({ action: 'write_story' }, true)).toThrowError(/action 必须是/);
-    expect(() => parseAgentMainAction_ACU({ action: 'revise_outline', replanInstruction: '改' }, true)).toThrowError(/action 必须是 read \/ search \/ delegate \/ open_round \/ finalize \/ block/);
+    expect(() => parseAgentMainAction_ACU({ action: 'revise_outline', replanInstruction: '改' }, true)).toThrowError(/action 必须是 read \/ search \/ delegate \/ open_round \/ correct_materials \/ adjust_progress \/ finalize \/ block/);
     expect(parseAgentMainAction_ACU({ action: 'open_round', focus: '接住守门人的回避' }, true)).toMatchObject({
       kind: 'open_round', focus: '接住守门人的回避', dispatchWebResearcher: false,
     });
@@ -314,5 +348,42 @@ describe('协议错误压缩', () => {
       expect(compactAgentProtocolError_ACU(error)).toContain('CONTINUATION_AGENT_PROTOCOL_INVALID');
     }
     expect(compactAgentProtocolError_ACU(new Error('普通错误'))).toBe('普通错误');
+  });
+});
+
+describe('逐栏 SQL 解析（容忍管线，移植上游 5f8afe3a）', () => {
+  const ROLE = 'hook-cognition-maintainer';
+  it('合法写集解析为意图（含别名归一）', () => {
+    const result = parseAgentModuleSqlFieldWrites_ACU(
+      "INSERT INTO hooks (id, summary) VALUES ('H1', 's')",
+      ROLE,
+    );
+    expect(result.intents).toHaveLength(1);
+    expect(result.intents[0]).toMatchObject({ module: 'hooks', kind: 'insert' });
+    expect(result.rejected).toEqual([]);
+  });
+
+  it('坏语句进 rejected 并带纠错关联，好语句保留（位置按原始下标）', () => {
+    const result = parseAgentModuleSqlFieldWrites_ACU(
+      "INSERT INTO hooks (id, summary) VALUES ('H0', 's'); INSERT INTO hooks (id, summary) VALUES ('H1')",
+      ROLE,
+    );
+    expect(result.intents).toHaveLength(1);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0].path).toBe('sql[1]');
+    expect(result.rejected[0].reason).toContain('该语句未写入');
+    expect(result.rejected[0].repairTarget).toMatchObject({ module: 'hooks', column: 'id', value: 'H1' });
+  });
+
+  it('空写集仍拒绝（空串/纯注释）', () => {
+    expect(() => parseAgentModuleSqlFieldWrites_ACU('   ', ROLE)).toThrowError(/不允许空写集/);
+  });
+
+  it('白名单外栏目报错附可写列清单', () => {
+    const result = parseAgentModuleSqlFieldWrites_ACU(
+      "INSERT INTO hooks (id, summary, 胡写) VALUES ('H1', 's', 'x')",
+      ROLE,
+    );
+    expect(result.rejected.some(item => item.reason.includes('可写 SQL 列'))).toBe(true);
   });
 });

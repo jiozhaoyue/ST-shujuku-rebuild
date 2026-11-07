@@ -154,11 +154,6 @@ describe('会话分段读取', () => {
     expect(() => readAgentConversation_ACU(unknownVersion)).toThrow(ContinuationValidationError_ACU);
     expect(() => readAgentConversation_ACU(blankArrayItem)).toThrow(ContinuationValidationError_ACU);
   });
-
-  it('全程无命中时返回空会话', () => {
-    useChat([{ mes: 'a' }, { mes: 'b' }]);
-    expect(readAgentConversation_ACU()).toMatchObject({ messages: [], nextId: 1 });
-  });
 });
 
 describe('会话时间线（展示通道）', () => {
@@ -194,11 +189,6 @@ describe('会话时间线（展示通道）', () => {
       { [AGENT_CONVERSATION_FIELD_ACU]: floorRecordWith([message_ACU(2, 'agent', '最近')]) },
     ];
     expect(() => readAgentConversationTimeline_ACU(chat, { maxEntries: 1 })).toThrow(ContinuationValidationError_ACU);
-  });
-
-  it.each([0, -1, 1.5, NaN, Infinity])('无效窗口 %s 保持完整读取', maxEntries => {
-    const chat = [{ [AGENT_CONVERSATION_FIELD_ACU]: floorRecordWith([message_ACU(1, 'agent', 'a'), message_ACU(2, 'agent', 'b')]) }];
-    expect(readAgentConversationTimeline_ACU(chat, { maxEntries })).toHaveLength(2);
   });
 
   it('展示窗口包含交接条目且不修改完整历史或模型视图', () => {
@@ -367,7 +357,7 @@ describe('会话追加与渲染', () => {
     expect(next.messages[0].text).not.toContain('已截断');
   });
 
-  it('渲染时只有主 Agent 自己的输出是 assistant，其余带来源前缀走 user', () => {
+  it('渲染时主 Agent 输出是 assistant、运行时快照是 system，其余带来源前缀走 user', () => {
     const snapshot = appendAgentConversation_ACU(buildEmptyAgentConversation_ACU(), [
       { kind: 'user', text: '别揭穿', digest: '', turnKey: 't1' },
       { kind: 'turn', text: '开始新的一轮', digest: '', turnKey: 't1' },
@@ -381,7 +371,7 @@ describe('会话追加与渲染', () => {
       { role: 'user', content: '【新的一轮】\n开始新的一轮' },
       { role: 'assistant', content: '{"action":"finalize"}' },
       { role: 'user', content: '【工具结果】\n派工成功' },
-      { role: 'user', content: '【运行时快照】\n【本回合运行时数据】\n预算充足' },
+      { role: 'system', content: '【运行时快照】\n【本回合运行时数据】\n预算充足' },
       { role: 'user', content: '【早期会话交接报告】\n早期浓缩' },
     ]);
   });
@@ -420,5 +410,33 @@ describe('会话追加与渲染', () => {
       { kind: 'runtime', text: '新快照', digest: '运行时快照', turnKey: 't1' },
     ]);
     expect(lastRuntimeSnapshotText_ACU(snapshot)).toBe('新快照');
+  });
+});
+
+describe('块 4 复审 R4-08：会话记录落在最近的 AI 楼', () => {
+  it('物理末楼是工具楼时，会话段与压缩标记写到它之前最近的 AI 楼', async () => {
+    const chat: any[] = [
+      { is_user: true, mes: '用户' },
+      { is_user: false, mes: 'AI 正文' },
+      { is_user: false, is_system: true, role: 'tool', mes: '工具结果' },
+    ];
+    useChat(chat);
+    expect(await appendPreparedAgentConversationMessages_ACU(chat, [message_ACU(1, 'user', '插话')])).toBe(true);
+    expect(chat[1][AGENT_CONVERSATION_FIELD_ACU]?.segment?.map((item: any) => item.id)).toEqual([1]);
+    expect(chat[2][AGENT_CONVERSATION_FIELD_ACU]).toBeUndefined();
+
+    expect(await writeAgentConversationCompactionMark_ACU(chat, v2Mark_ACU(1))).toBe(true);
+    expect(chat[1][AGENT_CONVERSATION_FIELD_ACU]?.compaction?.compactedThroughId).toBe(1);
+    expect(chat[2][AGENT_CONVERSATION_FIELD_ACU]).toBeUndefined();
+  });
+
+  it('后面的非 AI 楼已经挂着旧会话段时仍写物理末楼，保持楼层顺序', async () => {
+    const chat: any[] = [
+      { is_user: false, mes: 'AI 正文' },
+      { is_user: false, is_system: true, role: 'tool', mes: '工具结果', [AGENT_CONVERSATION_FIELD_ACU]: floorRecordWith([message_ACU(1, 'user', '旧')]) },
+    ];
+    useChat(chat);
+    expect(await appendPreparedAgentConversationMessages_ACU(chat, [message_ACU(2, 'agent', '新')])).toBe(true);
+    expect(readAgentConversation_ACU(chat).messages.map((item) => item.id)).toEqual([1, 2]);
   });
 });

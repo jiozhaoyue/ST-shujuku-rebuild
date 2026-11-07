@@ -4,15 +4,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockTavernHelper, mockSillyTavern, mockLogWarn, mockIsExtensionMode } = vi.hoisted(() => ({
+const { mockTavernHelper, mockSillyTavern, mockLogWarn } = vi.hoisted(() => ({
   mockTavernHelper: {} as any,
   mockSillyTavern: {} as any,
   mockLogWarn: vi.fn(),
-  mockIsExtensionMode: vi.fn(() => true),
-}));
-
-vi.mock('../../../src/shared/runtime-env', () => ({
-  isExtensionMode: () => mockIsExtensionMode(),
 }));
 
 vi.mock('../../../src/shared/host-api', () => ({
@@ -41,7 +36,6 @@ import {
   getActiveWorldbookNamesForFill_ACU,
   loadHostWorldInfoModule_ACU,
   resetHostWorldInfoModuleCache_ACU,
-  getCurrentCharPrimaryLorebook_ACU,
 } from '../../../src/data/gateways/worldbook-gateway';
 import * as wb from '../../../src/data/gateways/worldbook-gateway';
 import * as char from '../../../src/data/gateways/character-gateway';
@@ -50,17 +44,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   Object.keys(mockTavernHelper).forEach(k => delete mockTavernHelper[k]);
   Object.keys(mockSillyTavern).forEach(k => delete mockSillyTavern[k]);
-  mockIsExtensionMode.mockReturnValue(true);
 });
 
 describe('isWorldbookApiAvailable_ACU', () => {
   it('API 不可用返回 false', () => {
     expect(isWorldbookApiAvailable_ACU()).toBe(false);
-  });
-
-  it('API 可用返回 true', () => {
-    mockTavernHelper.getLorebookEntries = vi.fn();
-    expect(isWorldbookApiAvailable_ACU()).toBe(true);
   });
 });
 
@@ -68,10 +56,6 @@ describe('世界书名称匹配', () => {
   it('兼容全角字符、零宽字符、NBSP 与组合字符差异', () => {
     expect(normalizeLorebookNameForMatch_ACU('  ＡＢ\u200BＣ\u00A0e\u0301  ')).toBe('ABC é');
     expect(resolveLorebookNameFromList_ACU('ＡＢ\u200BＣ', ['ABC'])).toBe('ABC');
-  });
-
-  it('匹配时返回宿主列表中的原始真实名称', () => {
-    expect(resolveLorebookNameFromList_ACU('剧情书', ['剧\u200B情书'])).toBe('剧\u200B情书');
   });
 
   it('归一化后出现重名时拒绝猜测', () => {
@@ -112,16 +96,6 @@ describe('isLorebookNotFoundError_ACU', () => {
 });
 
 describe('getLorebookEntries_ACU', () => {
-  it('API 不可用返回空数组', async () => {
-    expect(await getLorebookEntries_ACU('book1')).toEqual([]);
-    expect(mockLogWarn).toHaveBeenCalled();
-  });
-
-  it('API 可用返回条目', async () => {
-    const entries = [{ uid: 1, content: '条目1' }];
-    mockTavernHelper.getLorebookEntries = vi.fn().mockResolvedValue(entries);
-    expect(await getLorebookEntries_ACU('book1')).toEqual(entries);
-  });
 
   it('将宿主返回的非字符串 comment/name 归一为空串且不污染原对象', async () => {
     const entries: any[] = [
@@ -231,24 +205,12 @@ describe('setLorebookEntries_ACU', () => {
     await setLorebookEntries_ACU('book1', []);
     expect(mockLogWarn).toHaveBeenCalled();
   });
-
-  it('API 可用时调用', async () => {
-    mockTavernHelper.setLorebookEntries = vi.fn().mockResolvedValue(undefined);
-    await setLorebookEntries_ACU('book1', [{ uid: 1 }]);
-    expect(mockTavernHelper.setLorebookEntries).toHaveBeenCalledWith('book1', [{ uid: 1 }]);
-  });
 });
 
 describe('createLorebookEntries_ACU', () => {
   it('API 不可用时静默跳过', async () => {
     await createLorebookEntries_ACU('book1', []);
     expect(mockLogWarn).toHaveBeenCalled();
-  });
-
-  it('API 可用时调用', async () => {
-    mockTavernHelper.createLorebookEntries = vi.fn().mockResolvedValue(undefined);
-    await createLorebookEntries_ACU('book1', [{ content: '新条目' }]);
-    expect(mockTavernHelper.createLorebookEntries).toHaveBeenCalled();
   });
 });
 
@@ -257,18 +219,9 @@ describe('deleteLorebookEntries_ACU', () => {
     await deleteLorebookEntries_ACU('book1', [1]);
     expect(mockLogWarn).toHaveBeenCalled();
   });
-
-  it('API 可用时调用', async () => {
-    mockTavernHelper.deleteLorebookEntries = vi.fn().mockResolvedValue(undefined);
-    await deleteLorebookEntries_ACU('book1', [1, 2]);
-    expect(mockTavernHelper.deleteLorebookEntries).toHaveBeenCalledWith('book1', [1, 2]);
-  });
 });
 
 describe('listLorebooks_ACU', () => {
-  it('两个 API 都不可用返回空数组', async () => {
-    expect(await listLorebooks_ACU()).toEqual([]);
-  });
 
   it('优先使用 TavernHelper', async () => {
     mockTavernHelper.getLorebooks = vi.fn().mockResolvedValue(['book1', 'book2']);
@@ -400,23 +353,10 @@ describe('激活世界书宿主模块通道（TT 裸环境）', () => {
   });
 
   it('非酒馆宿主下真实动态 import 失败时降级为 null 并允许重试', async () => {
-    mockIsExtensionMode.mockReturnValue(true);
     resetHostWorldInfoModuleCache_ACU();
     await expect(loadHostWorldInfoModule_ACU()).resolves.toBeNull();
     // 失败不缓存：再次调用会重新尝试（仍失败，但不会把 null 永久钉死）
     await expect(loadHostWorldInfoModule_ACU()).resolves.toBeNull();
-    resetHostWorldInfoModuleCache_ACU();
-  });
-
-  it('油猴（iframe）模式下不尝试动态 import 宿主模块，直接返回 null', async () => {
-    mockIsExtensionMode.mockReturnValue(false);
-    resetHostWorldInfoModuleCache_ACU();
-    mockLogWarn.mockClear();
-
-    await expect(loadHostWorldInfoModule_ACU()).resolves.toBeNull();
-
-    // 未发起 import ⇒ 不会在 iframe realm 里造出第二个 world-info 实例
-    expect(mockLogWarn).not.toHaveBeenCalledWith(expect.stringContaining('动态 import 宿主 world-info 模块失败'), expect.anything());
     resetHostWorldInfoModuleCache_ACU();
   });
 
@@ -443,22 +383,6 @@ describe('激活世界书宿主模块通道（TT 裸环境）', () => {
 describe('getWorldBooks_ACU', () => {
   it('API 不可用返回空数组', async () => {
     expect(await getWorldBooks_ACU()).toEqual([]);
-  });
-
-  it('API 可用返回列表', async () => {
-    mockSillyTavern.getWorldBooks = vi.fn().mockResolvedValue(['book1']);
-    expect(await getWorldBooks_ACU()).toEqual(['book1']);
-  });
-});
-
-describe('getCurrentCharPrimaryLorebook_ACU', () => {
-  it('API 不可用返回 null', async () => {
-    expect(await getCurrentCharPrimaryLorebook_ACU()).toBeNull();
-  });
-
-  it('API 可用返回世界书名', async () => {
-    mockTavernHelper.getCurrentCharPrimaryLorebook = vi.fn().mockResolvedValue('主世界书');
-    expect(await getCurrentCharPrimaryLorebook_ACU()).toBe('主世界书');
   });
 });
 

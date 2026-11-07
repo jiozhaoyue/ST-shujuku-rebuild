@@ -47,7 +47,7 @@ export const dashboardCopy = {
     title: "表格更新",
     noChatBadge: "未加载聊天",
     noChatSummary:
-      "当前没有加载 SillyTavern 聊天，暂时无法读取对应数据库表格或计算自动更新楼层。",
+      "当前没有加载 TauriTavern 聊天，暂时无法读取对应数据库表格或计算自动更新楼层。",
     notLoadedBadge: "待准备",
     notLoadedSummary(totalAi: number): string {
       return `当前聊天还没有加载数据库表格。第一次填表或初始化后，这里会自动显示更新状态；当前已有 ${totalAi} 条 AI 回复。`;
@@ -90,7 +90,7 @@ export const dashboardCopy = {
     },
     noChatBadge: "未加载聊天",
     noChatSummary(): string {
-      return "当前没有加载 SillyTavern 聊天，暂时无法检查当前聊天的表格模板是否适配。";
+      return "当前没有加载 TauriTavern 聊天，暂时无法检查当前聊天的表格模板是否适配。";
     },
     pendingBadge: "待检查",
     noTemplatesSummary(): string {
@@ -183,7 +183,6 @@ export const dashboardCopy = {
       templateScopeChangedMessage: "飞行模式启用后，此会话的表格模板已被修改。继续关闭会按启用前归档模板恢复，并覆盖这些模板修改。",
       templateScopeChangedDanger: "关闭飞行模式会跨全部历史永久删除「大总结」表及其内容；此操作不可逆。",
       confirmDisableLabel: "仍要关闭并删除",
-      disabledNoChat: "请先加载一个聊天会话。",
     },
     autoUpdate: {
       label: "自动更新",
@@ -200,11 +199,6 @@ export const dashboardCopy = {
       description:
         "默认关闭。开启后填表只携带热表全量数据，冷表仅供建表语句与行数，省 token 并降低干扰；名单在「填表更新设置 → 高级参数」配置。",
     },
-    streaming: {
-      label: "开启流式输出",
-      description:
-        "默认关闭。开启后 API 以流式方式输出，部分后端在流式模式下响应更快。",
-    },
     plot: {
       label: "剧情推进",
       description:
@@ -213,6 +207,11 @@ export const dashboardCopy = {
     continuation: {
       label: "智能续写",
       description: "手动功能。代替你自动发送提示词，AI 根据内容持续续写。",
+    },
+    decisionRecall: {
+      label: "决策召回",
+      description:
+        "默认关闭。发送前让决策模型给纪要打分，挑出相关的带进本轮输入。开启后侧栏出现决策召回页：选「单独召回」时剧情推进暂停（它的开关不变），选「替换剧情推进的任务」时剧情推进照常运行。",
     },
     contentReplace: {
       label: "正文替换",

@@ -189,8 +189,18 @@ function defaultWait_ACU(ms: number): Promise<void> {
  */
 export function isRetryableContinuationTransportError_ACU(error: unknown): boolean {
   if (error instanceof ContinuationValidationError_ACU) return false;
-  if (error instanceof DOMException && error.name === 'AbortError') return false;
-  if (error instanceof Error && error.name === 'AbortError') return false;
+  // 中止判定必须 duck typing，不能用裸 instanceof：油猴模式运行在酒馆助手创建的 iframe 中
+  // （shared/runtime-env.ts），TT 会给**同源子窗口**打 fetch 补丁（src/tauri/main/bootstrap.js 的
+  // patchWindow），中止错误由**宿主 realm** 的 new DOMException(text,'AbortError') 构造
+  // （src/tauri/main/kernel/abort-error.js:4-5）⇒ 本窗口的 instanceof DOMException / instanceof Error
+  // 双双落空，「用户已停止」会被误判成可重试并延时重打。宿主自己的判据 likewise 只看 name
+  // （同文件 isAbortError），本库 api-call.ts 亦同口径。ContinuationValidationError 是本 realm
+  // 自造的类，instanceof 判定安全，保留。
+  if ((error as { name?: unknown } | null | undefined)?.name === 'AbortError') return false;
+  // 带 HTTP 状态码的错误按状态判定（R8-08）：401/403/404 这类配置错误重打只会按次数加延时空转，
+  // 408/429/5xx 才是瞬时失败。没有状态码的错误维持原先的宽松重试。
+  const status = Number((error as { status?: unknown } | null | undefined)?.status);
+  if (Number.isFinite(status) && status > 0) return status === 408 || status === 429 || (status >= 500 && status <= 599);
   return true;
 }
 

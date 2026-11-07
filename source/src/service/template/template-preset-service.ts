@@ -1,8 +1,7 @@
 /**
  * service/template/template-preset-service.ts — 模板预设业务逻辑
  *
- * 从 presentation/components/template-preset-ui.ts 真正搬入的纯数据/逻辑函数。
- * 不操作 DOM，不引用 $popupInstance_ACU / jQuery_API_ACU 等 UI 对象。
+ * 纯数据/逻辑函数，不操作 DOM。
  */
 
 import {
@@ -159,8 +158,9 @@ function loadTemplatePresetsStore_ACU() {
 function saveTemplatePresetsStore_ACU(obj: any) {
     try {
         const store = getConfigStorage_ACU();
-        store?.setItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU, safeJsonStringify_ACU(obj, '{}'));
-        return true;
+        if (!store?.setItem) return false;
+        // 酒馆设置持久化失败时 setItem 会回滚内存并返回 false，必须如实上报。
+        return store.setItem(STORAGE_KEY_TEMPLATE_PRESETS_ACU, safeJsonStringify_ACU(obj, '{}')) !== false;
     } catch (e) {
         logWarn_ACU('[TemplatePresets] Failed to save:', e);
         return false;
@@ -172,6 +172,35 @@ function saveTemplatePresetsStore_ACU(obj: any) {
 export function listTemplatePresetNames_ACU() {
     const s = loadTemplatePresetsStore_ACU();
     return Object.keys(s.presets || {}).sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+export interface TemplatePresetLibraryEntry_ACU {
+    templateStr: string;
+    updatedAt?: number;
+}
+
+/**
+ * 一次读出的预设库快照（窄读取接口）。
+ *
+ * 面板类调用方一次要遍历全部预设名、逐个取模板串并统计表数量：逐个调
+ * listTemplatePresetNames/getTemplatePreset 会把整个预设库反复读+parse。
+ * 这里一次读出 { names, byName }，调用方在同一份快照上完成列表与统计。
+ */
+export function readTemplatePresetLibrarySnapshot_ACU(): {
+    names: string[];
+    byName: Map<string, TemplatePresetLibraryEntry_ACU>;
+} {
+    const store = loadTemplatePresetsStore_ACU();
+    const presets = store?.presets && typeof store.presets === 'object' ? store.presets : {};
+    const byName = new Map<string, TemplatePresetLibraryEntry_ACU>();
+    for (const name of Object.keys(presets)) {
+        const preset = presets[name];
+        if (preset && typeof preset === 'object') byName.set(name, preset as TemplatePresetLibraryEntry_ACU);
+    }
+    // 名称与 listTemplatePresetNames_ACU 同源：损坏的非对象条目仍要出现在列表里（只是没有表数量 meta），
+    // 否则快照会把它们从 UI 里悄悄抹掉——快照只该省重复解析，不该收窄可见集合。
+    const names = Object.keys(presets).sort((a, b) => String(a).localeCompare(String(b)));
+    return { names, byName };
 }
 
 export function getTemplatePreset_ACU(name: string) {
@@ -493,10 +522,18 @@ function applyMergePlanToCandidate_ACU(
             const rowId = String(row[0] ?? '').trim();
             if (rowId) templateRowByRowId.set(rowId, row);
         }
+        const existingCandidateRowIds = new Set(candidateContent.slice(1)
+            .filter(Array.isArray)
+            .map((row: unknown[]) => String(row[0] ?? '').trim())
+            .filter(Boolean));
         for (const rowId of plan.insertRowIds) {
             const templateRow = templateRowByRowId.get(rowId);
             if (!templateRow) {
                 errors.push(`表 ${sheetKey} 的插入计划 row_id=${rowId} 未在模板中找到。`);
+                continue;
+            }
+            if (existingCandidateRowIds.has(rowId)) {
+                errors.push(`表 ${sheetKey} 的插入计划 row_id=${rowId} 已被当前数据占用，拒绝写入重复身份。`);
                 continue;
             }
             const cells = [...templateRow];
@@ -610,8 +647,16 @@ export function persistTemplateScopeSelectionState_ACU(presetName: string, { sou
  * 翻回 inherit_global。刻意不走 persistTemplateScopeSelectionState_ACU 的
  * inherit_global 分支——那条路会顺带清除协调刚写入的聊天指导表。
  * saveChatToHost 失败只降级为警告：容器已在内存更新，将随下次保存落盘。
+ * 协调提交可能耗时数秒；翻转前必须确认当前聊天仍是提交的那个，否则放弃（返回 false），
+ * 不能把别的聊天的作用域改掉。
  */
-async function flipCurrentChatScopeToInheritGlobal_ACU(reason: string): Promise<void> {
+const CHAT_SWITCHED_BEFORE_SCOPE_FLIP_WARNING_ACU = '模板已提交到原聊天，但提交期间切换了聊天，原聊天未改回「跟随全局」，请回到原聊天后重新操作。';
+
+async function flipCurrentChatScopeToInheritGlobal_ACU(reason: string, expected: { identity: string; firstMessage: unknown }): Promise<boolean> {
+    if (!chatContextMatches_ACU(expected.identity, expected.firstMessage)) {
+        logWarn_ACU('[TemplateScope] 协调提交期间聊天已切换，放弃 scope 翻转 inherit_global:', reason);
+        return false;
+    }
     setCurrentChatTemplateScopeState_ACU({ mode: 'inherit_global' }, {
         isolationKey: normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU()),
         reason,
@@ -621,6 +666,7 @@ async function flipCurrentChatScopeToInheritGlobal_ACU(reason: string): Promise<
     } catch (error) {
         logWarn_ACU('[TemplateScope] scope 翻转 inherit_global 后保存聊天失败（容器已在内存更新，将随下次保存落盘）:', error);
     }
+    return true;
 }
 
 export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { scope = 'global', source = 'ui', presetName = '', save = true, persistChatScope = null as boolean | null, registerChatPresetEntry = null as boolean | null, destructiveChangeConfirmed = false, signal = undefined as AbortSignal | undefined } = {}) {
@@ -649,6 +695,8 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { sc
     // 当前聊天，失败（含 blockers）则原样返回且不碰任何全局状态（fail-closed）；
     // 空聊天或存在 chat_override/preset_link 的聊天不受全局切换影响，走轻路径。
     let reconciledForGlobalSwitch: any = null;
+    let globalSwitchFlipWarning = '';
+    const chatBeforeGlobalSwitch = getChatContextSnapshot_ACU();
     if (updateGlobal) {
         const chatForGlobalSwitch = getChatArray_ACU();
         const globalAffectsCurrentChat = Array.isArray(chatForGlobalSwitch)
@@ -673,7 +721,8 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { sc
     }
     if (reconciledForGlobalSwitch) {
         // 协调提交写了 chat_override；全局切换语义下当前聊天仍应跟随全局。
-        await flipCurrentChatScopeToInheritGlobal_ACU('template_scope_global_switch_reconcile');
+        const flipped = await flipCurrentChatScopeToInheritGlobal_ACU('template_scope_global_switch_reconcile', chatBeforeGlobalSwitch);
+        if (!flipped) globalSwitchFlipWarning = CHAT_SWITCHED_BEFORE_SCOPE_FLIP_WARNING_ACU;
     }
 
     const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false });
@@ -700,8 +749,8 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { sc
         ...(reconciledForGlobalSwitch ? {
             reconciledCurrentChat: true,
             ...('runtimeReady' in reconciledForGlobalSwitch ? { runtimeReady: reconciledForGlobalSwitch.runtimeReady } : {}),
-            ...(typeof reconciledForGlobalSwitch.postCommitWarning === 'string' && reconciledForGlobalSwitch.postCommitWarning
-                ? { postCommitWarning: reconciledForGlobalSwitch.postCommitWarning }
+            ...((globalSwitchFlipWarning || (typeof reconciledForGlobalSwitch.postCommitWarning === 'string' && reconciledForGlobalSwitch.postCommitWarning))
+                ? { postCommitWarning: [reconciledForGlobalSwitch.postCommitWarning, globalSwitchFlipWarning].filter(w => typeof w === 'string' && w).join('\n') }
                 : {}),
         } : {}),
     };
@@ -860,6 +909,7 @@ async function applyChatTemplateSnapshotWithReconciliationInternal_ACU(templateD
     hardDeleteMissingSheets = false,
     signal,
     requestId = createTemplateReconciliationRequestId_ACU(),
+    expectedChatContext,
 }: {
     source?: string;
     presetName?: string;
@@ -873,6 +923,7 @@ async function applyChatTemplateSnapshotWithReconciliationInternal_ACU(templateD
     hardDeleteMissingSheets?: boolean;
     signal?: AbortSignal;
     requestId?: string;
+    expectedChatContext?: { firstMessage: unknown };
 } = {}) {
     const snapshot = sanitizeTemplateSnapshotForChat_ACU(templateData);
     if (!snapshot?.templateObj) return { saved: false, error: '模板结构无效，无法生成聊天模板提交。' };
@@ -880,6 +931,9 @@ async function applyChatTemplateSnapshotWithReconciliationInternal_ACU(templateD
     const entryContext = getChatContextSnapshot_ACU();
     if (!entryContext.firstMessage) {
         return { saved: false, error: '当前没有可绑定的目标聊天，已取消模板提交。' };
+    }
+    if (expectedChatContext && entryContext.firstMessage !== expectedChatContext.firstMessage) {
+        return { saved: false, error: '目标聊天已切换，已取消模板提交。' };
     }
     const chatStorageWait = await waitForActiveChatStorageContext_ACU({ expectedIdentity: entryContext.identity, expectedFirstMessage: entryContext.firstMessage, signal });
     if (chatStorageWait.status === 'switched') return { saved: false, error: '目标聊天已切换，已取消模板提交。' };
@@ -1190,6 +1244,8 @@ export async function applyChatTemplateSnapshotWithReconciliation_ACU(templateDa
     hardDeleteMissingSheets?: boolean;
     signal?: AbortSignal;
     requestId?: string;
+    /** 调用方锁定的目标聊天（按首楼对象认定）；当前聊天不是它时 fail-closed，用于异步回滚类调用。 */
+    expectedChatContext?: { firstMessage: unknown };
 } = {}) {
     const chat = getChatArray_ACU();
     const firstMessage = Array.isArray(chat) ? chat[0] : null;
@@ -1297,6 +1353,7 @@ export async function followGlobalTemplateForCurrentChat_ACU({
     if (!globalSnapshot?.templateStr || !globalSnapshot?.templateObj) {
         return { saved: false, error: '无法解析当前全局模板，已取消跟随全局。' };
     }
+    const chatBeforeFollow = getChatContextSnapshot_ACU();
     const result = await applyChatTemplateSnapshotWithReconciliation_ACU(globalSnapshot.templateObj, {
         source,
         presetName: globalPresetName,
@@ -1305,7 +1362,10 @@ export async function followGlobalTemplateForCurrentChat_ACU({
     });
     if (!result || result.saved !== true) return result;
 
-    await flipCurrentChatScopeToInheritGlobal_ACU('template_scope_follow_global');
+    if (!await flipCurrentChatScopeToInheritGlobal_ACU('template_scope_follow_global', chatBeforeFollow)) {
+        const priorWarning = typeof (result as any).postCommitWarning === 'string' ? (result as any).postCommitWarning : '';
+        return { ...result, postCommitWarning: [priorWarning, CHAT_SWITCHED_BEFORE_SCOPE_FLIP_WARNING_ACU].filter(Boolean).join('\n') };
+    }
     applyTemplateScopeForCurrentChat_ACU();
     notifyTemplateRuntimeCommitted_ACU();
     return { ...result, mode: 'inherit_global' as const, presetName: globalPresetName };

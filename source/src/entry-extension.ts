@@ -12,9 +12,7 @@
 // ═══════════════════════════════════════════════════════════════
 // 运行时环境（必须最先导入并设置模式）
 // ═══════════════════════════════════════════════════════════════
-import { _forceExtensionMode, checkAndMarkInstance, releaseInstanceMark } from './shared/runtime-env';
-
-_forceExtensionMode();
+import { checkAndMarkInstance, releaseInstanceMark } from './shared/runtime-env';
 
 // ═══════════════════════════════════════════════════════════════
 // shared 层
@@ -47,7 +45,6 @@ import './service/ai/api-call';
 import './service/ai/prompt-builder';
 import './service/worldbook/pipeline';
 import './service/worldbook/injection-engine';
-import './service/summary/merge-logic';
 import './service/runtime/state-manager';
 import './service/runtime/helpers-remaining';
 import './service/template/chat-scope';
@@ -60,11 +57,8 @@ import './presentation/triggers/update-process';
 import './presentation/bootstrap/init';
 import './presentation/bootstrap/api-registry';
 import './presentation/theme/toast';
-import './presentation/components/plot-editors';
 import './presentation/components/status-display';
-import './presentation/components/template-preset-ui';
 import './presentation/components/optimization-ui';
-import './presentation/components/update-status-display';
 import './presentation/triggers/update-trigger';
 import './presentation/triggers/data-admin-ui';
 import './presentation/triggers/settings-ui-sync';
@@ -74,9 +68,10 @@ import './presentation/triggers/settings-ui-sync';
 // ═══════════════════════════════════════════════════════════════
 import { mainInitialize_ACU } from './presentation/bootstrap/init';
 import { installGlobalBuildBadge_ACU } from './presentation/bootstrap/install-build-badge';
-import { bootstrapAcuV2 } from './presentation-v2/bootstrap';
+import { applySavedThemeToHostSurfaces_ACU, bootstrapAcuV2 } from './presentation-v2/bootstrap';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from './shared/utils';
 import { waitForAcuHostReady } from './shared/host-bridge';
+import { classifyGlobalErrorOrigin_ACU, normalizeScriptUrl_ACU } from './shared/global-error-origin';
 
 /**
  * 等待宿主 API 就绪：主窗口的 window.SillyTavern 只有 {libs, getContext}，
@@ -96,18 +91,29 @@ function installGlobalErrorCapture(): void {
 
   const fmt = (err: unknown): string =>
     err instanceof Error ? err.stack || `${err.name}: ${err.message}` : String(err);
+  const ownScriptUrl = normalizeScriptUrl_ACU(import.meta.url);
+
+  // 页面上所有未捕获异常都会到这里：调用链里一帧本插件代码都没有的，标成宿主 / 其他扩展，按警告记录备查
+  const record = (label: string, detail: string, origin: string): void => {
+    if (classifyGlobalErrorOrigin_ACU(origin, ownScriptUrl) === 'foreign') {
+      logWarn_ACU(`[全局][宿主/其他扩展] ${label}（调用链不含本插件，仅记录备查）: ${detail}`);
+      return;
+    }
+    logError_ACU(`[全局] ${label}: ${detail}`);
+  };
 
   g.addEventListener?.('error', (event: ErrorEvent) => {
     try {
       // 优先取 event.error 保留堆栈；资源加载失败时 error 为 null，退化为 message
       const detail = event.error ? fmt(event.error) : `（资源加载失败）${event.message || event.filename || ''}`;
-      logError_ACU(`[全局] 未捕获异常: ${detail}`);
+      record('未捕获异常', detail, `${detail}\n${event.filename || ''}`);
     } catch { /* 捕获逻辑自身异常不递归 */ }
   });
 
   g.addEventListener?.('unhandledrejection', (event: PromiseRejectionEvent) => {
     try {
-      logError_ACU(`[全局] 未处理 Promise 拒绝: ${fmt(event.reason)}`);
+      const detail = fmt(event.reason);
+      record('未处理 Promise 拒绝', detail, detail);
     } catch { /* 捕获逻辑自身异常不递归 */ }
   });
 }
@@ -134,6 +140,8 @@ async function extensionMain() {
     }
 
     logDebug_ACU('[插件启动] 宿主 API 已就绪，开始初始化...');
+    // 初始化过程会弹插件提示框（如「数据库已加载」），先把用户主题铺到面板外的浮层上
+    applySavedThemeToHostSurfaces_ACU();
     mainInitialize_ACU();
     bootstrapAcuV2();
 }

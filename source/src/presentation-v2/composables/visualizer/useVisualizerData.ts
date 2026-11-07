@@ -20,6 +20,8 @@ import {
 } from '../../../service/template/chat-scope';
 import { getActiveTemplatePresetMeta_ACU } from '../../../service/template/template-preset-service';
 import { loadAllChatMessages_ACU } from '../../../service/worldbook/pipeline';
+import { readVisualizerSourceRevision_ACU } from '../../../service/visualizer/visualizer-source-revision';
+import { COLD_REPLAY_YIELD_BUDGET_MS_ACU } from '../../../service/table/storage-frame-v2-replay';
 import { buildDefaultExportConfig_ACU } from '../../../service/worldbook/injection-engine';
 import { useToastStore } from '../../stores/toast-store';
 import { useVisualizerStore, type VisualizerLockDraft } from '../../stores/visualizer-store';
@@ -115,7 +117,9 @@ export function useVisualizerData() {
       if (!hasSheetData(data)) {
         await loadAllChatMessages_ACU();
         if (currentVisualizerContextKey() !== contextKey) return false;
-        const merged = await mergeAllIndependentTables_ACU();
+        // 冷打开（内存无表数据）：全量冷回放按统一预算让出事件循环，避免长聊天打开时主线程长冻结。
+        // 让出窗口内切聊/切表由紧随其后的 contextKey 校验拦截。
+        const merged = await mergeAllIndependentTables_ACU({ yieldBudgetMs: COLD_REPLAY_YIELD_BUDGET_MS_ACU });
         if (currentVisualizerContextKey() !== contextKey) return false;
         if (hasSheetData(merged)) {
           const stableKeys = getSortedSheetKeys_ACU(merged);
@@ -125,14 +129,16 @@ export function useVisualizerData() {
       }
 
       if (!hasSheetData(data)) {
-        visualizer.loadSnapshot({ mate: { type: 'chatSheets', version: 1 } }, [], contextKey);
+        // revision 在「数据已就绪」的时点读取：冷加载分支上面刚发布过合并结果，
+        // 此刻的令牌才代表草稿真正读到的那一版。
+        visualizer.loadSnapshot({ mate: { type: 'chatSheets', version: 1 } }, [], contextKey, readVisualizerSourceRevision_ACU());
         visualizer.loadLockDrafts({});
         return true;
       }
 
       const orderedKeys = buildOrderedKeys(data);
       if (currentVisualizerContextKey() !== contextKey) return false;
-      visualizer.loadSnapshot(data, orderedKeys, contextKey);
+      visualizer.loadSnapshot(data, orderedKeys, contextKey, readVisualizerSourceRevision_ACU());
       visualizer.loadLockDrafts(buildLockDrafts(orderedKeys, data));
       return true;
     } catch (error) {

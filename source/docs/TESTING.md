@@ -25,8 +25,13 @@
 
 ## 0. 安装
 
+<<<<<<< HEAD
 1. 扩展面板 → Install extension → 粘贴本仓库地址（`manifest.json` 中 `homePage` 指向本仓库）
 2. 确认扩展列表出现「Luker·数据库」，`manifest.json` 中 `auto_update: true`
+=======
+1. 扩展面板 → Install extension → 粘贴 `https://github.com/shuiyue-cmyk/shujuku-rebuild`
+2. 确认扩展列表出现「UnbirthDB」，`manifest.json` 中 `auto_update: true`
+>>>>>>> upstream/master
 3. 刷新页面后，确认右上/侧边出现数据库入口（V2 面板 `#acu-app-v2`）
 
 ## 0.5 Luker 真机（Luker 2.7.0 / stCompat 1.18.0）

@@ -18,6 +18,7 @@
 import type { ContinuationAgentPrompts_ACU, ContinuationPromptSegment_ACU } from '../model';
 import { cloneAgentPromptSegments_ACU } from './agent-model';
 import { USER_PREFILL_CONTENT_ACU } from '../../../shared/user-prefill.js';
+import { withV39AgentPrompts_ACU } from './agent-default-prompts-v39';
 
 /** 主 Agent 提示词里标记会话记录插入位置的段。装配器遇到该段时插入会话消息而不发送本段。 */
 export const AGENT_HISTORY_ANCHOR_TOKEN_ACU = '$HISTORY_ANCHOR';
@@ -131,7 +132,7 @@ const MAIN_AGENT_PROMPT_ACU: readonly ContinuationPromptSegment_ACU[] = [
   },
   {
     role: 'assistant',
-    content: '我能做的：用 read/search 调阅任何目录里列出的资料、用 open_round 把本轮交给固定工作流、按需派工 arc-architect / web-researcher / outline-architect、确认工作流交出的写作指令、必要时阻断。\n我绝对不做的：不写正文（正文是正文模型的职责）、不亲自编或直接修改大纲（大纲只能由 outline-architect 产出并经运行时校验；卷级台阶由 arc-architect 维护）、不直接改资料模块（维护类子代理按职责写入，长期约束由 instruction-composer 增量登记）、不自己编写写作指令（instruction 只由 instruction-composer 产出）、不把内部信息塞进最终指导（子代理目录、资料目录、读取地址、维护报告、预算、工具轨迹一律不外传）、不为了「也许还能更好」而无限消耗预算或读取额度。',
+    content: '我能做的：用 read/search 调阅任何目录里列出的资料、用 open_round 把本轮交给固定工作流、按需派工 arc-architect / web-researcher / outline-architect、确认工作流交出的写作指令、必要时阻断。\n我绝对不做的：不写正文（正文是正文模型的职责）、不亲自编或直接修改大纲（大纲只能由 outline-architect 产出并经运行时校验；卷级台阶由 arc-architect 维护）、不绕过校验改资料模块（常规维护按角色执行，主会话纠正使用 correct_materials；长期约束由 instruction-composer 增量登记）、不自己编写写作指令（instruction 只由 instruction-composer 产出）、不把内部信息塞进最终指导（子代理目录、资料目录、读取地址、维护报告、预算、工具轨迹一律不外传）、不为了「也许还能更好」而无限消耗预算或读取额度。',
     enabled: true,
     deletable: true,
   },
@@ -161,7 +162,7 @@ const MAIN_AGENT_PROMPT_ACU: readonly ContinuationPromptSegment_ACU[] = [
   },
   {
     role: 'user',
-    content: '【文本协议规范】\n你的每个动作用 JSON 对象表达，形如：\n{"thought":"一句话决策依据","action":"read|search|open_round|delegate|finalize|block", ...}\n你可以在 JSON 前用少量自然语言梳理思路（运行时会忽略这些文字），但动作本身必须完整出现在 JSON 对象里。\n\n【工具动作：read / search，可并发】\naction = read：按地址调阅资料。附加字段 reads，数组，元素是各目录里给出的读取地址（地址体系见「读取地址词汇表」）。\naction = search：跨域检索。附加字段 query（关键词或正则）、scope（["story","tables","modules","outline","worldbook"] 的子集，省略为全域）、可选 isRegex、maxResults。命中行会带上可直接复制进 read 的地址。\n并发规则：一次输出里可以写多个 read / search 对象，它们同批执行、结果一起回来——需要多份资料时务必合并成一个批次，不要一轮只读一份浪费迭代。工具对象不能与决策动作混在同一次输出：出现任何 read/search 时整次输出按工具批次处理，混入的决策会被忽略。\n工具结果回来后再输出下一个动作。批次被门禁打回时按报告里的修正协议缩小目标（更窄的楼层区间、行区间或按 ID 精读）重试，不要原样重发。\n\n【决策动作：一次输出只表达一个】\naction = delegate：并行派工。附加字段 delegations，数组，每项 {"agentName":"目录里的代理名","prompt":"给该代理的任务描述","reads":["种子资料地址"]}。互不依赖的派工放在同一次输出里即为并发。reads 是你替它准备的初始资料（地址体系同 read 工具）；它拿到后还能自己 read/search 补充，但种子给得准能帮它少跑几轮。\n大纲的创建、大幅改写、继续下一阶段走 delegate：派工 outline-architect，prompt 写清你对大纲的要求，不需要 reads。它会串行先于同波次其他派工执行，做完后你在下一次迭代的大纲状态里就能看到新大纲。\n\n\n\naction = open_round：每轮一次的开局决策。附加字段 focus（本轮焦点，非空）、可选 summary、dispatchArcArchitect、dispatchWebResearcher。运行时按固定顺序执行结算、策划、条件审查、容错提交、自动修复和 instruction-composer。不要再逐个派这些角色。\n\naction = finalize：确认交付工作流已经产出的写作指令。instruction 必须是 instruction-composer 本轮写出的那一版，不要另写一版。前提：大纲状态里必须有可执行的本轮目标——没有大纲或阶段已完成时会被拒绝，必须先派工 outline-architect。正常路径是先 open_round。交付前自检：存在未结算历史时由工作流结算，不要自己派 hook-cognition-maintainer；instruction 里的伏笔与信息差操作应来自工作流的策划建议或伏笔账本，不是即兴发挥；本轮指导涉及的正文事实与世界书设定，你已亲自读过或已核对，而不是凭目录摘要或记忆断言。附加字段 instruction（发给正文模型的指导正文，300-400 字为基准上限；正文模型单轮只输出约 800-1200 字，指导必须让它在这个篇幅内完成本轮目标，不许塞进多个场景或多个转折；指导的压力等级必须与【本轮节奏】一致，低压轮不许写危机）、summary（一句话本轮要点）、可选 constraints（{"add":["新增的长期约束"],"retire":["要废除条目的 id 或原文"]}，增量登记：add 只写本轮新增，retire 只写本轮废除，不需要重抄既有清单——漏写不等于删除，重抄已有条目也不会报错；retire 必须精确引用活跃条目的 id 或原文）。\ninstruction 按下列字段组织，每个字段一到两句、总量控制在上限内，无内容的字段直接省略：\n' + AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU + '\ninstruction 里禁止出现占位符名、代理名、模块名、读取地址、预算信息与任何内部过程。\n\naction = block：阻断本轮。附加字段 reason（阻断原因）与 unresolved（未解决问题列表）。只在关键资料缺失或存在无法裁决的硬事实冲突时使用。',
+    content: '【文本协议规范】\n你的每个动作用 JSON 对象表达，形如：\n{"thought":"一句话决策依据","action":"read|search|open_round|correct_materials|delegate|finalize|block", ...}\n你可以在 JSON 前用少量自然语言梳理思路（运行时会忽略这些文字），但动作本身必须完整出现在 JSON 对象里。\n\n【工具动作：read / search，可并发】\naction = read：按地址调阅资料。附加字段 reads，数组，元素是各目录里给出的读取地址（地址体系见「读取地址词汇表」）。\naction = search：跨域检索。附加字段 query（关键词或正则）、scope（["story","tables","modules","outline","worldbook"] 的子集，省略为全域）、可选 isRegex、maxResults。命中行会带上可直接复制进 read 的地址。\n并发规则：一次输出里可以写多个 read / search 对象，它们同批执行、结果一起回来——需要多份资料时务必合并成一个批次，不要一轮只读一份浪费迭代。工具对象不能与决策动作混在同一次输出：出现任何 read/search 时整次输出按工具批次处理，混入的决策会被忽略。\n工具结果回来后再输出下一个动作。批次被门禁打回时按报告里的修正协议缩小目标（更窄的楼层区间、行区间或按 ID 精读）重试，不要原样重发。\n\n【决策动作：一次输出只表达一个】\naction = delegate：并行派工。附加字段 delegations，数组，每项 {"agentName":"目录里的代理名","prompt":"给该代理的任务描述","reads":["种子资料地址"]}。互不依赖的派工放在同一次输出里即为并发。reads 是你替它准备的初始资料（地址体系同 read 工具）；它拿到后还能自己 read/search 补充，但种子给得准能帮它少跑几轮。\n大纲的创建、大幅改写、继续下一阶段走 delegate：派工 outline-architect，prompt 写清你对大纲的要求，不需要 reads。它会串行先于同波次其他派工执行，做完后你在下一次迭代的大纲状态里就能看到新大纲。\n\n\n\naction = correct_materials：主会话纠正资料。附加字段 reason（纠正依据或用户选择，不能为空）、可选 sql（受限 INSERT/UPDATE/DELETE，只允许 hooks、info_gap、chronology、story_arc；已有条目带 id 与当前 expected_revision，缺栏只补缺失栏目）、可选 settlementStartIndex（用户明确要求跳过旧历史时，从该 AI 楼层开始，包含该楼）与 userMessageId（会话中最新真实用户消息的 ID）。sql 与 settlementStartIndex 至少给一项；只有 committed 回执证明保存。登记追溯起点后依据回执 open_round，不重发同一超限范围。\n\naction = open_round：每轮一次的开局决策。附加字段 focus（本轮焦点，非空）、可选 summary、dispatchArcArchitect、dispatchWebResearcher。运行时按固定顺序执行结算、策划、条件审查、容错提交、自动修复和 instruction-composer。不要再逐个派这些角色。\n\naction = finalize：确认交付工作流已经产出的写作指令。instruction 必须是 instruction-composer 本轮写出的那一版，不要另写一版。前提：大纲状态里必须有可执行的本轮目标——没有大纲或阶段已完成时会被拒绝，必须先派工 outline-architect。正常路径是先 open_round。交付前自检：存在未结算历史时由工作流结算，不要自己派 hook-cognition-maintainer；instruction 里的伏笔与信息差操作应来自工作流的策划建议或伏笔账本，不是即兴发挥；本轮指导涉及的正文事实与世界书设定，你已亲自读过或已核对，而不是凭目录摘要或记忆断言。附加字段 instruction（发给正文模型的指导正文，300-400 字为基准上限；正文模型单轮只输出约 800-1200 字，指导必须让它在这个篇幅内完成本轮目标，不许塞进多个场景或多个转折；指导的压力等级必须与【本轮节奏】一致，低压轮不许写危机）、summary（一句话本轮要点）、可选 constraints（{"add":["新增的长期约束"],"retire":["要废除条目的 id 或原文"]}，增量登记：add 只写本轮新增，retire 只写本轮废除，不需要重抄既有清单——漏写不等于删除，重抄已有条目也不会报错；retire 必须精确引用活跃条目的 id 或原文）。\ninstruction 按下列字段组织，每个字段一到两句、总量控制在上限内，无内容的字段直接省略：\n' + AGENT_FINAL_INSTRUCTION_TEMPLATE_ACU + '\ninstruction 里禁止出现占位符名、代理名、模块名、读取地址、预算信息与任何内部过程。\n\naction = block：阻断本轮。附加字段 reason（阻断原因）与 unresolved（未解决问题列表）。只在关键资料缺失或存在无法裁决的硬事实冲突时使用。',
     enabled: true,
     deletable: false,
     pinned: true,
@@ -656,7 +657,7 @@ function v19DefaultMainAgentNonRootSystemContents_ACU(): string[] {
   // V18 存量若已是新默认（测试按当前默认构造 V18 信封），同样视为未改写默认段，保证 system→user 迁移不残留。
   let dispatched: string[] = [];
   try {
-    dispatched = buildDefaultContinuationAgentPrompts_ACU().main
+    dispatched = buildV37ContinuationAgentPrompts_ACU().main
       .filter(segment => segment.role === 'user' && headings.some(heading => segment.content.startsWith(heading)))
       .map(segment => segment.content);
   } catch {
@@ -891,9 +892,9 @@ const CONTINUATION_SQL_ARC_RULES_ACU = [
 ].join('\n');
 
 const CONTINUATION_SQL_OUTPUT_CONTRACTS_ACU = {
-  arcArchitect: '我的最终交付是一个 JSON 对象：{"summary":"本次总纲变更","sql":"INSERT INTO story_arc (id, scope, title, direction, escalation, status, expected_revision) VALUES (\'VOL-01\', \'volume\', \'标题\', \'方向\', \'台阶\', \'active\', 0);"}。只在 sql 字段用受限原生 SQL INSERT/UPDATE/DELETE 表达资料写集；不输出 delta。UPDATE story_arc SET stage_numbers = \'[1,2]\' WHERE id = \'VOL-01\' AND expected_revision = 0；DELETE FROM story_arc WHERE id = \'VOL-01\' AND reason = \'废依据\' AND expected_revision = 0。新增卷仍须具备卷级容量、兑现目标等完整字段。',
+  arcArchitect: '我的最终交付是一个 JSON 对象：{"summary":"本次总纲变更","sql":"INSERT INTO story_arc (id, scope, title, direction, escalation, status, expected_revision) VALUES (\'VOL-01\', \'volume\', \'标题\', \'方向\', \'台阶\', \'active\', 0);"}。只在 sql 字段用受限原生 SQL INSERT/UPDATE/DELETE 表达资料写集；不输出 delta。UPDATE story_arc SET stage_numbers = \'[1,2]\' WHERE id = \'VOL-01\' AND expected_revision = 当前条目修订号；DELETE FROM story_arc WHERE id = \'VOL-01\' AND reason = \'废依据\' AND expected_revision = 当前条目修订号。新增卷仍须具备卷级容量、兑现目标等完整字段。',
   maintainer: '我的最终交付是一个 JSON 对象：{"summary":"本次结算与轮目标达成度","sql":"INSERT INTO hooks (id, summary, status, importance, planted_index, expected_revision) VALUES (\'H1\', \'伏笔\', \'planted\', \'mid\', 1, 0);"}。资料写集只能放 sql，不输出 delta。允许表 hooks、info_gap、chronology、story_arc、constraint_proposals；UPDATE 仅改已有条目实际变化字段，WHERE 必须有 id 与 expected_revision；DELETE 必须有 id、非空 reason 与 expected_revision，服务端按 retire 校验。chronology 的 UPDATE 必须提交完整 anchor、elapsed、precision、transition、evidence_indexes。info_gap 分清 objective_fact、reader_known、character_knowledge 与逐角色真实知识渠道。',
-  webResearcher: '我的最终交付是一个 JSON 对象：{"summary":"本次检索结果","sql":"INSERT INTO web_refs (page_ref, name, brief, detail, expected_revision) VALUES (\'P1\', \'实体名\', \'一句简介\', \'页面证据摘要\', 0);"}。资料写集只能放 sql，不输出 delta；只允许 web_refs 表。UPDATE 已有条目时需在 SET 提交完整 page_ref、name、brief，WHERE 指定 id 与 expected_revision；DELETE FROM web_refs WHERE id = \'WR-001\' AND reason = \'过时依据\' AND expected_revision = 0。page_ref 必须来自本轮工具结果；原文不入库。',
+  webResearcher: '我的最终交付是一个 JSON 对象：{"summary":"本次检索结果","sql":"INSERT INTO web_refs (page_ref, name, brief, detail, expected_revision) VALUES (\'P1\', \'实体名\', \'一句简介\', \'页面证据摘要\', 0);"}。资料写集只能放 sql，不输出 delta；只允许 web_refs 表。UPDATE 已有条目时需在 SET 提交完整 page_ref、name、brief，WHERE 指定 id 与 expected_revision；DELETE FROM web_refs WHERE id = \'WR-001\' AND reason = \'过时依据\' AND expected_revision = 当前条目修订号。page_ref 必须来自本轮工具结果；原文不入库。',
 } as const;
 
 function withContinuationSqlContract_ACU<T extends keyof typeof CONTINUATION_SQL_OUTPUT_CONTRACTS_ACU>(role: T, segments: ContinuationPromptSegment_ACU[]): ContinuationPromptSegment_ACU[] {
@@ -1137,9 +1138,69 @@ export function buildV36ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts
   return current;
 }
 
-/** 当前默认组：V36（user 预填充尾段 + 同回复并发协议）。 */
+/**
+ * V37（TT 移植上游 e35f758d 进度校准批）：主会话动作枚举加 adjust_progress，
+ * 我能做的加校准职责，文本协议段追加 adjust_progress/delegate 写法，
+ * 子代理规则段与行动规则段追加剧情衔接规则。只动主 Agent 段；替换全部带
+ * 已应用保护（重复跑不再命中），自定义段原样保留。
+ */
+const V37_PROGRESS_RULE_ACU = '【剧情衔接与结构维护】用户可能在两次续写之间自行演绎。续写前我先对照真实正文、用户要求、总纲和阶段大纲，重新判断当前阶段与下一轮，不把旧游标或新增楼数当成剧情进度。总纲需要调整时，我可用 correct_materials 的 story_arc SQL 提交最小修正，或 delegate arc-architect，写清依据与修改方向；阶段大纲需要修改时，单独 delegate outline-architect 重规划，保留已发生的事实前缀。总纲与阶段大纲有依赖时先改总纲，收到保存回执后再改阶段大纲。位置或完结状态不符时用 adjust_progress：stageId、revision 从阶段目录复制；nextTurnId 选择该阶段接下来执行的轮次并切换当前阶段，其前面的规划轮次视为完成；或 completeStage=true 标记该阶段完结，false 重新开启该阶段。nextTurnId 与 completeStage 只给一项，reason 写清依据。选择阶段不自动完结其他阶段，进度调整也不等于资料已结算。收到成功保存回执后，我再 open_round，以最新正文与用户意图确定焦点；正文已偏离旧规划时先修改结构或定位，不硬按旧轮目标续写。正文重试保持原轮次身份；证据不足先补读，只有确需用户裁决才 block。';
+
+function v37Content_ACU(role: keyof ContinuationAgentPrompts_ACU, content: string): string {
+  if (role !== 'main') return content;
+  let next = content;
+  if (next.includes('read|search|open_round|correct_materials|delegate|finalize|block')) {
+    next = next.replace('read|search|open_round|correct_materials|delegate|finalize|block', 'read|search|open_round|correct_materials|adjust_progress|delegate|finalize|block');
+  }
+  if (next.includes('用 open_round 把本轮交给固定工作流、按需派工 arc-architect / web-researcher / outline-architect、确认工作流交出的写作指令、必要时阻断。')) {
+    next = next.replace('用 open_round 把本轮交给固定工作流、按需派工 arc-architect / web-researcher / outline-architect、确认工作流交出的写作指令、必要时阻断。', '用 open_round 把本轮交给固定工作流、用 adjust_progress 对照真实剧情校准阶段与轮次、按需派工 arc-architect / web-researcher / outline-architect、确认工作流交出的写作指令、必要时阻断。');
+  }
+  if (next.startsWith('【文本协议规范】') && !next.includes('action = adjust_progress')) {
+    next += '\n\naction = adjust_progress：选择当前阶段与下一轮，或修改阶段完结状态。reason、stageId、revision 必填；nextTurnId 与 completeStage 必须且只能给一项。completeStage=true 标记完结，false 重新开启。stageId、revision、轮次 ID 从阶段目录及大纲窗口复制。\naction = delegate：总纲修改派 arc-architect；阶段大纲修改单独派 outline-architect，prompt 写清真实剧情依据、修改方向和保留内容。先收到结构或进度的保存回执，再 open_round；正文重试保持原轮次身份。';
+  }
+  if ((next.startsWith('【子代理使用规则】') || next.startsWith('我的行动规则：')) && !next.includes('【剧情衔接与结构维护】')) {
+    next += `\n${V37_PROGRESS_RULE_ACU}`;
+  }
+  return next;
+}
+
+export function buildV37ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  const previous = buildV36ContinuationAgentPrompts_ACU();
+  const current: ContinuationAgentPrompts_ACU = { ...previous };
+  for (const role of Object.keys(previous) as Array<keyof ContinuationAgentPrompts_ACU>) {
+    current[role] = previous[role].map(segment => ({ ...segment, content: v37Content_ACU(role, segment.content) }));
+  }
+  return current;
+}
+
+/**
+ * 冻结 V36 装配结果的谱系表（同 V34/V35，模块求值顺序不可调换）。只收录 V37 会改写
+ * 的段；迁移替换不同步 role（V37 只改正文不换角色）。
+ */
+const V36_FOR_V37_ACU = buildV36ContinuationAgentPrompts_ACU();
+export const CONTINUATION_V36_DEFAULT_LINEAGE_ACU = Object.fromEntries(
+  (Object.keys(V36_FOR_V37_ACU) as Array<keyof ContinuationAgentPrompts_ACU>).map(role => {
+    const segments = V36_FOR_V37_ACU[role];
+    const current = buildV37ContinuationAgentPrompts_ACU()[role];
+    return [role,
+    segments.map((segment, index) => ({
+      index, role: segment.role, hash: hashAgentPromptContent_ACU(segment.content), length: segment.content.length,
+    })).filter(({ index }) => current[index]?.content !== segments[index].content)];
+  }),
+) as Record<keyof ContinuationAgentPrompts_ACU, Array<{ index: number; role: string; hash: string; length: number }>>;
+
+/**
+ * V38 版本标记下的默认组（冻结）：即 buildV37ContinuationAgentPrompts_ACU 的装配结果。
+ * V38→V39 迁移按整组逐段比对它判断「没动过的默认提示词」；旧版本迁移链里的「当前默认」也固定指向它，
+ * 不能随当前默认组漂移，否则老信封会按新版段位错位替换。
+ */
+export function buildV38ContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
+  return buildV37ContinuationAgentPrompts_ACU();
+}
+
+/** 当前默认组：V39（八个角色跟进上游问答版提示词，reviewer 与 requirementsMaintainer 沿用 V38）。 */
 export function buildDefaultContinuationAgentPrompts_ACU(): ContinuationAgentPrompts_ACU {
-  return buildV36ContinuationAgentPrompts_ACU();
+  return withV39AgentPrompts_ACU(buildV38ContinuationAgentPrompts_ACU());
 }
 
 /**

@@ -1,17 +1,18 @@
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 import { sha256HexSync_ACU } from '../../shared/sha256-sync';
 import { buildDefaultContinuationSettings_ACU } from './defaults';
 import { FirstFloorContinuationStore_ACU } from './continuation-store';
-import { getStableMessageIdentity_ACU, reconcileTaskCursorFromChat_ACU } from './stage-cursor';
+import { cursorFromCompletedTurns_ACU, getStableMessageIdentity_ACU, reconcileTaskCursorFromChat_ACU } from './stage-cursor';
 import { resolveHostRetryMode_ACU } from './host-retry-mode';
 import { acceptPlannedStageRevision_ACU, ContinuationOutlinePlanner_ACU, createPlannedStageRevision_ACU, freezePlannedStageRevision_ACU, type ContinuationOutlinePlanningResult_ACU } from './outline-planner';
 import { listStageOutlineTurns_ACU, resolveContinuationTurnRange_ACU, resolveStageOutlinePacingContext_ACU, validateReplannedStageOutline_ACU, validateStageOutlinePacing_ACU } from './outline-schema';
 import { CONTINUATION_RECOVERABLE_STOP_REASONS_ACU, ContinuationValidationError_ACU, createContinuationError_ACU, type ContinuationEnvelope_ACU, type ContinuationError_ACU, type ContinuationHostGenerationCapture_ACU, type ContinuationPendingEvaluationSettings_ACU, type ContinuationReplanConstraints_ACU, type ContinuationRevisionReason_ACU, type ContinuationSettings_ACU, type ContinuationStage_ACU, type ContinuationTask_ACU, type ContinuationWriteGuard_ACU, type StageOutline_ACU, type StageRevision_ACU, type TurnAttemptIdentity_ACU } from './model';
 import { StageExecutionEngine_ACU, type ContinuationPreparedTurnInstruction_ACU, type ContinuationExecutionSnapshot_ACU } from './stage-execution-engine';
-import { AGENT_WRITABLE_MODULES_ACU, type AgentConversationAppend_ACU, type AgentModuleSnapshot_ACU, type AgentOutlineEditOp_ACU, type AgentOutlineOpResult_ACU, type AgentWritableModule_ACU } from './agent/agent-model';
+import { AGENT_WRITABLE_MODULES_ACU, type AgentAdjustProgressAction_ACU, type AgentAdjustProgressReceipt_ACU, type AgentConversationAppend_ACU, type AgentModuleSnapshot_ACU, type AgentOutlineEditOp_ACU, type AgentOutlineOpResult_ACU, type AgentWritableModule_ACU } from './agent/agent-model';
 import { CONTINUATION_REPAIRABLE_MODULES_ACU, type ContinuationWorkflowStep_ACU } from './agent/agent-workflow';
 import { appendAgentConversationToChat_ACU, clearAgentConversationField_ACU } from './agent/agent-conversation-store';
-import { clearAgentModuleField_ACU, readAgentModuleSnapshot_ACU, writeAgentModuleSnapshot_ACU } from './agent/agent-module-store';
+import { clearAgentModuleField_ACU, readAgentModuleSnapshot_ACU, writeAgentModuleSnapshot_ACU, alignAgentModuleSnapshotToFloor_ACU } from './agent/agent-module-store';
 import { seedAgentUserRequirementsIfEmpty_ACU } from './agent/agent-user-requirements';
 import { clearAgentRunState_ACU } from './agent/agent-run-cache';
 import { clearAgentSessionLog_ACU, logAgentSession_ACU } from './agent/agent-session-log';
@@ -31,7 +32,12 @@ export interface SendAgentMessageResult_ACU extends ContinuationOrchestratorResu
   /** 仅 continue_now 时为 true，兼容旧调用方。 */
   shouldContinue: boolean;
 }
-export interface ReplaceActiveOutlineInput_ACU { outline: StageOutline_ACU; }
+export interface ReplaceActiveOutlineInput_ACU {
+  outline: StageOutline_ACU;
+  /** R10B-07：编辑底稿所属阶段与 revision；给出时与当前不一致即拒绝，避免旧底稿覆盖新大纲。 */
+  expectedStageId?: string;
+  expectedRevision?: number;
+}
 export interface ClearContinuationDataResult_ACU { envelope: ContinuationEnvelope_ACU; clearedModules: boolean; clearedConversation: boolean; }
 export interface ContinuationPlanningContext_ACU { envelope: ContinuationEnvelope_ACU; task: ContinuationTask_ACU; stage: ContinuationStage_ACU | null; reason: ContinuationRevisionReason_ACU; replanInstruction: string; }
 export interface CreateContinuationTaskInput_ACU { originInstruction: string; }
@@ -121,11 +127,20 @@ function messageContent_ACU(message: Record<string, unknown>): string {
 }
 
 function resolveContinuationMaterialAnchor_ACU(chat: any[], chatIdentity: string): ContinuationMaterialAnchor_ACU {
-  const messageIndex = chat.length - 1;
+  // 锚点必须落在 AI 楼上，不能无条件取物理尾楼：TT 2.3.0 的工具轮会把一等工具楼
+  // `{role:'tool', is_system:true}` push 成尾楼（src/scripts/tool-calling.js:1058-1089），它是
+  // 「可被用户独立删除、不承载剧情正文、且没有 swipe_id」的真实楼层（docs/CurrentState/ChatPayload.md §4）。
+  // 资料写进去＝挂在随时会消失的楼上（用户一删，下面的 assert 立即拒写迟到结果）；swipe_id 缺失还会让
+  // 锚点回退 '0'，使 swipe 切换后的比对失去意义。判定走 shared/ai-floor（本库唯一出处）。
+  let messageIndex = -1;
+  for (let index = chat.length - 1; index >= 0; index -= 1) {
+    if (isAiFloor_ACU(chat[index])) { messageIndex = index; break; }
+  }
   const message = messageIndex >= 0 && chat[messageIndex] && typeof chat[messageIndex] === 'object' && !Array.isArray(chat[messageIndex])
     ? chat[messageIndex] as Record<string, unknown>
     : null;
   if (!chatIdentity || !message) {
+    // 没有 AI 楼（空聊天／全是用户楼与工具楼）时 fail-closed：宁可拒绝补足，也不把资料写进用户楼。
     rejectMaterialRepair_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', '当前聊天没有可承载资料补足结果的楼层');
   }
   const rawMessageId = message.message_id;
@@ -144,15 +159,27 @@ function resolveContinuationMaterialAnchor_ACU(chat: any[], chatIdentity: string
 }
 
 function assertContinuationMaterialAnchorCurrent_ACU(anchor: ContinuationMaterialAnchor_ACU, chat: any[], chatIdentity: string): void {
-  if (chat.length !== anchor.chatLength || chat.length - 1 !== anchor.messageIndex) {
+  // 只比物理长度 + 重新解析出的锚点是否还是同一楼。旧写法额外要求「锚点必须是尾楼」
+  // （chat.length - 1 === messageIndex），在锚点允许落在工具楼/隐藏楼之前后，会把合法锚点误判成迟到写入。
+  if (chat.length !== anchor.chatLength) {
     rejectMaterialRepair_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', '资料补足期间聊天楼层已变化，拒绝写入迟到结果');
   }
   const current = resolveContinuationMaterialAnchor_ACU(chat, chatIdentity);
-  if (current.chatIdentity !== anchor.chatIdentity || current.messageKey !== anchor.messageKey
+  if (current.chatIdentity !== anchor.chatIdentity || current.messageIndex !== anchor.messageIndex
+    || current.messageKey !== anchor.messageKey
     || current.swipeId !== anchor.swipeId || current.contentDigest !== anchor.contentDigest) {
     rejectMaterialRepair_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', '资料补足的冻结楼层或 swipe 已变化，拒绝写入迟到结果', { expected: anchor, actual: current });
   }
 }
+
+/**
+ * 测试钩子：暴露资料补足锚点的解析结果，供判别用例直接钉住「工具楼/隐藏楼不得成为锚点」。
+ * 业务路径请走 repairMaterials（锚点在其内部解析并二次校验），不要直接调用本钩子。
+ */
+export const __resolveContinuationMaterialAnchorForTests_ACU = resolveContinuationMaterialAnchor_ACU;
+
+/** 测试钩子：暴露锚点时效校验，钉住「锚点不必是物理尾楼」这条不变量（见 assert 内注释）。 */
+export const __assertContinuationMaterialAnchorCurrentForTests_ACU = assertContinuationMaterialAnchorCurrent_ACU;
 
 function materialAuthorityFingerprint_ACU(snapshot: AgentModuleSnapshot_ACU): string {
   return sha256HexSync_ACU(JSON.stringify(snapshot));
@@ -512,7 +539,11 @@ export class ContinuationOrchestrator_ACU {
           rejectMaterialRepair_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', '资料补足期间模块 revision、pending 或完成状态已变化，拒绝覆盖更新资料');
         }
         assertContinuationMaterialWriteSet_ACU(baseSnapshot, repair.snapshot, targets);
-        await writeAgentModuleSnapshot_ACU(currentChat, anchor.messageIndex, repair.snapshot);
+        // 锚点可以早于物理尾楼（尾楼是 TT 2.3.0 的工具楼或被 /hide 的隐藏楼时），而写入门会把水位
+        // 钳到承载楼并按钳后水位校验前缀指纹；不先对齐就会以「聊天前缀已变化」误导拒绝（见 align 的注释）。
+        // 必须排在 assertContinuationMaterialWriteSet_ACU 之后：那一步校验的是引擎交回来的原始快照。
+        const anchoredSnapshot = alignAgentModuleSnapshotToFloor_ACU(repair.snapshot, currentChat, anchor.messageIndex);
+        await writeAgentModuleSnapshot_ACU(currentChat, anchor.messageIndex, anchoredSnapshot);
         logAgentSession_ACU({
           kind: repair.failedModules.length ? 'run_failed' : 'run_completed',
           title: repair.failedModules.length ? '定向资料补足部分完成' : '定向资料补足完成',
@@ -600,15 +631,23 @@ export class ContinuationOrchestrator_ACU {
       try {
         const preparedTurn = await this.dependencies.executionEngine.prepareCurrentTurnInstruction(
           () => this.isLeaseCurrent_ACU(chatIdentity, lease),
-          undefined,
           async instruction => (await this.applyOutlineOpWithinLease_ACU(chatIdentity, lease, instruction, 'running')).opResult,
           controller.signal,
+          async action => this.adjustAgentProgressWithinLease_ACU(chatIdentity, lease, task.taskId, action),
         );
         const stoppedForDeadline = await this.stopIfDeadlineReached_ACU(chatIdentity, task.taskId, lease);
         if (stoppedForDeadline) return taskResult_ACU(stoppedForDeadline);
         this.assertLeaseCurrent_ACU(chatIdentity, lease, 'turn_call');
         return { ...taskResult_ACU(this.dependencies.store.readPersisted() ?? started!), preparedTurn };
       } catch (error) {
+        // 新大纲已落盘为「等待确认」是正常交接，不是失败：按等待状态返回，界面显示确认面板而不是报错（上游 c9afb631）。
+        if (error instanceof ContinuationValidationError_ACU && error.error.code === 'CONTINUATION_AGENT_OUTLINE_REPLANNED'
+          && this.isLeaseCurrent_ACU(chatIdentity, lease)) {
+          const waiting = this.dependencies.store.readPersisted();
+          if (waiting?.activeTask?.taskId === task.taskId && waiting.activeTask.status === 'awaiting_outline_review') {
+            return taskResult_ACU(waiting);
+          }
+        }
         await this.pauseWithError_ACU(chatIdentity, task.taskId, error, 'turn_call', '每轮指令生成失败', lease);
         throw error;
       } finally {
@@ -1083,6 +1122,12 @@ export class ContinuationOrchestrator_ACU {
       if (stage.status !== 'running' || !current.frozen) {
         fail_ACU('CONTINUATION_TASK_STATE_INVALID', '当前没有可手动编辑的已冻结大纲');
       }
+      if (
+        (input.expectedStageId !== undefined && input.expectedStageId !== stage.stageId)
+        || (input.expectedRevision !== undefined && input.expectedRevision !== current.revision)
+      ) {
+        fail_ACU('CONTINUATION_TASK_STATE_INVALID', '大纲在你编辑期间已被更新，草稿基于旧版本，未保存；请放弃草稿后基于最新大纲重新编辑');
+      }
       await this.commitEditedOutline_ACU(chatIdentity, envelope, task, stage, current, cloneOutline_ACU(input.outline), '用户手动编辑', '已保存手动编辑的大纲（', 'paused');
       return taskResult_ACU(this.requireEnvelope_ACU(this.dependencies.store.readPersisted()));
     });
@@ -1122,25 +1167,80 @@ export class ContinuationOrchestrator_ACU {
     const chatIdentity = this.requireChatIdentity_ACU();
     this.invalidateLease_ACU(chatIdentity);
     if (replanInstruction) await this.recordUserMessage_ACU(replanInstruction, '要求重新规划大纲');
-    // 与 continueTask 同型登记控制器：否则 UI 重规划路径 planOutline_ACU 取不到 signal，「停止」无法中断这条最长 8192 token 的大纲请求。
-    const controller = new AbortController();
-    abortControllersByChat_ACU.set(chatIdentity, controller);
     return this.withLease_ACU(async (_identity, lease) => {
-      const taskId = this.requireTask_ACU(this.readEnvelopeWithReconciledCursor_ACU()).taskId;
-      const stoppedBeforeReplan = await this.stopIfDeadlineReached_ACU(chatIdentity, taskId, lease);
-      if (stoppedBeforeReplan) return taskResult_ACU(stoppedBeforeReplan);
+      // 与 continueTask 同型登记控制器：否则 UI 重规划路径 planOutline_ACU 取不到 signal，「停止」无法中断这条最长 8192 token 的大纲请求。
+      // 登记放在租约回调内、清理覆盖整个回调（R4-11）：拿租约失败（BUSY）或提前返回时不在表里留下孤儿控制器。
+      const controller = new AbortController();
+      abortControllersByChat_ACU.set(chatIdentity, controller);
       try {
-        const outcome = await this.applyOutlineOpWithinLease_ACU(chatIdentity, lease, replanInstruction, 'paused');
-        if (outcome.envelope.activeTask?.stopReason === 'duration_reached') this.clearDeadlineTimer_ACU(chatIdentity);
-        else if (outcome.envelope.activeTask) this.scheduleDeadline_ACU(chatIdentity, outcome.envelope.activeTask.taskId, outcome.envelope.activeTask.deadlineAt);
-        return taskResult_ACU(outcome.envelope, outcome.planning);
-      } catch (error) {
-        await this.pauseWithError_ACU(chatIdentity, taskId, error, 'outline_call', '阶段规划失败', lease);
-        throw error;
+        const taskId = this.requireTask_ACU(this.readEnvelopeWithReconciledCursor_ACU()).taskId;
+        const stoppedBeforeReplan = await this.stopIfDeadlineReached_ACU(chatIdentity, taskId, lease);
+        if (stoppedBeforeReplan) return taskResult_ACU(stoppedBeforeReplan);
+        try {
+          const outcome = await this.applyOutlineOpWithinLease_ACU(chatIdentity, lease, replanInstruction, 'paused');
+          if (outcome.envelope.activeTask?.stopReason === 'duration_reached') this.clearDeadlineTimer_ACU(chatIdentity);
+          else if (outcome.envelope.activeTask) this.scheduleDeadline_ACU(chatIdentity, outcome.envelope.activeTask.taskId, outcome.envelope.activeTask.deadlineAt);
+          return taskResult_ACU(outcome.envelope, outcome.planning);
+        } catch (error) {
+          await this.pauseWithError_ACU(chatIdentity, taskId, error, 'outline_call', '阶段规划失败', lease);
+          throw error;
+        }
       } finally {
         if (abortControllersByChat_ACU.get(chatIdentity) === controller) abortControllersByChat_ACU.delete(chatIdentity);
       }
     });
+  }
+
+  /** 在本轮租约内保存阶段选择、轮次定位及阶段完结状态。 */
+  private async adjustAgentProgressWithinLease_ACU(chatIdentity: string, lease: Lease_ACU, taskId: string, action: AgentAdjustProgressAction_ACU): Promise<AgentAdjustProgressReceipt_ACU> {
+    this.assertLeaseCurrent_ACU(chatIdentity, lease);
+    let receipt: AgentAdjustProgressReceipt_ACU = { status: 'rejected', message: '当前进度不可调整' };
+    await this.dependencies.store.updatePersistedAtomically(current => {
+      this.assertLeaseCurrent_ACU(chatIdentity, lease);
+      const envelope = this.requireEnvelope_ACU(current);
+      const task = this.requireTask_ACU(envelope);
+      if (task.taskId !== taskId || task.status !== 'running' || task.stopReason !== null || task.pendingHostTurn) {
+        receipt = { status: 'rejected', message: '任务已变化或正文轮次仍在等待，不能调整进度' };
+        return envelope;
+      }
+      const stage = task.stages.find(item => item.stageId === action.stageId);
+      const revision = stage?.revisions.find(item => item.revision === stage.activeRevision);
+      const reject = (message: string) => { receipt = { status: 'rejected', message }; return envelope; };
+      if (!stage || !revision?.frozen || action.revision !== stage.activeRevision) return reject('阶段不存在、版本已变化或大纲尚未冻结，请重新读取大纲状态');
+      if (!['running', 'completed', 'abandoned', 'failed'].includes(stage.status)) return reject('待确认的阶段须先确认大纲');
+      if (!action.reason.trim() || (!!action.nextTurnId === (action.completeStage !== undefined))) return reject('必须提供依据，并且只选择下一轮或阶段完结状态之一');
+      const turns = revision.outline.nodes.flatMap(node => node.turns);
+      const completedTurns = action.completeStage === true ? turns.length
+        : action.completeStage === false ? Math.min(stage.completedTurns, turns.length - 1)
+          : turns.findIndex(turn => turn.id === action.nextTurnId);
+      if (completedTurns < 0) return reject('nextTurnId 不属于该阶段当前大纲');
+      const chat = getChatArray_ACU();
+      if (!Array.isArray(chat) || chat.length === 0) return reject('当前聊天没有可保存校准依据的楼层');
+      const cursor = cursorFromCompletedTurns_ACU(revision, completedTurns);
+      const nextStage: ContinuationStage_ACU = {
+        ...stage, status: action.completeStage ? 'completed' : 'running', completedTurns,
+        activeNodeIndex: cursor.nodeIndex, activeTurnIndex: cursor.turnIndex,
+        progressAdjustments: [...(stage.progressAdjustments ?? []), {
+          revision: stage.activeRevision, completedTurns, timelineOffset: task.timeline.length,
+          messageIndex: chat.length - 1, reason: action.reason.trim(),
+        }],
+      };
+      const selectsStage = action.completeStage !== true || task.activeStageId === stage.stageId;
+      const nextTask = reconcileTaskCursorFromChat_ACU({
+        ...task, stages: task.stages.map(item => item.stageId === stage.stageId ? nextStage : item),
+        updatedAt: this.dependencies.now(),
+        ...(selectsStage ? {
+          activeStageId: stage.stageId,
+          progressSelections: [...(task.progressSelections ?? []), { stageId: stage.stageId, messageIndex: chat.length - 1, timelineOffset: task.timeline.length }],
+        } : {}),
+      }, chat.length);
+      receipt = { status: 'committed', message: action.completeStage === true ? '阶段已标记完结'
+        : action.completeStage === false ? '阶段已重新开启并设为当前阶段' : '当前阶段与续写轮次已校准', stageId: stage.stageId, completedTurns };
+      return { ...envelope, activeTask: nextTask };
+    }, { chatIdentity });
+    // 保存失败直接抛出，不能返回候选的 committed 回执。
+    this.assertLeaseCurrent_ACU(chatIdentity, lease);
+    return receipt;
   }
 
   /**

@@ -24,18 +24,26 @@ export function useWorldbookSelector(): UseWorldbookSelector {
   const status = ref<WorldbookLoadStatus>('idle');
   const error = ref<string>('');
 
+  // 加载代次：挂载与切换聊天会叠加刷新，只有最新一次能发布结果（上游 #45：旧聊天较慢的刷新
+  // 后到会把角色主世界书覆盖回旧角色）。
+  let loadSeq = 0;
+
   async function refresh(): Promise<void> {
+    const seq = ++loadSeq;
     status.value = 'loading';
     error.value = '';
     try {
+      // R10A-21：列表读取失败要进 error 状态，不能伪装成「没有世界书」；主世界书读不到只降级为 null
       const [list, primary] = await Promise.all([
-        getWorldbookNames_ACU().catch((): string[] => []),
+        getWorldbookNames_ACU(),
         getCurrentCharPrimaryLorebook_ACU().catch((): string | null => null),
       ]);
+      if (seq !== loadSeq) return;
       names.value = Array.isArray(list) ? list.slice() : [];
       charPrimary.value = typeof primary === 'string' && primary ? primary : null;
       status.value = 'success';
     } catch (e: any) {
+      if (seq !== loadSeq) return;
       logError_ACU('[ACU-V2] useWorldbookSelector refresh failed', e);
       error.value = e?.message ?? '世界书列表加载失败';
       status.value = 'error';

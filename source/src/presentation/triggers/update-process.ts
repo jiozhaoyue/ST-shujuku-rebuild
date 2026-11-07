@@ -1,8 +1,10 @@
 // update-process.ts — 表格更新 UI 壳（presentation 层：负责 UI 交互）
 // service 层只返回结果，presentation 层根据返回值自行决定 UI 操作。
 
+import { formatPostCommitWarnings_ACU } from '../../shared/post-commit-warnings';
 import {
-  _set_isAutoUpdatingCard_ACU,
+  requestTableFillStop_ACU,
+  _set_manualExtraHint_ACU,
   _set_wasStoppedByUser_ACU,
   currentJsonTableData_ACU,
   getCurrentIsolationKey_ACU,
@@ -20,6 +22,12 @@ import {
 import {
   showCustomConfirm_ACU
 } from '../theme/custom-confirm';
+// G12-02：手动填表确认改异步弹框后存在「确认期间切聊天」窗口，复用 V2 既有的聊天作用域快照守卫（R10A-01 同款）
+import {
+  CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU,
+  captureChatActionScope_ACU,
+  isChatActionScopeCurrent_ACU
+} from '../../presentation-v2/composables/chat-action-scope';
 import {
   ACU_TOAST_CATEGORY_ACU
 } from '../../shared/constants';
@@ -27,13 +35,9 @@ import {
   logDebug_ACU
 } from '../../shared/utils';
 // re-export 从 service 层搬迁的业务逻辑函数，保持外部调用方兼容
-export { saveCurrentDataForTable_ACU } from '../../service/chat/chat-service';
 import {
   toastr_API_ACU
 } from '../../shared/host-api';
-import {
-  $statusMessageSpan_ACU
-} from '../state/ui-refs';
 import {
   topLevelWindow_ACU
 } from '../../shared/env';
@@ -42,22 +46,11 @@ import {
 } from '../../shared/html-helpers';
 import {
   bindTableFillStopButton_ACU,
-  resetManualUpdateButton_ACU,
-  shouldShowVectorMemoryManualUpdateWarning_ACU,
-  syncManualUpdateButtonAvailability_ACU
+  shouldShowVectorMemoryManualUpdateWarning_ACU
 } from '../components/status-display';
-import {
-  updateCardUpdateStatusDisplay_ACU
-} from '../components/update-status-display';
-import {
-  collectManualExtraHint_ACU
-} from './settings-ui-sync';
 import {
   refreshMergedDataAndNotifyWithUI_ACU
 } from '../components/pipeline-ui-helpers';
-import {
-  abortAllActiveRequests_ACU
-} from '../../service/runtime/state-manager';
 import {
     processUpdatesBatch_ACU,
     executeCardUpdateCore_ACU,
@@ -76,20 +69,12 @@ import { isAiFloor_ACU } from '../../shared/ai-floor';
 // UI 辅助函数
 // ============================================================
 
-function updateStatusText(text: string, isSilentMode: boolean) {
-    if (!isSilentMode && $statusMessageSpan_ACU) $statusMessageSpan_ACU.text(text);
-}
-
 function notifyTableFillStart() {
     try { (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableFillStart(); } catch (_) {}
 }
 
 function notifyTableUpdate() {
     try { (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate(); } catch (_) {}
-}
-
-function updateStatusDisplay() {
-    if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
 }
 
 function buildBatchProgressLabel(event: Partial<CardUpdateProgressEvent>): string {
@@ -197,12 +182,10 @@ function clearLoadingToast(loadingToast: any) {
 function handleProgressEvent(event: CardUpdateProgressEvent, isSilentMode: boolean, loadingToast?: any) {
     if (isSilentMode) return;
     const message = buildProgressMessage(event);
-    updateStatusText(message, false);
     updateLoadingToastMessage(loadingToast, message);
 
     switch (event.phase) {
         case 'complete':
-            updateStatusDisplay();
             notifyTableUpdate();
             break;
         case 'retry':
@@ -257,10 +240,7 @@ export async function proceedWithCardUpdate_ACU(
             onShown: function () {
                 if (typeof bindTableFillStopButton_ACU === 'function') {
                     bindTableFillStopButton_ACU(stopButtonId, () => {
-                        _set_wasStoppedByUser_ACU(true);
-                        abortAllActiveRequests_ACU();
-                        _set_isAutoUpdatingCard_ACU(false);
-                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次…', false);
+                        requestTableFillStop_ACU();
                         updateLoadingToastMessage(loadingToast, '填表任务已终止，正在停止当前任务与后续批次…');
                         showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
@@ -285,13 +265,17 @@ export async function proceedWithCardUpdate_ACU(
         );
 
         // UI：根据返回值决定后续 UI 操作
+        // 批处理内部调用（showFinalErrorToast=false）不弹：告警交给调度层汇总后统一提示一次。
+        const postCommitWarningText = formatPostCommitWarnings_ACU(result.postCommitWarnings);
+        if (postCommitWarningText && !isSilentMode && showFinalErrorToast) {
+            showToastr_ACU('warning', postCommitWarningText);
+        }
         if (result.success && !isSilentMode) {
             setTimeout(() => {
                 notifyTableUpdate();
             }, 250);
         } else if (!result.success && !result.aborted && !isSilentMode && showFinalErrorToast) {
             showToastr_ACU('error', `更新失败：${result.error || '未知错误'}`);
-            updateStatusText('错误：更新失败。', false);
         }
 
         return result;
@@ -342,14 +326,13 @@ export async function handleManualUpdate_ACU() {
     let manualProgressToast: any = null;
     try {
         if (shouldShowVectorMemoryManualUpdateWarning_ACU()) {
-            syncManualUpdateButtonAvailability_ACU();
             showToastr_ACU('warning', '向量功能启用时不建议手动更新表格；本次将继续执行。', {
                 acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
             });
         }
  
-        // UI：收集手动额外提示
-        collectManualExtraHint_ACU();
+        // 旧弹窗的「额外提示」复选框已不存在：每次手动更新都从空提示开始，不沿用上一次的残留（R9-11）。
+        _set_manualExtraHint_ACU('');
 
         // 从持久化设置读取表格选择，不能依赖已移除的 V1 checkbox DOM。
         const targetKeys = getSelectedManualTableKeys_ACU();
@@ -364,6 +347,9 @@ export async function handleManualUpdate_ACU() {
         const selectedSheetSummary = buildLegacySelectedSheetSummary_ACU(targetKeys);
         const checkpointFloorsLabel = buildLegacyCheckpointFloorsLabel_ACU();
         const manualRefillRangeLabel = buildLegacyManualRefillRangeLabel_ACU();
+        // G12-02：确认框是异步弹框，期间聊天可能被程序化切换；确认文案里的 checkpoint/重填范围
+        // 都是按弹出时的聊天算的，确认后不一致即放弃这次破坏性重填。
+        const chatScope = captureChatActionScope_ACU();
         // 弹出确认框：手动填表会先删除范围内选中表的 checkpoint 与增量，再重新填写
         const confirmed = await showCustomConfirm_ACU(
             '手动填表确认',
@@ -372,12 +358,18 @@ export async function handleManualUpdate_ACU() {
             '如果被删除的 checkpoint 是这些表唯一的数据基线，此前楼层的表格数据将无法恢复。\n' +
             '保留边界 checkpoint 会按 AI 回复楼层计数，在达到保留窗口和 20 个 AI 楼层缓冲后自动滚动建立。\n' +
             '范围外的 checkpoint、范围外聊天记录的表格数据和未选中的表不会被删除。执行失败或终止时会回滚到本次操作前的状态。',
-            { confirmLabel: '确认并继续', cancelLabel: '取消' }
+            { confirmLabel: '确认并继续', cancelLabel: '取消', tone: 'danger' }
         );
 
         if (!confirmed) {
             logDebug_ACU('[更新流程] 用户取消了手动填表确认框');
             showToastr_ACU('info', '已取消手动填表。');
+            return;
+        }
+
+        if (!isChatActionScopeCurrent_ACU(chatScope)) {
+            logDebug_ACU('[更新流程] 手动填表确认期间聊天已切换，放弃本次重填');
+            showToastr_ACU('warning', CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU);
             return;
         }
 
@@ -395,10 +387,7 @@ export async function handleManualUpdate_ACU() {
             onShown: function () {
                 if (typeof bindTableFillStopButton_ACU === 'function') {
                     bindTableFillStopButton_ACU(stopButtonId, () => {
-                        _set_wasStoppedByUser_ACU(true);
-                        abortAllActiveRequests_ACU();
-                        _set_isAutoUpdatingCard_ACU(false);
-                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次…', false);
+                        requestTableFillStop_ACU();
                         updateLoadingToastMessage(manualProgressToast, '填表任务已终止，正在停止当前任务与后续批次…');
                         showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
@@ -408,10 +397,6 @@ export async function handleManualUpdate_ACU() {
 
         const result = await orchestrateManualUpdate_ACU(
             targetKeys,
-            // processBatch 回调保留给兼容路径；当前手动填表主路径由 service grouped helper 执行。
-            async (indices, batchMode, batchOptions) => {
-                return processUpdates_ACU(indices, batchMode, batchOptions);
-            },
             // refreshData 回调（纯数据刷新 + UI 刷新）
             async () => {
                 await refreshMergedDataAndNotifyWithUI_ACU();
@@ -431,14 +416,11 @@ export async function handleManualUpdate_ACU() {
 
         // UI：根据返回值显示 toast
         if (result.success) {
-            showToastr_ACU(result.checkpointWarning ? 'warning' : 'success', result.checkpointWarning ? `手动更新完成，但 AI 楼层保留边界 checkpoint 建立失败：${result.checkpointWarning}` : '手动更新完成！');
-            updateStatusDisplay();
+            const warnings = [formatPostCommitWarnings_ACU(result.postCommitWarnings)].filter(Boolean);
+            if (result.checkpointWarning) warnings.push(`AI 楼层保留边界 checkpoint 建立失败：${result.checkpointWarning}`);
+            showToastr_ACU(warnings.length ? 'warning' : 'success', ['手动更新完成！', ...warnings].join('\n'));
             notifyTableUpdate();
 
-            if (result.autoMergeTriggered && result.autoMergeSuccess) {
-                showToastr_ACU('success', '自动合并纪要完成！');
-                notifyTableUpdate();
-            }
         } else if (result.error) {
             // 区分 warning 和 error 类型
             const warningMessages = ['正在进行中', '聊天记录为空', '尚未检测到', '未选择', '未找到可用'];
@@ -447,10 +429,7 @@ export async function handleManualUpdate_ACU() {
         }
     } finally {
         clearLoadingToast(manualProgressToast);
-        // UI：重置手动更新按钮
-        if (typeof resetManualUpdateButton_ACU === 'function') resetManualUpdateButton_ACU();
     }
 }
 
-// saveCurrentDataForTable_ACU 已搬迁到 service/chat/chat-service.ts
 // 通过文件顶部的 re-export 保持外部调用方兼容

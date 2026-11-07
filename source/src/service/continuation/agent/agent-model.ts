@@ -147,7 +147,7 @@ export interface AgentConversationAppend_ACU {
   readKey?: string;
 }
 
-/** Agent 可读/可搜正文窗口的默认楼数。未结算楼层始终在窗口内，不受此值限制。 */
+/** Agent 可读、可搜与逐楼结算正文窗口的默认 AI 楼层数。 */
 export const AGENT_STORY_WINDOW_DEFAULT_ACU = 20;
 
 /** 骨架里固定注入全文的末尾 AI 楼层数默认值（承接锚点）。 */
@@ -417,6 +417,8 @@ export interface AgentModuleFloorDelta_ACU {
   revisions: Partial<AgentModuleRevisions_ACU>;
   pendingFixes?: AgentPendingFix_ACU[];
   materialCompletion?: AgentMaterialCompletionRecord_ACU;
+  /** 用户明确选择的新追溯起点；不是旧历史已经结算的证明。 */
+  settlementBoundary?: AgentSettlementBoundary_ACU;
   /** 本条显式推进的结算水位。省略表示不改水位。 */
   settledThroughIndex?: number;
   updatedAt: number;
@@ -482,6 +484,16 @@ export interface AgentPendingFix_ACU {
   updatedAt: number;
 }
 
+/** 用户明确指定的追溯起点：从该 AI 楼层开始结算，此前历史未结算。 */
+export interface AgentSettlementBoundary_ACU {
+  startIndex: number;
+  reason: string;
+  userMessageId: number;
+  updatedAt: number;
+  /** 退出主动追溯的历史缺口，保留原始失败记录供核对。 */
+  skippedPendingFixes: AgentPendingFix_ACU[];
+}
+
 /** 楼层锚定的全量快照。帧架构下读取=从最近基线起按楼层顺序叠加当前 swipe 的 delta，删楼即自动退出折叠。 */
 export interface AgentModuleSnapshot_ACU {
   schemaVersion: typeof AGENT_MODULE_SCHEMA_VERSION_ACU;
@@ -502,6 +514,8 @@ export interface AgentModuleSnapshot_ACU {
   materialCompletion: AgentMaterialCompletionRecord_ACU;
   /** 最近一次容错提交没能入库的模块。旧快照缺该字段时读取为空数组。 */
   pendingFixes: AgentPendingFix_ACU[];
+  /** 用户明确选择的新追溯起点；缺省表示全量追溯。 */
+  settlementBoundary?: AgentSettlementBoundary_ACU;
 }
 
 export const AGENT_WRITABLE_MODULES_ACU = ['hooks', 'infoGap', 'constraints', 'storyArc', 'chronology', 'webRefs'] as const;
@@ -551,6 +565,9 @@ export const AGENT_MODULE_FIELD_MATRIX_ACU: Record<AgentWritableModule_ACU, Agen
 
 export const AGENT_SUBAGENT_NAMES_ACU = ['arc-architect', 'hook-cognition-maintainer', 'mainline-planner', 'beat-planner', 'continuity-reviewer', 'web-researcher', 'instruction-composer', 'requirements-maintainer'] as const;
 export type AgentSubagentName_ACU = typeof AGENT_SUBAGENT_NAMES_ACU[number];
+
+/** 可提交逐栏 SQL 的写者身份：子代理另加主会话纠正（main）。 */
+export type AgentModuleWriterRole_ACU = AgentSubagentName_ACU | 'main';
 
 export const AGENT_WEB_RESEARCHER_NAME_ACU = 'web-researcher';
 
@@ -711,7 +728,36 @@ export type AgentOutlineEditOp_ACU =
   | { op: 'remove_turn'; turnId: string }
   | { op: 'set_node_goal'; nodeId: string; goal: string };
 
-export type AgentMainAction_ACU = AgentFinalizeAction_ACU | AgentDelegateAction_ACU | AgentBlockAction_ACU | AgentToolsAction_ACU | AgentOpenRoundAction_ACU;
+/** 主会话纠正：领域 SQL 沿用逐栏提交；追溯边界单独保存，不推进结算水位。 */
+export interface AgentCorrectMaterialsAction_ACU {
+  kind: 'correct_materials';
+  thought: string;
+  reason: string;
+  sql?: string;
+  settlementStartIndex?: number;
+  /** 必须引用当前持久化会话中真实用户消息的 ID。 */
+  userMessageId?: number;
+}
+
+/** 选择已有阶段和下一轮，或修改阶段完结状态。大纲内容由对应修改入口处理。 */
+export interface AgentAdjustProgressAction_ACU {
+  kind: 'adjust_progress';
+  thought: string;
+  reason: string;
+  stageId: string;
+  revision: number;
+  nextTurnId?: string;
+  completeStage?: boolean;
+}
+
+export interface AgentAdjustProgressReceipt_ACU {
+  status: 'committed' | 'rejected';
+  message: string;
+  stageId?: string;
+  completedTurns?: number;
+}
+
+export type AgentMainAction_ACU = AgentFinalizeAction_ACU | AgentDelegateAction_ACU | AgentBlockAction_ACU | AgentToolsAction_ACU | AgentOpenRoundAction_ACU | AgentCorrectMaterialsAction_ACU | AgentAdjustProgressAction_ACU;
 
 /** instruction-composer 的产出。instruction 非空；constraints 走容错登记。 */
 export interface AgentComposerOutput_ACU {
@@ -998,6 +1044,8 @@ export interface ContinuationAgentTurnPlanRequest_ACU {
   isInternalRequestCurrent: (identity: ContinuationInternalAiRequestIdentity_ACU) => boolean;
   /** 大纲操作回调，由编排器在租约内执行。正文重试轮不注入，此时大纲派工被拒绝回灌。 */
   applyOutline?: (instruction: string) => Promise<AgentOutlineOpResult_ACU>;
+  /** 主会话受限进度校准；正文重试不注入，保存成功才返回 committed。 */
+  adjustProgress?: (action: AgentAdjustProgressAction_ACU) => Promise<AgentAdjustProgressReceipt_ACU>;
   signal?: AbortSignal | null;
 }
 

@@ -12,30 +12,6 @@ import {
 import { normalizeApiConfig_ACU } from '../../../src/service/settings/api-preset-service';
 
 describe('api preset draft helpers', () => {
-  it('从空白草稿开始新建预设', () => {
-    const draft = createEmptyApiPresetDraft();
-
-    expect(draft.name).toBe('');
-    expect(draft.apiMode).toBe('custom');
-  });
-
-  it('把预设转换为可编辑草稿', () => {
-    const draft = apiPresetDraftFromPreset({
-      name: 'preset-a',
-      apiMode: 'custom',
-      apiConfig: {
-        url: 'https://a.test',
-        apiKey: 'k',
-        model: 'gpt-4',
-        max_tokens: 4096,
-        temperature: 0.7,
-      },
-    });
-
-    expect(draft.name).toBe('preset-a');
-    expect(draft.url).toBe('https://a.test');
-    expect(draft.model).toBe('gpt-4');
-  });
 
   it('保存前归一化名称、端点、模型和数字参数', () => {
     const preset = apiPresetFromDraft({
@@ -222,10 +198,40 @@ describe('api preset draft helpers', () => {
     expect(preset.apiConfig.customApiFormat).toBe('openai_compat');
   });
 
-  it('空白草稿默认 strict 后处理与兼容 OpenAI 协议', () => {
-    const draft = createEmptyApiPresetDraft();
+  it('保留多个 system 默认开启：缺失归一 true，显式 false 往返保留（移植上游 e1876435）', () => {
+    expect(normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e' } as any).preserveMultipleSystem).toBe(true);
+    expect(normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e', preserveMultipleSystem: false } as any).preserveMultipleSystem).toBe(false);
+    expect(createEmptyApiPresetDraft().preserveMultipleSystem).toBe(true);
+    const legacy = apiPresetDraftFromPreset({
+      name: 'legacy', apiMode: 'custom',
+      apiConfig: { url: 'https://old.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1 } as any,
+    });
+    expect(legacy.preserveMultipleSystem).toBe(true);
+    expect(apiPresetFromDraft(legacy).apiConfig.preserveMultipleSystem).toBe(true);
+    const off = apiPresetDraftFromPreset({
+      name: 'off', apiMode: 'custom',
+      apiConfig: { url: 'https://old.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1, preserveMultipleSystem: false } as any,
+    });
+    expect(off.preserveMultipleSystem).toBe(false);
+    expect(apiPresetFromDraft(off).apiConfig.preserveMultipleSystem).toBe(false);
+  });
 
-    expect(draft.promptPostProcessing).toBe('strict');
-    expect(draft.customApiFormat).toBe('openai_compat');
+  it('发送方式默认经酒馆转接：缺失与非法值归一 tavern，数据库直接发送往返保留', () => {
+    expect(normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e' } as any).sendChannel).toBe('tavern');
+    expect(normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e', sendChannel: 'weird' } as any).sendChannel).toBe('tavern');
+    expect(normalizeApiConfig_ACU({ url: 'https://e.test', model: 'e', sendChannel: 'direct' } as any).sendChannel).toBe('direct');
+    expect(createEmptyApiPresetDraft().sendChannel).toBe('tavern');
+    const legacy = apiPresetDraftFromPreset({
+      name: 'legacy', apiMode: 'custom',
+      apiConfig: { url: 'https://old.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1 } as any,
+    });
+    expect(legacy.sendChannel).toBe('tavern');
+    expect(apiPresetFromDraft(legacy).apiConfig.sendChannel).toBe('tavern');
+    const direct = apiPresetDraftFromPreset({
+      name: 'direct', apiMode: 'custom',
+      apiConfig: { url: 'https://old.test', apiKey: '', model: 'm', max_tokens: 1, temperature: 1, sendChannel: 'direct' } as any,
+    });
+    expect(direct.sendChannel).toBe('direct');
+    expect(apiPresetFromDraft(direct).apiConfig.sendChannel).toBe('direct');
   });
 });

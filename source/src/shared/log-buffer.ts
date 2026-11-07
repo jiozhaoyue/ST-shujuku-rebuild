@@ -3,6 +3,7 @@
  *
  * 零 DOM 依赖的内存日志存储。
  * Error 始终写入；Debug / Warn 仅在对应采集开关开启时写入。
+ * Warn 的开关有两个互不覆盖的来源（开发者选项常驻 / Debug 面板临时），取「或」后生效。
  * presentation 层通过 subscribe 实时接收已写入的新日志并渲染到 UI。
  */
 
@@ -75,8 +76,16 @@ const _clearSubscribers: Set<() => void> = new Set();
 /** debug 级别日志是否写入缓冲区（默认关闭，减少性能开销） */
 let _debugLogEnabled = false;
 
-/** warn 级别日志是否写入缓冲区（默认关闭，用户显式开启后才采集） */
-let _warnLogEnabled = readWarnLogEnabled();
+/**
+ * warn 级别日志是否写入缓冲区。有两个互不覆盖的开启来源，有效值 = 二者之或：
+ * - `_warnByDevOption`：开发者选项「WARN 日志」，用户显式持久化的常驻开关，不点 Debug 也生效；
+ * - `_warnByDebugCapture`：Debug 面板「开始 Debug」带来的临时开关，停止 Debug 时收回。
+ *
+ * 为什么不是一个布尔：两个入口曾写同一个变量，于是「停止 Debug」把该用户常驻的 warn 采集顺带关掉、
+ * 采集期间改任一开发者选项又把 Debug 的临时采集关掉。按来源分治后，每个入口只允许动自己那一格。
+ */
+let _warnByDevOption = readWarnLogEnabled();
+let _warnByDebugCapture = false;
 
 // ═══════════════════════════════════════════════════════════════
 // 公共 API
@@ -119,15 +128,39 @@ function isSensitiveLogKey(key: string): boolean {
   return LOG_SENSITIVE_KEYS.test(key) || LOG_SENSITIVE_SUFFIX.test(key);
 }
 
+/**
+ * 文本级敏感形态脱敏的唯一实现（G02-02 收敛）：日志写入（normalizeLogArg_ACU /
+ * maskSensitiveInLogValue）、展示侧 maskSensitiveText_ACU、上游错误体展示脱敏
+ * （service/ai/api-call）与填表重试反馈脱敏（service/table/update-orchestrator）
+ * 共用这一份规则，不再各维护一份覆盖互有长短的清单。
+ */
+function maskSensitiveStringPatterns_ACU(text: string): string {
+  return text
+    // [L1] Authorization 头（Bearer / Basic）；proxy-authorization 等复合头名按子串同样命中
+    .replace(/(Authorization\s*:\s*(?:Bearer|Basic)\s+)([^\s"',}\n]+)/gi, '$1***')
+    // [L2] Bearer + sk- 形态密钥
+    .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
+    // [L3] 裸 bearer/basic + 长令牌（JWT、base64 凭据等，无头名前缀）；
+    // 16 位阈值避免误伤英文词（如 "basic authentication"）
+    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/=-]{16,}/gi, '$1 ***')
+    // [L3b] JSON 引号键名形态："apiKey":"xxx" 等
+    .replace(/("[A-Za-z0-9_-]*(?:api[_-]?key|apikey|authorization|token|password|passwd|secret|auth|bearer|accessToken|access_token|cookie)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
+    // [L4] 裸形态脱敏：apiKey=xxx / token: xxx / embeddingApiKey=xxx / cookie=xxx（日志形态），
+    // 值支持带引号（api_key="SECRET"）与不带引号两种；值以 bearer/basic 开头的
+    // （如 Authorization: Bearer xxx）交由上方既有规则处理，避免双重掩码。
+    .replace(/\b([A-Za-z0-9_]*(?:api[_-]?key|apikey|authorization|token|password|passwd|secret|auth|bearer|accessToken|access_token|cookie))\b(\s*[:=]\s*)("[^"]*"|'[^']*|(?!bearer\b|basic\b)[^\s"',;}\n]+)/gi, '$1$2***')
+    // [L5] URL 查询参数形态：Gemini 转接以 ?key= 发出密钥，上游/中转可能把请求 URL 回显进错误体。
+    // 只认紧跟 ? 或 & 的参数名，避免误伤裸 key/auth 词（keyboard、authority 之类）。
+    .replace(/([?&](?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|authorization|auth|token|secret|password|passwd|proxy[_-]?password|cookie|key)\s*=\s*)([^&#\s"',;}<>\\]+)/gi, '$1***')
+    // [L6] 无前缀独立出现的 sk- 开头密钥串（长度阈值避免误伤普通词）
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, 'sk-***')
+    // [L7] Gemini 密钥裸回显（AIza 前缀 + 长随机串），与裸 sk- 同阈值口径
+    .replace(/\bAIza[A-Za-z0-9_-]{16,}/g, 'AIza***');
+}
+
 function maskSensitiveInLogValue(value: any, depth = 0, seen = new WeakSet()): any {
   if (typeof value === 'string') {
-    return value
-      .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
-      .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
-      .replace(/("[A-Za-z0-9_-]*(?:api[_-]?key|apikey|authorization|token|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
-      // 与 normalizeLogArg_ACU 的 [L4] 规则对齐：Error 分支走本函数，此前缺裸 key=value 与独立 sk- 形态
-      .replace(/\b([A-Za-z0-9_]*(?:api[_-]?key|apikey|authorization|token|password|secret|auth|bearer|accessToken|access_token))\b(\s*[:=]\s*)(?!["']|bearer\b)[^\s"',;}\n]+/gi, '$1$2***')
-      .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, 'sk-***');
+    return maskSensitiveStringPatterns_ACU(value);
   }
   if (depth > 6 || value === null || value === undefined) return depth > 6 ? '[Truncated]' : value;
   if (typeof value === 'object') {
@@ -153,15 +186,8 @@ function normalizeLogArg_ACU(arg: any): string {
   if (arg === null) return 'null';
   if (arg === undefined) return 'undefined';
   if (typeof arg === 'string') {
-    return arg
-      .replace(/(Authorization\s*:\s*Bearer\s+)([^\s"',}\n]+)/gi, '$1***')
-      .replace(/(Bearer\s+)(sk-[A-Za-z0-9-_]+)/g, '$1***')
-      .replace(/\"([A-Za-z0-9_-]*(?:api[_-]?key|apikey|authorization|token|password|secret|auth|bearer|accessToken|access_token))\"\s*:\s*\"[^\"]*\"/gi, '\"$1\":\"***\"')
-      // [L4] 裸形态脱敏：apiKey=xxx / token: xxx / embeddingApiKey=xxx（键与值均不带引号的日志形态）。
-      // 值若以 bearer 开头（如 Authorization: Bearer xxx）交由上方既有规则处理，避免双重掩码。
-      .replace(/\b([A-Za-z0-9_]*(?:api[_-]?key|apikey|authorization|token|password|secret|auth|bearer|accessToken|access_token))\b(\s*[:=]\s*)(?!["']|bearer\b)[^\s"',;}\n]+/gi, '$1$2***')
-      // [L4] 无前缀独立出现的 sk- 开头密钥串（长度阈值避免误伤普通词）
-      .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, 'sk-***');
+    // 与 maskSensitiveInLogValue / maskSensitiveText_ACU 共用同一份脱敏规则（G02-02 收敛）
+    return maskSensitiveStringPatterns_ACU(arg);
   }
   if (typeof arg === 'number' || typeof arg === 'boolean' || typeof arg === 'bigint') return String(arg);
   if (typeof arg === 'symbol') return String(arg);
@@ -217,6 +243,9 @@ export function formatArgs(args: any[]): string {
  * 对一段面向用户可见面的文本做敏感信息脱敏（toast、错误提示、诊断文案）。
  * 与日志写入侧同规则：日志缓冲的 Error 分支已掩码，但 toast/上游回显原文是旁路，
  * 上游把请求头回显进错误体时会绕过日志脱敏直达 UI，故展示前必须过这一层。
+ * G02-02：本函数是全库文本脱敏的唯一规则源（maskSensitiveStringPatterns_ACU），
+ * 上游错误体展示（api-call）与填表重试反馈（update-orchestrator）都在此基础上
+ * 叠加各自的专用处理，不再各自维护平行的密钥形态清单。
  */
 export function maskSensitiveText_ACU(value: unknown): string {
   return normalizeLogArg_ACU(value);
@@ -238,18 +267,27 @@ export function isDebugLogEnabled(): boolean {
 }
 
 /**
- * 设置 warn 级别日志是否启用。
- * logWarn_ACU 复用此状态控制 console.warn，pushLog 复用此状态控制缓冲写入与订阅通知。
+ * 设置 warn 采集的「常驻来源」——开发者选项 warnLogEnabled 的唯一入口（dev-options-store）。
+ * 用户显式开了这项，不点 Debug 也要采 warn；这里置 false 只收回常驻那一格，
+ * 不会牵动 Debug 面板正在用的临时采集（有效值 = 常驻 ∪ 临时，见 isWarnLogEnabled）。
  */
-export function setWarnLogEnabled(enabled: boolean): void {
-  _warnLogEnabled = enabled;
+export function setWarnLogEnabledByDevOption_ACU(enabled: boolean): void {
+  _warnByDevOption = enabled === true;
 }
 
 /**
- * 获取 warn 级别日志是否启用
+ * 设置 warn 采集的「临时来源」——Debug 面板专用：开始 Debug 置 true，停止 Debug 置回 false。
+ * logWarn_ACU 的 console.warn 与 pushLog 的缓冲写入都只看两个来源的「或」，故此处不判断常驻值。
+ */
+export function setWarnLogEnabledByDebugCapture_ACU(enabled: boolean): void {
+  _warnByDebugCapture = enabled === true;
+}
+
+/**
+ * 获取 warn 级别日志是否启用（两个来源任一开启即启用）。
  */
 export function isWarnLogEnabled(): boolean {
-  return _warnLogEnabled;
+  return _warnByDevOption || _warnByDebugCapture;
 }
 
 /**
@@ -260,7 +298,7 @@ export function isWarnLogEnabled(): boolean {
 export function pushLog(level: LogLevel, args: any[]): void {
   // 可选日志级别禁用时直接跳过，避免噪声与不必要的序列化开销
   if (level === 'debug' && !_debugLogEnabled) return;
-  if (level === 'warn' && !_warnLogEnabled) return;
+  if (level === 'warn' && !isWarnLogEnabled()) return;
 
   const tag = extractTag(args);
   _knownTags.add(tag);
@@ -411,5 +449,6 @@ export function _resetForTesting(): void {
   _clearHistory.length = 0;
   _clearSubscribers.clear();
   _debugLogEnabled = false;
-  _warnLogEnabled = false;
+  _warnByDevOption = false;
+  _warnByDebugCapture = false;
 }

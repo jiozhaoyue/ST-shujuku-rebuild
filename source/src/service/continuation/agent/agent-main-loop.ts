@@ -61,6 +61,7 @@ import { planAgentHistoryCompaction_ACU } from './agent-history-compactor';
 import type { AgentConversationCompactionMarkV2_ACU } from './agent-model';
 import { renderAgentTableCatalog_ACU } from './agent-tables';
 import { applyAgentConstraintRegistrationViaSql_ACU, applyAgentModuleDeltaViaSql_ACU, applyAgentWebRefsDeltaViaSql_ACU, mergeAgentDeltaRevisions_ACU } from './agent-transaction';
+import { correctAgentMaterials_ACU, renderAgentCorrectionGuide_ACU } from './agent-main-correction';
 import { compactAgentProtocolError_ACU, parseAgentMainOutput_ACU } from './agent-protocol';
 import {
   buildAgentWorldbookScanText_ACU,
@@ -74,6 +75,7 @@ import {
   renderAgentTurnGuidance_ACU,
   renderAgentUnsettledHistory_ACU,
   resolveAgentReadToken_ACU,
+  resolveAgentUnsettledStoryWindow_ACU,
   type AgentResolveContext_ACU,
 } from './agent-placeholder-resolver';
 import { buildEmptyAgentWorldbookSnapshot_ACU, loadAgentWorldbookSnapshot_ACU, renderAgentWorldbookCatalog_ACU, renderAgentWorldbookHits_ACU, type AgentWorldbookSnapshot_ACU } from './agent-worldbook-read';
@@ -86,7 +88,7 @@ import {
   type AgentReadGateConfig_ACU,
   type AgentReadGateState_ACU,
 } from './agent-read-gate';
-import { AgentSubagentRuntime_ACU, type AgentSubagentRunResult_ACU } from './agent-subagent-runtime';
+import { AgentSubagentRuntime_ACU, ensureTrailingUserPrefill_ACU, type AgentSubagentRunResult_ACU } from './agent-subagent-runtime';
 import {
   assertFieldWriteSettleable_ACU,
   continuationBeatObligation_ACU,
@@ -137,7 +139,7 @@ export interface ContinuationAgentTurnPlannerDependencies_ACU {
   subagentRuntime: AgentSubagentRuntime_ACU;
   readChat: () => any[];
   readModuleSnapshot: (chat: any[]) => AgentModuleSnapshot_ACU;
-  writeModuleSnapshot: (chat: any[], targetIndex: number, snapshot: AgentModuleSnapshot_ACU) => Promise<void>;
+  writeModuleSnapshot: (chat: any[], targetIndex: number, snapshot: AgentModuleSnapshot_ACU) => Promise<number | null | void>;
   readConversation: (chat: any[]) => AgentConversationSnapshot_ACU;
   /** 读取当前持久化的压缩标记；候选提交必须以该权威回读为准。 */
   readCompactionMark: typeof readActiveAgentConversationCompactionMark_ACU;
@@ -246,20 +248,24 @@ export function evaluateArcArchitectDispatch_ACU(context: AgentResolveContext_AC
 export function renderMainProtocolRejection_ACU(reason: string, execution: ContinuationAgentExecutionContext_ACU, allowDelegate: boolean): string {
   const lines = [
     `你上一次的输出没有被采纳。原因：${reason}`,
-    '只输出一个 JSON 对象（可在前面写少量思路，但不要 <think> 块、不要 Markdown 围栏），格式必须是下面之一：',
+    '重新输出一个完整动作 JSON 对象（可在前面写少量思路，但不要 <think> 块、不要 Markdown 围栏），不续写被拒残片、不输出裸 SQL。',
   ];
-  const hasTurn = !!execution.turn;
-  if (!hasTurn && allowDelegate) {
-    lines.push('{"thought":"先建立大纲","action":"delegate","delegations":[{"agentName":"outline-architect","prompt":"按总纲当前 active 卷规划本阶段","reads":[]}]}');
+  // 资料纠正被拒时只给纠正结构：样例混入续写动作会诱导模型用空 SQL 或伪造起点凑格式（上游 37948da1）。
+  if (reason.includes('correct_materials') || reason.includes('settlementStartIndex')) {
+    lines.push('reason 是非空纠正依据；sql 是非空受限 INSERT/UPDATE/DELETE。两者写在同一个动作里，不能把 SQL 放在 thought 或动作外。只有用户明确要求改变追溯起点时才用 settlementStartIndex，并同时给最新真实用户消息 userMessageId；不要为修复格式错误跳过历史。hooks 只写 summary、status、importance、planted_index、planned_payoff；expected_revision 只放 WHERE，不自行递增。');
+    lines.push(JSON.stringify({ action: 'correct_materials', reason: '已核实的纠正依据', sql: '<依据真实正文、真实 ID 与当前模块修订号的非空受限 SQL>' }));
+    lines.push('示例内容不可原样提交；没有实际纠正时改用 open_round，不用空 SQL 或伪造起点满足校验。');
+    return lines.join('\n');
   }
-  lines.push('{"thought":"需要核对正文","action":"read","reads":["$STORY_TAIL","$HOOKS_LEDGER"]}');
-  if (allowDelegate) {
-    lines.push('{"thought":"先结算再策划","action":"delegate","delegations":[{"agentName":"hook-cognition-maintainer","prompt":"结算未结算正文，对照上一轮目标评估达成度","reads":[]},{"agentName":"mainline-planner","prompt":"本轮 pacing=setup，允许主线 hold","reads":[]}]}');
+  // 正常续写由 open_round 启动固定工作流（总纲、大纲、维护、策划、终审都在里面），不再示范手动委派维护或策划。
+  lines.push('{"action":"open_round","focus":"依据本轮目标与真实正文确定的场景焦点"}');
+  lines.push('正常续写由 open_round 启动固定工作流，自动准备总纲、大纲并完成维护、策划和终审，不要再手动委派维护或策划。');
+  lines.push('需要核对具体缺口时输出 {"action":"read","reads":["真实授权地址"]} 或 {"action":"search","query":"具体缺口"}，不要重复已完整注入的资料。');
+  if (allowDelegate) lines.push('仅在需要重规划时 delegate；delegations 每项给目录中的 agentName、prompt 与 reads。');
+  if (execution.turn) {
+    lines.push('{"action":"finalize","instruction":"承接：……\\n本轮场景任务：……\\n必须发生的变化：……","summary":"一句话要点"}');
   }
-  if (hasTurn) {
-    lines.push('{"thought":"证据已足够","action":"finalize","instruction":"承接：……\\n本轮场景任务：……\\n必须发生的变化：……","summary":"一句话要点"}');
-  }
-  lines.push('{"thought":"关键资料缺失","action":"block","reason":"……","unresolved":["……"]}');
+  lines.push('{"action":"block","reason":"关键缺口或需要用户裁决的具体原因","unresolved":["具体缺口"]}');
   return lines.join('\n');
 }
 
@@ -285,6 +291,8 @@ export function describeAgentActionLabel_ACU(action: AgentMainAction_ACU): strin
   if (action.kind === 'tools') return `调用 ${action.calls.length} 个 read/search 工具`;
   if (action.kind === 'delegate') return `派工 ${action.delegations.length} 项`;
   if (action.kind === 'open_round') return '开局并交给固定工作流';
+  if (action.kind === 'correct_materials') return '主会话纠正资料';
+  if (action.kind === 'adjust_progress') return '主会话校准续写进度';
   if (action.kind === 'finalize') return '交付写作指导';
   return '阻断本轮';
 }
@@ -311,6 +319,56 @@ export function buildAgentTurnAnnouncement_ACU(context: AgentResolveContext_ACU)
  * @param tool 可选的 read/search 用量（批次数、累计遥测、单批次上限 M）
  * @returns 自然语言文本；进入最后一轮时明确禁止继续派工
  */
+/**
+ * 未结算区间 `(start, last]` 内是否真有 AI 楼。
+ *
+ * `$UNSETTLED_RANGE` 必须与 `$HISTORY_UNSETTLED`、以及固定工作流的派工门同口径：后两者都按
+ * `isAiFloor_ACU` 过滤（agent-placeholder-resolver 的 renderAgentUnsettledHistory_ACU、
+ * hasUnsettledHistory），只按物理下标算区间会在「水位对齐到承载楼之后尾部只剩工具楼/隐藏楼」时
+ * 声称还有待结算楼层并承诺派工，而同一份运行时快照的另一句却说「没有尚未结算的真实历史」——
+ * 自相矛盾会诱导主 Agent 违规 delegate 结算。
+ */
+export function rangeHasAiFloor_ACU(chat: readonly unknown[], start: number, last: number): boolean {
+  for (let index = Math.max(start, 0); index <= last && index < chat.length; index += 1) {
+    if (isAiFloor_ACU(chat[index])) return true;
+  }
+  return false;
+}
+
+/**
+ * 渲染 `$UNSETTLED_RANGE` 的文案（纯函数，供 renderUnsettledRange_ACU 与测试共用）。
+ *
+ * 区间里没有 AI 楼就等于没有待结算的真实历史：工具楼/隐藏楼不承载剧情正文，
+ * 派工也只会得到 no_change（agent-workflow 的出口）。若仍报「未结算楼层区间 N 到 M」并承诺自动派工，
+ * 就会与同一份运行时快照里的 $HISTORY_UNSETTLED（renderAgentUnsettledHistory_ACU 按 isAiFloor_ACU 过滤）
+ * 自相矛盾，可能诱导主 Agent 违规 delegate 结算。
+ *
+ * 两条模板串是既有提示词的一部分，**逐字不得改动**：对「区间内确有 AI 楼」的聊天
+ * （即水位对齐到承载楼之前的全部形态）输出与历史版本字节相同。
+ */
+export function renderUnsettledRangeText_ACU(
+  chat: readonly unknown[],
+  settledThroughIndex: number,
+  selection?: { floors: ReadonlyArray<{ index: number }>; hiddenCount: number; startIndex: number },
+): string {
+  const last = chat.length - 1;
+  // 窗口选择已知时按窗口口径报：窗口外未结算不承诺逐楼结算（移植上游 5f8afe3a）。
+  if (selection) {
+    const hiddenNote = selection.hiddenCount > 0
+      ? `更早的 ${selection.hiddenCount} 个未结算 AI 楼层在正文可读窗口外，本轮不逐楼结算，也不推进连续结算水位；早期剧情经事件概览与纪要回溯。` : '';
+    if (!selection.floors.length) {
+      if (hiddenNote) return `${hiddenNote}当前窗口内没有待结算正文。`;
+      return '没有尚未结算的真实历史，无需派工结算维护类代理。';
+    }
+    return `${hiddenNote}未结算楼层区间：${selection.startIndex} 到 ${last}（窗口内 ${selection.floors.length} 个 AI 正文楼层）。输出 open_round 后，固定工作流会自动派 hook-cognition-maintainer 结算本次窗口内正文。不要 delegate 结算、策划或审查角色。这些楼层的正文默认没有注入，需要核对时 read $HISTORY_UNSETTLED。`;
+  }
+  const start = settledThroughIndex + 1;
+  if (start > last || !rangeHasAiFloor_ACU(chat, start, last)) {
+    return '没有尚未结算的真实历史，无需派工结算维护类代理。';
+  }
+  return `未结算楼层区间：${start} 到 ${last}（共 ${last - start + 1} 楼）。输出 open_round 后，固定工作流会自动派 hook-cognition-maintainer 结算这些楼层。不要 delegate 结算、策划或审查角色。这些楼层的正文默认没有注入，需要核对时 read $HISTORY_UNSETTLED。`;
+}
+
 export function renderAgentBudget_ACU(
   budget: AgentRunBudget_ACU,
   iteration: number,
@@ -533,10 +591,8 @@ export class ContinuationAgentTurnPlanner_ACU {
           createIdentity: (_agentName, attempt) => ({ ...request.createInternalRequestIdentity(attempt), source: 'agent_subagent' }),
           isCurrent: identity => request.isInternalRequestCurrent(identity),
           signal: request.signal,
-          writeSql: async write => commitAgentModuleFieldWrites_ACU({
-            chat, targetIndex: chat.length - 1, sql: write.sql, role: write.role,
-            resolvePage: write.resolvePage, isCurrent: write.isCurrent,
-          }),
+          // 不开放 write_sql：补足只返回候选，由持租约的编排器复核锚点与资料指纹后统一提交。
+          // 逐栏写会在子代理运行中直接落盘，绕过复核并改变指纹，补足必然判 STALE 失败（R4-03）。
         });
         return mapPayload(result);
       },
@@ -788,10 +844,10 @@ export class ContinuationAgentTurnPlanner_ACU {
         });
         const outcomesBefore = ledger.outcomes.length;
 
-        if (maintenanceConvergenceAvailable && action.kind !== 'finalize' && action.kind !== 'block' && action.kind !== 'open_round') {
+        if (maintenanceConvergenceAvailable && action.kind !== 'finalize' && action.kind !== 'block' && action.kind !== 'open_round' && action.kind !== 'correct_materials') {
           failLoop_ACU(
             'CONTINUATION_AGENT_PROTOCOL_INVALID',
-            '必要大纲维护完成后只允许 finalize 或 block，不能继续读取或派工。',
+            '必要大纲维护完成后只允许 finalize、block、open_round 或 correct_materials，不能继续读取或派工。',
             { action: action.kind },
           );
         }
@@ -818,6 +874,13 @@ export class ContinuationAgentTurnPlanner_ACU {
           const workflowEntry = logAgentSession_ACU({ kind: 'delegation', title: '固定工作流正在执行', detail: action.focus, status: 'running' });
           let workflow: ContinuationWorkflowResult_ACU;
           try {
+            // 开始任何付费派工前落盘；重载后不能把已启动的工作流当成未执行的新轮。
+            if (request.signal?.aborted || !request.isInternalRequestCurrent(identitySeed)) {
+              throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '工作流启动身份已失效', false));
+            }
+            session.record([{ kind: 'runtime', text: JSON.stringify({ taskId: identitySeed.taskId, focus: action.focus, status: 'started' }), digest: '固定工作流启动', turnKey: session.turnKey }]);
+            await session.flush();
+            persistRunState(iteration);
             workflow = await this.runFixedWorkflow_ACU(action, request, context, ledger, budget, chat, apiDependencies);
           } catch (error) {
             updateAgentSession_ACU(workflowEntry, { title: '固定工作流失败', detail: error instanceof Error ? error.message : String(error), ok: false });
@@ -837,7 +900,8 @@ export class ContinuationAgentTurnPlanner_ACU {
             await session.flush();
             return { instruction: workflow.instruction, attempts: totalAttempts, apiPreset: { presetName: preset.presetName, source: preset.source, reason: preset.reason } };
           }
-          session.record([{ kind: 'tool', text: `${workflow.summary}\n自动修复已停止代为提交这些模块。请向用户说明阻塞；总纲与阶段大纲仍由后续 open_round 固定工作流维护，只有网页检索可按需 delegate web-researcher。不要对同一批已升级的待修复项再次 open_round。`, digest: '工作流升级主会话', turnKey: session.turnKey }]);
+          const correctionGuide = renderAgentCorrectionGuide_ACU(session.snapshot(), context.moduleSnapshot);
+          session.record([{ kind: 'tool', text: `${workflow.summary}\n自动修复已停止代为提交这些模块。请向用户说明阻塞；已核实的字段错误可用 correct_materials 直接纠正；用户已明确选择跳过旧历史时，用 correct_materials 登记新追溯起点。只有纠正保存成功、实际范围或资料版本改变后再 open_round；没有可执行的纠正或仍需用户决定时输出 block。不要对同一批已升级的待修复项再次 open_round。\n${correctionGuide}`, digest: '工作流升级主会话', turnKey: session.turnKey }]);
           await session.flush();
           iteration += 1;
           continue;
@@ -956,6 +1020,47 @@ export class ContinuationAgentTurnPlanner_ACU {
           failLoop_ACU('CONTINUATION_AGENT_BLOCKED', `主 Agent 阻断本轮：${action.reason}`, { unresolved: action.unresolved });
         }
 
+        if (action.kind === 'adjust_progress') {
+          if (request.signal?.aborted || !request.isInternalRequestCurrent(identitySeed)) {
+            throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '进度校准请求已失效', false));
+          }
+          const receipt = request.adjustProgress
+            ? await request.adjustProgress(action)
+            : { status: 'rejected' as const, message: '本轮不允许调整进度；正文重试必须保持原轮次身份' };
+          context.execution = request.readContext();
+          if (receipt.status === 'committed') {
+            resetLedgerForAuthorityChange();
+            finalReview = { status: 'not_started', candidateFingerprint: '', candidateSummary: '', feedback: '' };
+            postReviewDecisionAvailable = false;
+            session.turnKey = conversationTurnKeyOf();
+          }
+          session.record([{ kind: 'tool', text: JSON.stringify(receipt), digest: '进度校准回执', turnKey: session.turnKey }]);
+          if (receipt.status === 'committed') {
+            session.record([{ kind: 'turn', text: buildAgentTurnAnnouncement_ACU(context), digest: describeRunLabel_ACU(context), turnKey: session.turnKey }]);
+          }
+          await session.flush();
+          logAgentSession_ACU({ kind: 'thought', title: '进度校准回执', detail: JSON.stringify(receipt), ok: receipt.status === 'committed' });
+          iteration += 1;
+          persistRunState(iteration);
+          continue;
+        }
+
+        if (action.kind === 'correct_materials') {
+          const receipt = await correctAgentMaterials_ACU({
+            action, chat, conversation: session.snapshot(),
+            isCurrent: () => !request.signal?.aborted && request.isInternalRequestCurrent(identitySeed),
+            completedStages: context.execution.task.stages.filter(stage => stage.status === 'completed').map(stage => stage.stageNumber),
+          });
+          context.moduleSnapshot = readAgentModuleSnapshot_ACU(chat);
+          context.settledThroughIndex = context.moduleSnapshot.settledThroughIndex;
+          snapshot = context.moduleSnapshot;
+          session.record([{ kind: 'tool', text: JSON.stringify(receipt), digest: '主会话纠正回执', turnKey: session.turnKey }]);
+          await session.flush();
+          logAgentSession_ACU({ kind: 'thought', title: '主会话纠正回执', detail: JSON.stringify(receipt), ok: receipt.status === 'committed' });
+          iteration += 1;
+          continue;
+        }
+
         const delegationResult = await this.runDelegations(action, request, context, ledger, budget, chat, snapshot, apiDependencies, outlineMaintenanceReserveAvailable);
         snapshot = delegationResult.snapshot;
         if (delegationResult.usedOutlineMaintenanceReserve) {
@@ -985,7 +1090,12 @@ export class ContinuationAgentTurnPlanner_ACU {
       }
       if (!terminalLogged) {
         const message = error instanceof ContinuationValidationError_ACU ? error.error.message : error instanceof Error ? error.message : String(error);
-        logAgentSession_ACU({ kind: 'run_failed', title: '本轮已终止', detail: `${message}\n（进度已保留，输入新指令后发送即可继续）`, ok: false });
+        if (error instanceof ContinuationValidationError_ACU && error.error.code === 'CONTINUATION_AGENT_OUTLINE_REPLANNED') {
+          // 新大纲等待人工确认是正常交接，不记成本轮失败（上游 c9afb631）。
+          logAgentSession_ACU({ kind: 'block', title: '等待大纲确认', detail: message });
+        } else {
+          logAgentSession_ACU({ kind: 'run_failed', title: '本轮已终止', detail: `${message}\n（进度已保留，输入新指令后发送即可继续）`, ok: false });
+        }
       }
       throw error;
     }
@@ -1219,7 +1329,8 @@ export class ContinuationAgentTurnPlanner_ACU {
         throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '主 Agent 请求已失效', false));
       }
       const rendered = await this.renderMainPrompt_ACU(request, context, ledger, budget, iteration, toolUsage, gateConfig, lifecycle);
-      const messages = this.spliceHistory_ACU(rendered, session.history());
+      // 尾部预填充被用户删掉时补上，否则续写引导失效（移植上游 e1876435）。
+      const messages = ensureTrailingUserPrefill_ACU(this.spliceHistory_ACU(rendered, session.history()));
       // 最终完整请求预检：压缩候选未提交（写入失败/回读不一致）或压缩后仍超限时，
       // 绝不能把未经确认的超长上下文发出去——那只会换来一次网关侧的截断或报错。
       if (request.settings.agentHistoryTokenBudget > 0 && await measureAgentPromptTokens_ACU(messages, counter) > request.settings.agentHistoryTokenBudget) {
@@ -1365,7 +1476,8 @@ export class ContinuationAgentTurnPlanner_ACU {
       this.buildMainPromptResolvers_ACU(request, context, ledger, budget, iteration, toolUsage, gateConfig, lifecycle),
       'agent_loop',
     );
-    const text = rendered.messages[0]?.content?.trim() ?? '';
+    const text = [rendered.messages[0]?.content?.trim() ?? '', renderAgentCorrectionGuide_ACU(session.snapshot(), context.moduleSnapshot)]
+      .filter(Boolean).join('\n\n');
     if (!text || text === lastRuntimeSnapshotText_ACU(session.snapshot())) return;
     session.record([{ kind: 'runtime', text, digest: '运行时快照', turnKey: session.turnKey }]);
     await session.flush();
@@ -1391,7 +1503,7 @@ export class ContinuationAgentTurnPlanner_ACU {
     iteration: number,
   ): Promise<void> {
     if (toolUsage.batchesUsed >= budget.maxReads) {
-      const text = `read/search 工具批次已用尽（上限 ${budget.maxReads} 个批次）。请基于已有资料输出决策动作（delegate / finalize / block）；大纲调整请委派 outline-architect 或 arc-architect。`;
+      const text = `read/search 工具批次已用尽（上限 ${budget.maxReads} 个批次）。请基于已有资料决策：correct_materials 修正资料或总纲，delegate 要求总纲或阶段大纲修改，adjust_progress 校准阶段与轮次，准备完成后 open_round；无法继续时 block。`;
       session.record([{ kind: 'tool', text, digest: '工具批次已用尽', turnKey: session.turnKey }]);
       logAgentSession_ACU({ kind: 'tool_read', title: `迭代 ${iteration} · 工具批次已用尽`, detail: text, ok: false });
       await session.flush();
@@ -1547,7 +1659,17 @@ export class ContinuationAgentTurnPlanner_ACU {
     apiDependencies?: ContinuationApiPresetDependencies_ACU,
   ): Promise<ContinuationWorkflowResult_ACU> {
     await this.prepareFixedWorkflowStructure_ACU(action, request, context, budget, chat, apiDependencies);
-    const unsettled = renderAgentUnsettledHistory_ACU(context);
+    // R4-06：工作流可能持续数分钟。原地编辑或 swipe 末楼不会改变楼层引用，租约也看不见；
+    // 记下每楼的引用、swipe 与正文，落盘前复核，变了就按 STALE 拒绝，不把旧结算挂到新内容上。
+    const chatAnchor = chat.map(message => ({ message, swipeId: message?.swipe_id, mes: message?.mes }));
+    const assertChatUnchangedForWorkflow_ACU = (): void => {
+      if (chat.length !== chatAnchor.length || chatAnchor.some((anchor, index) => (
+        chat[index] !== anchor.message || chat[index]?.swipe_id !== anchor.swipeId || chat[index]?.mes !== anchor.mes
+      ))) {
+        throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '固定工作流在途期间聊天楼层或正文发生变化，拒绝用旧内容结算', false));
+      }
+    };
+    const unsettledSelection = resolveAgentUnsettledStoryWindow_ACU(context);
     const mapPayload = (result: AgentSubagentRunResult_ACU): ContinuationWorkflowAgentPayload_ACU => ({
       ok: true,
       summary: result.composer?.summary || result.maintainer?.summary || result.arc?.summary || result.planner?.summary || result.reviewer?.reason || result.researcher?.summary || '',
@@ -1577,7 +1699,7 @@ export class ContinuationAgentTurnPlanner_ACU {
         summary: action.summary,
         dispatchWebResearcher: action.dispatchWebResearcher && request.settings.webResearch.enabled,
       },
-      hasUnsettledHistory: !unsettled.startsWith('没有尚未结算的真实历史'),
+      hasUnsettledHistory: unsettledSelection.floors.length > 0,
       beatObligation: continuationBeatObligation_ACU(context.execution.turn),
       turnNumber: context.execution.turnNumber ?? 1,
       settledIndex: Math.max(0, chat.length - 1),
@@ -1585,6 +1707,18 @@ export class ContinuationAgentTurnPlanner_ACU {
       allowedEvidenceIndexes: aiEvidenceIndexes,
       // S11-TT：工作流内已即时保存的栏目从帧重读，不再走旧最终写集覆盖。
       readCommittedSnapshot: () => readAgentModuleSnapshot_ACU(chat),
+      // 派工前把本地契约结算的资料先落帧（水位与挂账不变）；落盘前同样复核楼层与租约。
+      syncSnapshot: async snapshot => {
+        assertChatUnchangedForWorkflow_ACU();
+        const syncProbe = request.createInternalRequestIdentity(0);
+        if (request.signal?.aborted || !request.isInternalRequestCurrent(syncProbe)) {
+          throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_loop', '固定工作流派工前租约已失效', false));
+        }
+        context.moduleSnapshot = snapshot;
+        await this.persistSnapshot_ACU(chat, snapshot);
+      },
+      // 窗口外仍有未处理正文、或已登记追溯边界时，不得推进连续结算水位。
+      canAdvanceSettlement: unsettledSelection.hiddenCount === 0 && !context.moduleSnapshot.settlementBoundary,
       runAgent: async call => {
         if (call.billing === 'opening') {
           const used = ledger.perAgent.get(call.agentName) ?? 0;
@@ -1600,7 +1734,8 @@ export class ContinuationAgentTurnPlanner_ACU {
           delegation: { agentName: call.agentName, prompt: call.prompt, reads: [] },
           targetModules: call.targetModules,
           settings: request.settings,
-          resolveContext: context,
+          // 工作流此刻的资料（含本轮结算）：策划与补足不能按结算前的旧账本工作。
+          resolveContext: call.snapshot ? { ...context, moduleSnapshot: call.snapshot } : context,
           budget: call.billing === 'repair' ? { ...budget, maxExtraReads: repairReads } : budget,
           preset,
           createIdentity: (_agentName, attempt) => ({ ...request.createInternalRequestIdentity(attempt), source: 'agent_subagent' }),
@@ -1609,7 +1744,8 @@ export class ContinuationAgentTurnPlanner_ACU {
           // S11-TT Mode F：固定工作流内的可写子代理同样经受控端口逐栏即时保存。
           writeSql: async write => commitAgentModuleFieldWrites_ACU({
             chat, targetIndex: chat.length - 1, sql: write.sql, role: write.role,
-            resolvePage: write.resolvePage, isCurrent: write.isCurrent,
+            resolvePage: write.resolvePage, isCurrent: write.isCurrent, revisionWindow: write.revisionWindow,
+            completedStageNumbers: context.execution.task.stages.filter(stage => stage.status === 'completed').map(stage => stage.stageNumber),
           }),
         });
         if (call.billing === 'opening') {
@@ -1624,7 +1760,7 @@ export class ContinuationAgentTurnPlanner_ACU {
         const result = await this.dependencies.subagentRuntime.run({
           delegation: { agentName: AGENT_INSTRUCTION_COMPOSER_NAME_ACU, prompt: `${call.prompt}${feedback}`, reads: [] },
           settings: request.settings,
-          resolveContext: { ...context, moduleSnapshot: context.moduleSnapshot },
+          resolveContext: { ...context, moduleSnapshot: call.snapshot ?? context.moduleSnapshot },
           budget,
           preset,
           createIdentity: (_agentName, attempt) => ({ ...request.createInternalRequestIdentity(attempt), source: 'agent_subagent' }),
@@ -1636,10 +1772,10 @@ export class ContinuationAgentTurnPlanner_ACU {
         }
         return result.composer;
       },
-      runFinalReview: async (instruction, summary) => {
+      runFinalReview: async (instruction, summary, snapshot) => {
         const review = await this.dependencies.subagentRuntime.runFinalReview({
           settings: request.settings,
-          resolveContext: context,
+          resolveContext: snapshot ? { ...context, moduleSnapshot: snapshot } : context,
           candidateInstruction: instruction,
           currentUserInput: context.originInstruction,
           planningSummary: summary,
@@ -1652,6 +1788,8 @@ export class ContinuationAgentTurnPlanner_ACU {
     });
     // P1 与派工结算路径同强度：水位推进后刷新前缀指纹，否则写盘被指纹门拒绝；
     // 落盘前复核租约，在途停止时楼层扩展字段绝不能照常写入。
+    // 先复核楼层与正文未变，再刷新前缀指纹：此时按当前聊天算出的指纹就是工作流开始时的值，不会把在途编辑「洗白」。
+    assertChatUnchangedForWorkflow_ACU();
     let nextSnapshot = workflow.snapshot;
     if (nextSnapshot.settledThroughIndex !== incomingWaterline) {
       nextSnapshot = refreshAgentModuleSnapshotChatPrefix_ACU(nextSnapshot, chat);
@@ -1670,10 +1808,7 @@ export class ContinuationAgentTurnPlanner_ACU {
    * 主 Agent 要看必须自己 read $HISTORY_UNSETTLED。
    */
   private renderUnsettledRange_ACU(context: AgentResolveContext_ACU): string {
-    const start = context.settledThroughIndex + 1;
-    const last = context.chat.length - 1;
-    if (start > last) return '没有尚未结算的真实历史，无需派工结算维护类代理。';
-    return `未结算楼层区间：${start} 到 ${last}（共 ${last - start + 1} 楼）。输出 open_round 后，固定工作流会自动派 hook-cognition-maintainer 结算这些楼层。不要 delegate 结算、策划或审查角色。这些楼层的正文默认没有注入，需要核对时 read $HISTORY_UNSETTLED。`;
+    return renderUnsettledRangeText_ACU(context.chat, context.settledThroughIndex, resolveAgentUnsettledStoryWindow_ACU(context));
   }
 
   /**
@@ -1682,7 +1817,7 @@ export class ContinuationAgentTurnPlanner_ACU {
    */
   private renderStoryArcState_ACU(context: AgentResolveContext_ACU): string {
     if (!hasActiveStoryArc_ACU(context.moduleSnapshot)) {
-      return '故事总纲：尚未建立。输出 open_round 后，固定工作流会先调用 arc-architect 建立一条全书方向与若干卷台阶，再准备可执行阶段大纲；主 Agent 不直接 delegate 这些内部角色。';
+      return '故事总纲：尚未建立。可 delegate arc-architect 建立全书方向与卷台阶，再单独 delegate outline-architect 准备阶段大纲；也可用 open_round 固定工作流准备。';
     }
     const completed = context.execution.task.stages.filter(stage => stage.status === 'completed').map(stage => stage.stageNumber);
     const unregistered = findUnregisteredStageNumbers_ACU(context.moduleSnapshot, completed);
@@ -1838,8 +1973,8 @@ export class ContinuationAgentTurnPlanner_ACU {
     };
     const aiEvidenceIndexes = new Set<number>();
     chat.forEach((message, index) => { if (isAiFloor_ACU(message)) aiEvidenceIndexes.add(index); });
-    const internalWorkflowDelegations = action.delegations.filter(item => item.agentName === AGENT_OUTLINE_AGENT_NAME_ACU || item.agentName === 'arc-architect');
-    const normalDelegations = action.delegations.filter(item => item.agentName !== AGENT_OUTLINE_AGENT_NAME_ACU && item.agentName !== 'arc-architect');
+    const outlineDelegations = action.delegations.filter(item => item.agentName === AGENT_OUTLINE_AGENT_NAME_ACU);
+    const normalDelegations = action.delegations.filter(item => item.agentName !== AGENT_OUTLINE_AGENT_NAME_ACU);
     let usedOutlineMaintenanceReserve = false;
     // 未通过预算/波次校验的派工立即记失败条目：这些拒绝是即时判定，没有 running 阶段。
     const rejectImmediately = (agentName: string, reason: string): void => {
@@ -1853,8 +1988,38 @@ export class ContinuationAgentTurnPlanner_ACU {
       });
     };
 
-    for (const delegation of internalWorkflowDelegations) {
-      rejectImmediately(delegation.agentName, `${delegation.agentName} 已由固定工作流内部调度，主 Agent 不能直接 delegate。请输出 open_round，本次未消耗派工额度。`);
+    // 总纲写入与阶段重规划有数据依赖，不能在同一波并发修改。
+    for (const delegation of outlineDelegations) {
+      if (action.delegations.length !== 1) {
+        rejectImmediately(delegation.agentName, '阶段大纲必须单独委派；先完成总纲或资料维护，收到回执后再重规划。');
+        continue;
+      }
+      if (!request.applyOutline) {
+        rejectImmediately(delegation.agentName, '本轮不允许修改阶段大纲；正文重试必须保持原轮次身份。');
+        continue;
+      }
+      const used = ledger.perAgent.get(delegation.agentName) ?? 0;
+      if (!outlineMaintenanceReserveAvailable && (ledger.delegationsUsed >= budget.maxDelegations || used >= budget.maxSameAgent)) {
+        rejectImmediately(delegation.agentName, '阶段大纲派工额度已用尽。');
+        continue;
+      }
+      ledger.delegationsUsed += 1;
+      ledger.perAgent.set(delegation.agentName, used + 1);
+      usedOutlineMaintenanceReserve = outlineMaintenanceReserveAvailable;
+      const entry = logAgentSession_ACU({ kind: 'outline_op', agentName: delegation.agentName, title: '阶段大纲规划中', detail: delegation.prompt, status: 'running' });
+      try {
+        if (request.signal?.aborted || !request.isInternalRequestCurrent(request.createInternalRequestIdentity(0))) throw new Error('阶段大纲请求已失效');
+        const result = await request.applyOutline(delegation.prompt);
+        context.execution = request.readContext();
+        const ok = !result.requiresReview && !result.stopped;
+        ledger.outcomes.push({ agentName: delegation.agentName, ok, summary: result.summary, detail: result.summary, rejectedReason: ok ? '' : result.summary });
+        updateAgentSession_ACU(entry, { title: ok ? '阶段大纲已更新' : '阶段大纲等待处理', detail: result.summary, ok });
+      } catch (error) {
+        const reason = compactAgentProtocolError_ACU(error);
+        ledger.outcomes.push({ agentName: delegation.agentName, ok: false, summary: '', detail: '', rejectedReason: reason });
+        updateAgentSession_ACU(entry, { title: '阶段大纲未更新', detail: reason, ok: false });
+      }
+      continue;
     }
 
     const accepted: AgentDelegation_ACU[] = [];
@@ -1866,6 +2031,14 @@ export class ContinuationAgentTurnPlanner_ACU {
       if (delegation.agentName === AGENT_INSTRUCTION_COMPOSER_NAME_ACU || delegation.agentName === 'final-reviewer') {
         rejectImmediately(delegation.agentName, '该角色由固定工作流调用，主 Agent 不能 delegate。请输出 open_round。本次未消耗派工额度。');
         continue;
+      }
+      // 总纲直接派工保留惯性门禁：无结构事件的重复维护拒绝，不消耗额度（e35f758d 只开了入口，门禁仍有效）。
+      if (delegation.agentName === 'arc-architect') {
+        const gate = evaluateArcArchitectDispatch_ACU(context, delegation.prompt);
+        if (!gate.allowed) {
+          rejectImmediately(delegation.agentName, `${gate.reason}本次未消耗派工额度。`);
+          continue;
+        }
       }
       if (outlineMaintenanceReserveAvailable) {
         rejectImmediately(delegation.agentName, '末轮保留容量只允许 outline-architect 恢复可执行大纲；普通子代理本次未执行。');
@@ -1926,7 +2099,8 @@ export class ContinuationAgentTurnPlanner_ACU {
           // S11-TT Mode F：按需单独派工的可写子代理同样经受控端口逐栏即时保存。
           writeSql: async write => commitAgentModuleFieldWrites_ACU({
             chat, targetIndex: chat.length - 1, sql: write.sql, role: write.role,
-            resolvePage: write.resolvePage, isCurrent: write.isCurrent,
+            resolvePage: write.resolvePage, isCurrent: write.isCurrent, revisionWindow: write.revisionWindow,
+            completedStageNumbers: context.execution.task.stages.filter(stage => stage.status === 'completed').map(stage => stage.stageNumber),
           }),
         });
         return { delegation, result, error: null as unknown };
@@ -1936,8 +2110,24 @@ export class ContinuationAgentTurnPlanner_ACU {
     }));
     assertChatUnchanged_ACU();
 
-    let nextSnapshot = snapshot;
-    let snapshotChanged = false;
+    // 任一子代理判定任务已失效（停止、换轮、聊天变化），整批作废：先给每个派工落一条未采用记录，
+    // 再按失效终止，不把它当成普通失败回喂、也不结算同批其它结果（上游 37948da1）。
+    const stale = settled.find(item => item.error instanceof ContinuationValidationError_ACU
+      && item.error.error.code === 'CONTINUATION_INTERNAL_REQUEST_STALE');
+    if (stale) {
+      for (const item of settled) {
+        settleOutcome(item.delegation, { agentName: item.delegation.agentName, ok: false, summary: '', detail: '',
+          rejectedReason: compactAgentProtocolError_ACU(item.error ?? stale.error) }, item.result?.usage);
+      }
+      throw stale.error;
+    }
+
+    // 同批里有逐栏即时保存的派工时，帧上已经是本批全部 write_sql 的结果：先读一次作为结算基线，
+    // 契约派工的 delta 再叠在它上面。逐条结算时各自重读帧、整份替换，会把先结算的契约条目顶掉
+    // （或让后结算的契约撞上被帧推进的修订号），结果取决于派工排列顺序。
+    const batchUsedFieldWrites = settled.some(item => item.result?.usedFieldWrites);
+    let nextSnapshot = batchUsedFieldWrites ? readAgentModuleSnapshot_ACU(chat) : snapshot;
+    let snapshotChanged = batchUsedFieldWrites;
 
     for (const item of settled) {
       ledger.delegationsUsed += 1;
@@ -1949,10 +2139,10 @@ export class ContinuationAgentTurnPlanner_ACU {
       const result = item.result;
       if (result.maintainer) {
         try {
-          // S11-TT：已即时保存的栏目从帧重读，不再走旧最终写集覆盖。
+          // S11-TT：已即时保存的栏目在批前读过的帧基线里，不再走旧最终写集覆盖。
           // 余量非空时不清零丢弃：先 fail-closed 拒绝，不流入重读交付。
           assertFieldWriteSettleable_ACU({ agentName: result.agentName, usedFieldWrites: result.usedFieldWrites, contractTouched: continuationWorkflowContractTouched_ACU(result.maintainer.delta), researcherTouched: false });
-          const committed = result.usedFieldWrites ? readAgentModuleSnapshot_ACU(chat) : null;
+          const committed = result.usedFieldWrites ? nextSnapshot : null;
           const delta = mergeAgentDeltaRevisions_ACU(result.maintainer.delta, result.readRevisions);
           const applied = committed ?? (await applyAgentModuleDeltaViaSql_ACU(nextSnapshot, delta, result.writes, chat.length - 1, [], aiEvidenceIndexes)).snapshot;
           // T9 部分完成口径：子代理返回 ok:true + partial + unresolvedIssues 时，
@@ -1970,18 +2160,33 @@ export class ContinuationAgentTurnPlanner_ACU {
           const manualPending = working.pendingFixes.some(item => result.writes.includes(item.module));
           const manualCompletion = result.completion;
           const manualComplete = manualCompletion === 'complete_changed' || manualCompletion === 'complete_no_change';
+          // 兼容派工也只记录实际窗口；旧正文未处理时保留连续结算水位（移植上游 5f8afe3a）。
+          const selection = resolveAgentUnsettledStoryWindow_ACU(context);
           const settledTarget = chat.length - 1;
           // 结算派工成功交付契约即推进水位到当轮末楼：空 delta（这段楼层没有新增伏笔/信息差）
           // 同样代表已被处理过，不推水位会让同一区间每轮重复要求结算、白烧派工。
           // （completion 缺省的旧结果沿用该口径；partial/failed 或仍有 pending 时不推。）
-          if (!manualPending && (manualComplete || manualCompletion === undefined)) {
-            if (working !== nextSnapshot || working.settledThroughIndex < settledTarget) {
-              nextSnapshot = refreshAgentModuleSnapshotChatPrefix_ACU(
-                { ...working, settledThroughIndex: Math.max(working.settledThroughIndex, settledTarget) },
-                chat,
-              );
-              snapshotChanged = true;
-            }
+          if (!manualPending && (manualComplete || manualCompletion === undefined) && selection.floors.length) {
+            const previous = context.moduleSnapshot.materialCompletion;
+            const mergePrevious = previous && (previous.state === 'complete_changed' || previous.state === 'complete_no_change')
+              && previous.rangeStartIndex >= 0 && previous.rangeEndIndex >= previous.rangeStartIndex
+              && previous.rangeEndIndex + 1 >= selection.startIndex && previous.rangeStartIndex <= settledTarget + 1;
+            const state = manualCompletion ?? 'complete_changed';
+            nextSnapshot = refreshAgentModuleSnapshotChatPrefix_ACU(
+              { ...working,
+                settledThroughIndex: selection.hiddenCount === 0
+                  ? Math.max(working.settledThroughIndex, settledTarget) : working.settledThroughIndex,
+                materialCompletion: {
+                  state,
+                  rangeStartIndex: mergePrevious ? Math.min(previous.rangeStartIndex, selection.startIndex) : selection.startIndex,
+                  rangeEndIndex: mergePrevious ? Math.max(previous.rangeEndIndex, settledTarget) : settledTarget,
+                  modules: result.moduleCompletion ?? { hooks: state, infoGap: state, chronology: state },
+                  updatedAt: Date.now(),
+                },
+              },
+              chat,
+            );
+            snapshotChanged = true;
           } else if (working !== nextSnapshot) {
             nextSnapshot = working;
             snapshotChanged = true;
@@ -2010,7 +2215,7 @@ export class ContinuationAgentTurnPlanner_ACU {
           // S11-TT：已即时保存的栏目从帧重读，不再走旧最终写集覆盖。
           // 余量非空时不清零丢弃：先 fail-closed 拒绝，不流入重读交付。
           assertFieldWriteSettleable_ACU({ agentName: result.agentName, usedFieldWrites: result.usedFieldWrites, contractTouched: continuationWorkflowContractTouched_ACU(result.arc.delta), researcherTouched: false });
-          const committed = result.usedFieldWrites ? readAgentModuleSnapshot_ACU(chat) : null;
+          const committed = result.usedFieldWrites ? nextSnapshot : null;
           const delta = mergeAgentDeltaRevisions_ACU(result.arc.delta, result.readRevisions);
           const completedStageNumbers = context.execution.task.stages
             .filter(stage => stage.status === 'completed')
@@ -2071,7 +2276,7 @@ export class ContinuationAgentTurnPlanner_ACU {
         // 余量非空时不清零丢弃：先 fail-closed 拒绝，不流入重读交付。
         assertFieldWriteSettleable_ACU({ agentName: result.agentName, usedFieldWrites: result.usedFieldWrites, contractTouched: false, researcherTouched: result.researcher.items.length > 0 || (result.researcher.patches?.length ?? 0) > 0 });
         const settled = result.usedFieldWrites
-          ? { snapshot: readAgentModuleSnapshot_ACU(chat), outcome: { agentName: result.agentName, ok: true, summary: result.researcher.summary || '百科资料库已逐栏保存', detail: `百科资料库已逐栏即时保存${result.expandedReads.length ? `；补充读取：${result.expandedReads.join('、')}` : ''}`, rejectedReason: '' } }
+          ? { snapshot: nextSnapshot, outcome: { agentName: result.agentName, ok: true, summary: result.researcher.summary || '百科资料库已逐栏保存', detail: `百科资料库已逐栏即时保存${result.expandedReads.length ? `；补充读取：${result.expandedReads.join('、')}` : ''}`, rejectedReason: '' } }
           : await this.settleResearcherResult_ACU(result, nextSnapshot);
         if (settled.snapshot !== nextSnapshot) { nextSnapshot = settled.snapshot; snapshotChanged = true; }
         settleOutcome(item.delegation, settled.outcome, result.usage);
@@ -2105,14 +2310,17 @@ export class ContinuationAgentTurnPlanner_ACU {
     if (targetIndex < 0) {
       throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', '当前聊天没有可承载资料快照的楼层', false));
     }
-    await this.dependencies.writeModuleSnapshot(chat, targetIndex, snapshot);
+    const landedFloor = await this.dependencies.writeModuleSnapshot(chat, targetIndex, snapshot);
     // 快照跟着楼层走：该楼被删除、重新生成或 swipe 时资料会随之回退。写到哪一楼必须让用户看得见，
-    // 否则“资料突然清零”只能靠猜。
+    // 否则“资料突然清零”只能靠猜。承载楼是「≤ targetIndex 的最近 AI 楼」——TT 2.3.0 的工具楼/隐藏楼尾
+    // 时它不是末楼，报 targetIndex 会把排障指到一栋根本不承载资料的楼上；null = 本次没有写入
+    // （资料与折叠结果语义相同，或整条聊天没有可承载的 AI 楼层）。
+    const landed = typeof landedFloor === 'number' ? landedFloor : null;
     const active = (list: ReadonlyArray<{ retired: boolean }>) => list.filter(item => !item.retired).length;
     logAgentSession_ACU({
       kind: 'thought',
-      title: `资料快照已写入楼层 ${targetIndex}`,
-      detail: `伏笔 ${active(snapshot.hooks)} 条 · 信息差 ${active(snapshot.infoGap)} 条 · 总纲 ${active(snapshot.storyArc)} 条 · 年代学 ${active(snapshot.chronology)} 条 · 百科 ${active(snapshot.webRefs)} 条 · 长期约束 ${snapshot.constraints.length} 条 · 结算水位 ${Math.max(snapshot.settledThroughIndex, 0)}。资料按最近基线折叠；该楼增量会随删除或 swipe 一起退出折叠。`,
+      title: landed === null ? '资料快照本次未写入（内容无变化，或没有可承载资料的 AI 楼层）' : `资料快照已写入楼层 ${landed}`,
+      detail: `承载楼层 ${landed ?? '无'} · 结算截至楼层 ${targetIndex} · 伏笔 ${active(snapshot.hooks)} 条 · 信息差 ${active(snapshot.infoGap)} 条 · 总纲 ${active(snapshot.storyArc)} 条 · 年代学 ${active(snapshot.chronology)} 条 · 百科 ${active(snapshot.webRefs)} 条 · 长期约束 ${snapshot.constraints.length} 条 · 入参结算水位 ${Math.max(snapshot.settledThroughIndex, 0)}（落盘水位随承载楼对齐，可能更低）。${snapshot.settlementBoundary ? `追溯从楼层 ${snapshot.settlementBoundary.startIndex} 开始，此前历史未结算，跳过缺口 ${snapshot.settlementBoundary.skippedPendingFixes.length} 项。` : ''}资料按最近基线折叠；承载楼被删除或 swipe 时，该楼增量会随之退出折叠。`,
       ok: true,
     });
   }

@@ -1,18 +1,20 @@
 /**
  * presentation-v2/bootstrap — 新 UI 启动入口
  *
- * 由 src/index.ts / src/entry-extension.ts / src/entry-extension-plus-assistantembedded.ts
- * 在旧 UI 启动之后调用。
+ * 由 src/entry-extension.ts 在扩展初始化后调用。
  *
  * 注册"打开新 UI"菜单按钮；点击时惰性挂载 Vue 应用。
  */
-import { registerUiSurface_ACU, type UiToastPayload_ACU } from '../../shared/ui-surface-registry';
-import { topLevelWindow_ACU } from '../../shared/env';
+import { registerUiSurface_ACU, showHostToast_ACU, type UiToastPayload_ACU } from '../../shared/ui-surface-registry';
 import { logWarn_ACU } from '../../shared/utils';
 import { registerAcuV2MenuButton } from './menu-button';
 import { getAcuV2PiniaForBridge } from './mount';
 import { useRootShellStore } from '../stores/root-shell-store';
 import { useToastStore } from '../stores/toast-store';
+import { hostSkinSchemeFor_ACU, readPersistedEffectiveTheme_ACU, watchSystemColorScheme_ACU } from '../theme/effective-theme';
+import { applyHostClaudeSkin } from '../theme/host-claude-skin';
+import { getAcuHostWindow } from './host-document';
+import { applyTheme } from '../theme/theme-injector';
 import {
   installAutoCardUpdaterV2Api_ACU,
   openAcuV2Shell_ACU,
@@ -26,7 +28,7 @@ export { openVisualizerSurface_ACU } from '../surfaces/visualizer/open-visualize
 
 /**
  * showToast 实现：V2 shell 已挂载且打开时走 Pinia toast-store（可携带
- * "打开数据管理"等 action）；否则回退宿主 toastr；再不可用只记日志。
+ * "打开数据管理"等 action）；否则用酒馆页面上的插件提示框；再不可用只记日志。
  * 绝不抛错——toast 通道不允许反向破坏调用方（加载/合并）流程。
  */
 function showAcuV2Toast_ACU(payload: UiToastPayload_ACU): void {
@@ -48,20 +50,42 @@ function showAcuV2Toast_ACU(payload: UiToastPayload_ACU): void {
       }
     }
   } catch (error) {
-    logWarn_ACU('[ACU-V2] toast-store 通道不可用，回退宿主 toastr:', error);
+    logWarn_ACU('[ACU-V2] toast-store 通道不可用，回退酒馆页面提示框:', error);
   }
-  try {
-    const toastr = (topLevelWindow_ACU as any)?.toastr;
-    if (toastr && typeof toastr[payload.kind] === 'function') {
-      toastr[payload.kind](payload.text, undefined, payload.action
-        ? { onclick: () => { void payload.action!.onClick(); } }
-        : undefined);
-      return;
-    }
-  } catch (_) {
-    // 宿主 toastr 不可用时落到下方日志。
-  }
+  // 面板没打开：用酒馆页面上的插件提示框（与面板内提示同一设计、跟随主题）。
+  if (showHostToast_ACU(payload)) return;
   logWarn_ACU(`[ACU toast:${payload.kind}] ${payload.text}`);
+}
+
+/**
+ * 启动即按已保存的主题与界面风格输出 token（Claude 风格另补弹窗外观）：插件提示框等宿主浮层在面板打开前就会出现，
+ * 不能等首次挂载才上色。面板挂载后由 theme store 订阅接管后续切换。
+ */
+export function applySavedThemeToHostSurfaces_ACU(): void {
+  try {
+    applyPersistedThemeToHostSurfaces_ACU();
+    // Claude 风格选「跟随系统」时，面板没打开过也要随系统明暗切换宿主浮层；只挂一次。
+    // 面板挂载后它自己的监听同样按保存的偏好计算，两边结果一致。
+    if (!stopHostSystemSchemeWatch_ACU) {
+      stopHostSystemSchemeWatch_ACU = watchSystemColorScheme_ACU(getAcuHostWindow(), () => {
+        try {
+          applyPersistedThemeToHostSurfaces_ACU();
+        } catch (error) {
+          logWarn_ACU('[ACU-V2] 系统明暗切换后应用主题失败:', error);
+        }
+      });
+    }
+  } catch (error) {
+    logWarn_ACU('[ACU-V2] 启动时应用主题失败，宿主浮层将使用默认配色:', error);
+  }
+}
+
+let stopHostSystemSchemeWatch_ACU: (() => void) | null = null;
+
+function applyPersistedThemeToHostSurfaces_ACU(): void {
+  const theme = readPersistedEffectiveTheme_ACU(getAcuHostWindow());
+  applyTheme(theme);
+  applyHostClaudeSkin(hostSkinSchemeFor_ACU(theme));
 }
 
 export function bootstrapAcuV2(): void {

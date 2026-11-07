@@ -18,7 +18,8 @@ import {
   _set_allChatMessages_ACU,
   _set_currentJsonTableData_ACU,
   _set_independentTableStates_ACU,
-  _set_lastTotalAiMessages_ACU
+  _set_lastTotalAiMessages_ACU,
+  _set_pendingFinalGenerationGreenlights_ACU
 } from '../runtime/state-manager';
 import {
   getLorebookEntries_ACU,
@@ -41,6 +42,7 @@ import {
   getSortedSheetKeys_ACU
 } from '../template/chat-scope';
 import {
+  deleteAllGeneratedEntries_ACU,
   loadAllChatMessages_ACU
 } from './pipeline';
 import {
@@ -62,8 +64,20 @@ import {
   runTableWriteTransaction_ACU
 } from '../table/table-write-transaction';
 import {
+  releaseFinalGenerationGreenlightsForChatSwitch_ACU,
   resetPlotAgentWorldbookSessionSnapshot_ACU
 } from '../agent/agent-worldbook-takeover';
+
+  /**
+   * 离开当前聊天时收回它的 Agent 正文绿灯（世界书条目上的开关 + 内存放行名单），
+   * 否则新聊天会沿用上一聊天最后一轮的开关。须在 resetPlotAgentWorldbookSessionSnapshot_ACU 之前调用。
+   */
+  export function releaseAgentGreenlightsOfPreviousChat_ACU(includeCurrentScope: boolean): void {
+    _set_pendingFinalGenerationGreenlights_ACU([]);
+    releaseFinalGenerationGreenlightsForChatSwitch_ACU({ includeCurrentScope }).catch(error => {
+      logWarn_ACU('[Agent世界书] 切换聊天时收回正文绿灯失败：', error);
+    });
+  }
 
   async function enforceCleanupOfCharacterWorldbook_ACU() {
       // 延迟一段时间，确保其他操作完成
@@ -105,6 +119,7 @@ import {
             // [L9] 此处手写清空与 presentation/bootstrap/init.ts 的 clearDerivedRuntimeState_ACU / clearRuntimeForNoActiveChat_ACU 保持同步；
             // 差异：init.ts 是 presentation 层，额外 disposeStorageProvider() 并 notifyRuntimeTableCleared_ACU()；本 service 层刻意不触碰 UI/storage 生命周期。字段变动需两边同步。
             logDebug_ACU(`ACU: Received invalid chat file name "${chatFileName}" with no active chat. Clearing runtime state.`);
+            releaseAgentGreenlightsOfPreviousChat_ACU(false);
             resetPlotAgentWorldbookSessionSnapshot_ACU();
             _set_currentChatFileIdentifier_ACU('');
             _set_currentJsonTableData_ACU(null);
@@ -128,7 +143,15 @@ import {
     logDebug_ACU(`ACU: Resetting script state for new chat: "${chatFileName}"`);
     
     // 直接使用有效的 chatFileName，不再需要调用 /getchatname 或其他回退逻辑。
+    const previousChatFileIdentifier_ACU = String(currentChatFileIdentifier_ACU || '');
     _set_currentChatFileIdentifier_ACU(cleanChatName_ACU(chatFileName));
+    // 同一聊天重复 CHAT_CHANGED、启动恢复不算离开：保留本聊天上一轮的放行，重新生成还要用。
+    // identifier 为空串 = 本会话还没确立过任何聊天（启动阶段宿主在 startup_restore 之前补发
+    // CHAT_CHANGED，或无聊天清空后首开）：不存在「上一聊天」可收回，同样不算切换，
+    // 否则会把刷新前物理保留的上一轮绿灯误清掉（G08-06）。
+    const switchedToAnotherChat_ACU = reason === 'chat_changed'
+      && previousChatFileIdentifier_ACU !== ''
+      && previousChatFileIdentifier_ACU !== cleanChatName_ACU(chatFileName);
 
     // [FIX] Reload all settings to ensure template is not stale for new chats.
     // MUST be called AFTER setting currentChatFileIdentifier_ACU so it loads the correct character settings.
@@ -140,7 +163,8 @@ import {
     logDebug_ACU(`ACU: Plot worldbook selection for "${plotSelection.scopeKey || '(deferred)'}" -> ${plotSelection.outcome} (reason: ${reason})`);
 
     // 当前角色卡绑定在后续读取时重新解析；这里只清除上一会话的内存快照。
-    // 不得删除或重写旧世界书中的持久 Agent state。
+    // 不得删除或重写旧世界书中的持久 Agent state（收回正文绿灯只关条目开关，不碰账本）。
+    if (switchedToAnotherChat_ACU) releaseAgentGreenlightsOfPreviousChat_ACU(true);
     resetPlotAgentWorldbookSessionSnapshot_ACU();
 
     _set_currentJsonTableData_ACU(null);
@@ -226,120 +250,7 @@ import {
       return '';
   }
 
-  async function deleteAllGeneratedEntries_ACU(targetLorebook: string | null = null) {
-    const primaryLorebookName = targetLorebook || (await getInjectionTargetLorebook_ACU());
-    if (!primaryLorebookName) return;
-
-    try {
-        const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
-        
-        // [修改] 根据隔离状态构建删除逻辑
-        const isolationPrefix = getIsolationPrefix_ACU();
-        
-        const basePrefixes = [
-            'TavernDB-ACU-ReadableDataTable',
-            'TavernDB-ACU-OutlineTable',
-            '重要人物条目',
-            'TavernDB-ACU-ImportantPersonsIndex',
-            '总结条目',
-            '小总结条目',
-            'TavernDB-ACU-CustomExport',
-            'TavernDB-ACU-WrapperStart',
-            'TavernDB-ACU-WrapperEnd',
-            'TavernDB-ACU-MemoryStart',
-            'TavernDB-ACU-MemoryEnd',
-            'TavernDB-ACU-PersonsHeader'
-        ];
-
-        // [修改] 使用 knownCustomEntryNames 增强删除逻辑
-        const knownNames = settings_ACU.knownCustomEntryNames || [];
-        
-        // [新增] 获取当前配置的预期前缀作为补充 (防止 knownNames 丢失)
-        const currentConfigPrefixes = new Set();
-        if (currentJsonTableData_ACU) {
-             const tableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
-             tableKeys.forEach(sheetKey => {
-                 const table = currentJsonTableData_ACU[sheetKey];
-                 if (table && table.exportConfig && table.exportConfig.enabled) {
-                     const entryName = table.exportConfig.entryName || table.name;
-                     if (entryName) {
-                         currentConfigPrefixes.add(entryName);
-                     }
-                 }
-             });
-        }
-        const importPrefix = getImportStablePrefix_ACU();
-
-        const uidsToDelete = allEntries
-            .filter(entry => {
-                if (!entry.comment) return false;
-
-                // [严重问题修复] 外部导入生成的条目一律不参与"自动清理"
-                // 说明：切回脚本/读不到聊天表格数据时，可能会触发 deleteAllGeneratedEntries_ACU 清理旧条目；
-                // 但外部导入条目应被视为第三方条目，只允许用户手动清理/删除。
-                if (settings_ACU.dataIsolationEnabled) {
-                    if (isolationPrefix && entry.comment.startsWith(isolationPrefix + importPrefix)) return false;
-                } else {
-                    if (entry.comment.startsWith(importPrefix)) return false;
-                }
-                
-                if (settings_ACU.dataIsolationEnabled) {
-                    // 隔离模式：只删除匹配当前标识前缀的
-                    if (!isolationPrefix) return false;
-                    
-                    // 1. 基础前缀
-                    if (basePrefixes.some(prefix => entry.comment.startsWith(isolationPrefix + prefix))) return true;
-
-                    // 2. 已知自定义条目 (Known List) - 必须匹配隔离前缀
-                    if (knownNames.includes(entry.comment) && entry.comment.startsWith(isolationPrefix)) return true;
-
-                    // 3. 当前配置前缀 (Fallback)
-                    for (const customPrefix of currentConfigPrefixes) {
-                        if (entry.comment.startsWith(isolationPrefix + customPrefix)) return true;
-                    }
-
-                    return false;
-                } else {
-                    // 非隔离模式
-                    if (entry.comment.startsWith('ACU-[')) return false; // 避开隔离数据
-                    
-                    // 1. 基础前缀
-                    if (basePrefixes.some(prefix => entry.comment.startsWith(prefix))) return true;
-
-                    // 2. 已知自定义条目 (Known List) - 必须不带隔离前缀(或者说我们假设knownNames存了完整名，这里只需检查它是否不以ACU-[开头)
-                    // 其实 knownNames 可能包含带隔离前缀的（如果是切模式过来的）。我们只删非隔离的。
-                    if (knownNames.includes(entry.comment) && !entry.comment.startsWith('ACU-[')) return true;
-
-                    // 3. 当前配置前缀 (Fallback)
-                    for (const customPrefix of currentConfigPrefixes) {
-                        if (entry.comment.startsWith(customPrefix)) return true;
-                    }
-
-                    return false;
-                }
-            })
-            .map(entry => entry.uid);
-
-        if (uidsToDelete.length > 0) {
-            await deleteLorebookEntries_ACU(primaryLorebookName, uidsToDelete);
-            logDebug_ACU(`Successfully deleted ${uidsToDelete.length} generated database entries for new chat.`);
-            
-            // [新增] 清理 knownCustomEntryNames 中属于当前隔离环境的记录
-            // 因为我们已经把它们删了。
-            // 注意：如果是"新聊天"，我们其实是重置。
-            if (settings_ACU.knownCustomEntryNames) {
-                if (settings_ACU.dataIsolationEnabled) {
-                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter((n: string) => !n.startsWith(isolationPrefix));
-                } else {
-                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter((n: string) => n.startsWith('ACU-[')); // 只保留隔离的
-                }
-                saveSettings_ACU();
-            }
-        }
-    } catch(error) {
-        logError_ACU('Failed to delete generated lorebook entries:', error);
-    }
-  }
+  // deleteAllGeneratedEntries_ACU 统一用 pipeline 的实现（此前两份逐字复制，修一处漏一处，R6-12）。
 
   // =========================
   // [可视化删表-硬删除] 追溯整个聊天记录，删除指定 sheetKey 的所有本地表格数据（新版+旧版）

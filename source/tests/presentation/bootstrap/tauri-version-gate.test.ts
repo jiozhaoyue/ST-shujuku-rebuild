@@ -1,6 +1,6 @@
 /**
  * tests/presentation/bootstrap/tauri-version-gate.test.ts
- * TT 版本闸门：低于 2.3.0 时弹模态提醒升级（每次启动都提醒；非 TT 宿主与读取失败不打扰）。
+ * TT 版本闸门：低于 2.4.0 时弹模态提醒升级（每次启动都提醒；非 TT 宿主与读取失败不打扰）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -43,13 +43,6 @@ afterEach(() => {
 });
 
 describe('buildAcuTauriVersionWarningHtml_ACU', () => {
-  it('同时给出当前版本与要求版本', async () => {
-    const { buildAcuTauriVersionWarningHtml_ACU } = await loadGate();
-    const html = buildAcuTauriVersionWarningHtml_ACU('2.2.0');
-    expect(html).toContain('2.2.0');
-    expect(html).toContain('2.3.0');
-    expect(html).toContain('TauriTavern');
-  });
 
   it('版本串经 HTML 转义（宿主返回值不外泄为标记）', async () => {
     const { buildAcuTauriVersionWarningHtml_ACU } = await loadGate();
@@ -60,6 +53,13 @@ describe('buildAcuTauriVersionWarningHtml_ACU', () => {
 });
 
 describe('notifyAcuTauriVersionIfOutdated_ACU', () => {
+  it('TT 2.4.0 及以上不提醒', async () => {
+    const { callGenericPopup } = makeTauriWindow('2.4.0');
+    const { notifyAcuTauriVersionIfOutdated_ACU } = await loadGate();
+    await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(false);
+    expect(callGenericPopup).not.toHaveBeenCalled();
+  });
+
   it('非 TT 宿主不提醒、不弹窗', async () => {
     installFakeWindow({ SillyTavern: { getContext: () => ({ callGenericPopup: vi.fn(), POPUP_TYPE: { TEXT: 1 } }) } });
     const { notifyAcuTauriVersionIfOutdated_ACU } = await loadGate();
@@ -67,15 +67,17 @@ describe('notifyAcuTauriVersionIfOutdated_ACU', () => {
     expect(toastSpy.show).not.toHaveBeenCalled();
   });
 
-  it('TT 版本低于 2.3.0 时弹模态提醒，正文带当前版本', async () => {
-    const { callGenericPopup } = makeTauriWindow('2.2.0');
+  it('TT 版本低于 2.4.0 时弹模态提醒，正文带当前版本', async () => {
+    const { callGenericPopup } = makeTauriWindow('2.3.0');
     const { notifyAcuTauriVersionIfOutdated_ACU } = await loadGate();
 
     await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(true);
     expect(callGenericPopup).toHaveBeenCalledTimes(1);
     const [html, type] = callGenericPopup.mock.calls[0];
-    expect(String(html)).toContain('2.2.0');
     expect(String(html)).toContain('2.3.0');
+    expect(String(html)).toContain('2.4.0');
+    expect(String(html)).toContain('确认框');
+    expect(String(html)).toContain('RUSTSEC-2026-0381');
     expect(type).toBe(1);
     expect(toastSpy.show).not.toHaveBeenCalled();
   });
@@ -87,20 +89,6 @@ describe('notifyAcuTauriVersionIfOutdated_ACU', () => {
     await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(true);
     await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(false);
     expect(callGenericPopup).toHaveBeenCalledTimes(1);
-  });
-
-  it('版本满足要求时不提醒', async () => {
-    const { callGenericPopup } = makeTauriWindow('2.3.0');
-    const { notifyAcuTauriVersionIfOutdated_ACU } = await loadGate();
-    await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(false);
-    expect(callGenericPopup).not.toHaveBeenCalled();
-  });
-
-  it('更高版本不提醒', async () => {
-    const { callGenericPopup } = makeTauriWindow('3.1.4');
-    const { notifyAcuTauriVersionIfOutdated_ACU } = await loadGate();
-    await expect(notifyAcuTauriVersionIfOutdated_ACU()).resolves.toBe(false);
-    expect(callGenericPopup).not.toHaveBeenCalled();
   });
 
   it('版本读取失败时 fail-open：不提醒也不抛错', async () => {

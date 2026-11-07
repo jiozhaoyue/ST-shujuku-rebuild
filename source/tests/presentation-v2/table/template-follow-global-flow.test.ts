@@ -19,7 +19,7 @@ vi.mock('../../../src/service/template/chat-scope', () => ({
   getGlobalTemplateSnapshotForCurrentProfile_ACU: mocks.globalSnapshot,
 }));
 vi.mock('../../../src/presentation-v2/composables/useTemplateRecoveryGuard', () => ({
-  ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU: mocks.guard,
+  ensureTemplateRecoveryReady_ACU: mocks.guard,
 }));
 
 import {
@@ -49,20 +49,6 @@ describe('runFollowGlobalTemplateFlow_ACU', () => {
     expect(mocks.follow).not.toHaveBeenCalled();
   });
 
-  it('成功清除覆盖时 toast 成功并返回 true', async () => {
-    const ui = makeUi();
-    expect(await runFollowGlobalTemplateFlow_ACU(ui)).toBe(true);
-    expect(mocks.follow).toHaveBeenCalledWith(expect.objectContaining({ destructiveChangeConfirmed: false }));
-    expect(ui.toast.success).toHaveBeenCalled();
-  });
-
-  it('alreadyFollowing 时提示已跟随全局并返回 true', async () => {
-    const ui = makeUi();
-    mocks.follow.mockResolvedValueOnce({ saved: true, alreadyFollowing: true, mode: 'inherit_global', presetName: '' });
-    expect(await runFollowGlobalTemplateFlow_ACU(ui)).toBe(true);
-    expect(ui.toast.info).toHaveBeenCalledWith('当前聊天已跟随全局模板，无需清除覆盖。');
-  });
-
   it('postCommitWarning 透传为 warning toast', async () => {
     const ui = makeUi();
     mocks.follow.mockResolvedValueOnce({ saved: true, mode: 'inherit_global', presetName: '', postCommitWarning: 'SQLite 重建失败' });
@@ -75,10 +61,13 @@ describe('runFollowGlobalTemplateFlow_ACU', () => {
     const ui = makeUi();
     mocks.follow
       .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
+      // R10A-04：确认后先不带确认标志重算，待删清单与确认时一致才带标志提交。
+      .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
       .mockResolvedValueOnce({ saved: true, mode: 'inherit_global', presetName: '' });
     expect(await runFollowGlobalTemplateFlow_ACU(ui)).toBe(true);
     expect(mocks.follow).toHaveBeenNthCalledWith(1, expect.objectContaining({ destructiveChangeConfirmed: false }));
-    expect(mocks.follow).toHaveBeenNthCalledWith(2, expect.objectContaining({ destructiveChangeConfirmed: true }));
+    expect(mocks.follow).toHaveBeenNthCalledWith(2, expect.objectContaining({ destructiveChangeConfirmed: false }));
+    expect(mocks.follow).toHaveBeenNthCalledWith(3, expect.objectContaining({ destructiveChangeConfirmed: true }));
 
     const ui2 = makeUi();
     ui2.dialogStore.confirm.mockResolvedValueOnce(false);

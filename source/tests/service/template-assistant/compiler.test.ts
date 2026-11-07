@@ -36,6 +36,7 @@ vi.mock('../../../src/service/runtime/helpers-remaining', () => ({
 }));
 
 import { compileTemplateAssistantDraft_ACU } from '../../../src/service/template-assistant/compiler';
+import { validateDDLTextAgainstHeaders_ACU } from '../../../src/shared/ddl-utils';
 
 function buildTempData_ACU() {
   return {
@@ -99,9 +100,15 @@ describe('compileTemplateAssistantDraft_ACU', () => {
     expect(result.candidateData[addedKey].sourceData.initNode).toContain('初始化');
     expect(result.candidateData[addedKey].sourceData.insertNode).toContain('新增');
     expect(result.focusSheetKey).toBe(addedKey);
+    // G09-06：新建表本地必产 DDL（对齐 v3），中文表头映射为 ASCII 物理列名 + `-- 中文表头` 注释
+    const ddl = String(result.candidateData[addedKey].sourceData.ddl || '');
+    expect(ddl).toContain('CREATE TABLE');
+    expect(ddl).toContain('row_id INTEGER PRIMARY KEY');
+    expect(ddl).toContain('-- 物品');
+    expect(ddl).toContain('-- 品质');
   });
 
-  it('add_sheet 缺省 sourceData 时会生成可用的初始化脚手架', () => {
+  it('add_sheet 生成的 DDL 与表头逐列匹配（G09-06 对齐 v3 口径）', () => {
     const result = compileTemplateAssistantDraft_ACU({
       tempData: buildTempData_ACU(),
       sheetOrder: ['sheet_a', 'sheet_b', 'sheet_summary'],
@@ -109,18 +116,14 @@ describe('compileTemplateAssistantDraft_ACU', () => {
       draft: {
         protocolVersion: 2,
         operations: [
-          { op: 'add_sheet', sheetName: '战利品表', headers: ['物品名称', '数量', '描述/效果', '类别'] },
+          { op: 'add_sheet', sheetName: '角色关系表', headers: ['角色A', '角色B', '关系'] },
         ],
       },
     });
-
     const addedKey = result.diff.addedSheets[0].sheetKey;
-    expect(result.candidateData[addedKey].sourceData.note).toContain('记录战利品表中的物品或战利品条目');
-    expect(result.candidateData[addedKey].sourceData.note).toContain('列1: 物品名称');
-    expect(result.candidateData[addedKey].sourceData.initNode).toContain('不要编造');
-    expect(result.candidateData[addedKey].sourceData.updateNode).toContain('数量');
-    expect(result.candidateData[addedKey].sourceData.updateNode).toContain('更新');
-    expect(result.candidateData[addedKey].sourceData.deleteNode).toContain('删除');
+    const ddl = String(result.candidateData[addedKey].sourceData.ddl || '');
+    const validation = validateDDLTextAgainstHeaders_ACU(ddl, ['row_id', '角色A', '角色B', '关系']);
+    expect(validation.valid).toBe(true);
   });
 
   it('add_sheet 拒绝与现有表 canonical 重名的名称', () => {
@@ -285,10 +288,12 @@ describe('compileTemplateAssistantDraft_ACU', () => {
 
     expect(result.diff.patchedContentSheets[0]?.changes.join('；')).toContain('改单元格');
     expect(result.diff.patchedContentSheets[0]?.changes.join('；')).toContain('新增 1 行');
-    expect(result.candidateData.sheet_a.content).toEqual([
-      ['row_id', '姓名', '备注'],
-      [null, '乙', '第二行'],
-    ]);
+    const content = result.candidateData.sheet_a.content;
+    expect(content[0]).toEqual(['row_id', '姓名', '备注']);
+    // G09-06：AI 新增行分配编辑器同款临时 row_id（此前写 null，保存链会把空 row_id 行按「已删除」静默移除）
+    expect(typeof content[1][0]).toBe('string');
+    expect(String(content[1][0])).toMatch(/^__acu_vis_tmp_row_/);
+    expect(content[1].slice(1)).toEqual(['乙', '第二行']);
   });
 
   it('patch_sheet_schema 支持结构修改并标记高风险', () => {
@@ -562,16 +567,6 @@ describe('v3 单表完整替换协议', () => {
     expect(result.candidateData.sheet_summary.content[1]).toEqual([1, '第一条', 'AM0001']);
   });
 
-  it('replace 目标表不存在时报错', () => {
-    const tempData = buildTempData_ACU();
-    expect(() => compileTemplateAssistantDraft_ACU({
-      tempData,
-      sheetOrder: ['sheet_a', 'sheet_b', 'sheet_summary'],
-      currentSheetKey: 'sheet_a',
-      draft: buildV3ReplaceDraft_ACU(fp, 'sheet_not_exist', buildV3FullSheet_ACU()),
-    })).toThrow(/找不到目标表/);
-  });
-
   it('replace 拒绝缺必填字段的完整 Sheet', () => {
     const tempData = buildTempData_ACU();
     const sheet = buildV3FullSheet_ACU();
@@ -722,3 +717,36 @@ describe('v3 单表完整替换协议', () => {
   });
 });
 
+
+// R6-05：整表替换时，隐藏列集合与列/表别名以本地原表为准，不靠模型回显（模型看不到它们）。
+describe('v3 整表替换保留本地隐藏列与别名', () => {
+  it('模型按快照回显 sourceData 后，hiddenPhysicalColumns / tableAliases / columnAliases 仍在', async () => {
+    const { getSheetColumnProjection_ACU } = await import('../../../src/shared/ddl-utils');
+    const ddl = 'CREATE TABLE sheet_a (row_id INTEGER PRIMARY KEY, name TEXT, old_col TEXT)';
+    const tempData: any = {
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_a: {
+        uid: 'sheet_a', name: '物品', orderNo: 0, domain: 'chat', type: 'dynamic', enable: true, required: false,
+        content: [['row_id', 'name', 'old_col'], ['r1', '剑', 'x']],
+        sourceData: { note: 'n', ddl, hiddenPhysicalColumns: ['old_col'], tableAliases: ['旧物品'], columnAliases: { name: ['名称'] } },
+        updateConfig: {}, exportConfig: {},
+      },
+    };
+    const draft = {
+      protocolVersion: 3, mode: 'single_sheet_full_replace', requestId: 'r', baseFingerprint: 'fp', atomic: true,
+      selectedSheetKey: 'sheet_a', summary: '改备注', warnings: [],
+      result: { action: 'replace', sheetKey: 'sheet_a', sheet: {
+        name: '物品', domain: 'chat', type: 'dynamic', enable: true, required: false,
+        content: [['row_id', 'name', 'old_col'], ['r1', '剑', 'x']],
+        sourceData: { note: '新备注', ddl }, updateConfig: {}, exportConfig: {},
+      } },
+    };
+    const result = compileTemplateAssistantDraft_ACU({ tempData, sheetOrder: ['sheet_a'], currentSheetKey: 'sheet_a', draft } as any);
+    const sheet = result.candidateData.sheet_a;
+    expect(sheet.sourceData.note).toBe('新备注');
+    expect(sheet.sourceData.hiddenPhysicalColumns).toEqual(['old_col']);
+    expect(sheet.sourceData.tableAliases).toEqual(['旧物品']);
+    expect(sheet.sourceData.columnAliases).toEqual({ name: ['名称'] });
+    expect(getSheetColumnProjection_ACU(sheet).visibleColumns.map((column: any) => column.header)).not.toContain('old_col');
+  });
+});

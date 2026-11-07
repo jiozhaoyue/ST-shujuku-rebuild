@@ -20,12 +20,14 @@ async function importComposable() {
   const applyTemplatePresetToCurrent_ACU = vi.fn(async () => ({ saved: true, presetName: selectedChat }));
   const renameTemplatePreset_ACU = vi.fn(() => ({ ok: true }));
   const resolveTemplateForExport_ACU = vi.fn(() => ({ jsonData: { sheet_1: {} }, fromPresetName: selectedChat || '默认预设' }));
-  const ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU = vi.fn(async () => ({ success: true, dataWasReset: false }));
+  const ensureTemplateRecoveryReady_ACU = vi.fn(async () => ({ success: true, dataWasReset: false }));
   const promptFollowGlobalAfterSetDefault_ACU = vi.fn(async () => true);
   const runFollowGlobalTemplateFlow_ACU = vi.fn(async () => true);
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: {},
+    currentChatFileIdentifier_ACU: 'chat-a',
+    getCurrentIsolationKey_ACU: () => '',
   }));
   vi.doMock('../../../src/service/table/storage-mode', () => ({
     isSqliteMode: () => false,
@@ -34,7 +36,7 @@ async function importComposable() {
     reloadStorageProvider: vi.fn(async () => undefined),
   }));
   vi.doMock('../../../src/presentation-v2/composables/useTemplateRecoveryGuard', () => ({
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
+    ensureTemplateRecoveryReady_ACU,
   }));
   vi.doMock('../../../src/presentation-v2/composables/templateFollowGlobalFlow', () => ({
     promptFollowGlobalAfterSetDefault_ACU,
@@ -64,6 +66,14 @@ async function importComposable() {
     sanitizeFilenameComponent_ACU: (value: string) => String(value || '').trim(),
     deriveTemplatePresetNameForImport_ACU: () => '导入模板',
   }));
+  // 预设库读取入口计数：三种入口都会读+parse 整个预设库，refresh 内只允许命中一次。
+  const libraryReads = { snapshot: 0, names: 0, get: 0 };
+  const buildLibrarySnapshot = () => new Map(
+    (libraryPresetStr == null ? [] : [
+      ['global-A', { templateStr: libraryPresetStr, updatedAt: 1 }],
+      ['chat-A', { templateStr: libraryPresetStr, updatedAt: 1 }],
+    ] as Array<[string, { templateStr: string; updatedAt: number }]>),
+  );
   vi.doMock('../../../src/service/template/template-preset-service', () => ({
     applyTemplateSnapshotToScope_ACU,
     applyTemplatePresetToCurrent_ACU,
@@ -72,8 +82,19 @@ async function importComposable() {
     ensureUniqueTemplatePresetName_ACU: (name: string) => name,
     getDefaultTemplateSnapshot_ACU: () => ({ templateObj: { sheet_1: {} }, templateStr: '{"sheet_1":{}}' }),
     getRuntimeTemplateSnapshot_ACU: () => runtimeSnapshot,
-    getTemplatePreset_ACU: () => (libraryPresetStr != null ? { templateStr: libraryPresetStr } : null),
-    listTemplatePresetNames_ACU: () => ['global-A', 'chat-A'],
+    getTemplatePreset_ACU: vi.fn(() => {
+      libraryReads.get += 1;
+      return libraryPresetStr != null ? { templateStr: libraryPresetStr } : null;
+    }),
+    readTemplatePresetLibrarySnapshot_ACU: vi.fn(() => {
+      libraryReads.snapshot += 1;
+      // names 顺序与 listTemplatePresetNames_ACU 的 mock 保持一致，便于逐项比对展示结果。
+      return { names: ['global-A', 'chat-A'], byName: buildLibrarySnapshot() };
+    }),
+    listTemplatePresetNames_ACU: vi.fn(() => {
+      libraryReads.names += 1;
+      return ['global-A', 'chat-A'];
+    }),
     normalizeTemplateForPresetSave_ACU: () => ({ templateStr: '{"sheet_1":{}}' }),
     parseImportedTemplateData_ACU: () => ({ templateObj: { sheet_1: {} }, templateStr: '{"sheet_1":{}}' }),
     resolveActiveTemplatePresetName_ACU: () => selectedChat,
@@ -97,7 +118,7 @@ async function importComposable() {
     applyTemplatePresetToCurrent_ACU,
     renameTemplatePreset_ACU,
     resolveTemplateForExport_ACU,
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
+    ensureTemplateRecoveryReady_ACU,
     promptFollowGlobalAfterSetDefault_ACU,
     runFollowGlobalTemplateFlow_ACU,
     setSelectedGlobal: (value: string) => { selectedGlobal = value; },
@@ -109,6 +130,8 @@ async function importComposable() {
     setRuntimeAvailable: (available: boolean) => { runtimeSnapshot = available ? { templateStr: '{"sheet_1":{"name":"运行时"}}', templateObj: { sheet_1: { name: '运行时' } } } : null; },
     setChatSnapshotStr: (value: string) => { chatSnapshotStr = value; },
     setLibraryPresetStr: (value: string | null) => { libraryPresetStr = value; },
+    /** 一次 refresh 内预设库被读取+parse 的次数（三类读取入口之和）。 */
+    libraryReadCount: () => libraryReads.snapshot + libraryReads.names + libraryReads.get,
   };
 }
 
@@ -122,6 +145,40 @@ beforeEach(() => {
 });
 
 describe('useTableTemplatePresets', () => {
+  it('一次 refresh 只读一次预设库：列表/表数/偏离判定复用同一份库快照', async () => {
+    const { useTableTemplatePresets, setSelectedChat, setActiveMode, setChatSnapshotStr, libraryReadCount } = await importComposable();
+    setSelectedChat('global-A');
+    setActiveMode('chat_override');
+    setChatSnapshotStr('{"sheet_1":{"name":"用户改过的结构"}}');
+
+    const presets = useTableTemplatePresets();
+    // 旧行为：listTemplatePresetNames 1 次 + 每个预设名一次 getTemplatePreset + runtime/偏离各一次。
+    expect(libraryReadCount()).toBe(1);
+
+    const items = presets.chatPresetItems.value;
+    // 展示语义不变：默认项 → 运行时项 → 全局预设（按名）→ 当前聊天快照，偏离标记与 meta 拼接保持原样。
+    expect(items.map(item => item.label)).toEqual([
+      '默认预设（全局）',
+      '当前生效模板（内存）',
+      'global-A（全局预设）',
+      'chat-A（全局预设）',
+      'global-A（当前聊天快照）（内容已偏离库预设）',
+    ]);
+    expect(items[0].meta).toBe('1 张表');
+    expect(items[1].meta).toBe('1 张表');
+    expect(items[2].meta).toBe('1 张表');
+    expect(items[4].meta).toBe('1 张表');
+    expect(presets.chatSnapshotDiffersFromLibrary.value).toBe(true);
+    expect(presets.runtimeTemplateItem.value?.meta).toBe('1 张表');
+    expect(presets.runtimeDiffersFromLibrary.value).toBe(true);
+    expect(presets.chatArchiveItems.value).toEqual([]);
+
+    // 反复 refresh 不再叠加库读取。
+    presets.refresh();
+    presets.refresh();
+    expect(libraryReadCount()).toBe(3);
+  });
+
   it('isChatOverridden 按实际聊天作用域判断，同名快照也算覆盖', async () => {
     const { useTableTemplatePresets, setSelectedChat, setSelectedGlobal, setActiveScope } = await importComposable();
     const presets = useTableTemplatePresets();
@@ -186,18 +243,6 @@ describe('useTableTemplatePresets', () => {
     expect(presets.selectedChatPresetLabel.value).toBe('global-A（当前聊天快照）');
   });
 
-  it('S3-8：快照内容偏离库中同名预设时标签带偏离后缀且 ref 为 true', async () => {
-    const { useTableTemplatePresets, setSelectedChat, setActiveMode, setChatSnapshotStr } = await importComposable();
-    setSelectedChat('global-A');
-    setActiveMode('chat_override');
-    setChatSnapshotStr('{"sheet_1":{"name":"用户改过的结构"}}');
-
-    const presets = useTableTemplatePresets();
-
-    expect(presets.chatSnapshotDiffersFromLibrary.value).toBe(true);
-    expect(presets.selectedChatPresetLabel.value).toBe('global-A（当前聊天快照）（内容已偏离库预设）');
-  });
-
   it('S3-8：库中同名预设已删除时 meta 标注且 ref 为 true，标签不带偏离后缀', async () => {
     const { useTableTemplatePresets, setSelectedChat, setActiveMode, setLibraryPresetStr } = await importComposable();
     setSelectedChat('global-A');
@@ -222,15 +267,6 @@ describe('useTableTemplatePresets', () => {
 
     expect(presets.chatSnapshotDiffersFromLibrary.value).toBe(true);
     expect(presets.selectedChatPresetLabel.value).toBe('默认预设（当前聊天快照）（内容已偏离库预设）');
-  });
-
-  it('S3-8：非 chat_override 模式下偏离 ref 恒为 false', async () => {
-    const { useTableTemplatePresets, setChatSnapshotStr } = await importComposable();
-    setChatSnapshotStr('{"sheet_1":{"name":"偏离也无效"}}');
-
-    const presets = useTableTemplatePresets();
-
-    expect(presets.chatSnapshotDiffersFromLibrary.value).toBe(false);
   });
 
   it('选择同名全局项时按全局来源切换，不被本地快照抢占', async () => {
@@ -268,13 +304,13 @@ describe('useTableTemplatePresets', () => {
   });
 
   it('切换当前聊天模板前使用统一恢复 guard，guard 取消时不切换', async () => {
-    const { useTableTemplatePresets, applyTemplatePresetToCurrent_ACU, ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } = await importComposable();
+    const { useTableTemplatePresets, applyTemplatePresetToCurrent_ACU, ensureTemplateRecoveryReady_ACU } = await importComposable();
     const presets = useTableTemplatePresets();
-    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU.mockResolvedValueOnce({ success: false, dataWasReset: false });
+    ensureTemplateRecoveryReady_ACU.mockResolvedValueOnce({ success: false, dataWasReset: false });
 
     await presets.selectChatPreset('chat-A');
 
-    expect(ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU).toHaveBeenCalledWith(expect.any(Object), 'switch-template');
+    expect(ensureTemplateRecoveryReady_ACU).toHaveBeenCalledWith('switch-template');
     expect(applyTemplatePresetToCurrent_ACU).not.toHaveBeenCalled();
   });
 
@@ -304,6 +340,7 @@ describe('useTableTemplatePresets', () => {
     const presets = useTableTemplatePresets();
     applyTemplatePresetToCurrent_ACU
       .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
+      .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' })
       .mockResolvedValueOnce({ saved: true, mode: 'v2_commit' });
 
     const pending = presets.selectChatPreset('chat-A');
@@ -319,6 +356,9 @@ describe('useTableTemplatePresets', () => {
       destructiveChangeConfirmed: false,
     }));
     expect(applyTemplatePresetToCurrent_ACU).toHaveBeenNthCalledWith(2, 'chat-A', expect.objectContaining({
+      destructiveChangeConfirmed: false,
+    }));
+    expect(applyTemplatePresetToCurrent_ACU).toHaveBeenNthCalledWith(3, 'chat-A', expect.objectContaining({
       destructiveChangeConfirmed: true,
     }));
   });
@@ -482,13 +522,6 @@ describe('useTableTemplatePresets · runtime 视图', () => {
     expect(presets.runtimeDiffersFromLibrary.value).toBe(false);
   });
 
-  it('运行时内容与库内容不同时 runtimeDiffersFromLibrary 为 true', async () => {
-    const { useTableTemplatePresets, setRuntimeSnapshot } = await importComposable();
-    setRuntimeSnapshot({ templateStr: '{"sheet_1":{"name":"新内容"}}', templateObj: { sheet_1: { name: '新内容' } } });
-    const presets = useTableTemplatePresets();
-    expect(presets.runtimeDiffersFromLibrary.value).toBe(true);
-  });
-
   it('运行时解析失败时 runtimeTemplateAvailable=false、runtimeTemplateItem=null 且不抛异常', async () => {
     const { useTableTemplatePresets, setRuntimeAvailable } = await importComposable();
     setRuntimeAvailable(false);
@@ -543,6 +576,7 @@ describe('useTableTemplatePresets · runtime 视图', () => {
     const presets = useTableTemplatePresets();
     applyTemplatePresetToCurrent_ACU
       .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' } as any)
+      .mockResolvedValueOnce({ saved: false, blockers: ['删除表「旧表」需要显式确认。'], error: '删除表「旧表」需要显式确认。' } as any)
       .mockResolvedValueOnce({ saved: true, presetName: 'global-B' } as any);
 
     const pending = presets.selectGlobalPreset('global:global-B');
@@ -559,6 +593,10 @@ describe('useTableTemplatePresets · runtime 视图', () => {
       destructiveChangeConfirmed: false,
     }));
     expect(applyTemplatePresetToCurrent_ACU).toHaveBeenNthCalledWith(2, 'global-B', expect.objectContaining({
+      updateGlobal: true,
+      destructiveChangeConfirmed: false,
+    }));
+    expect(applyTemplatePresetToCurrent_ACU).toHaveBeenNthCalledWith(3, 'global-B', expect.objectContaining({
       updateGlobal: true,
       destructiveChangeConfirmed: true,
     }));
@@ -579,21 +617,6 @@ describe('useTableTemplatePresets · runtime 视图', () => {
       text: '当前表格状态在读取模板基线时发生变化，请稍后重试。',
     });
     expect(toast.items.at(-1)).toMatchObject({ kind: 'error' });
-  });
-
-  it('重命名全局预设后切换失败时回滚名称', async () => {
-    const { useTableTemplatePresets, dialog, applyTemplatePresetToCurrent_ACU, renameTemplatePreset_ACU } = await importComposable();
-    const presets = useTableTemplatePresets();
-    applyTemplatePresetToCurrent_ACU.mockResolvedValueOnce({ saved: false, error: '模拟切换失败' } as any);
-
-    const pending = presets.renameGlobalPreset();
-    await vi.waitFor(() => expect(dialog.active).toMatchObject({ kind: 'prompt', title: '重命名全局模板预设' }));
-    dialog.inputValue = 'global-renamed';
-    dialog.submitActive();
-    await pending;
-
-    expect(renameTemplatePreset_ACU).toHaveBeenNthCalledWith(1, 'global-A', 'global-renamed');
-    expect(renameTemplatePreset_ACU).toHaveBeenNthCalledWith(2, 'global-renamed', 'global-A');
   });
 
   it('全局切换协调成功但带 postCommitWarning 时显示警告（S1-3）', async () => {

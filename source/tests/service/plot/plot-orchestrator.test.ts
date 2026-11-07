@@ -29,7 +29,6 @@ vi.mock('../../../src/service/flight-mode/flight-mode-state', () => ({
 }));
 
 import {
-  prepareStrategy1Context_ACU,
   orchestrateAfterCommandsStrategy1_ACU,
   orchestrateAfterCommandsStrategy2_ACU,
 } from '../../../src/service/plot/plot-orchestrator';
@@ -38,29 +37,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSettings.plotSettings = { enabled: true };
   mockFlightModeActive.mockReturnValue(false);
-});
-
-// ═══ prepareStrategy1Context_ACU ═══
-describe('prepareStrategy1Context_ACU', () => {
-  it('正常用户消息返回上下文', () => {
-    const msg = { is_user: true, mes: '你好' };
-    const result = prepareStrategy1Context_ACU(msg);
-    expect(result).not.toBeNull();
-    expect(result!.messageToProcess).toBe('你好');
-    expect(msg._plot_processed).toBe(true);
-  });
-  it('非用户消息返回 null', () => {
-    expect(prepareStrategy1Context_ACU({ is_user: false, mes: '你好' })).toBeNull();
-  });
-  it('已处理消息返回 null', () => {
-    expect(prepareStrategy1Context_ACU({ is_user: true, mes: '你好', _plot_processed: true })).toBeNull();
-  });
-  it('空消息返回 null', () => {
-    expect(prepareStrategy1Context_ACU({ is_user: true, mes: '' })).toBeNull();
-  });
-  it('null 返回 null', () => {
-    expect(prepareStrategy1Context_ACU(null)).toBeNull();
-  });
 });
 
 // ═══ orchestrateAfterCommandsStrategy1_ACU ═══
@@ -73,16 +49,33 @@ describe('orchestrateAfterCommandsStrategy1_ACU', () => {
     expect(result.finalMessage).toBe('规划结果');
     expect(result.lastMessageIndex).toBe(5);
   });
-  it('非用户消息返回 no_match', async () => {
-    const result = await orchestrateAfterCommandsStrategy1_ACU({ is_user: false }, 5, vi.fn());
-    expect(result.action).toBe('no_match');
-  });
   it('用户中止返回 aborted', async () => {
     const msg = { is_user: true, mes: '你好' };
     const runPlanning = vi.fn().mockResolvedValue({ aborted: true, manual: true, restoreText: '你好' });
     const result = await orchestrateAfterCommandsStrategy1_ACU(msg, 5, runPlanning);
     expect(result.action).toBe('aborted');
     expect(result.manual).toBe(true);
+  });
+  it('规划跳过返回 skipped（S1 已匹配不再进 S2）', async () => {
+    const msg = { is_user: true, mes: '你好' };
+    const runPlanning = vi.fn().mockResolvedValue({ skipped: true, reason: 'disabled' });
+    const result = await orchestrateAfterCommandsStrategy1_ACU(msg, 5, runPlanning);
+    expect(result.action).toBe('skipped');
+  });
+  it('API 重试耗尽透出 failed（发送层据此中断，不吞成 no_match）', async () => {
+    const msg = { is_user: true, mes: '你好' };
+    const runPlanning = vi.fn().mockResolvedValue({ apiRetriesExhausted: true });
+    const result = await orchestrateAfterCommandsStrategy1_ACU(msg, 5, runPlanning);
+    expect(result.action).toBe('failed');
+    expect(result.apiRetriesExhausted).toBe(true);
+    expect(result.originalMessage).toBe('你好');
+    expect(result.lastMessageIndex).toBe(5);
+  });
+  it('其它规划失败（blocked）同样透出 failed，发送层据此停发', async () => {
+    const msg = { is_user: true, mes: '你好' };
+    const runPlanning = vi.fn().mockResolvedValue({ blocked: true, reason: 'stage_failure' });
+    const result = await orchestrateAfterCommandsStrategy1_ACU(msg, 5, runPlanning);
+    expect(result).toMatchObject({ action: 'failed', blocked: true, originalMessage: '你好', lastMessageIndex: 5 });
   });
 });
 
@@ -94,14 +87,21 @@ describe('orchestrateAfterCommandsStrategy2_ACU', () => {
     expect(result.action).toBe('planned');
     expect(result.finalMessage).toBe('规划结果');
   });
-  it('空文本返回 skip', async () => {
-    const result = await orchestrateAfterCommandsStrategy2_ACU('', vi.fn());
-    expect(result.action).toBe('skip');
-  });
   it('规划跳过返回 skip', async () => {
     const runPlanning = vi.fn().mockResolvedValue({ skipped: true });
     const result = await orchestrateAfterCommandsStrategy2_ACU('继续', runPlanning);
     expect(result.action).toBe('skip');
+  });
+  it('API 重试耗尽透出 failed（发送层据此中断，不吞成 skip）', async () => {
+    const runPlanning = vi.fn().mockResolvedValue({ apiRetriesExhausted: true });
+    const result = await orchestrateAfterCommandsStrategy2_ACU('继续', runPlanning);
+    expect(result.action).toBe('failed');
+    expect(result.apiRetriesExhausted).toBe(true);
+  });
+  it('其它规划失败（blocked）同样透出 failed', async () => {
+    const runPlanning = vi.fn().mockResolvedValue({ blocked: true, reason: 'all_failed' });
+    const result = await orchestrateAfterCommandsStrategy2_ACU('继续', runPlanning);
+    expect(result).toMatchObject({ action: 'failed', blocked: true });
   });
   it('用户中止返回 aborted', async () => {
     const runPlanning = vi.fn().mockResolvedValue({ aborted: true, manual: true });

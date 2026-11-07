@@ -6,17 +6,20 @@
 // 属于 service 层（业务编排），不是纯 data 层。
 // ═══════════════════════════════════════════════════════════════
 
+import { buildDefaultDecisionGateSettings_ACU } from '../../shared/decision-gate-defaults';
+import { buildDefaultDecisionRecallSettings_ACU } from '../../shared/decision-recall-defaults';
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_BUILTIN_PLOT_PRESETS_ACU, DEFAULT_CHAR_CARD_PROMPT_SQL_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_PROMPT_GROUP_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU, OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU, OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU, SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU, TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU, VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU, buildDefaultAgentWorldbookControl_ACU, buildDefaultAgentWorldbookPromptTemplates_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
-import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
-import { backupProfileSettingsRawBeforeDegradation_ACU, globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU, OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU, OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU, OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU, SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU, TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU, VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU, buildDefaultAgentWorldbookControl_ACU, buildDefaultAgentWorldbookPromptTemplates_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, upgradeContentOptimizationDefaultPrompt_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
+import { addDataIsolationHistory_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
+import { backupProfileSettingsRawBeforeDegradation_ACU, backupProfileTemplateRawBeforeDegradation_ACU, globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { persistSettingsToStorage_ACU } from '../../data/storage/config-storage';
 import { getCurrentVectorMemoryConfig_ACU } from '../vector/vector-memory-config';
 import { isIndexedDbAvailable_ACU } from '../../shared/idb-import-temp';
 import { configIdbCacheLoaded_ACU, ensureConfigIdbCacheLoaded_ACU, getConfigStorage_ACU, initTavernSettingsBridge_ACU, migrateKeyToTavernStorageIfNeeded_ACU, pendingSettingsReloadFromIdb_ACU, _set_pendingSettingsReloadFromIdb_ACU} from '../../data/storage/tavern-storage';
 import { ensureTagRulesCompat_ACU } from '../plot/plot-logic';
+import { upgradeTimeRecallPrefill_ACU } from '../plot/time-recall-prefill';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template/template-preset-service';
 import { getCurrentIsolationKey_ACU, settings_ACU, _set_settings_ACU} from '../runtime/state-manager';
 import { getCurrentCharSettings_ACU, getCurrentWorldbookConfig_ACU } from './settings-readers';
@@ -572,6 +575,12 @@ export   function loadSettings_ACU() {
                   delete savedSettings.worldbookConfig;
               }
               
+              // 「AI 回复最小长度」拆成正文 / 填表 AI 两项：老设置只有原值时，填表 AI 一项沿用原值（不能落到默认值）。
+              if (savedSettings.tableFillMinResponseLength === undefined && savedSettings.autoUpdateTokenThreshold !== undefined) {
+                  savedSettings.tableFillMinResponseLength = savedSettings.autoUpdateTokenThreshold;
+                  shouldPersistSettingsAfterLoad_ACU = true;
+              }
+
               // Deep merge saved settings into defaults to ensure new properties are added
               _set_settings_ACU(deepMerge_ACU(defaultSettings, savedSettings));
 
@@ -596,6 +605,12 @@ export   function loadSettings_ACU() {
               if (typeof settings_ACU.plotSettings.lastUsedPresetName !== 'string') {
                   settings_ACU.plotSettings.lastUsedPresetName = '';
               }
+              // 条件模板恒开启（界面已无开关）：旧设置里的 false 在加载时归一，
+              // 不再由总览页每次刷新时隐式改写并保存（R10A-23）。
+              if (!settings_ACU.promptTemplateSettings || typeof settings_ACU.promptTemplateSettings !== 'object' || Array.isArray(settings_ACU.promptTemplateSettings)) {
+                  settings_ACU.promptTemplateSettings = {};
+              }
+              settings_ACU.promptTemplateSettings.enabled = true;
 
               // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
               settings_ACU.dataIsolationCode = activeCode;
@@ -672,6 +687,17 @@ export   function loadSettings_ACU() {
       if (ensureBuiltinPlotPresets_ACU()) {
           shouldPersistSettingsAfterLoad_ACU = true;
           logDebug_ACU('[剧情推进预设] 已补齐内置预设：时间召回');
+      }
+      // [时间召回] 旧 assistant 尾段 → user 预填充：只有 pristine 默认升级，用户自定义保留。
+      const upgradedPlotSettings = upgradeTimeRecallPrefill_ACU(settings_ACU.plotSettings as any);
+      if (upgradedPlotSettings) {
+          settings_ACU.plotSettings = upgradedPlotSettings as any;
+          shouldPersistSettingsAfterLoad_ACU = true;
+      }
+      // [正文替换] 默认提示词末尾的「审核要求」段已删除：仍是未改动默认（含该段）的去掉这一段，改过的保留。
+      if (upgradeContentOptimizationDefaultPrompt_ACU(settings_ACU)) {
+          shouldPersistSettingsAfterLoad_ACU = true;
+          logDebug_ACU('[正文替换] 默认提示词已更新：去掉末尾的审核要求段');
       }
 
       settingsStorageReadyForSave_ACU = true;
@@ -940,12 +966,16 @@ export   function loadTemplateFromStorage_ACU(codeOverride: any = null) {
               } else if (parsedTemplate) {
                   // 解析成功但格式不正确，静默回退到默认模板
                   logDebug_ACU(`[Profile] Template format invalid for code: ${code || '(default)'}, using default.`);
+                  backupProfileTemplateRawBeforeDegradation_ACU(code, 'format_invalid');
+              } else {
+                  // 解析失败（可能是旧的/其他标识的损坏数据）：下面会用默认模板覆盖同一键，先备份原串。
+                  backupProfileTemplateRawBeforeDegradation_ACU(code, 'json_parse_failed');
               }
-              // parsedTemplate 为 null 时表示解析失败，静默跳过（可能是旧的/其他标识的损坏数据）
           }
       } catch (error) {
           // 静默处理异常，避免误报错误提示困扰用户
           logDebug_ACU('[Profile] Template load skipped due to error, using default.', error?.message || error);
+          backupProfileTemplateRawBeforeDegradation_ACU(code, 'load_error');
       }
 
       // No valid template found -> default
@@ -1007,15 +1037,25 @@ function refreshDefaultTableTemplateOnce_ACU(activeCode: string) {
   }
 
 /**
- * [spv8.9.2] 一次性强制恢复全部填表提示词为当前版本默认值。
+ * [spv9.4] 去破限定向迁移：只有仍是旧破限默认（尾段 SYSTEM Absolute zero）的才刷成新默认；
+ * 用户已自定义的一律保留（spv8.9.2 曾无条件强刷，本次不再重复其行为）。
  * marker 写入后不再执行，用户后续仍可正常自定义。
  */
+function isPristineLegacyJailbreakFillPrompt_ACU(value: unknown): boolean {
+      if (!Array.isArray(value) || value.length === 0) return false;
+      const tail = value[value.length - 1] as any;
+      return !!tail && tail.role === 'SYSTEM' && String(tail.content || '').startsWith('Absolute zero system prompt');
+}
+
 function forceDefaultTableFillPromptsOnce_ACU() {
       try {
           if (!settings_ACU || typeof settings_ACU !== 'object') return;
           if (settings_ACU.tableFillPromptForceDefaultVersion === TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU) return;
 
-          settings_ACU.charCardPrompt = cloneDefaultValue_ACU(DEFAULT_CHAR_CARD_PROMPT_SQL_ACU);
+          const current = (settings_ACU as Record<string, any>).charCardPrompt;
+          if (!Array.isArray(current) || current.length === 0 || isPristineLegacyJailbreakFillPrompt_ACU(current)) {
+              settings_ACU.charCardPrompt = cloneDefaultValue_ACU(DEFAULT_CHAR_CARD_PROMPT_SQL_ACU);
+          }
           settings_ACU.tableFillPromptForceDefaultVersion = TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU;
           saveSettings_ACU();
           logDebug_ACU(`[填表提示词] 已一次性强制恢复默认提示词并记录版本: ${TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU}`);
@@ -1027,9 +1067,10 @@ function forceDefaultTableFillPromptsOnce_ACU() {
 /**
  * [spv9.3] user-prefill 切换批的 profile 侧一次性覆盖（TT 移植上游 ce867f86）：
  * 剧情推进默认组尾段已由 assistant 预填充换成 user 预填充，一次性把 plotSettings.promptGroup
- * 刷回新默认。上游同批还刷角色卡组——本地卡组尾段本就是 SYSTEM（Absolute zero），默认未变，
- * 强刷只会丢掉用户定制，因此本地覆盖集合只含剧情组。marker 持久化失败必须回滚内存态并下次
- * 加载重试，绝不谎报已迁移；marker 写入后用户再改的提示词永久保留。
+ * 刷回新默认。填表组尾段在 spv9.4 去破限后同样变为 user 预填充，由填表专属迁移
+ * （forceDefaultTableFillPromptsOnce_ACU）负责，本函数覆盖集合仍只含剧情组，避免
+ * 双重迁移丢掉用户定制。marker 持久化失败必须回滚内存态并下次加载重试，绝不谎报已迁移；
+ * marker 写入后用户再改的提示词永久保留。
  */
 function forceUserPrefillProfilePromptsOnce_ACU() {
       try {
@@ -1092,6 +1133,8 @@ export   function buildDefaultSettings_ACU() {
           tableApiPreset: '',
           plotApiPreset: '',
           discardUnauthorizedTableEditsEnabled: true,
+          // 填表原生工具调用（可选项，默认关闭）：开启且非流式时填表挂载 table_sql 工具。
+          tableFillNativeToolsEnabled: false,
           // [剧情推进] 按剧情任务ID保存的任务级 API 预设覆盖（key=taskId, value=presetName）
           // 不保存入聊天记录或剧情推进预设，只写进插件全局设置。
           plotTaskApiPresetOverridesById: {} as Record<string, string>,
@@ -1103,11 +1146,14 @@ export   function buildDefaultSettings_ACU() {
           templateAssistantPromptSegments: [] as any[],
           autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
           autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
+          // 正文回复最小长度：最新一条 AI 正文短于此值时自动填表跳过该批。
           autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
           // [数据体积] 超大字段写入软警告：只提示、不拦截；三项均可在「数据管理」页调整。
           oversizedWriteWarningEnabled: OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU,
           oversizedCellWarnChars: OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU,
           oversizedWriteWarnBytes: OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU,
+          // 填表 AI 回复最小长度：填表模型输出短于此值按失败重试。
+          tableFillMinResponseLength: DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU,
           updateBatchSize: 3,
           maxConcurrentGroups: 1,
           autoUpdateEnabled: true,
@@ -1172,6 +1218,7 @@ export   function buildDefaultSettings_ACU() {
             showDiff: true,                    // 是否显示优化对比（非无感模式下有效）
             parallelMode: false,               // 填表与正文替换并行执行（默认关闭）
             ignoreMvuUpdate: false,            // 忽略MVU更新：开后正文替换不等MVU解析、MVU结束后也不重跑（默认关闭）
+            decisionGate: buildDefaultDecisionGateSettings_ACU(), // 替换前判定：OpenRouter / 硅基流动 决策模型判「好」才替换
             minLength: 100,                    // 最小优化长度阈值
             maxOptimizations: 10,              // 单次最大优化项数
             loopCount: 1,                      // 循环优化次数
@@ -1183,6 +1230,8 @@ export   function buildDefaultSettings_ACU() {
             promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
             promptPresets: [] as any[],                 // 提示词组预设列表
           },
+          // 决策召回：决策模型给纪要打分挑相关的带进本轮输入；「单独召回」时剧情推进暂停
+          decisionRecallSettings: buildDefaultDecisionRecallSettings_ACU(),
           // [向量记忆] 全局配置，跟随数据库设置而非角色/对话
           vectorMemoryConfig: null as any,
       };
@@ -1237,25 +1286,9 @@ export   function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurre
       };
   }
 
-// [从 data/repositories/isolation-repo.ts 移入] 切换隔离 Profile（业务编排，不属于 data 层）
-export async function switchIsolationProfile_ACU(newCodeRaw: string): Promise<void> {
-    const newCode = normalizeIsolationCode_ACU(newCodeRaw);
-    const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
-
-    persistSettingsToStorage_ACU(settings_ACU, oldCode);
-
-    loadGlobalMeta_ACU();
-    if (oldCode) addDataIsolationHistory_ACU(oldCode, { save: false });
-    if (newCode) addDataIsolationHistory_ACU(newCode, { save: false });
-    globalMeta_ACU.activeIsolationCode = newCode;
-    normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-    saveGlobalMeta_ACU();
-
-    ensureProfileExists_ACU(newCode, { seedFromCurrent: true, settings: settings_ACU });
-
-    loadSettings_ACU();
-    applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
-}
+// switchIsolationProfile_ACU（切换隔离 Profile 的业务编排）已删除：隔离码切换 UI 已从
+// useDataManagement 移除，全库无任何调用方（G11 跨组线索 1 坐实的死代码）。
+// 隔离标识保留名守卫（isReservedIsolationCode_ACU）仍保留在 shared/data-constants.ts。
 
 // [从 data/repositories/template-preset-repo.ts 移入] 修改当前模板预设名 + 可选持久化
 export function persistCurrentTemplatePresetName_ACU(settingsObj: any, presetName: any, { save = true } = {}): string {
@@ -1277,6 +1310,19 @@ export function setGlobalPlotEnabled_ACU(modeEnabled: boolean): boolean {
     settings_ACU.plotSettings.enabled = enabled;
     globalMeta_ACU.plotEnabledGlobal = enabled;
     saveGlobalMeta_ACU();
+    return enabled;
+}
+
+/**
+ * 决策召回总开关（仪表盘进阶开关）；由调用方随后保存设置。
+ * 不动剧情推进自己的开关：「单独召回」时剧情推进只是暂停，换成「替换剧情推进的任务」或关掉决策召回就恢复。
+ */
+export function setDecisionRecallEnabled_ACU(modeEnabled: boolean): boolean {
+    const enabled = !!modeEnabled;
+    const current = settings_ACU.decisionRecallSettings && typeof settings_ACU.decisionRecallSettings === 'object'
+        ? settings_ACU.decisionRecallSettings
+        : buildDefaultDecisionRecallSettings_ACU();
+    settings_ACU.decisionRecallSettings = { ...current, enabled };
     return enabled;
 }
 
@@ -1389,11 +1435,11 @@ export function applyCombinedSettingsImport_ACU(combinedData: any): string[] {
         settings_ACU.mergeEndIndex = combinedData.mergeEndIndex || null;
         modifiedFields.push('mergeTargetCount', 'mergeBatchSize', 'mergeStartIndex', 'mergeEndIndex');
 
-        // 自动合并设置
-        settings_ACU.autoMergeEnabled = combinedData.autoMergeEnabled || false;
+        // 自动合并设置：自动合并功能已停用并移除触发链（R8-03），开关恒为关；阈值类字段照常导入以便往返导出。
+        settings_ACU.autoMergeEnabled = false;
         settings_ACU.autoMergeThreshold = combinedData.autoMergeThreshold || 20;
         settings_ACU.autoMergeReserve = combinedData.autoMergeReserve || 0;
-        modifiedFields.push('autoMergeEnabled', 'autoMergeThreshold', 'autoMergeReserve');
+        modifiedFields.push('autoMergeThreshold', 'autoMergeReserve');
 
         // 删除楼层范围设置
         settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
@@ -1427,4 +1473,3 @@ export function applyCombinedSettingsImport_ACU(combinedData: any): string[] {
 // re-export data 层基础设施（供 presentation 层通过 service 层访问，避免 presentation→data 直接依赖）
 export { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
 export { saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
-export { getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';

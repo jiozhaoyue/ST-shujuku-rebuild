@@ -1,25 +1,16 @@
 /**
- * service/runtime/state-manager.ts — Re-export 门面
- * 
- * 此文件已拆分为三处：
- * - shared/host-api.ts        — 宿主 API 引用（SillyTavern_API、jQuery_API 等）
- * - presentation/state/ui-refs.ts — UI jQuery 元素引用（$popupInstance、$xxx 等）
- * - 本文件保留                — 业务状态 + 门控逻辑（settings、generationGate 等）
- * 
- * 为保持向后兼容，本文件 re-export 所有三处的符号。
- * 后续逐步将各文件的 import 路径改为直接引用新位置。
+ * service/runtime/state-manager.ts — 业务运行态 + 门控逻辑（settings、generationGate 等）
+ *
+ * 宿主 API 引用在 shared/host-api.ts，消费方直接从那里导入。
+ * （旧弹窗的 jQuery 元素引用 presentation/state/ui-refs.ts 已随旧弹窗删除，R9-11。）
  */
-
-// ═══ 宿主 API re-export 已移除 ═══
-// 消费方应直接从 shared/host-api import 宿主 API 符号
-
-// ═══ ui-refs re-export 已移除（P5）═══
-// 消费方应直接从 presentation/state/ui-refs import $xxx 变量
 
 // ═══ 业务状态 + 门控逻辑（保留在本文件） ═══
 
+import { buildDefaultDecisionGateSettings_ACU } from '../../shared/decision-gate-defaults';
+import { buildDefaultDecisionRecallSettings_ACU } from '../../shared/decision-recall-defaults';
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU } from '../../shared/defaults';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU } from '../../shared/defaults';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { logAutoFillSkip_ACU } from '../../shared/trigger-diagnostics';
@@ -62,6 +53,14 @@ export let pendingFinalGenerationGreenlights_ACU: any[] = [];
 
 export const USER_SEND_TRIGGER_TTL_MS_ACU = 12000;
 export const GENERATION_CONTEXT_TTL_MS_ACU = 60000;
+/**
+ * 前台生成（非 dry-run、非 quiet）上下文的有效期。思考档开高时一次生成常超过 60 秒（issue #2 日志里
+ * 重新生成跑了 94～108 秒）：上下文过期后 ENDED 变成无配对，而 TT 消息没有 message_id、重新生成前后
+ * AI 楼数又不变，会被无配对收紧当成外部插件的假 ENDED 丢掉，自动填表不跑。
+ * 前台生成在宿主上不会并发，旧的未闭合前台上下文由下一次前台 STARTED 顶掉（见 recordGenerationContext_ACU），
+ * 所以放长有效期不会让早退生成留下的残留上下文把后续 ENDED 拖成歧义。
+ */
+export const FOREGROUND_GENERATION_CONTEXT_TTL_MS_ACU = 30 * 60_000;
 
 export interface GenerationContext_ACU {
   seq: number;
@@ -108,7 +107,22 @@ export const generationGate_ACU = {
   generationEndMatchQuarantineUntil_ACU: 0,
   // [152 收紧] 上一次门控「放行」时的 AI 楼签名；null = 启动后尚未放行过（此时无配对 ENDED 保守放行）。
   lastEndedFloorSignature_ACU: null as AiFloorSignature_ACU | null,
+  // 切换 / 新建聊天后为 true，直到立起新聊天的签名基线：宿主载入聊天时收起停止按钮也会派发无配对 ENDED，
+  // 此时拿旧聊天的签名比对必然「有新楼」，会对新聊天的最新楼误开自动链（填表 + 正文替换）。
+  awaitingChatBaseline_ACU: false,
+  // 等基线只在切聊天后很短的窗口内有效：宿主载入时的那条 ENDED 若没来，过期作废，
+  // 不能把很久之后一次真实回复（上下文过期变成无配对）误当基线吞掉。
+  awaitingChatBaselineUntil_ACU: 0,
 };
+
+const CHAT_BASELINE_WINDOW_MS_ACU = 10_000;
+
+/** CHAT_CHANGED 时调用：下一条无配对 ENDED 只用来立新聊天的签名基线，不放行。 */
+export function markChatChangedForEndedGate_ACU(): void {
+  generationGate_ACU.awaitingChatBaseline_ACU = true;
+  generationGate_ACU.awaitingChatBaselineUntil_ACU = Date.now() + CHAT_BASELINE_WINDOW_MS_ACU;
+  generationGate_ACU.lastEndedFloorSignature_ACU = null;
+}
 
 export function markUserSendIntent_ACU() {
   generationGate_ACU.lastUserSendIntentAt = Date.now();
@@ -132,9 +146,23 @@ export function recordLastUserSend_ACU(messageId: any) {
   }
 }
 
+/** 前台生成：会显示停止按钮、宿主同一时刻只有一个（dry-run 与 quiet 不算）。 */
+function isForegroundGenerationContext_ACU(context: GenerationContext_ACU): boolean {
+  return !context.dryRun && !isQuietLikeGeneration_ACU(context.type, context.params);
+}
+
+/** 是否有正文生成在途（quiet / dryRun / 插件自动触发的不算）：在途时自动填表与正文替换不启动。 */
+export function hasActiveForegroundGeneration_ACU(): boolean {
+  removeExpiredGenerationContexts_ACU();
+  return generationGate_ACU.activeGenerations.some(context => isForegroundGenerationContext_ACU(context)
+    && !context.params?.automatic_trigger);
+}
+
 function removeExpiredGenerationContexts_ACU(now = Date.now()): void {
-  const earliestValidAt = now - GENERATION_CONTEXT_TTL_MS_ACU;
-  generationGate_ACU.activeGenerations = generationGate_ACU.activeGenerations.filter(context => context.at >= earliestValidAt);
+  generationGate_ACU.activeGenerations = generationGate_ACU.activeGenerations.filter(context => {
+    const ttl = isForegroundGenerationContext_ACU(context) ? FOREGROUND_GENERATION_CONTEXT_TTL_MS_ACU : GENERATION_CONTEXT_TTL_MS_ACU;
+    return context.at >= now - ttl;
+  });
 }
 
 export function recordGenerationContext_ACU(type: any, params: any, dryRun: any, preSignature?: AiFloorSignatureEx_ACU | null): GenerationContext_ACU {
@@ -148,6 +176,11 @@ export function recordGenerationContext_ACU(type: any, params: any, dryRun: any,
   // [配对零产出证据] 仅当调用方显式传入第 4 参才落盘；旧三参调用形状逐字不变（无该键）。
   if (preSignature !== undefined) context.preSignature = preSignature;
   removeExpiredGenerationContexts_ACU(context.at);
+  if (isForegroundGenerationContext_ACU(context)) {
+    // 新的前台生成开始 ⇒ 之前未闭合的前台上下文（早退生成只发了 STARTED）已不可能再收到 ENDED。
+    generationGate_ACU.activeGenerations = generationGate_ACU.activeGenerations
+      .filter(existing => !isForegroundGenerationContext_ACU(existing));
+  }
   generationGate_ACU.activeGenerations.push(context);
   generationGate_ACU.lastGeneration = context;
   return context;
@@ -211,19 +244,54 @@ function hasFreshUserGenerationTrigger_ACU() {
   return { hasFreshUserMessage, hasFreshIntent, result: hasFreshUserMessage || hasFreshIntent };
 }
 
+// ═══ 被本库停发的那次发送 ═══
+// 召回或剧情规划失败时本库停掉发送、保留用户楼并提示「重新生成」。重新生成默认不跑召回与规划
+// （那是对同一条输入重抽回复），但这一次输入从未真正拿到记忆与规划，必须补跑，否则重试照样残缺。
+let stoppedSendRetryChatKey_ACU: string | null = null;
+
+export function markStoppedSendForRetry_ACU(): void {
+  stoppedSendRetryChatKey_ACU = String(currentChatFileIdentifier_ACU ?? '');
+}
+
+export function clearStoppedSendRetry_ACU(): void {
+  stoppedSendRetryChatKey_ACU = null;
+}
+
+/** 本次重新生成是否是在重试本库刚停掉的那次发送（同一聊天）。 */
+export function isRetryOfStoppedSend_ACU(type: any): boolean {
+  return type === 'regenerate'
+    && stoppedSendRetryChatKey_ACU !== null
+    && stoppedSendRetryChatKey_ACU === String(currentChatFileIdentifier_ACU ?? '');
+}
+
 export function shouldProcessPlotForGeneration_ACU(type: any, params: any, dryRun: any) {
   if (dryRun) return false;
   if (!settings_ACU?.plotSettings?.enabled) return false;
   if (isQuietLikeGeneration_ACU(type, params)) return false;
   if (params?.automatic_trigger) return false;
+  if (isRetryOfStoppedSend_ACU(type)) return true;
   const fresh = hasFreshUserGenerationTrigger_ACU();
   logDebug_ACU(`[状态管理] shouldProcessPlot: type=${type}, dryRun=${dryRun}, freshMsg=${fresh.hasFreshUserMessage}, freshIntent=${fresh.hasFreshIntent}, result=${fresh.result}`);
   return fresh.result;
 }
 
+/** 决策召回「单独召回」时发送前是否要跑（占用剧情推进的规划位，剧情推进暂停）；口径同剧情推进。 */
+export function shouldProcessDecisionRecallForGeneration_ACU(type: any, params: any, dryRun: any) {
+  if (dryRun) return false;
+  const decisionRecall = settings_ACU?.decisionRecallSettings;
+  if (decisionRecall?.enabled !== true || decisionRecall?.mode === 'plot_task') return false;
+  if (isQuietLikeGeneration_ACU(type, params)) return false;
+  if (params?.automatic_trigger) return false;
+  if (isRetryOfStoppedSend_ACU(type)) return true;
+  const fresh = hasFreshUserGenerationTrigger_ACU();
+  logDebug_ACU(`[状态管理] shouldProcessDecisionRecall: type=${type}, freshMsg=${fresh.hasFreshUserMessage}, freshIntent=${fresh.hasFreshIntent}, result=${fresh.result}`);
+  return fresh.result;
+}
+
 export function shouldProcessSummaryVectorIndexForGeneration_ACU(type: any, params: any, dryRun: any) {
   if (dryRun) return false;
-  if (type === 'regenerate') return false;
+  const retryOfStoppedSend = isRetryOfStoppedSend_ACU(type);
+  if (type === 'regenerate' && !retryOfStoppedSend) return false;
   if (isQuietLikeGeneration_ACU(type, params)) return false;
   if (params?.automatic_trigger) return false;
   const worldbookConfig = getCurrentWorldbookConfig_ACU();
@@ -233,6 +301,7 @@ export function shouldProcessSummaryVectorIndexForGeneration_ACU(type: any, para
     logDebug_ACU(`[状态管理] shouldProcessSummaryVectorIndex: type=${type}, dryRun=${dryRun}, globalEnabled=false, worldbookProjection=${worldbookProjectionEnabled}, result=false`);
     return false;
   }
+  if (retryOfStoppedSend) return true;
   const fresh = hasFreshUserGenerationTrigger_ACU();
   logDebug_ACU(`[状态管理] shouldProcessSummaryVectorIndex: type=${type}, dryRun=${dryRun}, globalEnabled=${globalEnabled}, worldbookProjection=${worldbookProjectionEnabled}, freshMsg=${fresh.hasFreshUserMessage}, freshIntent=${fresh.hasFreshIntent}, result=${fresh.result}`);
   return fresh.result;
@@ -374,6 +443,15 @@ export function shouldProcessAutoTableUpdateForGenerationEnded_ACU(
     // 生成上下文，此前一律放行去拉自动链（填表 + 正文替换），而 W1/W3 判重拦不住「该楼未处理过 / 首轮在飞」，
     // 于是查看器一开就白烧一轮 AI。现在要求「新 AI 楼证据」：签名与上次放行完全相同即零产出 → 源头丢弃。
     // 签名缺失（启动后首次、调用方未读聊天数组）继续保守放行；配对上下文（g 存在）的判定路径一字不动。
+    if (generationGate_ACU.awaitingChatBaseline_ACU && Date.now() > generationGate_ACU.awaitingChatBaselineUntil_ACU) {
+      generationGate_ACU.awaitingChatBaseline_ACU = false;
+    }
+    if (currentSignature && generationGate_ACU.awaitingChatBaseline_ACU) {
+      generationGate_ACU.awaitingChatBaseline_ACU = false;
+      rememberEndedFloorSignature_ACU(currentSignature);
+      logUnpairedEndedWithoutNewFloor_ACU(currentSignature);
+      return false;
+    }
     if (currentSignature && isSameAiFloorSignature_ACU(generationGate_ACU.lastEndedFloorSignature_ACU, currentSignature)) {
       logUnpairedEndedWithoutNewFloor_ACU(currentSignature);
       return false;
@@ -387,6 +465,8 @@ export function shouldProcessAutoTableUpdateForGenerationEnded_ACU(
   if (g.dryRun) return false;
   if (isQuietLikeGeneration_ACU(g.type, g.params)) return false;
   if (g.params?.automatic_trigger) return false;
+  // 新聊天里的真实生成：其签名即新基线
+  generationGate_ACU.awaitingChatBaseline_ACU = false;
   rememberEndedFloorSignature_ACU(currentSignature);
   return true;
 }
@@ -413,6 +493,8 @@ export let settings_ACU: any = {
     tableApiPreset: '',
     plotApiPreset: '',
     discardUnauthorizedTableEditsEnabled: true,
+    // 填表原生工具调用（可选项，默认关闭）：开启且非流式时填表挂载 table_sql 工具。
+    tableFillNativeToolsEnabled: false,
     // [剧情推进] 按剧情任务ID保存的任务级 API 预设覆盖（key=taskId, value=presetName）
     // 不保存入聊天记录或剧情推进预设，只写进插件全局设置。
     plotTaskApiPresetOverridesById: {} as Record<string, string>,
@@ -424,6 +506,7 @@ export let settings_ACU: any = {
     autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
     autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
     autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+    tableFillMinResponseLength: DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU,
     updateBatchSize: 3,
     maxConcurrentGroups: 1,
     autoUpdateEnabled: true,
@@ -474,12 +557,14 @@ export let settings_ACU: any = {
       autoApply: true,
       showDiff: true,
       ignoreMvuUpdate: false,
+      decisionGate: buildDefaultDecisionGateSettings_ACU(),
       minLength: 100,
       maxOptimizations: 10,
       loopCount: 1,
       retryCount: 3,
       promptGroup: [],
     },
+    decisionRecallSettings: buildDefaultDecisionRecallSettings_ACU(),
     characterSettings: {},
 };
 
@@ -508,7 +593,7 @@ export function _set_pendingBaseStatePlacement_ACU(v: any) { pendingBaseStatePla
 export function _set_suppressWorldbookInjectionInGreeting_ACU(v: any) { suppressWorldbookInjectionInGreeting_ACU = v; }
 export function _set_independentTableStates_ACU(v: any) { independentTableStates_ACU = v; }
 
-// ═══ 从 plot-editors.ts 迁移的业务状态 ═══
+// ═══ 自动/手动填表运行态 ═══
 export let isAutoUpdatingCard_ACU = false;
 export let wasStoppedByUser_ACU = false;
 // 用户停止会使当前自动填表代次失效；排队中的旧回调必须携带并校验停止代次。
@@ -519,21 +604,33 @@ export let currentAbortController_ACU: any = null;
 export let activeAbortControllers_ACU = new Set<any>();
 export let manualExtraHint_ACU = '';
 
-export function trackAbortController_ACU(controller: any) {
-    if (controller) activeAbortControllers_ACU.add(controller);
+/** R10A-19：剧情推进登记的请求；终止填表时不应连带中止它们。 */
+const plotOwnedAbortControllers_ACU = new WeakSet<object>();
+
+export function trackAbortController_ACU(controller: any, owner?: 'plot') {
+    if (!controller) return;
+    activeAbortControllers_ACU.add(controller);
+    if (owner === 'plot' && typeof controller === 'object') plotOwnedAbortControllers_ACU.add(controller);
 }
 export function untrackAbortController_ACU(controller: any) {
     if (controller) activeAbortControllers_ACU.delete(controller);
 }
-export function abortAllActiveRequests_ACU() {
-    logWarn_ACU(`[状态管理] abortAllActiveRequests: 中止 ${activeAbortControllers_ACU.size} 个活跃请求`);
-    activeAbortControllers_ACU.forEach(controller => {
+/**
+ * 中止登记的在飞请求。keepPlot：只中止填表相关请求（用户终止填表时用），剧情推进请求保留。
+ */
+export function abortAllActiveRequests_ACU(options: { keepPlot?: boolean } = {}) {
+    const targets = [...activeAbortControllers_ACU].filter(controller =>
+        !(options.keepPlot && typeof controller === 'object' && plotOwnedAbortControllers_ACU.has(controller)));
+    logWarn_ACU(`[状态管理] abortAllActiveRequests: 中止 ${targets.length} 个活跃请求${options.keepPlot ? '（保留剧情推进请求）' : ''}`);
+    targets.forEach(controller => {
         try { controller.abort(); } catch (e) {}
+        activeAbortControllers_ACU.delete(controller);
     });
-    activeAbortControllers_ACU.clear();
 }
 
-// ═══ 全局「聊天变更」中止信号（删楼/ROLL/切聊天时中止在飞的依赖楼层的 API 调用） ═══
+// ═══ 全局「聊天变更」中止信号（仅切聊天 CHAT_CHANGED 时中止在飞的依赖楼层的 API 调用） ═══
+// 注意：删楼 / 滑动（MESSAGE_DELETED / MESSAGE_SWIPED）不经这里整体中止：在途填表请求按各自目标楼层
+// 单独判定、只中止失效的那些（table-fill-target-watch）；其余由各写回路径自己校验目标（如正文优化的消息写回目标快照）。
 let chatMutationAbortController_ACU: AbortController | null = null;
 
 /** 获取当前聊天变更中止信号（供依赖楼层的调用方监听：楼层变化即中止） */
@@ -543,9 +640,9 @@ export function getChatMutationAbortSignal_ACU(): AbortSignal | null {
     return chatMutationAbortController_ACU.signal;
 }
 
-/** 楼层/聊天变更（CHAT_CHANGED：删楼/ROLL/切聊天）：中止所有在飞的依赖楼层调用，并重建信号供下一轮使用 */
+/** 切聊天（CHAT_CHANGED，唯一调用点）：中止所有在飞的依赖楼层调用，并重建信号供下一轮使用 */
 export function abortOnChatMutation_ACU() {
-    logWarn_ACU('[状态管理] 聊天变更（删楼/ROLL/切聊天）：中止在飞的依赖楼层 API 调用');
+    logWarn_ACU('[状态管理] 切换聊天：中止在飞的依赖楼层 API 调用');
     if (chatMutationAbortController_ACU) {
         try { chatMutationAbortController_ACU.abort(); } catch (e) {}
         chatMutationAbortController_ACU = null;
@@ -554,7 +651,54 @@ export function abortOnChatMutation_ACU() {
 }
 
 export function _set_currentAbortController_ACU(v: any) { currentAbortController_ACU = v; }
-export function _set_isAutoUpdatingCard_ACU(v: any) { isAutoUpdatingCard_ACU = v; }
+export function _set_isAutoUpdatingCard_ACU(v: any) {
+  if (v && !isAutoUpdatingCard_ACU) fillRunSeq_ACU += 1;
+  // 本轮结束（「正在填表」被持有者放开）才解除终止锁存
+  if (!v) tableFillStopLatched_ACU = false;
+  isAutoUpdatingCard_ACU = v;
+}
+
+// 「终止填表」锁存：wasStoppedByUser_ACU 会被新一轮填表开跑、宿主新生成复位，单靠它，被终止的那轮
+// 可能在批次 / 分组 / 重试之间「复活」。锁存只在本轮结束时解除。
+let tableFillStopLatched_ACU = false;
+let fillRunSeq_ACU = 0;
+// 每点一次「终止」加一：手动填表在「正在填表」置位前（规划、清理阶段）就可能被终止，届时还没有可锁存的轮次
+let tableFillStopSeq_ACU = 0;
+const TABLE_FILL_STOP_FORCE_RELEASE_MS_ACU = 30_000;
+
+/** 用户点「终止」填表：终止本轮当前与后续全部批次。不立即放开「正在填表」，免得旧轮收尾时新一轮叠进来。 */
+export function requestTableFillStop_ACU(): void {
+  tableFillStopSeq_ACU += 1;
+  _set_wasStoppedByUser_ACU(true);
+  if (isAutoUpdatingCard_ACU) tableFillStopLatched_ACU = true;
+  // R10A-19：只终止填表请求，不连带中止正在进行的剧情推进规划
+  abortAllActiveRequests_ACU({ keepPlot: true });
+  // 兜底：请求不响应中止时，过一段时间仍是同一轮就强制放开，避免填表永久锁死直到刷新页面
+  const runSeqAtStop = fillRunSeq_ACU;
+  setTimeout(() => {
+    if (isAutoUpdatingCard_ACU && fillRunSeq_ACU === runSeqAtStop) {
+      logWarn_ACU('[状态管理] 终止填表后本轮迟迟未结束，已强制放开「正在填表」状态。');
+      _set_isAutoUpdatingCard_ACU(false);
+    }
+  }, TABLE_FILL_STOP_FORCE_RELEASE_MS_ACU);
+}
+
+export function getTableFillStopSeq_ACU(): number {
+  return tableFillStopSeq_ACU;
+}
+
+/**
+ * 「正在填表」置位后补锁存：从 seq 记下之后点过「终止」（如手动填表的清理阶段），就按本轮已终止处理，
+ * 免得一次性停止标记在置位前被宿主新生成或新一轮前置检查复位，终止被悄悄撤销。
+ */
+export function latchTableFillStopRequestedSince_ACU(seq: number): void {
+  if (isAutoUpdatingCard_ACU && tableFillStopSeq_ACU !== seq) tableFillStopLatched_ACU = true;
+}
+
+/** 填表是否已被要求终止（宿主停止生成的一次性信号，或本轮内用户点过「终止」）。 */
+export function isTableFillStopRequested_ACU(): boolean {
+  return wasStoppedByUser_ACU || tableFillStopLatched_ACU;
+}
 export function _set_manualExtraHint_ACU(v: any) { manualExtraHint_ACU = v; }
 export function getAutoFillStopEpoch_ACU(): number { return autoFillStopEpoch_ACU; }
 export function _set_wasStoppedByUser_ACU(v: any) {

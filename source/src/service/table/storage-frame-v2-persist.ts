@@ -1,6 +1,6 @@
-import { getChatArray_ACU, saveChatToHost_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
+import { getChatArray_ACU, saveChatToHost_ACU, saveChatToHostCoalesced_ACU, saveChatToHostStrict_ACU } from '../../data/gateways/chat-gateway';
 import { advanceProvisionalBridgeCommitProgress_ACU, authorizeManualCatchUpBucketWrite_ACU, readActiveProvisionalBridge_ACU } from './manual-catch-up-provisional-bridge';
-import { cloneIsolatedData_ACU, collectSheetIdentityAliasesForPurge_ACU, purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU, purgeSheetKeysFromMessage_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
+import { cloneIsolatedData_ACU, collectSheetIdentityAliasesForPurge_ACU, ensureWritableIsolatedDataContainer_ACU, purgeManualRefillIncrementalSheetKeysFromStorageFrameV2_ACU, purgeSheetKeysFromMessage_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
 import { getActiveChatStorageIdentity_ACU, peekChatScopedConfigContainer_ACU, peekChatSheetGuideContainer_ACU, setChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
 import type { Sheet_ACU, TableDataObject_ACU } from '../../shared/models/table-data';
 import type { StorageMode } from '../../shared/table-storage-provider';
@@ -28,6 +28,12 @@ import { scheduleSummaryVectorMirrorFlushAfterPersist_ACU } from '../vector/summ
 import { isAiFloor_ACU } from '../../shared/ai-floor';
 import { probeOversizedWrite_ACU } from './oversized-write-warning';
 import { isDataBearingMessage_ACU } from '../../shared/ai-floor';
+import { downgradeOtherFullCheckpoints_ACU } from './v2-full-checkpoint-downgrade';
+import { cloneChatWithTableFields_ACU } from './chat-table-field-swap';
+
+// 保存时的只读校验回放按时间预算让出主线程（大表保存不卡界面）；仍持有提交锁，
+// 只在完整 frame/entry 边界让步、不跳过严格校验，同轮 replayEvidence 照常复用。
+const PERSIST_REPLAY_YIELD_BUDGET_MS_ACU = 8;
 
 export interface TableCheckpointGenerationConfig_ACU {
   maxEntriesAfterCheckpoint: number;
@@ -643,6 +649,7 @@ async function validateTemporaryBaselineUpgradeCandidate_ACU(
       replay = await loadTableStateFromFramesV2Detailed_ACU(candidateChat, isolationKey, {
         ...options,
         updateRuntimeState: false,
+        yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
         compatibilityMode: 'disabled',
       });
     } catch (error) {
@@ -687,6 +694,7 @@ async function validateAppendedOperationsReplayCandidate_ACU(
     replay = await loadTableStateFromFramesV2Detailed_ACU(candidateChat, isolationKey, {
       maxMessageIndex: targetMessageIndex,
       updateRuntimeState: false,
+      yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
       compatibilityMode: 'disabled',
     });
   } catch (error) {
@@ -694,6 +702,24 @@ async function validateAppendedOperationsReplayCandidate_ACU(
   }
   if (replay?.baseKind === 'compat_tolerant_replay') {
     return buildAppendedOperationsWriteRejectionMessage_ACU(replay.legacyToleranceDiagnosis?.strictError || '严格回放失败');
+  }
+  // R2B-05：写到早期楼层时，目标之后的表格帧会叠加在新 entry 之上；只校验到目标楼层，
+  // 后缀里同 row_id 的 INSERT / 依赖旧行的 UPDATE 就可能在头部回放出错，整段聊天随之进入只读兼容态。
+  // 写入前历史本就能严格回放（否则兼容只读门闸已拦下），所以后缀失败必然是本次写入造成的。
+  const hasLaterFrame = candidateChat.some((message, index) => (
+    index > targetMessageIndex && !!message?.TavernDB_ACU_IsolatedData?.[isolationKey]?.storageFrame
+  ));
+  if (!hasLaterFrame) return null;
+  try {
+    const suffixReplay = await loadTableStateFromFramesV2Detailed_ACU(candidateChat, isolationKey, {
+      updateRuntimeState: false,
+      compatibilityMode: 'disabled',
+    });
+    if (suffixReplay?.baseKind === 'compat_tolerant_replay') {
+      return buildAppendedOperationsWriteRejectionMessage_ACU(suffixReplay.legacyToleranceDiagnosis?.strictError || '后缀严格回放失败');
+    }
+  } catch (error) {
+    return buildAppendedOperationsWriteRejectionMessage_ACU(error instanceof Error ? error.message : String(error));
   }
   return null;
 }
@@ -715,6 +741,7 @@ async function validateProvisionalConvergenceCandidate_ACU(
       const replay = await loadTableStateFromFramesV2Detailed_ACU(candidateChat, isolationKey, {
         ...options,
         updateRuntimeState: false,
+        yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
         compatibilityMode: 'disabled',
       });
       if (!replay || replay.baseKind !== 'full_checkpoint') {
@@ -927,6 +954,10 @@ export function writeInitFullCheckpointFrameV2_ACU(options: {
   if (checkpoint?.kind !== 'full' || checkpoint.reason !== 'init') {
     throw new Error(`初始化 checkpoint 写入口只接受 reason:'init' 的 full checkpoint（收到 kind=${checkpoint?.kind}, reason=${(checkpoint as any)?.reason}）。`);
   }
+  // G14-04：目标楼容器可能是遗留字符串形态——裸展开会产出 {0:'{',1:'"',…} 字符下标
+  // 垃圾键并丢失其他隔离键数据；先经 repo 层解析规范化为对象容器，再换字段写入
+  // （契约见上：「目标楼同一消息上其他隔离键的数据原样保留」）。
+  const targetContainer = ensureWritableIsolatedDataContainer_ACU(target);
   // 数据体积软警告：初始帧同样是一次真实写入，只探测不拦截。
   probeOversizedWrite_ACU({
     tableData: checkpoint.data,
@@ -934,7 +965,7 @@ export function writeInitFullCheckpointFrameV2_ACU(options: {
     isolationKey,
   });
   target.TavernDB_ACU_IsolatedData = {
-    ...(target.TavernDB_ACU_IsolatedData || {}),
+    ...targetContainer,
     [isolationKey]: { _acu_storage_version: 2, storageFrame: { version: 2, checkpoint, logEntries: [] } },
   };
   const violation = assertSingleActiveFullCheckpointV2_ACU(chat, isolationKey, 'init_reset');
@@ -1366,7 +1397,8 @@ function classifyTemplateCommitStorageStateAfterDeletedSheets_ACU(
   deletedSheetKeys: string[],
 ): TemplateCommitStorageState_ACU {
   if (deletedSheetKeys.length === 0) return classifyTemplateCommitStorageState_ACU(chat, isolationKey);
-  const simulatedChat = deepClone_ACU(chat);
+  // 只深拷贝表格字段（R2B-09）：清理只改写表格字段，正文无需 JSON 往返。
+  const simulatedChat = cloneChatWithTableFields_ACU(chat);
   for (const message of simulatedChat) {
     if (isDataBearingMessage_ACU(message)) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
   }
@@ -1461,7 +1493,7 @@ export async function demoteTemplateOnlyRootToScopeOnly_ACU(options: {
       const backupFrame = deepClone_ACU(sourceFrame);
 
       // 构造候选聊天：移除该 frame 的 checkpoint / perSheetCheckpoints / headRevision。
-      const candidateChat = deepClone_ACU(chat);
+      const candidateChat = cloneChatWithTableFields_ACU(chat);
       const candidateContainer = readIsolatedDataContainer_ACU(candidateChat[rootIndex]) || {};
       // 写 recoveryBackup 必须放在「整条移除」判空之前：正常路径 frame 降级为
       // {version:2, logEntries:[]} 标准空帧（tagData 保留，backup 随 tagData 落盘）；
@@ -1545,6 +1577,11 @@ export async function demoteTemplateOnlyRootToScopeOnly_ACU(options: {
       // 正常路径（frame 降级为 {version:2, logEntries:[]} 标准空帧）保留 tagData，
       // recoveryBackup 随 tagData 一起落盘；仅畸形空壳才整条移除 tagData。
       const candidateFinalContainer = candidateChat[rootIndex].TavernDB_ACU_IsolatedData;
+      // 严格保存失败必须还原根消息（文档契约「失败则完整还原内存」），否则内存里回放根已没、磁盘上还在。
+      const hadRootIsolatedData = Object.prototype.hasOwnProperty.call(rootMessage, 'TavernDB_ACU_IsolatedData');
+      const previousRootIsolatedData = rootMessage.TavernDB_ACU_IsolatedData;
+      const hadRootIdentity = Object.prototype.hasOwnProperty.call(rootMessage, 'TavernDB_ACU_Identity');
+      const previousRootIdentity = rootMessage.TavernDB_ACU_Identity;
       if (candidateFinalContainer === undefined) delete rootMessage.TavernDB_ACU_IsolatedData;
       else rootMessage.TavernDB_ACU_IsolatedData = candidateFinalContainer;
       writeMessageIdentity_ACU(rootMessage, {
@@ -1552,8 +1589,16 @@ export async function demoteTemplateOnlyRootToScopeOnly_ACU(options: {
         code: settings_ACU.dataIsolationCode,
       });
 
+      try {
+        await saveChatToHostStrict_ACU();
+      } catch (error) {
+        if (hadRootIsolatedData) rootMessage.TavernDB_ACU_IsolatedData = previousRootIsolatedData;
+        else delete rootMessage.TavernDB_ACU_IsolatedData;
+        if (hadRootIdentity) rootMessage.TavernDB_ACU_Identity = previousRootIdentity;
+        else delete rootMessage.TavernDB_ACU_Identity;
+        throw error;
+      }
       logDebug_ACU(`[V2 Persist] template_only_root 降级完成: requestId=${options.requestId || 'unknown'}, rootIndex=${rootIndex}, reason=${rootCheckpoint.reason}, fingerprint=${afterFingerprint}。`);
-      await saveChatToHostStrict_ACU();
       return { ok: true, demoted: true };
     });
   } catch (error: any) {
@@ -2193,6 +2238,7 @@ async function persistTableMutationLogV2Core_ACU(
     return { saved: false, error: 'no AI message found' };
   }
 
+  const preparationChatIdentity = getActiveChatStorageIdentity_ACU(chat);
   options.transactionContext?.assertFresh?.('persistTableMutationLogV2:before_persist');
   if (!chat[target.index] || chat[target.index] !== target.message || target.message.is_user) {
     return { saved: false, error: 'target AI message changed before persist; abort stale table write.' };
@@ -2267,6 +2313,7 @@ async function persistTableMutationLogV2Core_ACU(
     const replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
       maxMessageIndex: target.index,
       updateRuntimeState: false,
+      yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
       ...(options.performanceRunId ? { performanceRunId: options.performanceRunId } : {}),
       ...(options.performanceParentSpanId
         ? { performanceParentSpanId: options.performanceParentSpanId }
@@ -2308,6 +2355,7 @@ async function persistTableMutationLogV2Core_ACU(
       replay = await loadTableStateFromFramesV2Detailed_ACU(preWriteChat, isolationKey, {
         maxMessageIndex: target.index,
         updateRuntimeState: false,
+        yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
         ...(boundaryReplayEvidence ? { replayEvidence: boundaryReplayEvidence } : {}),
         ...(options.performanceRunId ? { performanceRunId: options.performanceRunId } : {}),
         ...(options.performanceParentSpanId
@@ -2539,6 +2587,7 @@ async function persistTableMutationLogV2Core_ACU(
         replayBeforeAppend = await loadTableStateFromFramesV2Detailed_ACU(preWriteChat, isolationKey, {
           maxMessageIndex: target.index,
           updateRuntimeState: false,
+          yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
           ...(boundaryReplayEvidence ? { replayEvidence: boundaryReplayEvidence } : {}),
           ...(options.performanceRunId ? { performanceRunId: options.performanceRunId } : {}),
           ...(options.performanceParentSpanId
@@ -2724,6 +2773,14 @@ async function persistTableMutationLogV2Core_ACU(
     );
     if (mirrorViolation) return { saved: false, error: mirrorViolation };
   }
+  // 上面的校验回放是异步的：第一笔聊天帧变更前复核聊天与目标楼层，期间切换了聊天就拒绝旧结果
+  if (getChatArray_ACU() !== chat || getActiveChatStorageIdentity_ACU(chat) !== preparationChatIdentity) {
+    throw new Error('目标聊天已切换，已拒绝旧的表格保存。');
+  }
+  if (chat[target.index] !== target.message || target.message.is_user) {
+    throw new Error('保存目标楼层已变化，已拒绝旧的表格保存。');
+  }
+  options.transactionContext?.assertFresh?.('persistTableMutationLogV2:after_replay');
   const previousMessageState = [...replacementIsolatedDataByMessageIndex.keys()].map(messageIndex => {
     const message = chat[messageIndex];
     return {
@@ -2746,7 +2803,8 @@ async function persistTableMutationLogV2Core_ACU(
     if (options.strictSave || replacement || temporaryBaselineUpgrade || provisionalConvergenceReplay) {
       await saveChatToHostStrict_ACU();
     } else {
-      await saveChatToHost_ACU();
+      // 填表批的普通存盘走合并调度：填表运行窗口内只记下改动，窗口结束补存一次；窗口外与直接存盘等价。
+      await saveChatToHostCoalesced_ACU();
     }
   } catch (error) {
     for (const state of previousMessageState) {
@@ -2890,6 +2948,7 @@ async function persistTableMutationLogBatchV2Core_ACU(
   if (!Array.isArray(chat) || chat.length === 0) return { saved: false, error: 'chat history is empty' };
   if (!Array.isArray(options.targets) || options.targets.length === 0) return { saved: false, error: 'V2 batch write requires at least one target.' };
 
+  const preparationChatIdentity = getActiveChatStorageIdentity_ACU(chat);
   const isolationKey = options.isolationKey ?? getCurrentIsolationKey_ACU();
   const latestCheckpoint = findLatestFullCheckpoint_ACU(chat, isolationKey);
   const latestReplayRootIndex = findLatestReplayRootMessageIndex_ACU(chat, isolationKey);
@@ -2899,6 +2958,9 @@ async function persistTableMutationLogBatchV2Core_ACU(
   const mergedTargets = mergeBatchTargetsByMessageIndex_ACU(options.targets, options.afterData);
   if ('error' in mergedTargets) return { saved: false, error: mergedTargets.error };
   const targetByIndex = mergedTargets;
+  // 记下各目标楼层的消息对象：校验回放会让出执行权，期间删楼会让同一下标换成另一条消息
+  const targetMessageByIndex = new Map([...targetByIndex.keys()].map(index => [index, chat[index]]));
+  const latestCheckpointMessage = latestCheckpoint ? chat[latestCheckpoint.index] : undefined;
   const changedSheetKeys = new Set<string>();
   for (const [targetIndex, target] of targetByIndex) {
     if (!Number.isInteger(targetIndex) || targetIndex < latestReplayRootIndex || !chat[targetIndex] || chat[targetIndex].is_user) {
@@ -2913,6 +2975,7 @@ async function persistTableMutationLogBatchV2Core_ACU(
     const replay = await loadTableStateFromFramesV2Detailed_ACU(chat, isolationKey, {
       maxMessageIndex: convergenceTargetIndex,
       updateRuntimeState: false,
+      yieldBudgetMs: PERSIST_REPLAY_YIELD_BUDGET_MS_ACU,
     });
     // F2/写严（同单写路径）：宽容回放结果不是严格可写历史，直接拒绝 batch 写入。
     if (replay?.baseKind === 'compat_tolerant_replay') {
@@ -2930,9 +2993,19 @@ async function persistTableMutationLogBatchV2Core_ACU(
     return { saved: false, error: `V2 batch 写入前无法验证 provisional replay：${message}` };
   }
 
-  const candidateChat = deepClone_ACU(chat);
+  // R2B-09：不整份深克隆聊天（长聊天正文每批一次 stringify+parse）。候选数组浅拷贝，只有要改写的
+  // 消息换成浅拷贝对象；改写只替换顶层字段，isolatedData 本身由 cloneIsolatedData_ACU 深拷贝，原消息不受影响。
+  const candidateChat = chat.slice();
+  const copiedCandidateIndices = new Set<number>();
+  const candidateMessageForWrite = (index: number): any => {
+    if (!copiedCandidateIndices.has(index) && candidateChat[index] && typeof candidateChat[index] === 'object') {
+      candidateChat[index] = { ...candidateChat[index] };
+      copiedCandidateIndices.add(index);
+    }
+    return candidateChat[index];
+  };
   for (const [targetIndex, target] of targetByIndex) {
-    const message = candidateChat[targetIndex];
+    const message = candidateMessageForWrite(targetIndex);
     let isolatedData = cloneIsolatedData_ACU(message) as Record<string, any>;
     let tagData = isolatedData[isolationKey];
     if (!isV2TagData_ACU(tagData)) return { saved: false, error: `V2 batch write target ${targetIndex} has no V2 storage frame.` };
@@ -2954,7 +3027,7 @@ async function persistTableMutationLogBatchV2Core_ACU(
       if (anchorData.error) {
         return { saved: false, error: anchorData.error };
       }
-      const rootMessage = candidateChat[latestCheckpoint.index];
+      const rootMessage = candidateMessageForWrite(latestCheckpoint.index);
       if (!rootMessage) {
         return { saved: false, error: `V2 batch 收敛缺少既有 full checkpoint 根消息（index=${latestCheckpoint.index}），已拒绝。` };
       }
@@ -3052,6 +3125,18 @@ async function persistTableMutationLogBatchV2Core_ACU(
     );
     if (mirrorViolation) return { saved: false, error: mirrorViolation };
   }
+
+  // 上面的校验回放是异步的：落盘前复核聊天与各目标楼层，期间切换了聊天就拒绝旧结果
+  if (getChatArray_ACU() !== chat || getActiveChatStorageIdentity_ACU(chat) !== preparationChatIdentity) {
+    throw new Error('目标聊天已切换，已拒绝旧的批量表格保存。');
+  }
+  for (const index of targetByIndex.keys()) {
+    if (!chat[index] || chat[index].is_user || chat[index] !== targetMessageByIndex.get(index)) throw new Error('批量保存目标已变化，已拒绝旧结果。');
+  }
+  if (provisionalConvergenceReplay && latestCheckpoint && chat[latestCheckpoint.index] !== latestCheckpointMessage) {
+    throw new Error('批量保存的回放根楼层已变化，已拒绝旧结果。');
+  }
+  options.transactionContext?.assertFresh?.('persistTableMutationLogBatchV2:after_replay');
 
   // convergence 会把锚点写入根帧（latestCheckpoint.index）；若根帧不是 batch target，
   // 必须把根帧一并纳入原子落盘集合，否则锚点只在内存候选里、落盘即丢失。
@@ -3540,7 +3625,12 @@ async function assertValidInitialTemplateSnapshot_ACU(
       // 持久化契约校验路径：这里刻意保持严格（不传 allowRuntimeDdlFallback）。
       // 若在此降级，非法显式 DDL 会以全 TEXT fallback schema 进入权威 V2 快照，
       // 后续读取得到的是与用户编写 DDL 不符的结构，且损坏点离修改点很远。
-      // 运行时注入/协调路径（template-state-reset / chat-template-reconciler）才允许降级。
+      // 运行时注入/协调路径（template-state-reset / chat-template-reconciler /
+      // replaceAllData：整体替换 runtime 数据，不写权威 V2 快照）才允许降级。
+      // 同样刻意保持严格、但不在此列的调用点：table-schema-migration.ts 的
+      // buildSheetSchemaMigrationOperation / 迁移候选 hydrate（改 schema 后必须
+      // 严格验证候选），以及 schema-migration-preflight.ts 的完整 candidate 预检
+      // （须区分「环境类失败」与「语义类失败」，不能被 fallback 掩盖）。
       await hydrateTableDataStrict_ACU(data);
     } catch (error: any) {
       throw new Error(`V2 首次模板提交的完整 templateSource 无法通过 SQLite strict hydrate：${error?.message || String(error)}`);
@@ -3610,6 +3700,11 @@ function assertValidTemplateSheetChanges_ACU(sheetChanges: TemplateSheetChange_A
   }
   if (sheetKeys.some(sheetKey => deletedSheetKeys.includes(sheetKey))) {
     throw new Error('当前楼层模板提交不能同时删除和变更同一 sheetKey。');
+  }
+  // R2B-04：硬删分支以模板重写整库基底且不再保留 per-sheet checkpoint，同批 hide 的退出快照无处安放，只能拒绝；
+  // reveal/rebase 的结果数据在硬删分支里直接并入新基底（飞行模式停用即「删大总结 + 唤醒/重建纪要」同批）。
+  if (deletedSheetKeys.length > 0 && sheetChanges.some(change => change.kind === 'hide')) {
+    throw new Error('当前楼层模板提交不能同时硬删表和隐藏其他表：硬删会以模板重写整库基底，隐藏快照不会写入。请分两次提交。');
   }
   for (const change of sheetChanges) {
     if (change.kind === 'introduction' || change.kind === 'rebase' || change.kind === 'reveal' || change.kind === 'hide') {
@@ -4263,6 +4358,15 @@ export async function commitCurrentFloorTemplateChanges_ACU(
           ? deepClone_ACU(options.templateSource as TableDataObject_ACU)
           : deepClone_ACU(activeReplayState);
         deletedSheetKeys.forEach(sheetKey => delete (terminalData as Record<string, unknown>)[sheetKey]);
+        // R2B-04：模板源对唤醒表只带结构（数据由 persist 层恢复）。新基底必须带上本批 reveal/rebase
+        // checkpoint 的最终数据（唤醒已按当前模板列集协调），否则休眠表在新基底上变成空壳，
+        // 旧数据只剩新基底之前的帧里，compaction 后永久丢失。introduction 命中历史时同样已转成 reveal。
+        for (const checkpoint of checkpoints) {
+          const timelineKind = (checkpoint as any)?.timeline?.kind;
+          if (timelineKind === 'sheet_reveal' || timelineKind === 'sheet_rebase') {
+            (terminalData as Record<string, unknown>)[checkpoint.sheetKey] = deepClone_ACU(checkpoint.data);
+          }
+        }
         const terminalScheduleSummary = Object.fromEntries(
           Object.entries(scheduleSummaryBySheet).filter(([sheetKey]) => !deletedSheetKeys.includes(sheetKey)),
         );
@@ -4289,11 +4393,13 @@ export async function commitCurrentFloorTemplateChanges_ACU(
         persistedCheckpoints = [];
         hardDeleteCheckpointCreated = true;
 
-        const candidateChat = deepClone_ACU(chat);
+        const candidateChat = cloneChatWithTableFields_ACU(chat);
         for (const message of candidateChat) {
           if (isDataBearingMessage_ACU(message)) purgeSheetKeysFromMessage_ACU(message, deletedSheetKeys);
         }
         candidateChat[target.index].TavernDB_ACU_IsolatedData = isolatedData;
+        // R2B-07：终态根写在目标楼层后，同隔离键其余 full 同事务降级，维持单根（候选与下方真实提交同口径）。
+        downgradeOtherFullCheckpoints_ACU(candidateChat, isolationKey, target.index);
         const candidateValidationError = await validateHardDeleteCandidate_ACU(
           candidateChat, isolationKey, target.index, deletedSheetKeys, terminalData,
         );
@@ -4326,7 +4432,11 @@ export async function commitCurrentFloorTemplateChanges_ACU(
       target.message.TavernDB_ACU_IsolatedData = isolatedData;
       // isolatedData 在异步准备前已克隆；重新挂回目标消息后必须同步应用删除，
       // 否则会把刚刚从真实消息清理掉的目标 frame 旧快照覆盖回来。
-      if (deletedSheetKeys.length > 0) purgeSheetKeysFromMessage_ACU(target.message, deletedSheetKeys);
+      if (deletedSheetKeys.length > 0) {
+        purgeSheetKeysFromMessage_ACU(target.message, deletedSheetKeys);
+        // R2B-07：其余 full 降级为帧内 fallback（messageSnapshots 已深拷贝这些字段，失败时随之回滚）。
+        downgradeOtherFullCheckpoints_ACU(chat, isolationKey, target.index);
+      }
       writeMessageIdentity_ACU(target.message, {
         enabled: settings_ACU.dataIsolationEnabled,
         code: settings_ACU.dataIsolationCode,

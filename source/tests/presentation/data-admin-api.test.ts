@@ -48,25 +48,10 @@ describe('createDataAdminApi', () => {
     mockCommitV2Recovery.mockResolvedValue({ status: 'committed', planId: 'plan-1' });
   });
 
-  it('通过注册的 V2 surface 打开 visualizer', async () => {
-    const openVisualizer = vi.fn(async () => true);
-    registerUiSurface_ACU({
-      openSettings: vi.fn(async () => true),
-      openVisualizer,
-      refreshVisualizer: vi.fn(async () => undefined),
-    });
+  it('R9-16：openVisualizer 只由设置分组提供，数据管理分组不再重复定义（启动不再打重名告警）', () => {
     const api = createDataAdminApi({} as any);
 
-    expect(typeof api.openVisualizer).toBe('function');
-    await expect(api.openVisualizer()).resolves.toBe(true);
-
-    expect(openVisualizer).toHaveBeenCalledTimes(1);
-  });
-
-  it('V2 surface 尚未注册时拒绝打开 visualizer', async () => {
-    const api = createDataAdminApi({} as any);
-
-    await expect(api.openVisualizer()).resolves.toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(api, 'openVisualizer')).toBe(false);
   });
 
   it('暴露 V2 恢复诊断与严格确认提交入口', async () => {
@@ -103,24 +88,6 @@ describe('createDataAdminApi', () => {
 
     expect(mockCommitV2Recovery).toHaveBeenCalledTimes(1);
     expect(mockCommitV2Recovery).toHaveBeenLastCalledWith('plan-1', { confirmOrphanDataReplace: false });
-  });
-
-  // ═══ 布尔契约成功归一（v9.1.8）：文档 Promise<boolean>，underlying 返回 undefined 的
-  // 异步文件选择/confirm 流程在 API 层归一为 true，第三方 if (r) 不再把成功误判为失败 ═══
-  it('成功返 true：underlying 返回 undefined 的异步流程归一为 true', async () => {
-    // 这批 underlying 均为"触发文件选择/confirm 后无显式 return"形状，同步返回 undefined
-    vi.mocked(importTableTemplate_ACU).mockReturnValue(undefined as any);
-    vi.mocked(exportCurrentJsonData_ACU).mockReturnValue(undefined as any);
-    vi.mocked(importCombinedSettings_ACU).mockReturnValue(undefined as any);
-    vi.mocked(exportCombinedSettings_ACU).mockReturnValue(undefined as any);
-    vi.mocked(overrideLatestLayerWithTemplate_ACU).mockResolvedValue(undefined as any);
-    const api = createDataAdminApi({} as any);
-
-    await expect(api.importTemplate()).resolves.toBe(true);
-    await expect(api.exportJsonData()).resolves.toBe(true);
-    await expect(api.importCombinedSettings()).resolves.toBe(true);
-    await expect(api.exportCombinedSettings()).resolves.toBe(true);
-    await expect(api.overrideWithTemplate()).resolves.toBe(true);
   });
 
   it('成功返 true：underlying 显式 true / 文档布尔方法透传不变', async () => {

@@ -9,6 +9,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
 import { logWarn_ACU } from '../../shared/utils';
 import { createCallbackApi, type ApiGroupContext } from './api-groups/callback-api';
 import { createCoreDataApi } from './api-groups/core-data-api';
+import { createTableHistoryApi } from './api-groups/table-history-api';
 import { createTableCrudApi } from './api-groups/table-crud-api';
 import { createTableLockApi } from './api-groups/table-lock-api';
 import { createTemplatePresetApi } from './api-groups/template-preset-api';
@@ -36,11 +37,12 @@ const sqlApi = createSqlApi(ctx);
 
 // --- 组装所有领域 API ---
 // [M7] 逐键合并并检测重名：保持 Object.assign「后注册者胜出」的既有语义，
-// 但对重复键打 warn 指明被覆盖方，避免静默覆盖（如 openVisualizer 曾在
-// data-admin-api 与 settings-config-api 中重复定义）。不删除重复定义本身。
+// 但对重复键打 warn 指明被覆盖方，避免静默覆盖（openVisualizer 曾在
+// data-admin-api 与 settings-config-api 中重复定义，现只保留 settings-config 一份）。
 const apiGroupEntries: Array<{ name: string; methods: Record<string, Function> }> = [
     { name: 'callback', methods: createCallbackApi(ctx) },
     { name: 'core-data', methods: createCoreDataApi(ctx) },
+    { name: 'table-history', methods: createTableHistoryApi() },
     { name: 'table-crud', methods: createTableCrudApi(ctx) },
     { name: 'table-lock', methods: createTableLockApi(ctx) },
     { name: 'template-preset', methods: createTemplatePresetApi(ctx) },

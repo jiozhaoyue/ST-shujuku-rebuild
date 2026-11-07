@@ -13,23 +13,13 @@
 import {
   followGlobalTemplateForCurrentChat_ACU,
 } from '../../service/template/template-preset-service';
-import {
-  buildChatSheetGuideDataFromTemplateObj_ACU,
-  getGlobalTemplateSnapshotForCurrentProfile_ACU,
-} from '../../service/template/chat-scope';
-import { ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } from './useTemplateRecoveryGuard';
+import { ensureTemplateRecoveryReady_ACU } from './useTemplateRecoveryGuard';
 import type { useDialogStore } from '../stores/dialog-store';
 import type { useToastStore } from '../stores/toast-store';
+import { applyTemplateWithDestructiveConfirm_ACU } from './template-destructive-confirm';
 
 type DialogStore = ReturnType<typeof useDialogStore>;
 type ToastStore = ReturnType<typeof useToastStore>;
-
-function isStaleRevisionConflict(result: unknown): boolean {
-  return !!result
-    && typeof result === 'object'
-    && (result as { saved?: unknown }).saved === false
-    && /^V2 stale_revision_conflict(?:\b|:)/.test(String((result as { error?: unknown }).error || ''));
-}
 
 /**
  * 执行"跟随全局"完整流程。返回 true 表示已成功跟随全局（或本就在跟随），
@@ -44,38 +34,29 @@ export async function runFollowGlobalTemplateFlow_ACU({
   toast: ToastStore;
   signal?: AbortSignal;
 }): Promise<boolean> {
-  const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
-  const guideData = globalSnapshot?.templateObj
-    ? buildChatSheetGuideDataFromTemplateObj_ACU(globalSnapshot.templateObj, { stripSeedRows: false })
-    : null;
-  const recoveryGuard = await ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU(guideData, 'switch-template');
+  const recoveryGuard = await ensureTemplateRecoveryReady_ACU('switch-template');
   if (!recoveryGuard.success) return false;
 
-  const applyWithSingleStaleRetry = async (destructiveChangeConfirmed: boolean): Promise<any> => {
-    const firstAttempt = await followGlobalTemplateForCurrentChat_ACU({ destructiveChangeConfirmed, signal });
-    if (!isStaleRevisionConflict(firstAttempt)) return firstAttempt;
-    if (signal?.aborted) return firstAttempt;
-    return followGlobalTemplateForCurrentChat_ACU({ destructiveChangeConfirmed, signal });
-  };
-
-  let result = await applyWithSingleStaleRetry(false);
-  if (result && result.saved === false && Array.isArray(result.blockers) && result.blockers.length > 0) {
-    const destructiveBlockers = result.blockers.filter((blocker: unknown) => (
-      typeof blocker === 'string' && /删除(?:表|列).+需要显式确认/.test(blocker)
-    ));
-    if (destructiveBlockers.length > 0) {
-      const confirmed = await dialogStore.confirm({
-        title: '确认破坏性模板变更',
-        message: `跟随全局模板会删除现有表或列：\n${destructiveBlockers.join('\n')}`,
-        dangerMessage: '确认后将按 V2 原子提交执行。删除的数据只能通过聊天备份或 checkpoint 恢复。',
-        confirmLabel: '确认删除并继续',
-        cancelLabel: '取消',
-        confirmVariant: 'danger',
-      });
-      if (!confirmed) return false;
-      result = await applyWithSingleStaleRetry(true);
-    }
-  }
+  let userCancelled = false;
+  const result = await applyTemplateWithDestructiveConfirm_ACU(
+    destructiveChangeConfirmed => followGlobalTemplateForCurrentChat_ACU({ destructiveChangeConfirmed, signal }),
+    {
+      signal,
+      confirm: async destructiveBlockers => {
+        const confirmed = await dialogStore.confirm({
+          title: '确认破坏性模板变更',
+          message: `跟随全局模板会删除现有表或列：\n${destructiveBlockers.join('\n')}`,
+          dangerMessage: '确认后将按 V2 原子提交执行。删除的数据只能通过聊天备份或 checkpoint 恢复。',
+          confirmLabel: '确认删除并继续',
+          cancelLabel: '取消',
+          confirmVariant: 'danger',
+        });
+        userCancelled = !confirmed;
+        return confirmed;
+      },
+    },
+  );
+  if (userCancelled) return false;
 
   if (!result || result.saved !== true) {
     toast.error((result && typeof result.error === 'string' && result.error) || '跟随全局模板失败。');

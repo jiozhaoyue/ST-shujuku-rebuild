@@ -48,6 +48,8 @@ export interface ContinuationWorkflowAgentCall_ACU {
   billing: ContinuationWorkflowBilling_ACU;
   repair: boolean;
   targetModules?: AgentWritableModule_ACU[];
+  /** 工作流此刻的资料快照（已含本轮结算）；缺省时调用方沿用运行起点快照。 */
+  snapshot?: AgentModuleSnapshot_ACU;
 }
 
 export interface ContinuationWorkflowUnresolvedIssue_ACU {
@@ -108,8 +110,17 @@ export interface ContinuationWorkflowInput_ACU {
   runAgent: (call: ContinuationWorkflowAgentCall_ACU) => Promise<ContinuationWorkflowAgentPayload_ACU>;
   /** 已即时保存时读回提交后快照；不传则沿用传入快照（旧行为）。 */
   readCommittedSnapshot?: () => AgentModuleSnapshot_ACU;
-  runComposer: (call: { prompt: string; revisionFeedback: string; priorInstruction: string }) => Promise<AgentComposerOutput_ACU>;
-  runFinalReview: (instruction: string, summary: string) => Promise<AgentFinalReviewerOutput_ACU>;
+  /**
+   * 把工作流本地已应用、还没落帧的资料先落帧。带 write_sql 的子代理按帧提交、结算时又从帧读回，
+   * 本地契约结算若不先落帧，读回时会被整份顶掉。不传则不落（旧行为）。
+   */
+  syncSnapshot?: (snapshot: AgentModuleSnapshot_ACU) => Promise<void>;
+  runComposer: (call: { prompt: string; revisionFeedback: string; priorInstruction: string; snapshot?: AgentModuleSnapshot_ACU }) => Promise<AgentComposerOutput_ACU>;
+  runFinalReview: (instruction: string, summary: string, snapshot?: AgentModuleSnapshot_ACU) => Promise<AgentFinalReviewerOutput_ACU>;
+  /** 本轮实际注入的正文起点；缺省保留既有完整结算语义。 */
+  settlementStartIndex?: number;
+  /** 窗口外仍有未处理正文时，不得推进连续结算水位。 */
+  canAdvanceSettlement?: boolean;
 }
 
 export interface ContinuationMaterialRepairInput_ACU {
@@ -136,6 +147,8 @@ const MAINLINE_NAME_ACU = 'mainline-planner';
 const BEAT_NAME_ACU = 'beat-planner';
 const ARC_NAME_ACU = 'arc-architect';
 const WEB_NAME_ACU = 'web-researcher';
+/** 持有资料写端口（write_sql）的子代理。 */
+const MATERIAL_WRITER_NAMES_ACU = new Set([MAINTAINER_NAME_ACU, ARC_NAME_ACU, WEB_NAME_ACU]);
 const MAINTAINER_MODULES_ACU = ['hooks', 'infoGap', 'chronology'] as const;
 export const CONTINUATION_REPAIRABLE_MODULES_ACU = [...MAINTAINER_MODULES_ACU, 'storyArc', 'webRefs'] as const;
 const BEAT_OBLIGATION_PATTERN_ACU = /伏笔|埋设|回收|误导|信息差|揭示/;
@@ -218,7 +231,8 @@ function maintainerPrompt_ACU(focus: string, snapshot: AgentModuleSnapshot_ACU, 
   const fixes = snapshot.pendingFixes.filter(item => (MAINTAINER_MODULES_ACU as readonly string[]).includes(item.module));
   return [
     repair ? '这是独立预算的自动修复。只提交违规模块的增量 patch，不要重写无关模块。' : `本轮焦点：${focus}`,
-    '结算已经发生的正文。没有新事实时 delta 留空并在 summary 写明 no_change。',
+    '只逐楼结算 $HISTORY_UNSETTLED 实际提供的窗口内正文；窗口外省略内容不得宣称已读或已结算。没有新事实时不调用 write_sql，delta 留空并在 summary 写明 no_change 与逐项核对结果，不用 SELECT 1 等空操作代替核对。',
+    'expected_revision 只用于 UPDATE/DELETE 的 WHERE 校验，不放进 SET，也不自行递增。被拒的写入不等于资料损坏；按回执区分实际缺栏、未保存的业务变化和任务失效。',
     `待修复：${formatFixes_ACU(fixes)}`,
   ].join('\n');
 }
@@ -251,6 +265,7 @@ function restrictMaintainerOutput_ACU(
       storyArc: allowed.has('storyArc') ? output.delta.storyArc : [],
       storyArcPatches: allowed.has('storyArc') ? output.delta.storyArcPatches : [],
       chronology: allowed.has('chronology') ? output.delta.chronology : [],
+      chronologyPatches: allowed.has('chronology') ? (output.delta.chronologyPatches ?? []) : [],
       constraintProposals: allowed.has('constraints') ? output.delta.constraintProposals : [],
     },
   };
@@ -333,12 +348,24 @@ function completionModules_ACU(
 function clearCompletedPending_ACU(
   snapshot: AgentModuleSnapshot_ACU,
   modules: Partial<Record<AgentWritableModule_ACU, Exclude<AgentMaterialCompletionState_ACU, 'legacy_unknown'>>>,
+  rangeStartIndex?: number,
+  rangeEndIndex?: number,
 ): AgentModuleSnapshot_ACU {
   const completed = new Set(Object.entries(modules)
     .filter(([, state]) => state === 'complete_changed' || state === 'complete_no_change')
     .map(([module]) => module));
   if (!completed.size) return snapshot;
-  return { ...snapshot, pendingFixes: snapshot.pendingFixes.filter(item => !completed.has(item.module)) };
+  // 结算窗口外的缺口不受本轮清账影响：按模块清账不能丢掉窗口外的待修复项。
+  return { ...snapshot, pendingFixes: snapshot.pendingFixes.filter(item => !completed.has(item.module)
+    || !pendingWithinSettlement_ACU(item, rangeStartIndex, rangeEndIndex)) };
+}
+
+/** 缺口是否落在本次结算窗口内；无窗口约束时一律视为窗口内（保持旧行为）。 */
+function pendingWithinSettlement_ACU(item: AgentPendingFix_ACU, start?: number, end?: number): boolean {
+  if (start === undefined || end === undefined) return true;
+  const itemStart = item.rangeStartIndex ?? start;
+  const itemEnd = item.rangeEndIndex ?? end;
+  return start <= end && itemStart >= start && itemEnd <= end;
 }
 
 function repairAgentForModule_ACU(module: AgentWritableModule_ACU): string | null {
@@ -540,11 +567,55 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
   // 删楼后 settledIndex 可能小于旧 pending 的 rangeStart：起点钳到终点以内，
   // 否则写出的 materialCompletion 会出现 rangeStart>rangeEnd 的非法区间。
   const rawSettlementStart = pendingRangeStarts.length ? Math.min(...pendingRangeStarts) : Math.max(0, snapshot.settledThroughIndex + 1);
-  const settlementStartIndex = Math.min(rawSettlementStart, settlementEndIndex);
+  const settlementStartIndex = Math.min(input.settlementStartIndex ?? rawSettlementStart, settlementEndIndex);
+  // 本轮窗口外的缺口不受本轮清账与水位影响；完成区间与上轮连续时合并（移植上游 5f8afe3a）。
+  const outsidePending = snapshot.pendingFixes.filter(item => !pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex));
+  const previousCompletion = input.snapshot.materialCompletion;
 
+  // syncedSnapshot：帧上此刻的快照；syncedFrom：它对应的本地快照（本地变了才需要再落帧）。
+  // 开始时两者都是传入快照，之后每次落帧或从帧读回都跟着更新。
+  let syncedSnapshot = snapshot;
+  let syncedFrom = snapshot;
+  const readCommittedSnapshot_ACU = (): AgentModuleSnapshot_ACU => {
+    syncedSnapshot = input.readCommittedSnapshot!();
+    syncedFrom = syncedSnapshot;
+    return syncedSnapshot;
+  };
+  // 带 write_sql 的可写子代理按帧提交、结算时又从帧读回：派工前先把本地契约结算的资料条目落帧，
+  // 否则读回时会被整份顶掉。只落资料条目与修订号；挂账、完成状态、水位仍是工作流自己的账，
+  // 结束时统一落盘（与原口径一致）。同批并行派工共用一次落帧。
+  let syncing: { from: AgentModuleSnapshot_ACU; promise: Promise<void> } | null = null;
+  const syncMaterialsBeforeWriterDispatch_ACU = async (): Promise<void> => {
+    if (!input.syncSnapshot || snapshot === syncedFrom) return;
+    if (syncing?.from === snapshot) return syncing.promise;
+    const from = snapshot;
+    const materials: AgentModuleSnapshot_ACU = {
+      ...from,
+      settledThroughIndex: syncedSnapshot.settledThroughIndex,
+      settledPrefixFingerprint: syncedSnapshot.settledPrefixFingerprint,
+      settlementBoundary: syncedSnapshot.settlementBoundary,
+      materialCompletion: syncedSnapshot.materialCompletion,
+      pendingFixes: syncedSnapshot.pendingFixes,
+    };
+    if (materials.settledPrefixFingerprint === undefined) delete materials.settledPrefixFingerprint;
+    if (materials.settlementBoundary === undefined) delete materials.settlementBoundary;
+    const promise = input.syncSnapshot(materials).then(() => {
+      syncedSnapshot = materials;
+      syncedFrom = from;
+    });
+    syncing = { from, promise };
+    try {
+      await promise;
+    } finally {
+      if (syncing?.promise === promise) syncing = null;
+    }
+  };
+
+  // 每次派工带上工作流此刻的资料：结算后的策划、补足与编排必须看到本轮刚结算的账本。
   const runSafe_ACU = async (call: ContinuationWorkflowAgentCall_ACU): Promise<ContinuationWorkflowAgentPayload_ACU> => {
     try {
-      return await input.runAgent(call);
+      if (MATERIAL_WRITER_NAMES_ACU.has(call.agentName)) await syncMaterialsBeforeWriterDispatch_ACU();
+      return await input.runAgent({ ...call, snapshot });
     } catch (error) {
       if (isStale_ACU(error)) throw error;
       return { ok: false, summary: errorText_ACU(error) };
@@ -556,10 +627,11 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     writes: readonly string[],
     readRevisions: AgentModuleRevisions_ACU | undefined,
     agentName: string,
+    settlementRange?: { start: number; end: number },
   ): Promise<AgentWritableModule_ACU[]> => {
     if (!output || !deltaTouched_ACU(output.delta)) return [];
     const delta = readRevisions ? mergeAgentDeltaRevisions_ACU(output.delta, readRevisions) : output.delta;
-    const applied = await applyAgentModuleDeltaViaSql_ACU(snapshot, delta, writes, input.settledIndex, input.completedStageNumbers, input.allowedEvidenceIndexes, tolerantOptions_ACU(agentName));
+    const applied = await applyAgentModuleDeltaViaSql_ACU(snapshot, delta, writes, input.settledIndex, input.completedStageNumbers, input.allowedEvidenceIndexes, { ...tolerantOptions_ACU(agentName), ...(settlementRange ? { settlementRange } : {}) });
     snapshot = applied.snapshot;
     return applied.appliedModules;
   };
@@ -574,7 +646,7 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     steps.push({ agentName: WEB_NAME_ACU, status: web.ok ? 'ok' : 'failed', summary: web.summary });
     if (web.ok && web.usedFieldWrites) {
       assertFieldWriteSettleable_ACU({ agentName: WEB_NAME_ACU, usedFieldWrites: web.usedFieldWrites, contractTouched: false, researcherTouched: (web.researcher?.items.length ?? 0) > 0 || (web.researcher?.patches?.length ?? 0) > 0 });
-      if (input.readCommittedSnapshot) snapshot = input.readCommittedSnapshot();
+      if (input.readCommittedSnapshot) snapshot = readCommittedSnapshot_ACU();
     } else if (web.ok && web.researcher && (web.researcher.items.length || (web.researcher.patches ?? []).length)) {
       const applied = await applyAgentWebRefsDeltaViaSql_ACU(
         snapshot,
@@ -589,7 +661,8 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
 
   const maintainerPending = snapshot.pendingFixes.some(item =>
     (MAINTAINER_MODULES_ACU as readonly string[]).includes(item.module)
-    && item.attempts < input.settings.workflow.autoFixMaxAttempts);
+    && item.attempts < input.settings.workflow.autoFixMaxAttempts
+    && pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex));
   if (!input.hasUnsettledHistory && !maintainerPending) {
     steps.push({ agentName: MAINTAINER_NAME_ACU, status: 'no_change', summary: '没有未结算正文，也没有待修复的结算模块' });
   } else {
@@ -597,7 +670,8 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       agentName: MAINTAINER_NAME_ACU,
       billing: 'pipeline',
       repair: false,
-      prompt: maintainerPrompt_ACU(input.opening.focus, snapshot, false),
+      prompt: maintainerPrompt_ACU(input.opening.focus, { ...snapshot,
+        pendingFixes: snapshot.pendingFixes.filter(item => pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex)) }, false),
     });
     // 结算块内定向修正（移植上游 333cae77 TT 子集）：首派后仍有 pendingFixes 即立即
     // 定向重派，最多 reviseLimit 次。billing 保持 pipeline（不占用并行 repair 通道），
@@ -619,14 +693,17 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       assertFieldWriteSettleable_ACU({ agentName: MAINTAINER_NAME_ACU, usedFieldWrites: maintainer.usedFieldWrites, contractTouched: deltaTouched_ACU(maintainer.maintainer?.delta), researcherTouched: false });
       if (input.readCommittedSnapshot) {
         const before = snapshot;
-        snapshot = input.readCommittedSnapshot();
+        snapshot = readCommittedSnapshot_ACU();
         for (const module of writes) {
           if ((snapshot.revisions as any)[module] > (before.revisions as any)[module]) appliedModules.push(module);
         }
+        // 逐栏写齐的条目已提升为正式条目（修订号推进）：最终契约为空不代表「无变化」。
+        for (const module of appliedModules) if (modules[module] === 'complete_no_change') modules[module] = 'complete_changed';
+        if (appliedModules.length && completion === 'complete_no_change') completion = 'complete_changed';
       }
     } else {
       appliedModules = maintainer.ok
-        ? await applyMaintainerLike_ACU(maintainer.maintainer, writes, maintainer.readRevisions, MAINTAINER_NAME_ACU)
+        ? await applyMaintainerLike_ACU(maintainer.maintainer, writes, maintainer.readRevisions, MAINTAINER_NAME_ACU, { start: settlementStartIndex, end: settlementEndIndex })
         : [];
     }
     const issues = [...(maintainer.unresolvedIssues ?? [])];
@@ -640,7 +717,18 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       snapshot = recordWorkflowIssues_ACU(snapshot, issues, MAINTAINER_NAME_ACU, settlementStartIndex, settlementEndIndex, maintainer.acceptedKeys);
       completion = appliedModules.length ? 'partial' : 'failed';
     }
-    const transactionPending = snapshot.pendingFixes.filter(item => writes.includes(item.module));
+    if (maintainer.ok && !maintainer.usedFieldWrites) {
+      // 成功检查同一范围后，旧调用失败已恢复；字段拒绝不能靠无变化交付清账。
+      const completed = new Set(Object.entries(modules)
+        .filter(([, state]) => state === 'complete_changed' || state === 'complete_no_change')
+        .map(([module]) => module));
+      const unresolvedModules = new Set<string>(issues.map(item => item.module));
+      snapshot = { ...snapshot, pendingFixes: snapshot.pendingFixes.filter(item => item.source !== 'invoke_failed'
+        || !completed.has(item.module) || unresolvedModules.has(item.module)
+        || !pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex)) };
+    }
+    const transactionPending = snapshot.pendingFixes.filter(item => writes.includes(item.module)
+      && pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex));
     if (transactionPending.length) {
       for (const fix of transactionPending) {
         const moduleAccepted = appliedModules.includes(fix.module) || acceptedKeysForModule_ACU(maintainer.acceptedKeys, fix.module).length > 0;
@@ -648,7 +736,10 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       }
       completion = appliedModules.length ? 'partial' : 'failed';
     } else {
-      snapshot = clearCompletedPending_ACU(snapshot, modules);
+      // 本轮新问题的模块不参与清账：刚记的缺口不能同一轮清掉。
+      const unresolvedModules = new Set<string>(issues.map(item => item.module));
+      snapshot = clearCompletedPending_ACU(snapshot, Object.fromEntries(Object.entries(modules)
+        .filter(([module]) => !unresolvedModules.has(module))) as typeof modules, settlementStartIndex, settlementEndIndex);
     }
     const now = Date.now();
     snapshot = {
@@ -663,7 +754,22 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       updatedAt: Math.max(snapshot.updatedAt, now),
     };
     if (completion === 'complete_changed' || completion === 'complete_no_change') {
-      snapshot = { ...snapshot, settledThroughIndex: Math.max(snapshot.settledThroughIndex, input.settledIndex) };
+      // 窗口外仍有未处理正文时不得推进连续结算水位：只结算窗口内已确认的部分。
+      // 最近窗口可以完成，但这不等于此前所有正文都已处理。
+      const outsideMaintainerPending = outsidePending.some(item =>
+        (MAINTAINER_MODULES_ACU as readonly string[]).includes(item.module));
+      if (input.canAdvanceSettlement !== false && !outsideMaintainerPending) {
+        snapshot = { ...snapshot, settledThroughIndex: Math.max(snapshot.settledThroughIndex, input.settledIndex) };
+      }
+      if (previousCompletion && (previousCompletion.state === 'complete_changed' || previousCompletion.state === 'complete_no_change')
+        && previousCompletion.rangeStartIndex >= 0
+        && previousCompletion.rangeEndIndex >= previousCompletion.rangeStartIndex
+        && previousCompletion.rangeEndIndex + 1 >= settlementStartIndex
+        && previousCompletion.rangeStartIndex <= settlementEndIndex + 1) {
+        snapshot = { ...snapshot, materialCompletion: { ...snapshot.materialCompletion,
+          rangeStartIndex: Math.min(previousCompletion.rangeStartIndex, settlementStartIndex),
+          rangeEndIndex: Math.max(previousCompletion.rangeEndIndex, settlementEndIndex) } };
+      }
     }
     if (!maintainer.ok || completion === 'failed') {
       steps.push({ agentName: MAINTAINER_NAME_ACU, status: 'failed', summary: maintainer.summary });
@@ -674,8 +780,9 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     } else {
       steps.push({ agentName: MAINTAINER_NAME_ACU, status: 'ok', summary: maintainer.summary });
     }
-      const repairPending = snapshot.pendingFixes.filter(item =>
+        const repairPending = snapshot.pendingFixes.filter(item =>
         (MAINTAINER_MODULES_ACU as readonly string[]).includes(item.module)
+        && pendingWithinSettlement_ACU(item, settlementStartIndex, settlementEndIndex)
         && item.source !== 'truncated');
       if (!repairPending.length || repairAttempts >= maxRepairAttempts) break;
       repairAttempts += 1;
@@ -709,8 +816,12 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
   for (let index = 0; index < planners.length; index += 1) {
     const planner = planners[index];
     steps.push({ agentName: plannerCalls[index].agentName, status: planner.ok ? 'ok' : 'failed', summary: planner.summary });
-    if (planner.planner) {
-      plannerNotes.push(planner.planner.recommendation);
+    // 交接整份策划交付（来源、必须保留、风险），不只摘 recommendation；失败的策划明确标失败（上游 37948da1）。
+    if (planner.ok && planner.planner) {
+      plannerNotes.push(JSON.stringify({ agentName: plannerCalls[index].agentName, ...planner.planner }));
+    } else {
+      plannerNotes.push(JSON.stringify({ agentName: plannerCalls[index].agentName, status: 'failed',
+        summary: planner.summary || '本轮没有可用策划交付', recommendation: '', mustPreserve: [], risks: [] }));
     }
   }
 
@@ -721,6 +832,7 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     input.opening.summary ? `开局摘要：${input.opening.summary}` : '',
     `策划建议：${plannerNotes.join('\n') || '无'}`,
     `待修复：${formatFixes_ACU(snapshot.pendingFixes)}`,
+    '每份策划交接保留来源、summary、recommendation、mustPreserve 和 risks。逐项核对保留条件与风险，不只摘录 recommendation；失败的策划不是可用建议。它们是待核实的建议，不高于正文、权威账本或用户要求；存在冲突时在 summary 说明取舍，不能静默丢弃保留条件或补编缺失事实。',
     '通读结算后的资料、用户要求与活跃约束，产出本轮写作指令。产出前自查：策划建议之间是否互相冲突、是否与本轮 pacing 冲突、是否与已结算的硬事实/长期约束冲突；发现冲突时取更保守的一方并在 summary 注明取舍，不得原样拼接两份矛盾建议。',
   ].filter(Boolean).join('\n');
 
@@ -736,7 +848,7 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     };
   });
   const repairPromise = Promise.all(repairCalls.map(call => runSafe_ACU(call)));
-  const composerPromise = input.runComposer({ prompt: composerBase, revisionFeedback: '', priorInstruction: '' }).catch(error => {
+  const composerPromise = input.runComposer({ prompt: composerBase, revisionFeedback: '', priorInstruction: '', snapshot }).catch(error => {
     if (isStale_ACU(error)) throw error;
     const failed: AgentComposerOutput_ACU = { instruction: '', summary: errorText_ACU(error), constraints: null };
     return failed;
@@ -757,7 +869,7 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
         contractTouched: deltaTouched_ACU((repair.maintainer ?? repair.arc)?.delta),
         researcherTouched: (repair.researcher?.items.length ?? 0) > 0 || (repair.researcher?.patches?.length ?? 0) > 0,
       });
-      if (input.readCommittedSnapshot) snapshot = input.readCommittedSnapshot();
+      if (input.readCommittedSnapshot) snapshot = readCommittedSnapshot_ACU();
     } else {
       if (repair.researcher && targetModules.includes('webRefs')) {
         snapshot = (await applyAgentWebRefsDeltaViaSql_ACU(snapshot, repair.researcher, repair.readRevisions?.webRefs, Date.now(), tolerantOptions_ACU(agentName))).snapshot;
@@ -823,7 +935,7 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
     while (failures < limit) {
       let review: AgentFinalReviewerOutput_ACU;
       try {
-        review = await input.runFinalReview(instruction, composer.summary);
+        review = await input.runFinalReview(instruction, composer.summary, snapshot);
       } catch (error) {
         if (isStale_ACU(error)) throw error;
         failures += 1;
@@ -842,9 +954,11 @@ export async function runContinuationAgentWorkflow_ACU(input: ContinuationWorkfl
       let revised: AgentComposerOutput_ACU;
       try {
         revised = await input.runComposer({
-          prompt: `按反馈清单增量修订，不要全量重写。\n原指令：\n${instruction}`,
-          revisionFeedback: review.requiredFixes.join('\n'),
+          // 修订仍带本轮焦点与策划交接，并列出终审要求保留的内容，避免增量修订丢上下文（上游 37948da1）。
+          prompt: `${composerBase}\n\n按反馈清单增量修订，不要全量重写。\n原指令：\n${instruction}`,
+          revisionFeedback: `修正清单：\n${review.requiredFixes.join('\n')}\n必须保留：\n${review.preserve.join('\n') || '未另列；保留原指令未被反馈涉及的内容'}`,
           priorInstruction: instruction,
+          snapshot,
         });
       } catch (error) {
         if (isStale_ACU(error)) throw error;

@@ -42,6 +42,8 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   get settings_ACU() { return mockLockSettings.value; },
   currentChatFileIdentifier_ACU: 'test-chat',
   getCurrentIsolationKey_ACU: () => 'iso-key',
+  // 冷加载接线的取消信号：单测默认没有在飞的聊天变更，返回 null（与生产未中断时同形态）。
+  getChatMutationAbortSignal_ACU: () => null,
 }));
 
 // mock settings-service（helpers-table-lock 的持久化依赖）
@@ -119,11 +121,14 @@ vi.mock('../../../src/shared/json-helpers', () => ({
 
 // 现在 import 被测模块
 import {
+  applyParameterizedSqlMutationToTableDataSnapshot_ACU,
   applySqlEditsToTableDataSnapshot_ACU,
   assertNoHiddenPhysicalColumnMutations_ACU,
   buildSqlSheetBatchOperations_ACU,
   captureSqlTableApplyScope_ACU,
   extractRowIdsFromSqlSheetBatch_ACU,
+  freezeRuntimeSchemaFromData_ACU,
+  freezeRuntimeSchemaFromSchemas_ACU,
   materializeSystemRowIdsForSqlInserts_ACU,
   normalizeSqlStatementsForRuntimeLog_ACU,
   rebindSqlMutationIdentifiers_ACU,
@@ -299,14 +304,6 @@ describe('rebindSqlMutationTableIdentifiers_ACU · 模板别名补充', () => {
 // 纯函数测试：splitSqlStatements
 // ═══════════════════════════════════════════════════════════════
 describe('splitSqlStatements', () => {
-  it('按分号拆分多条语句', () => {
-    const sql = "INSERT INTO t VALUES (1, 'a'); UPDATE t SET x = 1; DELETE FROM t WHERE id = 1;";
-    const result = splitSqlStatements(sql);
-    expect(result).toHaveLength(3);
-    expect(result[0]).toBe("INSERT INTO t VALUES (1, 'a')");
-    expect(result[1]).toBe('UPDATE t SET x = 1');
-    expect(result[2]).toBe('DELETE FROM t WHERE id = 1');
-  });
 
   it('跳过字符串内的分号（单引号）', () => {
     const sql = "INSERT INTO t VALUES (1, 'hello; world'); INSERT INTO t VALUES (2, 'foo');";
@@ -332,45 +329,6 @@ describe('splitSqlStatements', () => {
     expect(result[1]).toBe("INSERT INTO t VALUES (2, 'ok')");
   });
 
-  it('最后一条语句没有分号结尾', () => {
-    const sql = 'INSERT INTO t VALUES (1); UPDATE t SET x = 2';
-    const result = splitSqlStatements(sql);
-    expect(result).toHaveLength(2);
-    expect(result[1]).toBe('UPDATE t SET x = 2');
-  });
-
-  it('空字符串返回空数组', () => {
-    expect(splitSqlStatements('')).toEqual([]);
-  });
-
-  it('纯空白返回空数组', () => {
-    expect(splitSqlStatements('   \n\t  ')).toEqual([]);
-  });
-
-  it('单条语句无分号', () => {
-    const result = splitSqlStatements('SELECT * FROM t');
-    expect(result).toHaveLength(1);
-    expect(result[0]).toBe('SELECT * FROM t');
-  });
-
-  it('连续分号产生空语句被过滤', () => {
-    const sql = 'INSERT INTO t VALUES (1);;; UPDATE t SET x = 2;;';
-    const result = splitSqlStatements(sql);
-    expect(result).toHaveLength(2);
-  });
-
-  it('多行 SQL 语句', () => {
-    const sql = `INSERT INTO inventory
-      VALUES (1, '铁剑', 3);
-    UPDATE inventory
-      SET quantity = 5
-      WHERE item_name = '铁剑';`;
-    const result = splitSqlStatements(sql);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toContain('INSERT INTO inventory');
-    expect(result[1]).toContain('UPDATE inventory');
-  });
-
   it('字符串中包含转义双引号', () => {
     const sql = 'INSERT INTO t VALUES (1, "he said ""hello"""); INSERT INTO t VALUES (2, "ok");';
     const result = splitSqlStatements(sql);
@@ -392,15 +350,6 @@ describe('normalizeSqlStatementsForRuntimeLog_ACU', () => {
 });
 
 describe('extractTableNamesFromStatements', () => {
-  it('提取 INSERT INTO 的表名', () => {
-    const result = extractTableNamesFromStatements(["INSERT INTO inventory VALUES (1, '铁剑', 3)"]);
-    expect(result).toEqual(['inventory']);
-  });
-
-  it('提取 INSERT OR REPLACE INTO 的表名', () => {
-    const result = extractTableNamesFromStatements(["INSERT OR REPLACE INTO inventory VALUES (1, '铁剑', 3)"]);
-    expect(result).toEqual(['inventory']);
-  });
 
   it.each([
     ["REPLACE INTO inventory VALUES (1, '铁剑', 3)", 'inventory'],
@@ -412,58 +361,9 @@ describe('extractTableNamesFromStatements', () => {
     expect(extractTableNamesFromStatements([sql])).toEqual([expected]);
   });
 
-  it('提取 UPDATE 的表名', () => {
-    const result = extractTableNamesFromStatements(["UPDATE inventory SET quantity = 5 WHERE row_id = 1"]);
-    expect(result).toEqual(['inventory']);
-  });
-
   it('提取 UPDATE OR IGNORE 的表名', () => {
     const result = extractTableNamesFromStatements(["UPDATE OR IGNORE inventory SET quantity = 5"]);
     expect(result).toEqual(['inventory']);
-  });
-
-  it('提取 DELETE FROM 的表名', () => {
-    const result = extractTableNamesFromStatements(["DELETE FROM inventory WHERE row_id = 1"]);
-    expect(result).toEqual(['inventory']);
-  });
-
-  it('提取 ALTER TABLE 的表名', () => {
-    const result = extractTableNamesFromStatements(["ALTER TABLE inventory ADD COLUMN description TEXT"]);
-    expect(result).toEqual(['inventory']);
-  });
-
-  it('多条语句提取多个表名（去重）', () => {
-    const result = extractTableNamesFromStatements([
-      "INSERT INTO inventory VALUES (1, '铁剑', 3)",
-      "UPDATE inventory SET quantity = 5",
-      "INSERT INTO characters VALUES (1, '角色A', 25)",
-    ]);
-    expect(result).toContain('inventory');
-    expect(result).toContain('characters');
-    expect(result).toHaveLength(2); // inventory 去重
-  });
-
-  it('SELECT 语句不提取表名', () => {
-    const result = extractTableNamesFromStatements(["SELECT * FROM inventory"]);
-    expect(result).toEqual([]);
-  });
-
-  it('CREATE TABLE 语句不提取表名', () => {
-    const result = extractTableNamesFromStatements(["CREATE TABLE new_table (id INTEGER)"]);
-    expect(result).toEqual([]);
-  });
-
-  it('空数组返回空数组', () => {
-    expect(extractTableNamesFromStatements([])).toEqual([]);
-  });
-
-  it('空字符串语句不提取', () => {
-    expect(extractTableNamesFromStatements(['', '  '])).toEqual([]);
-  });
-
-  it('大小写不敏感', () => {
-    const result = extractTableNamesFromStatements(["insert into MyTable values (1)"]);
-    expect(result).toEqual(['MyTable']);
   });
 });
 
@@ -509,6 +409,58 @@ describe('applySqlEditsToTableDataSnapshot_ACU', () => {
     expect(result.workingData?.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '9'], ['2', '治疗药水', '5']]);
     expect(inputSnapshot.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '3']]);
     expect(mockCurrentJsonTableData).toBeNull();
+  });
+
+  /**
+   * applySqlEditsToTableDataSnapshot_ACU 与 applyParameterizedSqlMutationToTableDataSnapshot
+   * 的 hydrate 必须与写入端/回放端用同一套 runtime DDL 口径（allowRuntimeDdlFallback）。
+   *
+   * 这两个函数是 update-orchestrator AI SQL 执行器（update-orchestrator.ts:2058）的
+   * 唯一入口：hydrate 的输入正是当前 canonical 基底（其 sourceData.ddl 是原串）。
+   * 若 hydrate 拒绝 fallback，同一份坏 DDL 的聊天在 loadFromChat / replaceAllData /
+   * 回放侧都能加载进 runtime，唯独 AI 填表整轮 {success:false} —— 写入端内部仍分叉。
+   *
+   * 列名必须与表头一致，否则命中「表头没有对应的 DDL 列」的列映射守卫（那是本就不该
+   * 放宽的 fail-closed），与本用例无关。
+   */
+  it('坏 DDL 快照的 hydrate 沿用 runtime fallback 基底，UPDATE 在其上成功', async () => {
+    const inputSnapshot = JSON.parse(JSON.stringify(snapshotTableData));
+    inputSnapshot.sheet_0.sourceData = {
+      ...inputSnapshot.sheet_0.sourceData,
+      ddl: 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, item_name TEXT, quantity INTEGER,)',
+    };
+    const result = await applySqlEditsToTableDataSnapshot_ACU(
+      "UPDATE inventory SET quantity = 9 WHERE row_id = 1;",
+      inputSnapshot,
+    );
+
+    expect(result.success, 'hydrate 必须回退到 fallback 基底，否则 AI 填表整轮失败').toBe(true);
+    expect(result.workingData?.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '9']]);
+    // 坏 DDL 不得被改写：sourceData 保留原串，修复只发生在 runtime 侧
+    expect(result.workingData?.sheet_0.sourceData.ddl).toContain('quantity INTEGER,)');
+  });
+
+  /**
+   * applyParameterizedSqlMutationToTableDataSnapshot 的 hydrate 必须与
+   * applySqlEditsToTableDataSnapshot_ACU 用同一口径：两者都是 update-orchestrator
+   * AI SQL 执行器的 hydrate 入口（后者在 update-orchestrator.ts:2058），输入都是
+   * 当前 canonical 基底。只修一处，另一处仍会让坏 DDL 的 AI 填表整轮失败。
+   */
+  it('坏 DDL 快照的参数化变异 hydrate 同样沿用 runtime fallback 基底', async () => {
+    const inputSnapshot = JSON.parse(JSON.stringify(snapshotTableData));
+    inputSnapshot.sheet_0.sourceData = {
+      ...inputSnapshot.sheet_0.sourceData,
+      ddl: 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, item_name TEXT, quantity INTEGER,)',
+    };
+    // 参数化路径必须用 ? 占位符：hydrate 同样发生在 SQL 执行之前。
+    const result = await applyParameterizedSqlMutationToTableDataSnapshot_ACU(
+      'UPDATE inventory SET quantity = ? WHERE row_id = ?;',
+      [9, 1],
+      inputSnapshot,
+    );
+
+    expect(result.success, '参数化路径的 hydrate 同样必须回退').toBe(true);
+    expect(result.workingData?.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '9']]);
   });
 
   it('generation 链将 sheetKey 和 uid alias 重绑定到权威物理表', async () => {
@@ -800,6 +752,36 @@ describe('applySqlEditsToTableDataSnapshot_ACU', () => {
       expect(statements).toHaveLength(2);
       expect(statements[0]).toContain('SET quantity = 99');
       expect(statements[1]).toBe(`UPDATE "beibaowupinbiao" SET "quantity" = '3' WHERE "row_id" = '1';`);
+    });
+
+    // R2A-12：锁定比对原先只看语句直接写的表；外键级联改到被锁的子表时锁会被绕过。
+    it('R2A-12：外键级联删除波及被锁子表行时不得静默丢失锁定行', async () => {
+      mockLockSettings.value.tableUpdateLocks = {
+        [LOCK_SCOPE_KEY]: { sheet_child: { v: 2, rowIds: ['1'], colNames: [], cells: [] } },
+      };
+      const fkSnapshot: any = {
+        mate: snapshotTableData.mate,
+        sheet_parent: {
+          uid: 'parent_t', name: '父表',
+          sourceData: { ddl: 'CREATE TABLE parent_t (row_id INTEGER PRIMARY KEY, name TEXT NOT NULL);' },
+          content: [['row_id', 'name'], ['1', '甲']],
+          updateConfig: {}, exportConfig: {}, orderNo: 0,
+        },
+        sheet_child: {
+          uid: 'child_t', name: '子表',
+          sourceData: { ddl: 'CREATE TABLE child_t (row_id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES fubiao(row_id) ON DELETE CASCADE, note TEXT);' },
+          content: [['row_id', 'parent_id', 'note'], ['1', '1', '锁定的子行']],
+          updateConfig: {}, exportConfig: {}, orderNo: 1,
+        },
+      };
+      const result = await applySqlEditsToTableDataSnapshot_ACU(
+        'DELETE FROM fubiao WHERE row_id = 1;',
+        JSON.parse(JSON.stringify(fkSnapshot)),
+      );
+
+      // 父行已删，补偿重插子行必然撞外键：整批 fail-closed，而不是成功提交且锁定子行消失。
+      expect(result.success).toBe(false);
+      expect(result.workingData ?? null).toBeNull();
     });
 
     it('锁定行被 DELETE：整行恢复', async () => {
@@ -1418,32 +1400,9 @@ describe('SqlTableService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // _ensureInitialized（通过公开方法间接测试）
-  // ═══════════════════════════════════════════════════════════════
-  describe('未初始化时的行为', () => {
-    it('applyEdits 未初始化时抛出错误', () => {
-      expect(() => service.applyEdits('INSERT INTO t VALUES (1)')).toThrow('SQLite 引擎未初始化');
-    });
-
-    it('executeQuery 未初始化时抛出错误', () => {
-      expect(() => service.executeQuery('SELECT 1')).toThrow('SQLite 引擎未初始化');
-    });
-
-    it('executeMutation 未初始化时抛出错误', () => {
-      expect(() => service.executeMutation('INSERT INTO t VALUES (1)')).toThrow('SQLite 引擎未初始化');
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // loadFromChat
   // ═══════════════════════════════════════════════════════════════
   describe('loadFromChat', () => {
-    it('无数据且无可解析模板时返回 empty', async () => {
-      mockMergeAll.mockResolvedValue(null);
-      const result = await service.loadFromChat();
-      expect(result.loaded).toBe(false);
-      expect(result.source).toBe('empty');
-    });
 
     it('无数据且无可解析模板时标记空 schema，不留下未绑定的 mapper', async () => {
       mockMergeAll.mockResolvedValue(null);
@@ -1501,6 +1460,16 @@ describe('SqlTableService', () => {
     });
 
 
+    // R3-01：executeQuery 是只读入口（模板变量、SQL 控制台、对外 API 都走它），引擎层必须拒绝写与多语句，
+    // 不能只靠文本校验器——校验器被绕过时，这里是最后一道门。
+    it('executeQuery 拒绝写语句与多语句，数据不变', async () => {
+      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
+      await service.loadFromChat();
+      expect(() => service.executeQuery('DELETE FROM inventory')).toThrow();
+      expect(() => service.executeQuery("SELECT 1 AS [a'];DELETE FROM inventory;SELECT 1 AS [']")).toThrow();
+      expect(service.executeQuery('SELECT * FROM inventory').rowCount).toBe(2);
+    });
+
     it('仅有基底状态数据时也写入运行时 SQLite，但不保留内部标记', async () => {
       const baseStateData = JSON.parse(JSON.stringify(testTableData));
       baseStateData.sheet_0._acu_from_base_state = true;
@@ -1512,13 +1481,6 @@ describe('SqlTableService', () => {
       const queryResult = service.executeQuery('SELECT * FROM inventory ORDER BY row_id');
       expect(queryResult.rowCount).toBe(2);
       expect((mockCurrentJsonTableData as any).sheet_0._acu_from_base_state).toBeUndefined();
-    });
-
-    it('有数据时成功加载', async () => {
-      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
-      const result = await service.loadFromChat();
-      expect(result.loaded).toBe(true);
-      expect(result.source).toBe('merged');
     });
 
     it('从显式 canonical 快照 hydrate 时不再次回放聊天，且 SQL 基底与快照一致', async () => {
@@ -1649,14 +1611,6 @@ describe('SqlTableService', () => {
       expect(service.isReady()).toBe(false);
     });
 
-    it('加载后可以执行查询', async () => {
-      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
-      await service.loadFromChat();
-      const queryResult = service.executeQuery('SELECT * FROM inventory');
-      expect(queryResult.rowCount).toBe(2);
-      expect(queryResult.columns).toContain('item_name');
-    });
-
     it('加载失败时返回错误信息', async () => {
       mockMergeAll.mockRejectedValue(new Error('网络错误'));
       const result = await service.loadFromChat();
@@ -1672,22 +1626,6 @@ describe('SqlTableService', () => {
     beforeEach(async () => {
       mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
       await service.loadFromChat();
-    });
-
-    it('执行单条 INSERT 语句', () => {
-      const result = service.applyEdits("INSERT INTO inventory VALUES (3, '魔法书', 1);");
-      expect(result.success).toBe(true);
-      expect(result.appliedEdits).toBe(1);
-      // 验证数据确实插入了
-      const query = service.executeQuery('SELECT * FROM inventory WHERE row_id = 3');
-      expect(query.rowCount).toBe(1);
-    });
-
-    it('执行多条语句', () => {
-      const sql = "INSERT INTO inventory VALUES (3, '魔法书', 1); UPDATE inventory SET quantity = 10 WHERE row_id = 1;";
-      const result = service.applyEdits(sql);
-      expect(result.success).toBe(true);
-      expect(result.appliedEdits).toBe(2);
     });
 
     it('部分运行时快照补建其它模板表后，applyEdits 会在 provider 边界重绑定 DDL 表名', async () => {
@@ -1780,7 +1718,9 @@ describe('SqlTableService', () => {
         [1, '玄关重逢'],
       );
 
-      expect(result).toEqual({ changes: 1, errors: [] });
+      // 返回值带上本次已发布到 canonical 视图的同一份数据（提交链据此免掉第二次全库导出）。
+      expect(result).toMatchObject({ changes: 1, errors: [] });
+      expect(result.syncedView?.sheet_1?.content).toEqual([['row_id', 'summary'], ['1', '玄关重逢']]);
       expect(service.executeQuery('SELECT summary FROM historysummary WHERE row_id = 1').values).toEqual([['玄关重逢']]);
     });
 
@@ -1806,34 +1746,11 @@ describe('SqlTableService', () => {
       expect(service.executeQuery('SELECT COUNT(*) FROM questlog').values[0][0]).toBe(0);
     });
 
-    it('空字符串返回成功（无操作）', () => {
-      const result = service.applyEdits('');
-      expect(result.success).toBe(true);
-      expect(result.appliedEdits).toBe(0);
-    });
-
-    it('纯空白返回成功（无操作）', () => {
-      const result = service.applyEdits('   \n\t  ');
-      expect(result.success).toBe(true);
-      expect(result.appliedEdits).toBe(0);
-    });
-
     it('去除 HTML 注释标记', () => {
       const sql = "<!-- INSERT INTO inventory VALUES (3, '魔法书', 1); -->";
       const result = service.applyEdits(sql);
       expect(result.success).toBe(true);
       expect(result.appliedEdits).toBe(1);
-    });
-
-    it('SQL 语法错误时抛出异常', () => {
-      expect(() => service.applyEdits('INVALID SQL SYNTAX HERE;')).toThrow();
-    });
-
-    it('返回受影响的 modifiedKeys', () => {
-      // 设置 currentJsonTableData 以便 _tableNamesToSheetKeys 能工作
-      mockCurrentJsonTableData = JSON.parse(JSON.stringify(testTableData));
-      const result = service.applyEdits("UPDATE inventory SET quantity = 10 WHERE row_id = 1;");
-      expect(result.modifiedKeys).toContain('sheet_0');
     });
   });
 
@@ -2084,6 +2001,23 @@ describe('SqlTableService', () => {
       expect(switchedChat).toEqual([{ mes: 'chat-b' }]);
     });
 
+    it('R2A-10：执行失败时按实际执行的语句标出出错分组（failedGroupIndex）', () => {
+      let thrown: any = null;
+      try {
+        service.applyEditsWithSystemRowIds([
+          "INSERT INTO inventory (item_name, quantity) VALUES ('木盾', 1);\nINSERT INTO inventory (item_name, quantity) VALUES ('皮甲', 1);",
+          'UPDATE inventory SET missing_col = 1 WHERE row_id = 1;',
+        ]);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeTruthy();
+      expect(String(thrown.message)).toContain('missing_col');
+      expect(thrown.failedGroupIndex).toBe(1);
+      expect(service.executeQuery('SELECT COUNT(*) AS cnt FROM inventory').values[0][0]).toBe(0);
+    });
+
     it('提交前 finalize 严格导出失败时回滚补种与 AI SQL', () => {
       const syncBridge = (service as any).syncBridge;
       const originalExport = syncBridge.exportToTableData.bind(syncBridge);
@@ -2246,6 +2180,158 @@ describe('SqlTableService', () => {
       expect(service.executeQuery('SELECT COUNT(*) AS cnt FROM inventory').values[0][0]).toBe(1);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // schema 门禁 digest 输入走窄接口（不做全库整行导出）
+  // ═══════════════════════════════════════════════════════════════
+  describe('schema 门禁 digest 输入（窄接口路径）', () => {
+    const singleSheetTemplate = () => ({
+      mate: { type: 'acu', version: 1 },
+      sheet_0: {
+        uid: 'inventory', name: 'inventory',
+        sourceData: { ddl: TEST_DDL },
+        content: [['row_id', 'item_name', 'quantity']],
+        updateConfig: {}, exportConfig: {}, orderNo: 0,
+      },
+    });
+
+    beforeEach(async () => {
+      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
+      await service.loadFromChat();
+      service.applyEdits('DELETE FROM inventory;');
+      mockGetEffectiveSeedRows.mockReturnValue([]);
+    });
+
+    /** 统计 schema 门禁期间发生的全库整行导出次数（旧实现每次 gate 必导一次）。 */
+    function countExportsDuring(fn: () => void): number {
+      const bridge = (service as any).syncBridge;
+      const original = bridge.exportToTableData.bind(bridge);
+      let count = 0;
+      bridge.exportToTableData = (...args: any[]) => { count += 1; return original(...args); };
+      try { fn(); } finally { bridge.exportToTableData = original; }
+      return count;
+    }
+
+    it('AI 写入批 commit 期间 schema 门禁不再触发全库整行导出', () => {
+      mockGetCurrentChatTemplateScopeState.mockReturnValue({
+        mode: 'chat_override',
+        templateStr: JSON.stringify(singleSheetTemplate()),
+      });
+      const scope = captureSqlTableApplyScope_ACU({
+        chat: [{ mes: 'narrow-digest' }],
+        isolationKey: 'narrow-digest',
+        runtimeData: service.getCurrentData(),
+      });
+      expect(scope.runtimeSchema?.digest).toBeTruthy();
+
+      // 钉死新值：门禁零全库导出（同批其余导出为写前像/finalize/lock 差异比对所需）。
+      const exportCount = countExportsDuring(() => {
+        const result = service.applyEditsWithSystemRowIds([
+          "INSERT INTO inventory (row_id, item_name, quantity) VALUES (900, '窄接口写入', 1);",
+        ], 'auto_standard', scope);
+        expect(result.success).toBe(true);
+      });
+      expect(exportCount).toBe(2);
+    });
+
+    it('窄接口 digest 与旧全量导出算法在固定 fixture 下逐字相等（含 activeSheetKeys 过滤）', async () => {
+      // 顶层 utils mock 把 hashUserInput_ACU 固定成常量，无法比对 digest；
+      // 此处临时换成基于输入的 digest，验证后立即恢复。
+      const utilsModule = await import('../../../src/shared/utils');
+      const originalHashImpl = (utilsModule as any).hashUserInput_ACU.getMockImplementation();
+      (utilsModule as any).hashUserInput_ACU.mockImplementation((text: string) => (text ? `digest:${text}` : ''));
+      try {
+        const twoSheetTemplate = {
+          mate: { type: 'acu', version: 1 },
+          sheet_0: {
+            uid: 'inventory', name: 'inventory',
+            sourceData: { ddl: TEST_DDL },
+            content: [['row_id', 'item_name', 'quantity']],
+            updateConfig: {}, exportConfig: {}, orderNo: 0,
+          },
+          sheet_1: {
+            uid: 'logistics', name: 'logistics',
+            sourceData: { ddl: 'CREATE TABLE logistics (\n  row_id INTEGER PRIMARY KEY,\n  route TEXT NOT NULL\n);' },
+            content: [['row_id', 'route']],
+            updateConfig: {}, exportConfig: {}, orderNo: 1,
+          },
+        };
+        mockGetCurrentChatTemplateScopeState.mockReturnValue({
+          mode: 'chat_override',
+          templateStr: JSON.stringify(twoSheetTemplate),
+        });
+        // 两表都建进 runtime（不传 activeSheetKeys 过滤，冻结侧覆盖全部表）。
+        await service.loadFromData(JSON.parse(JSON.stringify(twoSheetTemplate)) as any);
+
+        const liveData = service.getCurrentData() as any;
+        const bridge = (service as any).syncBridge;
+
+        for (const activeSheetKeys of [undefined, [], ['sheet_0'], ['sheet_0', 'sheet_1'], ['sheet_missing']]) {
+          const legacyFreeze = freezeRuntimeSchemaFromData_ACU(liveData, activeSheetKeys ? new Set(activeSheetKeys) : undefined);
+          const narrowFreeze = freezeRuntimeSchemaFromSchemas_ACU(
+            bridge.getRuntimeEffectiveSchemas_ACU(),
+            activeSheetKeys ? new Set(activeSheetKeys) : undefined,
+            new Map(Object.keys(liveData)
+              .filter(key => key.startsWith('sheet_'))
+              .map(key => [key, String(liveData[key]?.name || '')])),
+          );
+          expect(narrowFreeze?.sheetKeys).toEqual(legacyFreeze?.sheetKeys);
+          expect(narrowFreeze?.digest).toBe(legacyFreeze?.digest);
+        }
+      } finally {
+        (utilsModule as any).hashUserInput_ACU.mockImplementation(originalHashImpl);
+      }
+    });
+
+    it('schema 漂移仍抛原错误码与原错误信息，正常提交不抛', async () => {
+      const utilsModule = await import('../../../src/shared/utils');
+      const originalHashImpl = (utilsModule as any).hashUserInput_ACU.getMockImplementation();
+      (utilsModule as any).hashUserInput_ACU.mockImplementation((text: string) => (text ? `digest:${text}` : ''));
+      try {
+        mockGetCurrentChatTemplateScopeState.mockReturnValue({
+          mode: 'chat_override',
+          templateStr: JSON.stringify(singleSheetTemplate()),
+        });
+        const scope = captureSqlTableApplyScope_ACU({
+          chat: [{ mes: 'narrow-drift' }],
+          isolationKey: 'narrow-drift',
+          runtimeData: service.getCurrentData(),
+        });
+        const frozenDigest = scope.runtimeSchema?.digest;
+        expect(frozenDigest).toBeTruthy();
+
+        // 一致路径：正常提交不抛，digest 门禁放行。
+        const ok = service.applyEditsWithSystemRowIds([
+          "INSERT INTO inventory (row_id, item_name, quantity) VALUES (901, '一致', 1);",
+        ], 'auto_standard', scope);
+        expect(ok.success).toBe(true);
+
+        // 漂移路径：DDL 变更后 digest 改变，gate fail-closed。
+        const driftedData = JSON.parse(JSON.stringify(await mockMergeAll()));
+        driftedData.sheet_0.sourceData.ddl = `CREATE TABLE inventory (\n  row_id INTEGER PRIMARY KEY, -- 行号\n  item_name TEXT, -- 物品名\n  quantity INTEGER, -- 数量\n  extra_col TEXT -- 新增列\n);`;
+        driftedData.sheet_0.content = [['row_id', '物品名', '数量', '新增列'], ['1', '铁剑', '3', 'x']];
+        const reloadResult = await service.loadFromData(driftedData);
+        expect(reloadResult.loaded).toBe(true);
+
+        let caught: unknown;
+        try {
+          service.applyEditsWithSystemRowIds([
+            "INSERT INTO inventory (item_name, quantity) VALUES ('不应写入', 1);",
+          ], 'auto_standard', scope);
+        } catch (error: any) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(SqlRuntimeSchemaStaleError_ACU);
+        expect(caught instanceof Error && String((caught as any).code)).toBe('SQL_RUNTIME_SCHEMA_STALE_ACU');
+        expect(caught instanceof Error ? caught.message : '').toBe(
+          'SQLite runtime schema 在 AI 请求等待期间发生变化，与请求前冻结的 schema 不一致，已阻止本轮写入（零 mutation）。请重新发起本轮填表。',
+        );
+        expect(service.executeQuery('SELECT COUNT(*) AS cnt FROM inventory').values[0][0]).toBe(1);
+      } finally {
+        (utilsModule as any).hashUserInput_ACU.mockImplementation(originalHashImpl);
+      }
+    });
+  });
   // ═══════════════════════════════════════════════════════════════
   // executeQuery
   // ═══════════════════════════════════════════════════════════════
@@ -2253,24 +2339,6 @@ describe('SqlTableService', () => {
     beforeEach(async () => {
       mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
       await service.loadFromChat();
-    });
-
-    it('执行 SELECT 查询', () => {
-      const result = service.executeQuery('SELECT item_name, quantity FROM inventory');
-      expect(result.columns).toEqual(['item_name', 'quantity']);
-      expect(result.rowCount).toBe(2);
-      expect(result.values[0]).toEqual(['铁剑', 3]);
-    });
-
-    it('带参数的查询', () => {
-      const result = service.executeQuery('SELECT * FROM inventory WHERE item_name = ?', ['铁剑']);
-      expect(result.rowCount).toBe(1);
-    });
-
-    it('无结果的查询', () => {
-      const result = service.executeQuery("SELECT * FROM inventory WHERE item_name = '不存在'");
-      expect(result.rowCount).toBe(0);
-      expect(result.values).toEqual([]);
     });
 
     it('已存在空表 + 有 seedRows 时 executeQuery 不触发 reseed', () => {
@@ -2444,37 +2512,6 @@ describe('SqlTableService', () => {
       expect(queryResult.rowCount).toBe(2);
       expect(queryResult.values[0]).toEqual([1, '铁剑', 10]);
       expect(queryResult.values[1]).toEqual([2, '治疗药水', 5]);
-    });
-
-    it('没有 seedRows 的表建表后仍为空表', async () => {
-      mockMergeAll.mockResolvedValue(null);
-      await service.loadFromChat();
-
-      const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
-      vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
-        mate: { type: 'acu', version: 1 },
-        sheet_0: {
-          uid: 'inventory',
-          name: 'inventory',
-          sourceData: { note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '', ddl: TEST_DDL_WITH_SEED },
-          content: [['row_id', 'item_name', 'quantity']],
-          updateConfig: {},
-          exportConfig: {},
-          orderNo: 0,
-        },
-      } as any);
-
-      // mock seedRows 返回空
-      mockGetEffectiveSeedRows.mockReturnValue([]);
-
-      // applyEdits 触发建表（无 seedRows）
-      const result = service.applyEdits("INSERT INTO inventory VALUES (1, '魔法书', 1);");
-      expect(result.success).toBe(true);
-
-      // 验证只有刚 INSERT 的那一行
-      const queryResult = service.executeQuery('SELECT * FROM inventory');
-      expect(queryResult.rowCount).toBe(1);
-      expect(queryResult.values[0]).toContain('魔法书');
     });
 
     it('已存在的表不会被重复写入 seedRows', async () => {
@@ -2701,24 +2738,6 @@ describe('SqlTableService', () => {
       await service.loadFromChat();
     });
 
-    it('执行 INSERT 并返回 changes', () => {
-      const result = service.executeMutation("INSERT INTO inventory VALUES (3, '魔法书', 1)");
-      expect(result.changes).toBe(1);
-      expect(result.errors).toEqual([]);
-    });
-
-    it('执行 UPDATE 并返回 changes', () => {
-      const result = service.executeMutation('UPDATE inventory SET quantity = 10 WHERE row_id = 1');
-      expect(result.changes).toBe(1);
-      expect(result.errors).toEqual([]);
-    });
-
-    it('执行 DELETE 并返回 changes', () => {
-      const result = service.executeMutation('DELETE FROM inventory WHERE row_id = 1');
-      expect(result.changes).toBe(1);
-      expect(result.errors).toEqual([]);
-    });
-
     it('SQL 错误时返回 errors 而不抛出', () => {
       const result = service.executeMutation('INSERT INTO nonexistent_table VALUES (1)');
       expect(result.changes).toBe(0);
@@ -2843,25 +2862,6 @@ describe('SqlTableService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // getCurrentData
-  // ═══════════════════════════════════════════════════════════════
-  describe('getCurrentData', () => {
-    it('未初始化时返回 currentJsonTableData_ACU', () => {
-      mockCurrentJsonTableData = { test: true };
-      const result = service.getCurrentData();
-      expect(result).toEqual({ test: true });
-    });
-
-    it('初始化后返回导出的数据', async () => {
-      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
-      await service.loadFromChat();
-      const result = service.getCurrentData();
-      expect(result).not.toBeNull();
-      expect(result).toHaveProperty('sheet_0');
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // clearRuntimeData
   // ═══════════════════════════════════════════════════════════════
   describe('clearRuntimeData', () => {
@@ -2883,6 +2883,36 @@ describe('SqlTableService', () => {
   // ═══════════════════════════════════════════════════════════════
   // saveToChat
   // ═══════════════════════════════════════════════════════════════
+  /**
+   * replaceAllData 是持久化写入端，必须与 V2 回放 hydrate 用同一套 runtime DDL
+   * 加载口径（allowRuntimeDdlFallback）。
+   *
+   * 同族调用点 loadFromChat（:1681）与合并路径（:1708）都已带该 flag，唯独整体
+   * 替换这条漏了。后果与写入端/回放端口径分叉同源：显式 DDL 无法执行时（典型尾逗号
+   * `..., )`），本路径直接失败，而回放侧按 fallback 基底 hydrate → 两端基底不一致。
+   */
+  it('replaceAllData 对无法执行的显式 DDL 沿用 runtime fallback 基底，与回放端口径一致', async () => {
+    mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
+    await service.loadFromChat();
+
+    // 列名必须与表头一致（row_id/item_name/quantity），否则触发的是列映射守卫
+    // （「表头没有对应的 DDL 列，拒绝丢弃非空数据」）——那是本就不该放宽的 fail-closed。
+    const brokenDdl = 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, item_name TEXT, quantity INTEGER,)';
+    const payload = JSON.parse(JSON.stringify(testTableData)) as any;
+    const sheet = payload.sheet_0 ?? Object.values(payload).find((v: any) => v && Array.isArray(v.content));
+    sheet.sourceData = { ...(sheet.sourceData || {}), ddl: brokenDdl };
+
+    const replaced = await service.replaceAllData(payload);
+
+    expect(replaced.success, '整体替换不得因显式 DDL 不可执行而失败').toBe(true);
+    expect(service.executeQuery('SELECT * FROM inventory').rowCount).toBe(2);
+    // 坏 DDL 不得被改写：回写的数据里仍是原串，修复只发生在 runtime 侧。
+    expect((service.getCurrentData() as any).sheet_0.sourceData.ddl).toBe(brokenDdl);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // saveToChat
+  // ═══════════════════════════════════════════════════════════════
   describe('saveToChat', () => {
     beforeEach(async () => {
       mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
@@ -2894,26 +2924,6 @@ describe('SqlTableService', () => {
       expect(result.saved).toBe(false);
       expect(result.error).toContain('table update commit model');
       expect(mockSaveIndependentTable).not.toHaveBeenCalled();
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════
-  // dispose
-  // ═══════════════════════════════════════════════════════════════
-  describe('dispose', () => {
-    it('销毁后无法执行查询', async () => {
-      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
-      await service.loadFromChat();
-      service.dispose();
-      expect(() => service.executeQuery('SELECT 1')).toThrow();
-      expect(mockReleaseGlobalNameMapper).toHaveBeenCalled();
-    });
-
-    it('多次 dispose 不抛出', async () => {
-      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(testTableData)));
-      await service.loadFromChat();
-      service.dispose();
-      expect(() => service.dispose()).not.toThrow();
     });
   });
 

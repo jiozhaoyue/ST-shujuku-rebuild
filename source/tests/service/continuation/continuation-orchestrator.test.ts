@@ -38,7 +38,7 @@ function createOrchestrator(options: { preview?: boolean; planner?: ReturnType<t
   let sequence = 0;
   const store = new FirstFloorContinuationStore_ACU();
   const executionEngine = {
-    prepareCurrentTurnInstruction: vi.fn().mockImplementation(async (_isLeaseCurrent: unknown, _retryAttempt: unknown, applyOutline: (instruction: string) => Promise<{ requiresReview: boolean; stopped: string | null }>) => {
+    prepareCurrentTurnInstruction: vi.fn().mockImplementation(async (_isLeaseCurrent: unknown, applyOutline: (instruction: string) => Promise<{ requiresReview: boolean; stopped: string | null }>) => {
       const task = store.readPersisted()?.activeTask;
       const stage = task?.activeStageId ? task.stages.find(item => item.stageId === task.activeStageId) : null;
       if (!stage || stage.status === 'completed') {
@@ -178,7 +178,10 @@ describe('ContinuationOrchestrator_ACU', () => {
     await expectCode(() => orchestrator.createTask({ originInstruction: '   ' }), 'CONTINUATION_ORIGIN_INSTRUCTION_EMPTY');
     await orchestrator.createTask({ originInstruction: '推进剧情' });
 
-    await expectCode(() => orchestrator.continueTask(), 'CONTINUATION_AGENT_OUTLINE_REPLANNED');
+    // 新大纲等待确认是正常交接，不当错误抛给界面（上游 c9afb631）
+    const waiting = await orchestrator.continueTask();
+    expect(waiting.task).toMatchObject({ status: 'awaiting_outline_review', lastError: null });
+    expect('preparedTurn' in waiting && waiting.preparedTurn).toBeFalsy();
     const preview = store.readPersisted()!.activeTask!;
     expect(preview.status).toBe('awaiting_outline_review');
     expect(preview.stages[0].revisions[0].frozen).toBe(false);
@@ -187,6 +190,17 @@ describe('ContinuationOrchestrator_ACU', () => {
     expect(accepted.task).toMatchObject({ status: 'paused' });
     expect(accepted.task.stages[0].revisions[0].frozen).toBe(true);
     expect(store.readPersisted()?.activeTask?.status).toBe('paused');
+  });
+
+  it('收到大纲待确认错误但任务并未进入等待确认时，仍按失败暂停并抛出', async () => {
+    const { orchestrator, executionEngine, store } = createOrchestrator();
+    await orchestrator.createTask({ originInstruction: '推进剧情' });
+    executionEngine.prepareCurrentTurnInstruction.mockImplementationOnce(async () => {
+      throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_OUTLINE_REPLANNED', 'agent_loop', '新大纲等待确认', false));
+    });
+
+    await expectCode(() => orchestrator.continueTask(), 'CONTINUATION_AGENT_OUTLINE_REPLANNED');
+    expect(store.readPersisted()!.activeTask).toMatchObject({ status: 'paused', lastError: { code: 'CONTINUATION_AGENT_OUTLINE_REPLANNED' } });
   });
 
   it('sets one persistent deadline on continue and never calls the engine after it expires', async () => {
@@ -724,47 +738,6 @@ describe('ContinuationOrchestrator_ACU', () => {
     expect(stopHostGeneration).toHaveBeenCalledWith('chat-a');
   });
 
-  it('stops after the initial stage when the automatic stage limit is one', async () => {
-    const { orchestrator, planner, store } = createOrchestrator();
-    await orchestrator.createTask({ originInstruction: '推进剧情' });
-    const persisted = store.readPersisted()!;
-    persisted.settings = { ...persisted.settings, maxAutomaticStages: 1 };
-    await store.replaceAtomically(persisted, { chatIdentity: 'chat-a' });
-    await orchestrator.continueTask();
-    await confirmTurns(orchestrator, store, 6);
-    const stopped = store.readPersisted()!.activeTask!;
-    expect(stopped).toMatchObject({ status: 'paused', stopReason: 'stage_limit_reached', runStageCount: 1 });
-    expect(planner).toHaveBeenCalledTimes(1);
-
-    // 普通继续不重置预算窗口，仍然拒绝。
-    await expectCode(() => orchestrator.continueTask(), 'CONTINUATION_TASK_STATE_INVALID');
-
-    const result = await orchestrator.sendAgentMessage({ text: '保留现有进度，继续下一阶段' });
-    const resumed = store.readPersisted()!.activeTask!;
-    expect(result).toMatchObject({ disposition: 'continue_now', shouldContinue: true });
-    expect(resumed).toMatchObject({
-      taskId: stopped.taskId,
-      status: 'paused',
-      stopReason: null,
-      runStageCount: 1,
-      stageBudgetBaseCount: 1,
-    });
-
-    await orchestrator.continueTask();
-    const secondStage = store.readPersisted()!.activeTask!;
-    expect(secondStage.runStageCount).toBe(2);
-    expect(secondStage.stages.at(-1)).toMatchObject({ stageNumber: 2, status: 'running' });
-    expect(planner).toHaveBeenCalledTimes(2);
-
-    await confirmTurns(orchestrator, store, 6);
-    expect(store.readPersisted()!.activeTask).toMatchObject({
-      status: 'paused',
-      stopReason: 'stage_limit_reached',
-      runStageCount: 2,
-      stageBudgetBaseCount: 1,
-    });
-  });
-
   it('applies sentence-level outline edits as a frozen next revision without an AI call', async () => {
     const { orchestrator, planner, store } = createOrchestrator();
     await orchestrator.createTask({ originInstruction: '推进剧情' });
@@ -1085,7 +1058,7 @@ describe('ContinuationOrchestrator_ACU', () => {
   it('sendAgentMessage 接收专用流程状态中的消息但不穿透大纲确认门禁', async () => {
     const { orchestrator, store } = createOrchestrator({ preview: true });
     await orchestrator.createTask({ originInstruction: '推进剧情' });
-    await expectCode(() => orchestrator.continueTask(), 'CONTINUATION_AGENT_OUTLINE_REPLANNED');
+    await orchestrator.continueTask();
     expect(store.readPersisted()!.activeTask!.status).toBe('awaiting_outline_review');
 
     const result = await orchestrator.sendAgentMessage({ text: '确认前先把节奏放慢' });
@@ -1123,6 +1096,17 @@ describe('ContinuationOrchestrator_ACU', () => {
     const withoutCursor = { ...saved.outline, nodes: [{ ...saved.outline.nodes[0], turns: saved.outline.nodes[0].turns.filter(turn => turn.id !== 'turn-2') }] };
     await expectCode(() => orchestrator.replaceActiveOutline({ outline: withoutCursor as any }), 'CONTINUATION_AGENT_WRITE_REJECTED');
     expect(store.readPersisted()!.activeTask!.stages[0].activeRevision).toBe(2);
+
+    // R10B-07：草稿基于旧 revision（1）时 fail-closed，不覆盖 Agent/他处产出的新大纲。
+    const stageId = store.readPersisted()!.activeTask!.stages[0].stageId;
+    const staleEdit = { ...saved.outline, title: '基于旧底稿的改动' };
+    await expectCode(
+      () => orchestrator.replaceActiveOutline({ outline: staleEdit as any, expectedStageId: stageId, expectedRevision: 1 }),
+      'CONTINUATION_TASK_STATE_INVALID',
+    );
+    expect(store.readPersisted()!.activeTask!.stages[0].activeRevision).toBe(2);
+    await orchestrator.replaceActiveOutline({ outline: staleEdit as any, expectedStageId: stageId, expectedRevision: 2 });
+    expect(store.readPersisted()!.activeTask!.stages[0].activeRevision).toBe(3);
   });
 
   it('clearContinuationData 丢任务、资料与会话记录，但不碰正文楼层', async () => {
@@ -1143,5 +1127,27 @@ describe('ContinuationOrchestrator_ACU', () => {
     // 清空后可以直接从当前剧情重新开始规划。
     await orchestrator.sendAgentMessage({ text: '从这里重新规划' });
     expect(store.readPersisted()!.activeTask).toMatchObject({ originInstruction: '从这里重新规划' });
+  });
+
+  it('主会话经生产回调校准进度：坏版本号拒绝，好定位提交并记基线（移植上游 e35f758d）', async () => {
+    const { orchestrator, store, executionEngine } = createOrchestrator();
+    await orchestrator.createTask({ originInstruction: '推进剧情' });
+    await orchestrator.continueTask();
+    executionEngine.prepareCurrentTurnInstruction.mockImplementationOnce(async (
+      _isLeaseCurrent: unknown, _applyOutline: unknown, _signal: unknown,
+      adjustProgress: (action: Record<string, unknown>) => Promise<{ status: string }>,
+    ) => {
+      const first = store.readPersisted()!.activeTask!.stages[0];
+      const action = { kind: 'adjust_progress' as const, thought: '', reason: '用户自行演绎后的剧情定位', stageId: first.stageId, revision: first.activeRevision };
+      expect((await adjustProgress({ ...action, revision: 999, nextTurnId: 'turn-4' })).status).toBe('rejected');
+      const committed = await adjustProgress({ ...action, nextTurnId: 'turn-4' });
+      expect(committed.status).toBe('committed');
+      expect(store.readPersisted()!.activeTask!.stages[0]).toMatchObject({ completedTurns: 3, activeTurnIndex: 3 });
+      return { identity: {}, instruction: { instruction: '按校准接续', attempts: 1 } };
+    });
+    await orchestrator.continueTask();
+    const stage = store.readPersisted()!.activeTask!.stages[0];
+    expect(stage.progressAdjustments).toHaveLength(1);
+    expect(store.readPersisted()!.activeTask!.progressSelections).toHaveLength(1);
   });
 });

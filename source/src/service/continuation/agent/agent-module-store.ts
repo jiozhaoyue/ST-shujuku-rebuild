@@ -9,6 +9,7 @@
  */
 
 import { getChatArray_ACU, saveChatToHostStrict_ACU } from '../../../data/gateways/chat-gateway';
+import { isAiFloor_ACU } from '../../../shared/ai-floor';
 import { getActiveChatStorageIdentity_ACU } from '../../../data/storage/chat-history';
 import { findLatestTableFullCheckpointIndex_ACU } from '../../chat/material-checkpoint-sync';
 import {
@@ -26,6 +27,7 @@ import {
   type AgentModuleSqlFieldRejection_ACU,
 } from './agent-protocol';
 import { ContinuationValidationError_ACU, createContinuationError_ACU } from '../model';
+import { applyAgentModuleDelta_ACU, applyAgentWebRefsDelta_ACU } from './agent-transaction';
 import {
   AGENT_BLOCK_CHAR_LIMIT_ACU,
   AGENT_CHRONOLOGY_PRECISIONS_ACU,
@@ -55,7 +57,11 @@ import {
   type AgentModuleFieldSnapshot_ACU,
   type AgentModuleFieldUpserts_ACU,
   type AgentModuleSnapshot_ACU,
+  type AgentModuleDelta_ACU,
+  type AgentModuleWriterRole_ACU,
   type AgentPendingFix_ACU,
+  type AgentWebRefResolvedItem_ACU,
+  type AgentSettlementBoundary_ACU,
   type AgentStoryArcEntry_ACU,
   type AgentSubagentName_ACU,
   type AgentWebRefEntry_ACU,
@@ -107,6 +113,37 @@ export function refreshAgentModuleSnapshotChatPrefix_ACU(snapshot: AgentModuleSn
     ...snapshot,
     settledPrefixFingerprint: chatPrefixFingerprint_ACU(chat, snapshot.settledThroughIndex),
   };
+}
+
+/**
+ * 把快照的结算水位与前缀指纹一起对齐到「实际承载楼」。
+ *
+ * writeAgentModuleSnapshot_ACU 的写入门会把水位钳到 targetIndex，并**按钳后的水位**校验前缀指纹。
+ * 所以拿一份水位更高的快照（例如主循环已把水位推到工具楼尾）写到更早的 AI 楼时，门会以
+ * 「资料快照引用的聊天前缀已变化」拒绝——聊天其实一个字没变，报错还会把排障带偏。
+ * 对齐后的语义是「本快照只声明结算到承载楼」：承载楼之后的楼层由下一轮结算重新推进水位，
+ * 内容不丢（折叠读的是全部楼层，与水位无关）。水位不高于承载楼时原样返回，不做无谓拷贝。
+ */
+export function alignAgentModuleSnapshotToFloor_ACU(
+  snapshot: AgentModuleSnapshot_ACU,
+  chat: any[],
+  targetIndex: number,
+): AgentModuleSnapshot_ACU {
+  if (snapshot.settledThroughIndex <= targetIndex) return snapshot;
+  // 钳水位前先按**原水位**校验一次旧前缀指纹。少了这一步，写入门的指纹比对会退化成恒等式
+  // （拿 fingerprint(targetIndex) 比 fingerprint(targetIndex)），等于把 P1 的前缀守卫在这条路径上
+  // 悄悄摘掉：覆盖面从 0..W 收窄到 0..targetIndex。失配说明补足期间 0..W 真的变了，
+  // 按写入门同款理由与错误码拒绝（不做「重算指纹把失配洗白」这种自愈）。
+  if (!isChatPrefixCompatible_ACU(snapshot, chat)) {
+    throw new ContinuationValidationError_ACU(createContinuationError_ACU(
+      'CONTINUATION_AGENT_SNAPSHOT_INVALID',
+      'agent_persist',
+      '资料快照引用的聊天前缀已变化，拒绝写入以避免删楼后按旧下标结算',
+      false,
+      { targetIndex, settledThroughIndex: snapshot.settledThroughIndex },
+    ));
+  }
+  return refreshAgentModuleSnapshotChatPrefix_ACU({ ...snapshot, settledThroughIndex: targetIndex }, chat);
 }
 
 function isChatPrefixCompatible_ACU(snapshot: AgentModuleSnapshot_ACU, messages: any[]): boolean {
@@ -389,6 +426,8 @@ export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapsh
   const completionPresent = Object.prototype.hasOwnProperty.call(raw, 'materialCompletion');
   const materialCompletion = validateMaterialCompletion_ACU(raw.materialCompletion, completionPresent, legacy, updatedAt);
   if (!materialCompletion) return null;
+  const settlementBoundary = validateSettlementBoundary_ACU(raw.settlementBoundary);
+  if (settlementBoundary === null) return null;
   return {
     schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
     settledThroughIndex,
@@ -414,6 +453,7 @@ export function validateAgentModuleSnapshot_ACU(raw: unknown): AgentModuleSnapsh
     userRequirements: validatedUserRequirements as string[],
     materialCompletion,
     pendingFixes,
+    ...(settlementBoundary ? { settlementBoundary } : {}),
   };
 }
 
@@ -486,6 +526,23 @@ function validatePendingFixes_ACU(raw: unknown, present: boolean, legacy: boolea
   return fixes;
 }
 
+function validateSettlementBoundary_ACU(raw: unknown): AgentSettlementBoundary_ACU | null | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord_ACU(raw) || typeof raw.startIndex !== 'number' || !Number.isInteger(raw.startIndex) || raw.startIndex < 0
+    || typeof raw.userMessageId !== 'number' || !Number.isInteger(raw.userMessageId) || raw.userMessageId < 1
+    || typeof raw.reason !== 'string' || !raw.reason.trim()
+    || typeof raw.updatedAt !== 'number' || !Number.isInteger(raw.updatedAt) || raw.updatedAt < 0) return null;
+  const skippedPendingFixes = validatePendingFixes_ACU(raw.skippedPendingFixes, true, false, raw.updatedAt);
+  if (!skippedPendingFixes) return null;
+  return {
+    startIndex: raw.startIndex,
+    userMessageId: raw.userMessageId,
+    reason: raw.reason,
+    updatedAt: raw.updatedAt,
+    skippedPendingFixes,
+  };
+}
+
 /**
  * 宽容解析一份损坏的快照：丢掉单条非法记录、修正非法水位，尽量保住其余数据。
  * 只在严格路径全程无命中时作为兜底使用——静默回退成空快照会让用户误以为数据从未写入。
@@ -514,6 +571,8 @@ export function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentM
   const completionPresent = Object.prototype.hasOwnProperty.call(raw, 'materialCompletion');
   const materialCompletion = validateMaterialCompletion_ACU(raw.materialCompletion, completionPresent, legacy, updatedAt);
   if (!materialCompletion) problems.push('materialCompletion 结构非法，已按 legacy_unknown 读取');
+  const settlementBoundary = validateSettlementBoundary_ACU(raw.settlementBoundary);
+  if (settlementBoundary === null) problems.push('settlementBoundary 结构非法，已按无追溯边界读取');
   const snapshot: AgentModuleSnapshot_ACU = {
     schemaVersion: AGENT_MODULE_SCHEMA_VERSION_ACU,
     settledThroughIndex: Math.max(0, settledThroughIndex),
@@ -539,6 +598,7 @@ export function salvageAgentModuleSnapshot_ACU(raw: unknown): { snapshot: AgentM
     userRequirements: pick(raw.userRequirements, validateUserRequirementLine_ACU, 'userRequirements'),
     materialCompletion: materialCompletion ?? { state: 'legacy_unknown', rangeStartIndex: -1, rangeEndIndex: -1, modules: {}, updatedAt },
     pendingFixes: pendingFixes ?? [],
+    ...(settlementBoundary ? { settlementBoundary } : {}),
   };
   return { snapshot, problems };
 }
@@ -565,18 +625,49 @@ let lastReadDiagnostics_ACU: AgentModuleSnapshotReadDiagnostics_ACU = {
   foldedDeltaCount: 0,
 };
 
+/**
+ * 帧折叠依赖单例。逐次新建对象会让 parseField 记忆化（外层键是 deps 实例）恒不命中，
+ * 四个依赖项都是模块级纯函数、不捕获逐次状态，因此冻结成单例安全。
+ */
+const AGENT_MODULE_FRAME_DEPS_ACU: AgentModuleFrameDeps_ACU = Object.freeze({
+  validateSnapshot: validateAgentModuleSnapshot_ACU,
+  salvageSnapshot: salvageAgentModuleSnapshot_ACU,
+  emptySnapshot: buildEmptyAgentModuleSnapshot_ACU,
+  isSnapshotPrefixCompatible: (snapshot: AgentModuleSnapshot_ACU, chat: readonly unknown[]) => isChatPrefixCompatible_ACU(snapshot, chat as any[]),
+  alignSnapshotToFloor: (snapshot: AgentModuleSnapshot_ACU, chat: readonly unknown[], floor: number) => {
+    if (snapshot.settledThroughIndex <= floor) return snapshot;
+    // 先按**原水位**校验旧指纹：失配说明结算期间聊天真的变了，此时返回 null 让调用方 fail-closed。
+    // 不能直接重算指纹把失配洗白——那等于把 P1 的前缀守卫摘掉（见本文件头部的加固纪律）。
+    if (!isChatPrefixCompatible_ACU(snapshot, chat as any[])) return null;
+    return refreshAgentModuleSnapshotChatPrefix_ACU({ ...snapshot, settledThroughIndex: floor }, chat as any[]);
+  },
+  // 折叠派生的快照（base、relocate 的 folded.snapshot）落盘前按自身水位重盖指纹：折叠只采纳指纹匹配的
+  // 基线，而 applyDelta 会推高水位不改指纹 ⇒ 不重盖就会落一份自相矛盾的基线，下一轮折叠整体拒绝它并
+  // 连带禁用抢救（资料清零）。这里不做「校验旧指纹」，因为出处就是当前聊天本身。
+  restampPrefix: (snapshot: AgentModuleSnapshot_ACU, chat: readonly unknown[]) =>
+    refreshAgentModuleSnapshotChatPrefix_ACU(snapshot, chat as any[]),
+});
+
 export function agentModuleFrameDeps_ACU(): AgentModuleFrameDeps_ACU {
-  return {
-    validateSnapshot: validateAgentModuleSnapshot_ACU,
-    salvageSnapshot: salvageAgentModuleSnapshot_ACU,
-    emptySnapshot: buildEmptyAgentModuleSnapshot_ACU,
-    isSnapshotPrefixCompatible: (snapshot, chat) => isChatPrefixCompatible_ACU(snapshot, chat as any[]),
-  };
+  return AGENT_MODULE_FRAME_DEPS_ACU;
 }
 
 /** 最近一次 readAgentModuleSnapshot_ACU 的诊断信息，供面板解释“为什么资料是空的/是旧的”。 */
 export function readAgentModuleSnapshotDiagnostics_ACU(): AgentModuleSnapshotReadDiagnostics_ACU {
   return lastReadDiagnostics_ACU;
+}
+
+/** 折叠并刷新「最近一次读取」诊断（所有读入口与写入前复核共用，保证诊断口径一致）。 */
+function foldAndRecordReadDiagnostics_ACU(messages: any[]): AgentModuleFoldResult_ACU {
+  const folded = foldAgentModuleSnapshot_ACU(messages, agentModuleFrameDeps_ACU());
+  lastReadDiagnostics_ACU = {
+    candidates: folded.candidates,
+    adoptedIndex: folded.adoptedIndex,
+    salvaged: folded.salvaged,
+    checkpointIndex: folded.checkpointIndex,
+    foldedDeltaCount: folded.foldedDeltaCount,
+  };
+  return folded;
 }
 
 /**
@@ -589,17 +680,8 @@ export function readAgentModuleSnapshotDiagnostics_ACU(): AgentModuleSnapshotRea
  */
 export function readAgentModuleSnapshot_ACU(chat?: any[]): AgentModuleSnapshot_ACU {
   const messages = Array.isArray(chat) ? chat : getChatArray_ACU();
-  const folded = foldAgentModuleSnapshot_ACU(messages, agentModuleFrameDeps_ACU());
-  lastReadDiagnostics_ACU = {
-    candidates: folded.candidates,
-    adoptedIndex: folded.adoptedIndex,
-    salvaged: folded.salvaged,
-    checkpointIndex: folded.checkpointIndex,
-    foldedDeltaCount: folded.foldedDeltaCount,
-  };
-  if (folded.salvaged) {
-    console.warn(`[SP·数据库][续写资料] 楼层 ${folded.adoptedIndex} 的资料快照未通过严格校验，已按宽容模式读取：${folded.candidates.find(item => item.index === folded.adoptedIndex)?.problems.join('；') ?? ''}`);
-  }
+  const folded = foldAndRecordReadDiagnostics_ACU(messages);
+  warnIfSalvagedRead_ACU(folded);
   return folded.snapshot;
 }
 
@@ -610,15 +692,16 @@ export function readAgentModuleSnapshot_ACU(chat?: any[]): AgentModuleSnapshot_A
  */
 export function readAgentModuleFieldSnapshot_ACU(chat?: any[]): AgentModuleFieldSnapshot_ACU {
   const messages = Array.isArray(chat) ? chat : getChatArray_ACU();
-  const folded = foldAgentModuleSnapshot_ACU(messages, agentModuleFrameDeps_ACU());
-  lastReadDiagnostics_ACU = {
-    candidates: folded.candidates,
-    adoptedIndex: folded.adoptedIndex,
-    salvaged: folded.salvaged,
-    checkpointIndex: folded.checkpointIndex,
-    foldedDeltaCount: folded.foldedDeltaCount,
-  };
-  return folded.fields;
+  return foldAndRecordReadDiagnostics_ACU(messages).fields;
+}
+
+/**
+ * 抢救读的诊断告警：资料快照未通过严格校验、被按宽容模式采纳。
+ * 读入口与写路径（乐观锁复核）共用一条——重构折叠链路时写路径最容易静默丢掉这条诊断。
+ */
+function warnIfSalvagedRead_ACU(folded: AgentModuleFoldResult_ACU): void {
+  if (!folded.salvaged) return;
+  console.warn(`[UB·数据库][续写资料] 楼层 ${folded.adoptedIndex} 的资料快照未通过严格校验，已按宽容模式读取：${folded.candidates.find(item => item.index === folded.adoptedIndex)?.problems.join('；') ?? ''}`);
 }
 
 /**
@@ -629,10 +712,11 @@ export function readAgentModuleFieldSnapshot_ACU(chat?: any[]): AgentModuleField
  * 结算派工成功后显式设置。P1 两项加固原样保留：前缀指纹失配拒绝写入；修订号乐观锁
  * 复核（任一类楼层比写入新即放弃落盘）。
  * @param chat 聊天数组
- * @param targetIndex 承载快照的楼层下标，通常是当前末楼
+ * @param targetIndex 本次结算**截至**哪一楼（通常是当前末楼）。实际承载楼由帧层解析为
+ *   「≤ targetIndex 的最近 AI 楼」，工具楼/隐藏楼尾时两者不是同一栋；返回值即实际承载楼。
  * @param snapshot 待写入的全量快照
  */
-export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: number, snapshot: AgentModuleSnapshot_ACU): Promise<void> {
+export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: number, snapshot: AgentModuleSnapshot_ACU): Promise<number | null> {
   const message = Array.isArray(chat) ? chat[targetIndex] : null;
   if (!message || typeof message !== 'object') {
     throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 资料快照的目标楼层不可用', false, { targetIndex }));
@@ -651,7 +735,12 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
   // 修订号整体 +1（replaceAgentModuleSnapshotByUser_ACU），旧基准整份写入会静默冲掉用户内容。
   // 落盘前重读当前生效快照，任一类「楼层比写入快照新」即放弃落盘并记日志；正常路径零影响。
   const revisionDrifts: string[] = [];
-  const floorSnapshot = readAgentModuleSnapshot_ACU(chat);
+  // 乐观锁复核需要的「当前生效资料」就是规划阶段要的那次折叠：同一次折叠结果贯穿
+  // 复核与规划（两者之间聊天零变更），省掉一次全量折叠。
+  const floorState = foldAndRecordReadDiagnostics_ACU(chat);
+  // 写路径的规划基线同样是「宽容模式采纳」的快照，诊断与读路径保持一致。
+  warnIfSalvagedRead_ACU(floorState);
+  const floorSnapshot = floorState.snapshot;
   const revisionPairs: Array<[string, number, number]> = [
     ['hooks', floorSnapshot.revisions.hooks, snapshot.revisions.hooks],
     ['infoGap', floorSnapshot.revisions.infoGap, snapshot.revisions.infoGap],
@@ -665,7 +754,7 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
     if (floorRevision > incomingRevision) revisionDrifts.push(`${name} 楼层=${floorRevision} 写入=${incomingRevision}`);
   }
   if (revisionDrifts.length > 0) {
-    console.warn(`[SP·数据库][续写资料] 检测到楼层快照修订号已被外部更新（疑似用户手动保存），放弃本次写入防止整份覆盖：${revisionDrifts.join('；')}（目标楼层 ${targetIndex}）`);
+    console.warn(`[UB·数据库][续写资料] 检测到楼层快照修订号已被外部更新（疑似用户手动保存），放弃本次写入防止整份覆盖：${revisionDrifts.join('；')}（目标楼层 ${targetIndex}）`);
     throw new ContinuationValidationError_ACU(createContinuationError_ACU(
       'CONTINUATION_AGENT_WRITE_REJECTED',
       'agent_persist',
@@ -685,8 +774,14 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
     stamped,
     agentModuleFrameDeps_ACU(),
     findLatestTableFullCheckpointIndex_ACU(chat),
+    floorState,
   );
-  if (!plan.changed) return;
+  if (!plan.changed) {
+    // 规划层的 fail-closed 原因此前只有逐栏路径会透传，快照路径直接丢掉 ⇒「整条聊天没有可承载资料的
+    // AI 楼层」这类真异常完全静默（用户只看到资料没更新）。留一条告警便于报障定位。
+    if (plan.reason) console.warn(`[UB·数据库][续写资料] 快照未落盘（目标楼层 ${targetIndex}）：${plan.reason}`);
+    return null;
+  }
   try {
     for (const assignment of plan.assignments) {
       const container = chat[assignment.index] as Record<string, unknown>;
@@ -702,6 +797,9 @@ export async function writeAgentModuleSnapshot_ACU(chat: any[], targetIndex: num
     }
     throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_AGENT_SNAPSHOT_INVALID', 'agent_persist', 'Agent 资料快照写盘失败，已还原楼层字段', false, { targetIndex, message: error instanceof Error ? error.message : String(error) }));
   }
+  // 回传**实际承载楼**（≤ targetIndex 的最近 AI 楼）：工具楼/隐藏楼尾时它不是 targetIndex，
+  // 而「资料写到哪一楼」必须让用户看得见，否则"资料突然清零"只能靠猜。null = 本次没有写入。
+  return plan.frameFloor ?? null;
 }
 
 /**
@@ -756,6 +854,8 @@ export interface AgentModuleFieldAccepted_ACU { module: AgentWritableModule_ACU;
 export interface AgentModuleFieldReceipt_ACU {
   status: 'committed' | 'rejected' | 'persist_failed' | 'readback_failed';
   accepted: AgentModuleFieldAccepted_ACU[];
+  /** 从权威基线确认的同值重发；不产生新写入或推进修订号。 */
+  alreadySaved?: Array<AgentModuleFieldAccepted_ACU & { value: unknown }>;
   rejected: AgentModuleSqlFieldRejection_ACU[];
   /** null 表示保存/补偿后的当前状态无法确认；必须重新读取权威帧。 */
   partials: Array<{ module: AgentWritableModule_ACU; id: string; missingFields: string[]; promotionError?: string }> | null;
@@ -766,11 +866,23 @@ export interface AgentModuleFieldReceipt_ACU {
 }
 
 type FieldCommitModule_ACU = 'hooks' | 'infoGap' | 'storyArc' | 'chronology' | 'webRefs';
+/** 本次派工的修订号窗口：base 是子代理读到的版本，head 是本派工最近一次确认的权威版本（上游 5c02f861）。 */
+export type AgentModuleRevisionWindow_ACU = Partial<Record<FieldCommitModule_ACU, { base: number; head: number }>>;
 
-const FIELD_COMMIT_ROLE_MODULES_ACU: Readonly<Partial<Record<AgentSubagentName_ACU, readonly AgentWritableModule_ACU[]>>> = {
+/** 提交结束后维护窗口：状态不明即撤销窗口、退回严格比对；成功提交把 head 推到权威新版。 */
+function syncRevisionWindow_ACU(window: AgentModuleRevisionWindow_ACU | undefined, receipt: AgentModuleFieldReceipt_ACU): void {
+  if (!window) return;
+  for (const module of Object.keys(window) as FieldCommitModule_ACU[]) {
+    if (receipt.revisions === null) delete window[module];
+    else if (receipt.status === 'committed') window[module]!.head = receipt.revisions[module];
+  }
+}
+
+const FIELD_COMMIT_ROLE_MODULES_ACU: Readonly<Partial<Record<AgentModuleWriterRole_ACU, readonly AgentWritableModule_ACU[]>>> = {
   'arc-architect': ['storyArc'],
   'hook-cognition-maintainer': ['hooks', 'infoGap', 'chronology'],
   'web-researcher': ['webRefs'],
+  main: ['hooks', 'infoGap', 'chronology', 'storyArc'],
 };
 
 function fieldCommitText_ACU(value: unknown): value is string { return typeof value === 'string'; }
@@ -780,24 +892,34 @@ function fieldCommitStringArray_ACU(value: unknown): boolean { return Array.isAr
 function fieldCommitRecord_ACU(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function fieldCommitInList_ACU(value: unknown, list: readonly string[]): boolean { return fieldCommitText_ACU(value) && list.includes(value); }
 
-/** 显式栏目逐栏校验；null、合法空值与缺栏不可混淆。 */
-function fieldCommitProblem_ACU(module: FieldCommitModule_ACU, field: string, value: unknown, snapshot: AgentModuleSnapshot_ACU, evidence: ReadonlySet<number>): string | null {
+/** 证据楼层纠错后缀：给模型可核对的楼层清单，不让它为通过校验换号。 */
+function fieldCommitEvidenceRepair_ACU(bound: number, evidence: ReadonlySet<number>): string {
+  const indexes = [...evidence].filter(item => item <= bound).sort((a, b) => a - b);
+  return `；本次引用上限 ${bound}，可核对的 AI 正文楼层号：${indexes.join(', ') || '无'}。使用正文标注的原始楼层号，不要按第几条 AI 回复重新计数；须核对对应正文，不得仅为通过校验换号`;
+}
+
+/**
+ * 显式栏目逐栏校验；null、合法空值与缺栏不可混淆。
+ * bound 是证据楼层上限＝本次结算目标（当轮末楼），与整行事务路径的 settledIndex 同口径；
+ * 不能用旧结算水位，否则本轮要结算的新楼层一律被拒。
+ */
+function fieldCommitProblem_ACU(module: FieldCommitModule_ACU, field: string, value: unknown, bound: number, evidence: ReadonlySet<number>): string | null {
   switch (module) {
     case 'hooks':
       if (field === 'status') return fieldCommitInList_ACU(value, AGENT_HOOK_STATUSES_ACU) ? null : 'status 枚举非法';
       if (field === 'importance') return fieldCommitInList_ACU(value, AGENT_HOOK_IMPORTANCES_ACU) ? null : 'importance 枚举非法';
-      if (field === 'plantedIndex') return fieldCommitIndex_ACU(value) && (value as number) <= snapshot.settledThroughIndex && evidence.has(value as number) ? null : 'plantedIndex 必须引用已结算正文楼层';
+      if (field === 'plantedIndex') return fieldCommitIndex_ACU(value) && (value as number) <= bound && evidence.has(value as number) ? null : 'plantedIndex 必须引用已结算正文楼层' + fieldCommitEvidenceRepair_ACU(bound, evidence);
       return field === 'summary' ? (fieldCommitNonempty_ACU(value) ? null : 'summary 必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
     case 'infoGap':
       if (field === 'revealStatus') return fieldCommitInList_ACU(value, AGENT_REVEAL_STATUSES_ACU) ? null : 'revealStatus 枚举非法';
-      if (field === 'revealIndex') return value === null || (fieldCommitIndex_ACU(value) && (value as number) <= snapshot.settledThroughIndex && evidence.has(value as number)) ? null : 'revealIndex 必须为空或已结算正文楼层';
-      if (field === 'characterKnowledge') return Array.isArray(value) && value.every(item => fieldCommitRecord_ACU(item) && fieldCommitNonempty_ACU(item.name) && fieldCommitText_ACU(item.knows)) ? null : 'characterKnowledge 需要带 name / knows 的数组';
+      if (field === 'revealIndex') return value === null || (fieldCommitIndex_ACU(value) && (value as number) <= bound && evidence.has(value as number)) ? null : 'revealIndex 必须为空或已结算正文楼层' + fieldCommitEvidenceRepair_ACU(bound, evidence);
+      if (field === 'characterKnowledge') return Array.isArray(value) && value.every(item => fieldCommitRecord_ACU(item) && fieldCommitNonempty_ACU(item.name) && fieldCommitText_ACU(item.knows)) ? null : 'characterKnowledge 需要带 name / knows 的数组；SQL 列名 character_knowledge，值用单引号包裹完整 JSON 数组，如 \'[{"name":"角色","knows":"亲眼所见"}]\'；JSON 结构双引号不加反斜杠，字符串内容中的双引号按 JSON 规则转义，SQL 文本内部单引号须写成两个单引号';
       return field === 'topic' ? (fieldCommitNonempty_ACU(value) ? null : 'topic 必须为非空文本') : (fieldCommitText_ACU(value) ? null : '必须为字符串');
     case 'chronology':
       if (field === 'precision') return fieldCommitInList_ACU(value, AGENT_CHRONOLOGY_PRECISIONS_ACU) ? null : 'precision 枚举非法';
       if (field === 'evidenceIndexes') {
         const indexes = normalizeEvidenceIndexes_ACU(value);
-        return indexes?.length && indexes.every(item => item <= snapshot.settledThroughIndex && evidence.has(item)) ? null : 'evidenceIndexes 必须是非空、已结算正文楼层数组';
+        return indexes?.length && indexes.every(item => item <= bound && evidence.has(item)) ? null : 'evidenceIndexes 必须是非空、已结算正文楼层数组' + fieldCommitEvidenceRepair_ACU(bound, evidence);
       }
       return fieldCommitNonempty_ACU(value) ? null : '时间事实栏目必须为非空文本';
     case 'storyArc':
@@ -889,6 +1011,114 @@ function fieldCommitStoryArcMeta_ACU(
 
 const fieldCommitQueue_ACU = new WeakMap<unknown[], Promise<void>>();
 
+function emptyPromotionDelta_ACU(): AgentModuleDelta_ACU {
+  return { expectedRevisions: {}, hooks: [], hookPatches: [], infoGap: [], infoGapPatches: [], storyArc: [], storyArcPatches: [], chronology: [], chronologyPatches: [], constraintProposals: [] };
+}
+
+/** 把一条写齐的分栏值转成整行 upsert 写集项（栏名与领域字段同名）。 */
+function fieldCommitPromotionItem_ACU(module: FieldCommitModule_ACU, id: string, values: Record<string, unknown>, existing: Record<string, unknown> | null): unknown {
+  const value = (field: string): unknown => values[field];
+  const has = (field: string): boolean => Object.prototype.hasOwnProperty.call(values, field);
+  switch (module) {
+    case 'hooks':
+      return { action: 'upsert', id, summary: value('summary'), status: value('status'), importance: value('importance'), plantedIndex: value('plantedIndex'), plannedPayoff: value('plannedPayoff'), reason: '' };
+    case 'infoGap':
+      return { action: 'upsert', id, topic: value('topic'), objectiveFact: value('objectiveFact'), readerKnown: value('readerKnown'), characterKnowledge: value('characterKnowledge'), revealStatus: value('revealStatus'), revealIndex: value('revealIndex') ?? null, reason: '' };
+    case 'chronology':
+      return { action: 'upsert', id, anchor: value('anchor'), elapsed: value('elapsed'), precision: value('precision'), transition: value('transition'), evidenceIndexes: value('evidenceIndexes'), reason: '' };
+    case 'storyArc': {
+      const item: Record<string, unknown> = {
+        action: 'upsert', id, scope: value('scope'), title: value('title'), direction: value('direction'), escalation: value('escalation'), withheld: value('withheld'),
+        status: value('status'), statusProvided: true, stageNumbers: value('stageNumbers') ?? [], completionStageNumber: value('completionStageNumber') ?? null,
+        completionState: value('completionState') ?? '', continuationRationale: value('continuationRationale') ?? '', reason: '',
+      };
+      for (const field of ['narrativeRole', 'targetStageRange', 'targetTimeSpan', 'progressCeiling', 'sustainingThreads', 'payoffTargets', 'completionRationale']) {
+        if (has(field)) item[field] = value(field);
+      }
+      return item;
+    }
+    case 'webRefs':
+      return {
+        action: 'upsert', id, title: value('title'), url: value('url'), tags: value('tags') ?? [], brief: value('brief'), summary: value('summary') ?? '',
+        source: value('source') ?? existing?.source ?? 'web', query: value('query') ?? existing?.query ?? '', sourceStatus: value('sourceStatus') ?? existing?.sourceStatus ?? 'ok', reason: '',
+      };
+  }
+}
+
+function fieldCommitApplyPromotion_ACU(
+  snapshot: AgentModuleSnapshot_ACU,
+  module: FieldCommitModule_ACU,
+  items: unknown[],
+  settledIndex: number,
+  completedStageNumbers: readonly number[],
+  evidence: ReadonlySet<number>,
+  now: number,
+): AgentModuleSnapshot_ACU {
+  if (module === 'webRefs') {
+    return applyAgentWebRefsDelta_ACU(snapshot, { summary: '', expectedRevision: undefined, items: items as AgentWebRefResolvedItem_ACU[], patches: [] }, undefined, now).snapshot;
+  }
+  const delta = emptyPromotionDelta_ACU();
+  (delta[module] as unknown[]).push(...items);
+  return applyAgentModuleDelta_ACU(snapshot, delta, [module], settledIndex, completedStageNumbers, evidence).snapshot;
+}
+
+/**
+ * 逐栏写齐（complete）的记录提升为正式领域条目（R4-02）。
+ *
+ * 帧层仍按 T2 锁定：fieldUpserts 本身不投影领域数组。提升在提交层完成——把写齐的记录转成整行
+ * upsert，走与整行契约同一个事务（同一套校验、证据门、卷生命周期与修订号推进），再以普通快照写入落盘。
+ * 否则 $HOOKS_LEDGER 等读口与下游结算永远看不到逐栏结果，而工作流照样推进结算水位。
+ * hooks / infoGap / chronology / webRefs 逐条试提升，单条不合规只留草稿；storyArc 有跨条约束（唯一 active 卷等），整批提升。
+ * 提升不改 pendingFixes：缺口清账由工作流/纠正流程按自己的口径处理。
+ */
+function fieldCommitPromote_ACU(input: {
+  snapshot: AgentModuleSnapshot_ACU;
+  /** 本次写入前的分栏视图：领域行即领域值，草稿即已存栏目。不能用写后视图——折叠对账会让领域值盖掉同批栏目改写。 */
+  baseFields: AgentModuleFieldSnapshot_ACU;
+  touched: AgentModuleFieldUpserts_ACU;
+  settledIndex: number;
+  completedStageNumbers: readonly number[];
+  evidence: ReadonlySet<number>;
+  now: number;
+}): { snapshot: AgentModuleSnapshot_ACU; changed: boolean; errors: Array<{ module: FieldCommitModule_ACU; id: string; reason: string }> } {
+  let snapshot = input.snapshot;
+  let changed = false;
+  const errors: Array<{ module: FieldCommitModule_ACU; id: string; reason: string }> = [];
+  for (const module of ['hooks', 'infoGap', 'chronology', 'webRefs', 'storyArc'] as const) {
+    const ids = Object.keys(input.touched[module] ?? {});
+    const candidates: Array<{ id: string; item: unknown }> = [];
+    for (const id of ids) {
+      const values: Record<string, unknown> = Object.fromEntries(Object.entries(input.baseFields.records[module]?.[id]?.fields ?? {}).map(([field, entry]) => [field, entry.value]));
+      for (const [field, write] of Object.entries(input.touched[module]?.[id] ?? {})) {
+        if (write.unset === true) delete values[field];
+        else if (Object.prototype.hasOwnProperty.call(write, 'value')) values[field] = write.value;
+      }
+      if (AGENT_MODULE_FIELD_MATRIX_ACU[module].required.some(field => !Object.prototype.hasOwnProperty.call(values, field))) continue;
+      candidates.push({ id, item: fieldCommitPromotionItem_ACU(module, id, values, fieldCommitDomainRow_ACU(snapshot, module, id)) });
+    }
+    if (!candidates.length) continue;
+    const apply = (base: AgentModuleSnapshot_ACU, items: unknown[]) => fieldCommitApplyPromotion_ACU(base, module, items, input.settledIndex, input.completedStageNumbers, input.evidence, input.now);
+    const reasonOf = (error: unknown) => error instanceof ContinuationValidationError_ACU ? error.error.message : (error instanceof Error ? error.message : String(error));
+    let accepted = candidates;
+    if (module !== 'storyArc') {
+      accepted = [];
+      for (const candidate of candidates) {
+        try { apply(snapshot, [candidate.item]); accepted.push(candidate); }
+        catch (error) { errors.push({ module, id: candidate.id, reason: reasonOf(error) }); }
+      }
+      if (!accepted.length) continue;
+    }
+    try {
+      const next = apply(snapshot, accepted.map(candidate => candidate.item));
+      snapshot = { ...next, pendingFixes: input.snapshot.pendingFixes };
+      changed = true;
+    } catch (error) {
+      for (const candidate of accepted) errors.push({ module, id: candidate.id, reason: reasonOf(error) });
+    }
+  }
+  return { snapshot, changed, errors };
+}
+
 /**
  * 融合提交（S11-TT 双模 Mode F 生产入口）。
  *
@@ -905,32 +1135,51 @@ export function commitAgentModuleFieldWrites_ACU(input: {
   chat: any[];
   targetIndex: number;
   sql: string;
-  role: AgentSubagentName_ACU;
+  role: AgentModuleWriterRole_ACU;
   resolvePage?: (handle: string) => AgentFieldPage_ACU | null;
   isCurrent?: () => boolean;
+  /** 真实完成的阶段号；写齐的卷条目提升为正式条目时按它校验阶段登记。缺省视为没有完成阶段。 */
+  completedStageNumbers?: readonly number[];
+  /** 本次派工的修订号窗口；提交口在同一串行队列内维护，调用方只负责派工时初始化。 */
+  revisionWindow?: AgentModuleRevisionWindow_ACU;
 }): Promise<AgentModuleFieldReceipt_ACU> {
   const prior = fieldCommitQueue_ACU.get(input.chat) ?? Promise.resolve();
   const run = prior.catch(() => {}).then(async (): Promise<AgentModuleFieldReceipt_ACU> => {
     const parsed = parseAgentModuleSqlFieldWrites_ACU(input.sql, input.role);
     const folded = readAgentModuleFoldState_ACU(input.chat);
     const receipt: AgentModuleFieldReceipt_ACU = {
-      status: 'rejected', accepted: [], rejected: [...parsed.rejected],
+      status: 'rejected', accepted: [], alreadySaved: [], rejected: [...parsed.rejected],
       partials: fieldCommitConfirmedPartials_ACU(folded.fields),
       revisions: { ...folded.snapshot.revisions }, constraintProposals: parsed.constraintProposals,
     };
     if (input.isCurrent?.() === false || getChatArray_ACU() !== input.chat
       || !input.chat[input.targetIndex] || (input.chat[input.targetIndex] as { is_user?: unknown }).is_user === true
       || input.targetIndex !== input.chat.length - 1) {
-      receipt.rejected.push({ path: 'chat', reason: '当前聊天或目标楼层已变化' });
+      // 给出具体原因（上游 37948da1）：这不是字段错误，子代理据此按任务失效终止，不重写同一份 SQL 白烧写轮。
+      const target = input.chat[input.targetIndex] as { is_user?: unknown } | undefined;
+      const cause = input.isCurrent?.() === false ? '派工租约已失效'
+        : getChatArray_ACU() !== input.chat ? '活动聊天已切换'
+        : !target ? '目标消息不存在'
+        : target.is_user === true ? '目标楼层现在是用户楼（派工在途时聊天已追加新消息）'
+        : '末楼位置已变化';
+      receipt.rejected.push({ path: 'chat', reason: `当前聊天或目标楼层已变化：${cause}。本次逐栏写入作废，停止旧任务，不重发 SQL` });
       receipt.partials = null; receipt.revisions = null; return receipt;
     }
     if (folded.salvaged || folded.candidates.some(item => !item.valid)) {
       receipt.rejected.push({ path: 'frame', reason: '资料帧损坏，拒绝在宽容抢救结果上写入' });
       receipt.partials = null; receipt.revisions = null; return receipt;
     }
+    // 窗口 head 与当前权威修订号不符，说明有本派工之外的写入：基线重置到最新版，之后只认模型重新读到的号。
+    if (input.revisionWindow) for (const module of Object.keys(input.revisionWindow) as FieldCommitModule_ACU[]) {
+      const current = folded.snapshot.revisions[module];
+      if (input.revisionWindow[module]!.head !== current) input.revisionWindow[module] = { base: current, head: current };
+    }
     const evidence = new Set<number>();
     input.chat.forEach((message, index) => {
-      if (message && typeof message === 'object' && (message as { is_user?: unknown }).is_user !== true) evidence.add(index);
+      // 证据楼白名单必须与 SQL 事务路径同判据（agent-main-loop.ts 的 aiEvidenceIndexes 用 isAiFloor_ACU）：
+      // TT 2.3.0 的一等工具楼与被 /hide 的隐藏楼都不算「已结算正文楼层」。用旧的「非 user 即 AI」
+      // 会让同一份意图在逐栏提交路径能把伏笔锚到工具楼上、在整行 writes 路径被拒——同域不同判。
+      if (isAiFloor_ACU(message)) evidence.add(index);
     });
     const now = Date.now();
     const modules = FIELD_COMMIT_ROLE_MODULES_ACU[input.role] ?? [];
@@ -973,9 +1222,33 @@ export function commitAgentModuleFieldWrites_ACU(input: {
       const key = `${module}#${id}`;
       const existing = fieldCommitDomainRow_ACU(folded.snapshot, module, id);
       const record = folded.fields.records[module]?.[id];
+      // 同值重发先认：折叠记录是权威当前值（快照领域行若有该栏也必须一致），
+      // 记 alreadySaved，不写不推修订号，也不卡 revision（数据一致，重发旧号无需模型再 read 一轮）。
+      if (intent.kind === 'insert' && !reserved.has(key)) {
+        const intentFields = Object.keys(intent.fields);
+        const allSame = intentFields.length > 0 && !!record && intentFields.every(field =>
+          fieldCommitCanonical_ACU(record?.fields[field]?.value) === fieldCommitCanonical_ACU(intent.fields[field])
+          && (!existing || !Object.prototype.hasOwnProperty.call(existing, field)
+            || fieldCommitCanonical_ACU(existing[field]) === fieldCommitCanonical_ACU(intent.fields[field])));
+        if (allSame) {
+          for (const field of intentFields) {
+            (receipt.alreadySaved ??= []).push({
+              module, id, field,
+              revision: record?.fields[field]?.revision ?? folded.snapshot.revisions[module],
+              value: record?.fields[field]?.value,
+            });
+          }
+          continue;
+        }
+      }
       // 新行固定 0；省略修订号时按该规则自动补，模块修订号只约束显式写错的已有行（移植上游 56540c9+2a8472e）。
       const newInsert = intent.kind === 'insert' && !existing && !record && !reserved.has(key);
       if (intent.expectedRevision === undefined) intent.expectedRevision = newInsert ? 0 : folded.snapshot.revisions[module];
+      // 派工基线到当前之间的修订号只被本派工自己的提交推进过，模型抄到其中哪一版都指向同一读集，
+      // 由运行时接管为当前号；越过当前或早于基线的号仍按冲突拒绝（上游 5c02f861）。
+      const window = input.revisionWindow?.[module];
+      if (window && window.head === folded.snapshot.revisions[module]
+        && intent.expectedRevision >= window.base && intent.expectedRevision <= window.head) intent.expectedRevision = window.head;
       const revisionOk = intent.expectedRevision === folded.snapshot.revisions[module] || (newInsert && intent.expectedRevision === 0);
       if (!revisionOk) {
         receipt.rejected.push({ path, reason: `revision_conflict: expected=${intent.expectedRevision}, actual=${folded.snapshot.revisions[module]}` }); continue;
@@ -992,7 +1265,18 @@ export function commitAgentModuleFieldWrites_ACU(input: {
         if ((field === 'plantedIndex' && existing) || (field === 'scope' && existing && existing.scope !== raw)) {
           receipt.rejected.push({ path: fieldPath, reason: '已登记的不可变栏目不能改写' }); continue;
         }
-        const problem = fieldCommitProblem_ACU(module, field, raw, folded.snapshot, evidence);
+        // 同值重发记 alreadySaved：折叠记录是权威当前值（快照领域行若有该栏也必须一致）。
+        if (record && fieldCommitCanonical_ACU(record?.fields[field]?.value) === fieldCommitCanonical_ACU(raw)
+          && (!existing || !Object.prototype.hasOwnProperty.call(existing, field)
+            || fieldCommitCanonical_ACU(existing[field]) === fieldCommitCanonical_ACU(raw))) {
+          (receipt.alreadySaved ??= []).push({
+            module, id, field,
+            revision: record?.fields[field]?.revision ?? folded.snapshot.revisions[module],
+            value: record?.fields[field]?.value,
+          });
+          continue;
+        }
+        const problem = fieldCommitProblem_ACU(module, field, raw, input.targetIndex, evidence);
         if (problem) { receipt.rejected.push({ path: fieldPath, reason: problem }); continue; }
         writable[field] = raw;
       }
@@ -1003,11 +1287,12 @@ export function commitAgentModuleFieldWrites_ACU(input: {
           if (!page || page.sourceStatus !== 'ok' || !fieldCommitNonempty_ACU(page.url) || !fieldCommitNonempty_ACU(page.title)) {
             receipt.rejected.push({ path: `${path}.pageRef`, reason: '页面句柄未在本次派工成功抓取' });
           } else {
-            const urlProblem = fieldCommitProblem_ACU(module, 'title', page.title, folded.snapshot, evidence);
+            const urlProblem = fieldCommitProblem_ACU(module, 'title', page.title, input.targetIndex, evidence);
             if (urlProblem) receipt.rejected.push({ path: `${path}.pageRef`, reason: urlProblem });
             else {
               writable.title = writable.title ?? page.title.trim();
               (writable as Record<string, unknown>).__pageUrl_ACU = page.url.trim();
+              (writable as Record<string, unknown>).__page_ACU = page;
             }
           }
         }
@@ -1052,18 +1337,28 @@ export function commitAgentModuleFieldWrites_ACU(input: {
       const bucket = (upserts[module] ??= {});
       const cell = (bucket[id] ??= {});
       for (const [field, value] of Object.entries(writable)) {
-        if (field === '__pageUrl_ACU') continue;
+        if (field === '__pageUrl_ACU' || field === '__page_ACU') continue;
         cell[field] = { value };
         accepted.push({ module, id, field, revision: 0 });
       }
       // pageRef 回填的 url 随 title 同批落栏（来源仍以工具回执为准，不信任模型手写）。
       if (typeof (writable as Record<string, unknown>).__pageUrl_ACU === 'string') {
         cell.url = { value: (writable as Record<string, unknown>).__pageUrl_ACU as string };
+        // 来源元数据同批落栏，提升为正式条目时不丢失来源站点与抓取状态。
+        const page = (writable as Record<string, unknown>).__page_ACU as AgentFieldPage_ACU;
+        cell.source = { value: page.source };
+        cell.query = { value: page.query };
+        cell.sourceStatus = { value: page.sourceStatus };
         accepted.push({ module, id, field: 'url', revision: 0 });
       }
       if (intent.kind === 'insert') reserved.add(key);
     }
-    if (!Object.keys(upserts).length) return receipt;
+    if (!Object.keys(upserts).length) {
+      // 无新写入但有同值确认（或仅剩已成立的删除）：按提交确认，不留待修复缺口。
+      if ((receipt.rejected.length || (receipt.alreadySaved?.length ?? 0) > 0)
+        && receipt.rejected.every(item => item.reason.startsWith('already_absent'))) receipt.status = 'committed';
+      return receipt;
+    }
     // SQL 分栏层复算门：白名单/乐观锁与帧侧同强度；失败即整批拒绝，不落帧。
     let view: Awaited<ReturnType<typeof materializeAgentModuleSqlView_ACU>> | undefined;
     try {
@@ -1096,7 +1391,9 @@ export function commitAgentModuleFieldWrites_ACU(input: {
     }));
     const plan = planAgentModuleFieldWrite_ACU(input.chat, input.targetIndex, upserts, agentModuleFrameDeps_ACU());
     if (!plan.changed) {
-      receipt.rejected.push({ path: 'frame', reason: '资料帧未能规划出可回读的写入' });
+      // reason 由规划层给出（没有 AI 楼 / 有遗留帧待自愈 / 承载楼是旧式全量或损坏帧），
+      // 否则模型只会看到一句笼统的「未能规划出写入」，白烧写轮去重试同一份 SQL。
+      receipt.rejected.push({ path: 'frame', reason: plan.reason ?? '资料帧未能规划出可回读的写入' });
       return receipt;
     }
     try {
@@ -1114,14 +1411,19 @@ export function commitAgentModuleFieldWrites_ACU(input: {
       }
       receipt.status = 'persist_failed';
       receipt.recovery = 'unavailable';
-      receipt.partials = null; receipt.revisions = null;
+      receipt.partials = null; receipt.revisions = null; receipt.alreadySaved = [];
       receipt.rejected.push({ path: 'host', reason: error instanceof Error ? error.message : String(error) });
       return receipt;
     }
     // 保存后回读门：聊天身份/基线楼层未被顶替，且逐栏记录可读回。
+    // 豁免范围是「本次规划确实改写过的楼层」（plan.assignments），不是调用方给的 targetIndex：
+    // 帧的落点由 agent-module-frame 解析成「≤ targetIndex 的最近 AI 楼」（工具楼/隐藏楼尾时两者不同楼），
+    // 按 targetIndex 豁免会把合法写入判成 readback_failed；反过来，其余楼层一律要求逐字未变，
+    // 比旧写法更严——旧写法会放过「有人动了尾楼帧」这种真竞态。
+    const plannedFloorIndexes = new Set(plan.assignments.map(item => item.index));
     const intact = getChatArray_ACU() === input.chat && getActiveChatStorageIdentity_ACU(input.chat) === baselineIdentity
       && input.chat.length === baselineFloors.length && baselineFloors.every((entry, index) => {
-        if (index === input.targetIndex) return input.chat[index] === entry.message && readMessageSwipeId_ACU(entry.message) === entry.swipeId;
+        if (plannedFloorIndexes.has(index)) return input.chat[index] === entry.message && readMessageSwipeId_ACU(entry.message) === entry.swipeId;
         return input.chat[index] === entry.message && readMessageSwipeId_ACU(entry.message) === entry.swipeId
           && (Object.prototype.hasOwnProperty.call(entry.message as object, AGENT_MODULE_FIELD_ACU) === entry.existed)
           && asJson(((entry.message as Record<string, unknown>)[AGENT_MODULE_FIELD_ACU])) === entry.content;
@@ -1142,11 +1444,30 @@ export function commitAgentModuleFieldWrites_ACU(input: {
       return receipt;
     }
     receipt.status = 'committed';
-    receipt.revisions = confirmed.snapshot.revisions;
-    receipt.partials = fieldCommitConfirmedPartials_ACU(confirmed.fields);
+    // 写齐的记录提升为正式领域条目；提升失败只留草稿，原因经 partials[].promotionError 回给模型
+    // （不进 rejected：栏目已保存，进 rejected 会让模型以为没写入而原样重发）。
+    let settled = confirmed;
+    const promotion = fieldCommitPromote_ACU({
+      snapshot: confirmed.snapshot, baseFields: folded.fields, touched: upserts, settledIndex: input.targetIndex,
+      completedStageNumbers: input.completedStageNumbers ?? [], evidence, now,
+    });
+    if (promotion.changed) {
+      try {
+        if (input.isCurrent?.() === false || getChatArray_ACU() !== input.chat) throw new Error('当前聊天已变化');
+        await writeAgentModuleSnapshot_ACU(input.chat, input.targetIndex, promotion.snapshot);
+        settled = readAgentModuleFoldState_ACU(input.chat);
+      } catch (error) {
+        receipt.rejected.push({ path: 'promotion', reason: `栏目已保存，但未能提升为正式条目：${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+    receipt.revisions = settled.snapshot.revisions;
+    receipt.partials = fieldCommitConfirmedPartials_ACU(settled.fields);
+    for (const error of promotion.errors) {
+      receipt.partials.push({ module: error.module, id: error.id, missingFields: [], promotionError: error.reason });
+    }
     receipt.accepted = accepted.map(item => ({ ...item, revision: confirmed.fields.records[item.module]?.[item.id]?.fields[item.field]?.revision ?? 0 }));
     return receipt;
-  });
+  }).then(receipt => { syncRevisionWindow_ACU(input.revisionWindow, receipt); return receipt; });
   fieldCommitQueue_ACU.set(input.chat, run.then(() => {}, () => {}));
   return run;
 }
@@ -1163,14 +1484,30 @@ function rejectSnapshotEdit_ACU(message: string, details?: Record<string, unknow
  * 逐类比对条目数，只要有条目被丢弃就整份拒绝并指出是哪一类。
  * @param raw 用户编辑后的快照对象（可只带 hooks / infoGap / constraints / storyArc）
  * @param chat 聊天数组，缺省取当前聊天
+ * @param options.expectedRevisions 用户载入草稿时各模块的修订号；与当前不一致说明编辑期间资料已被更新
+ *   （通常是续写 Agent 写入），用陈旧草稿整体替换会抹掉那些写入，整份拒绝（R10A-09）
  * @returns 落盘后的快照
  */
-export async function replaceAgentModuleSnapshotByUser_ACU(raw: unknown, chat?: any[]): Promise<AgentModuleSnapshot_ACU> {
+export async function replaceAgentModuleSnapshotByUser_ACU(
+  raw: unknown,
+  chat?: any[],
+  options: { expectedRevisions?: Partial<Record<keyof AgentModuleSnapshot_ACU['revisions'], number>> } = {},
+): Promise<AgentModuleSnapshot_ACU> {
   const messages = Array.isArray(chat) ? chat : getChatArray_ACU();
   const targetIndex = messages.length - 1;
   if (targetIndex < 0) rejectSnapshotEdit_ACU('当前聊天没有可承载资料快照的楼层');
+  // 帧只能落在可见 AI 楼（工具楼可被独立删除、隐藏楼用户看不见）。没有 AI 楼时写入会被规划层
+  // fail-closed 掉，而本函数照样 return validated ⇒ UI 弹「已保存」、重读却是空的，正是本函数
+  // 注释里写的「用户会以为自己保存成功了」。所以在这里就拒绝，并把原因说清楚。
+  if (!messages.some(message => isAiFloor_ACU(message))) rejectSnapshotEdit_ACU('当前聊天没有可承载资料快照的 AI 楼层（用户楼、工具楼、隐藏楼都不能承载）');
   if (!isRecord_ACU(raw)) rejectSnapshotEdit_ACU('资料快照必须是 JSON 对象');
   const current = readAgentModuleSnapshot_ACU(messages);
+  for (const [module, expected] of Object.entries(options.expectedRevisions || {})) {
+    const actual = (current.revisions as unknown as Record<string, number>)[module];
+    if (typeof expected === 'number' && actual !== expected) {
+      rejectSnapshotEdit_ACU(`资料「${module}」在你编辑期间已被更新（通常是续写 Agent 写入），本次保存未执行；请重新载入后再改`, { module, expected, actual });
+    }
+  }
   const merged = {
     ...current,
     ...raw,
@@ -1395,7 +1732,7 @@ export function renderAgentActiveVolumePlanningContext_ACU(snapshot: AgentModule
 export function renderAgentStoryArc_ACU(snapshot: AgentModuleSnapshot_ACU, completedStageNumbers: readonly number[] = []): string {
   const head = `当前修订号=${snapshot.revisions.storyArc}`;
   const active = snapshot.storyArc.filter(entry => !entry.retired);
-  if (!active.length) return `${head}\n当前还没有故事总纲。总纲缺失时无法判断本阶段该走到哪一步；输出 open_round 后，固定工作流会先调用 arc-architect 建立总纲，主 Agent 不直接派工。`;
+  if (!active.length) return `${head}\n当前还没有故事总纲。可 delegate arc-architect 建立全书方向与卷台阶，或用 open_round 固定工作流先建立总纲；已有总纲可由主会话用 correct_materials 修正或委派维护。`;
   const sorted = [...active].sort(compareStoryArc_ACU);
   return truncateAgentBlock_ACU(`${head}\n${sorted.map(renderStoryArcEntry_ACU).join('\n')}\n\n${renderAgentActiveVolumePlanningContext_ACU(snapshot, completedStageNumbers)}`);
 }

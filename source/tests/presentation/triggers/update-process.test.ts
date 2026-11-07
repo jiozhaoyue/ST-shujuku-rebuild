@@ -2,6 +2,9 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// G12-02：「确认期间切聊天」用例需要在确认途中改聊天身份（state-manager 被 mock，经 getter 读取）
+let currentChatIdentity = 'chat-a';
+
 async function importTrigger() {
   vi.resetModules();
   const showCustomConfirm_ACU = vi.fn();
@@ -9,20 +12,21 @@ async function importTrigger() {
   const orchestrateManualUpdate_ACU = vi.fn();
   const processUpdatesBatch_ACU = vi.fn();
   const executeCardUpdateCore_ACU = vi.fn();
-  const resetManualUpdateButton_ACU = vi.fn();
+  const setManualExtraHint = vi.fn();
   const clear = vi.fn();
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: { manualUpdateContextDepth: 3, skipUpdateFloors: 0 },
     currentJsonTableData_ACU: { sheet_0: { name: '物品表' } },
+    get currentChatFileIdentifier_ACU() { return currentChatIdentity; },
     getCurrentIsolationKey_ACU: vi.fn(() => ''),
     _set_wasStoppedByUser_ACU: vi.fn(),
     _set_isAutoUpdatingCard_ACU: vi.fn(),
+    _set_manualExtraHint_ACU: setManualExtraHint,
     abortAllActiveRequests_ACU: vi.fn(),
   }));
   vi.doMock('../../../src/service/chat/chat-service', () => ({
     getChatArray_ACU: vi.fn(() => [{ is_user: false, mes: 'AI 1' }]),
-    saveCurrentDataForTable_ACU: vi.fn(),
   }));
   vi.doMock('../../../src/service/settings/settings-readers', () => ({
     getSelectedManualTableKeys_ACU: vi.fn(() => ['sheet_0']),
@@ -32,18 +36,12 @@ async function importTrigger() {
   vi.doMock('../../../src/shared/constants', () => ({ ACU_TOAST_CATEGORY_ACU: { MANUAL_TABLE: 'manual' } }));
   vi.doMock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logError_ACU: vi.fn(), logWarn_ACU: vi.fn() }));
   vi.doMock('../../../src/shared/host-api', () => ({ toastr_API_ACU: { clear } }));
-  vi.doMock('../../../src/presentation/state/ui-refs', () => ({ $statusMessageSpan_ACU: null }));
   vi.doMock('../../../src/shared/env', () => ({ topLevelWindow_ACU: { AutoCardUpdaterAPI: { _notifyTableFillStart: vi.fn(), _notifyTableUpdate: vi.fn() } } }));
   vi.doMock('../../../src/shared/html-helpers', () => ({ renderStopButton_ACU: vi.fn(() => '<button>stop</button>') }));
   vi.doMock('../../../src/presentation/components/status-display', () => ({
     bindTableFillStopButton_ACU: vi.fn(),
-    resetManualUpdateButton_ACU,
     shouldShowVectorMemoryManualUpdateWarning_ACU: vi.fn(() => false),
-    syncManualUpdateButtonAvailability_ACU: vi.fn(),
   }));
-  vi.doMock('../../../src/presentation/components/update-status-display', () => ({ updateCardUpdateStatusDisplay_ACU: vi.fn() }));
-
-  vi.doMock('../../../src/presentation/triggers/settings-ui-sync', () => ({ collectManualExtraHint_ACU: vi.fn() }));
   vi.doMock('../../../src/presentation/components/pipeline-ui-helpers', () => ({ refreshMergedDataAndNotifyWithUI_ACU: vi.fn(async () => undefined) }));
   vi.doMock('../../../src/service/table/update-orchestrator', () => ({
     processUpdatesBatch_ACU,
@@ -65,13 +63,14 @@ async function importTrigger() {
     processUpdatesBatch_ACU,
     executeCardUpdateCore_ACU,
     clear,
-    resetManualUpdateButton_ACU,
+    setManualExtraHint,
   };
 }
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  currentChatIdentity = 'chat-a';
 });
 
 describe('handleManualUpdate_ACU destructive refill confirmation', () => {
@@ -83,11 +82,19 @@ describe('handleManualUpdate_ACU destructive refill confirmation', () => {
 
     expect(showCustomConfirm_ACU).toHaveBeenCalledTimes(1);
     expect(showCustomConfirm_ACU.mock.calls[0][0]).toBe('手动填表确认');
+    expect(showCustomConfirm_ACU.mock.calls[0][2]).toEqual(expect.objectContaining({ tone: 'danger' }));
     const message = showCustomConfirm_ACU.mock.calls[0][1];
     expect(message).toContain('会先删除本次重填范围内选中表的 checkpoint 与 V2 增量日志');
     expect(message).toContain('此前楼层的表格数据将无法恢复');
     expect(message).toContain('范围外的 checkpoint、范围外聊天记录的表格数据和未选中的表不会被删除');
     expect(message).not.toContain('第二次破坏性确认');
+  });
+
+  it('R9-11：手动更新开始时清空上一次残留的额外提示（旧弹窗复选框已不存在）', async () => {
+    const t = await importTrigger();
+    t.showCustomConfirm_ACU.mockResolvedValueOnce(false);
+    await t.handleManualUpdate_ACU();
+    expect(t.setManualExtraHint).toHaveBeenCalledWith('');
   });
 
   it('用户取消唯一确认时不调用 orchestrator，且不展示 error toast', async () => {
@@ -112,8 +119,21 @@ describe('handleManualUpdate_ACU destructive refill confirmation', () => {
     expect(orchestrateManualUpdate_ACU).toHaveBeenCalledTimes(1);
     expect(showCustomConfirm_ACU).toHaveBeenCalledTimes(1);
     expect(orchestrateManualUpdate_ACU.mock.calls[0][0]).toEqual(['sheet_0']);
-    expect(orchestrateManualUpdate_ACU.mock.calls[0][3]).toEqual(expect.objectContaining({ clearBeforeUpdate: true }));
-    expect(orchestrateManualUpdate_ACU.mock.calls[0][3]).not.toHaveProperty('confirmBoundaryReset');
+    expect(orchestrateManualUpdate_ACU.mock.calls[0][2]).toEqual(expect.objectContaining({ clearBeforeUpdate: true }));
+    expect(orchestrateManualUpdate_ACU.mock.calls[0][2]).not.toHaveProperty('confirmBoundaryReset');
+  });
+
+  it('表格已保存、世界书刷新失败：手动更新以告警提示完成，并附上只需重试世界书同步', async () => {
+    const { handleManualUpdate_ACU, showCustomConfirm_ACU, showToastr_ACU, orchestrateManualUpdate_ACU } = await importTrigger();
+    showCustomConfirm_ACU.mockResolvedValue(true);
+    orchestrateManualUpdate_ACU.mockResolvedValue({ success: true, postCommitWarnings: [{ code: 'worldbook_sync_failed', message: '表格已保存，但世界书刷新失败：超时。请仅重试世界书同步，无需重新填表。' }] });
+
+    await handleManualUpdate_ACU();
+
+    const finalToast = showToastr_ACU.mock.calls.at(-1);
+    expect(finalToast?.[0]).toBe('warning');
+    expect(finalToast?.[1]).toContain('手动更新完成');
+    expect(finalToast?.[1]).toContain('无需重新填表');
   });
 
   it('orchestrator 失败时展示 error toast', async () => {
@@ -124,6 +144,16 @@ describe('handleManualUpdate_ACU destructive refill confirmation', () => {
     await handleManualUpdate_ACU();
 
     expect(showToastr_ACU).toHaveBeenCalledWith('error', '清理后重填失败');
+  });
+
+  it('G12-02：确认期间聊天被切换时放弃破坏性重填，orchestrator 不被调用', async () => {
+    const { handleManualUpdate_ACU, showCustomConfirm_ACU, showToastr_ACU, orchestrateManualUpdate_ACU } = await importTrigger();
+    showCustomConfirm_ACU.mockImplementationOnce(async () => { currentChatIdentity = 'chat-b'; return true; });
+
+    await handleManualUpdate_ACU();
+
+    expect(orchestrateManualUpdate_ACU).not.toHaveBeenCalled();
+    expect(showToastr_ACU).toHaveBeenCalledWith('warning', expect.stringContaining('已切换'));
   });
 });
 
@@ -139,6 +169,21 @@ describe('update error toast ownership', () => {
     expect(showToastr_ACU.mock.calls.filter(call => call[0] === 'error')).toEqual([
       ['error', '更新失败：单次失败'],
     ]);
+  });
+
+  it('直接执行单次更新：表格已保存、世界书刷新失败时弹一次告警；批处理内部调用不弹（交给调度层汇总）', async () => {
+    const { proceedWithCardUpdate_ACU, processUpdates_ACU, processUpdatesBatch_ACU, executeCardUpdateCore_ACU, showToastr_ACU } = await importTrigger();
+    executeCardUpdateCore_ACU.mockResolvedValue({ success: true, modifiedKeys: ['sheet_0'], postCommitWarnings: [{ code: 'worldbook_sync_failed', message: '表格已保存，但世界书刷新失败：超时。请仅重试世界书同步，无需重新填表。' }] });
+
+    await proceedWithCardUpdate_ACU([{ is_user: false, mes: 'AI' }]);
+    expect(showToastr_ACU.mock.calls.filter(call => call[0] === 'warning' && String(call[1]).includes('世界书刷新失败'))).toHaveLength(1);
+
+    showToastr_ACU.mockClear();
+    processUpdatesBatch_ACU.mockImplementation(async (_indices: number[], _mode: string, _options: any, executeUpdate: any) => {
+      return executeUpdate([{ is_user: false, mes: 'AI' }], 1, 'auto_standard', false, ['sheet_0'], null, { currentBatch: 1, totalBatches: 1, batchBaseSnapshot: {} });
+    });
+    await processUpdates_ACU([1], 'auto');
+    expect(showToastr_ACU.mock.calls.filter(call => String(call[1]).includes('世界书刷新失败'))).toHaveLength(0);
   });
 
   it('批处理失败时内部 proceed 不报错，由 processUpdates 最外层只显示一次', async () => {

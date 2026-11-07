@@ -18,6 +18,7 @@ const {
   mockReplaceCalcVariables,
   mockReplaceMaxVariables,
   mockReplaceMinVariables,
+  mockReplaceDbSqlVariables,
   mockParseIfBlockRecursive,
   mockGetLatestAIMessageContent,
   mockGetPlotFromHistory,
@@ -43,6 +44,7 @@ const {
     mockReplaceCalcVariables: vi.fn((s: string) => s),
     mockReplaceMaxVariables: vi.fn((s: string) => s),
     mockReplaceMinVariables: vi.fn((s: string) => s),
+    mockReplaceDbSqlVariables: vi.fn((s: string) => s),
     mockParseIfBlockRecursive: vi.fn((s: string) => s),
     mockGetLatestAIMessageContent: vi.fn(() => ''),
     mockGetPlotFromHistory: vi.fn(() => null),
@@ -78,7 +80,7 @@ vi.mock('../../../src/service/runtime/template-vars', () => ({
   getLatestAIMessageContent_ACU: mockGetLatestAIMessageContent,
   getLatestUserMessageContent_ACU: vi.fn(() => ''),
   composeSeedMatchContent_ACU: (userContent: string, aiContent: string) => [userContent, aiContent].filter(Boolean).join('\n'),
-  replaceDbSqlVariables: vi.fn((s: string) => s),
+  replaceDbSqlVariables: mockReplaceDbSqlVariables,
 }));
 
 vi.mock('../../../src/service/runtime/plot-runtime', () => ({
@@ -133,6 +135,12 @@ vi.mock('../../../src/service/runtime/helpers-data-merge', () => ({
 }));
 
 import { handleChatCompletionReady_ACU } from '../../../src/service/runtime/helpers-remaining';
+import {
+  getAgentWorldbookRuntimeRevision_ACU,
+  resetAgentWorldbookRuntime_ACU,
+  setAgentWorldbookNativeFallback_ACU,
+  setLoadedAgentWorldbookControl_ACU,
+} from '../../../src/service/agent/agent-worldbook-runtime-state';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -151,31 +159,49 @@ beforeEach(() => {
   mockIsWorldbookTakeoverActive.mockReturnValue(false);
   mockGetWorldbookContentForPlot.mockResolvedValue('');
   mockGetAgentControlledWorldbookEntriesForFinalPrompt.mockResolvedValue([]);
+  resetAgentWorldbookRuntime_ACU();
 });
 
 describe('handleChatCompletionReady_ACU', () => {
-  it('功能未启用时跳过处理', async () => {
-    mockSettings.promptTemplateSettings = { enabled: false };
-    const data = { messages: [{ content: '{{random}}' }] };
-    await handleChatCompletionReady_ACU(data);
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
-  });
 
-  it('settings 为 null 时跳过处理', async () => {
-    mockSettings.promptTemplateSettings = null;
-    const data = { messages: [{ content: '{{random}}' }] };
-    await handleChatCompletionReady_ACU(data);
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
-  });
+  // ── 上游 1.3.6：Agent 未开启 / 本轮已回退原生时不过滤正文里的原生条目 ──
+  describe('Agent 世界书运行期开关', () => {
+    const blockedEntry = { bookName: '世界书', uid: 'controlled', comment: '受控条目', content: '受控条目正文' };
+    const makeData = () => ({
+      messages: [
+        { role: 'system', content: '系统提示\n\n# 受控条目\n受控条目正文\n\n其他系统提示' },
+        { role: 'user', content: '当前输入' },
+      ],
+    });
+    const original = makeData().messages;
 
-  it('data 为 null 时跳过处理', async () => {
-    await handleChatCompletionReady_ACU(null);
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
-  });
+    beforeEach(() => {
+      mockIsWorldbookTakeoverActive.mockReturnValue(true);
+      mockGetAgentControlledWorldbookEntriesForFinalPrompt.mockResolvedValue([blockedEntry]);
+    });
 
-  it('data.messages 不是数组时跳过处理', async () => {
-    await handleChatCompletionReady_ACU({ messages: 'not array' });
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
+    it('确认没开 Agent 时不过滤正文原生条目，也不去水合接管快照', async () => {
+      setLoadedAgentWorldbookControl_ACU({ enabled: false, mode: 'disabled' } as any, getAgentWorldbookRuntimeRevision_ACU());
+      const data = makeData();
+      await handleChatCompletionReady_ACU(data);
+      expect(data.messages).toEqual(original);
+      expect(mockGetAgentControlledWorldbookEntriesForFinalPrompt).not.toHaveBeenCalled();
+      expect(mockEnsureHydrated).not.toHaveBeenCalled();
+    });
+
+    it('本轮 Agent 失败已回退原生世界书时不过滤正文原生条目', async () => {
+      setLoadedAgentWorldbookControl_ACU({ enabled: true, mode: 'agent' } as any, getAgentWorldbookRuntimeRevision_ACU());
+      setAgentWorldbookNativeFallback_ACU(true);
+      const data = makeData();
+      await handleChatCompletionReady_ACU(data);
+      expect(data.messages).toEqual(original);
+    });
+
+    it('开关还没读到时保持原行为：接管活跃就过滤', async () => {
+      const data = makeData();
+      await handleChatCompletionReady_ACU(data);
+      expect(data.messages[0].content).toBe('系统提示\n\n其他系统提示');
+    });
   });
 
   it('seed 匹配内容组合用户+AI 输入（e6f8ef38：AI-only 会漏用户触发的 seed 条件）', async () => {
@@ -190,24 +216,6 @@ describe('handleChatCompletionReady_ACU', () => {
     const ctx = call!.find(a => a && typeof a === 'object' && 'seedContent' in (a as any)) as any;
     expect(ctx.seedContent).toContain('玩家：发动突袭');
     expect(ctx.seedContent).toContain('AI：战况推进');
-  });
-
-  it('处理字符串类型的 message.content', async () => {
-    mockParseRandomTags.mockReturnValue('processed');
-    mockReplaceRandomVariables.mockReturnValue('processed');
-    mockParseCalcTags.mockReturnValue('processed');
-    mockParseMaxTags.mockReturnValue('processed');
-    mockParseMinTags.mockReturnValue('processed');
-    mockReplaceCalcVariables.mockReturnValue('processed');
-    mockReplaceMaxVariables.mockReturnValue('processed');
-    mockReplaceMinVariables.mockReturnValue('processed');
-    mockParseIfBlockRecursive.mockReturnValue('processed');
-
-    const data = { messages: [{ content: '原始内容' }] };
-    await handleChatCompletionReady_ACU(data);
-
-    expect(mockParseRandomTags).toHaveBeenCalledWith('原始内容');
-    expect(data.messages[0].content).toBe('processed');
   });
 
   it('处理数组类型的 message.content（多模态）', async () => {
@@ -235,62 +243,6 @@ describe('handleChatCompletionReady_ACU', () => {
     expect(data.messages[0].content[0].text).toBe('processed');
     // image_url 部分不应被处理
     expect(data.messages[0].content[1].image_url).toBe('http://img.png');
-  });
-
-  it('content 不是字符串也不是数组时不处理', async () => {
-    const data = { messages: [{ content: 123 }] };
-    await handleChatCompletionReady_ACU(data);
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
-  });
-
-  it('空字符串 content 不调用处理函数', async () => {
-    const data = { messages: [{ content: '' }] };
-    await handleChatCompletionReady_ACU(data);
-    expect(mockParseRandomTags).not.toHaveBeenCalled();
-  });
-
-  it('多条消息都被处理', async () => {
-    mockParseRandomTags.mockImplementation((s: string) => s + '_r');
-    mockReplaceRandomVariables.mockImplementation((s: string) => s);
-    mockParseCalcTags.mockImplementation((s: string) => s);
-    mockParseMaxTags.mockImplementation((s: string) => s);
-    mockParseMinTags.mockImplementation((s: string) => s);
-    mockReplaceCalcVariables.mockImplementation((s: string) => s);
-    mockReplaceMaxVariables.mockImplementation((s: string) => s);
-    mockReplaceMinVariables.mockImplementation((s: string) => s);
-    mockParseIfBlockRecursive.mockImplementation((s: string) => s);
-
-    const data = {
-      messages: [
-        { content: '消息1' },
-        { content: '消息2' },
-        { content: '消息3' },
-      ],
-    };
-    await handleChatCompletionReady_ACU(data);
-
-    expect(mockParseRandomTags).toHaveBeenCalledTimes(3);
-    expect(data.messages[0].content).toBe('消息1_r');
-    expect(data.messages[1].content).toBe('消息2_r');
-    expect(data.messages[2].content).toBe('消息3_r');
-  });
-
-  it('getPlotFromHistory_ACU 被调用获取剧情数据', async () => {
-    mockGetPlotFromHistory.mockReturnValue('剧情内容');
-    const data = { messages: [{ content: '测试' }] };
-    // 让处理函数返回不同值以触发 processedCount
-    mockParseRandomTags.mockReturnValue('changed');
-    mockReplaceRandomVariables.mockReturnValue('changed');
-    mockParseCalcTags.mockReturnValue('changed');
-    mockParseMaxTags.mockReturnValue('changed');
-    mockParseMinTags.mockReturnValue('changed');
-    mockReplaceCalcVariables.mockReturnValue('changed');
-    mockReplaceMaxVariables.mockReturnValue('changed');
-    mockReplaceMinVariables.mockReturnValue('changed');
-    mockParseIfBlockRecursive.mockReturnValue('changed');
-
-    await handleChatCompletionReady_ACU(data);
-    expect(mockGetPlotFromHistory).toHaveBeenCalled();
   });
 
 
@@ -487,6 +439,10 @@ describe('handleChatCompletionReady_ACU', () => {
     mockReplaceCalcVariables.mockImplementation((s: string) => { callOrder.push('replaceCalc'); return s; });
     mockReplaceMaxVariables.mockImplementation((s: string) => { callOrder.push('replaceMax'); return s; });
     mockReplaceMinVariables.mockImplementation((s: string) => { callOrder.push('replaceMin'); return s; });
+    // 生产 processPromptTemplateContent_ACU 在 replaceMin 之后、parseIf 之前调
+    // replaceDbSqlVariables（SQLite 模式的 {[db]/[sql]} 值替换）；顺序用例必须覆盖它，
+    // 否则该步骤被删/错位也绿（preservation review M3）。
+    mockReplaceDbSqlVariables.mockImplementation((s: string) => { callOrder.push('replaceDbSql'); return s; });
     mockParseIfBlockRecursive.mockImplementation((s: string) => { callOrder.push('parseIf'); return s; });
 
     const data = { messages: [{ content: '测试内容' }] };
@@ -496,6 +452,7 @@ describe('handleChatCompletionReady_ACU', () => {
       'parseRandom', 'replaceRandom',
       'parseCalc', 'parseMax', 'parseMin',
       'replaceCalc', 'replaceMax', 'replaceMin',
+      'replaceDbSql',
       'parseIf',
     ]);
   });

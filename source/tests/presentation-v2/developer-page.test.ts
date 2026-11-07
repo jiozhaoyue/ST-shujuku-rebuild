@@ -36,7 +36,7 @@ function createSettings() {
   } as any;
 }
 
-async function mountDeveloperPage(devOptions: Record<string, unknown> = {}) {
+async function mountDeveloperPage(extraDevOptions: Record<string, unknown> = {}) {
   vi.resetModules();
   document.body.innerHTML = '';
   document.head.innerHTML = '';
@@ -44,7 +44,7 @@ async function mountDeveloperPage(devOptions: Record<string, unknown> = {}) {
     STORAGE_KEY,
     JSON.stringify({
       router: { activePageId: 'developer' },
-      devOptions: { developerOptionsEnabled: true, ...devOptions },
+      devOptions: { developerOptionsEnabled: true, ...extraDevOptions },
     }),
   );
 
@@ -96,33 +96,77 @@ beforeEach(() => {
 });
 
 describe('DeveloperPage', () => {
-  it('渲染开发者开关和填表执行参数', async () => {
-    const { mount } = await mountDeveloperPage();
 
-    const page = document.querySelector('.acu-v2-developer-page');
+  it('已失效的「交火模式」开关不得再渲染：遗留 vectorIndexAdvanced=true 存量也不出现', async () => {
+    // 自「交火参数常显」后该开关无任何消费方（VectorIndexPage 根本不读它），
+    // 拨动只写存储、不改变任何渲染。剥离：遗留存量也不得再出现该开关。
+    const { mount } = await mountDeveloperPage({ vectorIndexAdvanced: true });
+
+    const page = document.querySelector('[data-ub-main]');
     expect(page).not.toBeNull();
-    const text = page!.textContent || '';
-    expect(text).toContain('开发者 gated 字段');
-    expect(text).toContain('填表执行参数');
-    expect(text).toContain('最大并发更新组数');
+    expect(page!.textContent || '', '失效的交火模式开关必须已剥离').not.toContain('交火模式');
+    // 结构级双保险：不只看文本，开关控件本身也不得存在（防文本巧合/空转）。
+    expect(
+      page!.querySelector('[role="switch"][aria-label="交火模式"]'),
+      'vectorIndexAdvanced 开关控件必须已剥离',
+    ).toBeNull();
 
     mount.__resetAcuV2MountForTests();
   });
 
-  it('最大并发更新组数输入会保存到 settings', async () => {
-    const { mount, settings, saveSettings } = await mountDeveloperPage();
+  it('填表的最大并发更新组数已移到填表工作台，开发者选项里不再有填表执行参数', async () => {
+    const { mount } = await mountDeveloperPage();
 
-    const panel = Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
-      .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('填表执行参数'))!;
-    const input = panel.querySelector<HTMLInputElement>('input[type="number"]')!;
-    input.value = '4';
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    await Promise.resolve();
-
-    expect(settings.maxConcurrentGroups).toBe(4);
-    expect(saveSettings).toHaveBeenCalled();
+    const page = document.querySelector('[data-ub-main]')!;
+    expect(page.querySelector('input[aria-label="最大并发更新组数"]')).toBeNull();
+    expect(page.textContent || '').not.toContain('填表执行参数');
 
     mount.__resetAcuV2MountForTests();
+  });
+
+  /**
+   * 「WARN 日志」开关。
+   *
+   * 它此前只有存储层与 log-buffer 的常驻来源，UI 上没有任何入口：
+   * 旧版本遗留的 `devOptions.warnLogEnabled=true` 会让用户"启动就看到 warn"，
+   * 却既看不到也关不掉。本组用例把"看得见 + 关得掉"钉住。
+   */
+  describe('WARN 日志开关（常驻采集来源）', () => {
+    function findWarnToggle(): HTMLElement | undefined {
+      return document.querySelector<HTMLElement>('[data-ub-main] [role="switch"][aria-label="WARN 日志"]') ?? undefined;
+    }
+
+    it('无遗留设置时开关可见且为关：warn 不入缓冲区（只有 error）', async () => {
+      const { mount } = await mountDeveloperPage();
+      const { isWarnLogEnabled } = await import('../../src/shared/log-buffer');
+
+      const toggle = findWarnToggle();
+      expect(toggle, '开发者页必须有 WARN 日志开关，否则遗留状态无从关闭').not.toBeUndefined();
+      expect(toggle!.getAttribute('aria-checked')).toBe('false');
+      expect(isWarnLogEnabled()).toBe(false);
+
+      mount.__resetAcuV2MountForTests();
+    });
+
+    it('遗留 devOptions.warnLogEnabled=true 时开关显示为开，点一下即可真正关掉采集并写回存储', async () => {
+      const { mount } = await mountDeveloperPage({ warnLogEnabled: true });
+      const { isWarnLogEnabled } = await import('../../src/shared/log-buffer');
+
+      const toggle = findWarnToggle();
+      expect(toggle).not.toBeUndefined();
+      expect(toggle!.getAttribute('aria-checked'), '持久化的开必须回显到 UI').toBe('true');
+      expect(isWarnLogEnabled()).toBe(true);
+
+      toggle!.click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(isWarnLogEnabled(), '关闭后 warn 必须停止采集').toBe(false);
+      expect(findWarnToggle()!.getAttribute('aria-checked')).toBe('false');
+      const persisted = JSON.parse(localStorage.getItem('acu_v2_ui_state') || '{}');
+      expect(persisted.devOptions.warnLogEnabled, '关闭必须落盘，否则下次启动又复活').toBe(false);
+
+      mount.__resetAcuV2MountForTests();
+    });
   });
 });
 

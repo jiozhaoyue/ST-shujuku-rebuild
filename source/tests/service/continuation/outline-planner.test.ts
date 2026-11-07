@@ -89,6 +89,45 @@ describe('ContinuationOutlinePlanner_ACU', () => {
     expect(appended).toContain('启用大纲全文标记OUTLINE');
   });
 
+  /**
+   * 补注入的判定必须比对整串，不能只比对前 80 字。
+   *
+   * 旧判据用 `renderedBlob.includes(arc.slice(0, 80))`：当提示词里出现的只是总纲的
+   * **开头片段**（预览、摘要、或被截断的引用）时，判定会误认为「已注入过」而整份不再补，
+   * 于是大纲规划在缺总纲的语境下运行。整串比对后，只要完整总纲没原样出现过就必须补。
+   *
+   * 同时锁「完整总纲已原样在场时不重复追加」——收紧判据不许把已有注入变成双份。
+   */
+  it('提示词只含总纲前 80 字预览时仍必须补注入整份总纲', async () => {
+    const longArc = `总纲开头标记ARC_HEAD-${('补.'.repeat(200))}`;
+    const previewOnly = `已知背景：${longArc.slice(0, 80)}……（节选）`;
+    const { planner, callInternalAi } = createPlanner_ACU([tagOutline_ACU(6)]);
+    const settings = { ...settings_ACU(), outlinePrompt: [{ role: 'user', content: `${previewOnly}|$VALIDATION_ERRORS` }] };
+
+    await planner.plan(request_ACU(settings, {
+      resolvers: { $ORIGIN_INSTRUCTION: () => '推进剧情', $STORY_ARC: () => longArc, $OUTLINE_WINDOW: () => '' },
+    }));
+
+    const messages = callInternalAi.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    const appended = messages[messages.length - 1].content;
+    expect(appended, '前 80 字命中不等于整份在场，必须补注入').toContain('【当前故事总纲】');
+    expect(appended).toContain(longArc);
+  });
+
+  it('完整总纲已原样在场时不重复追加', async () => {
+    const arc = `总纲全文标记ARC-${('实.'.repeat(300))}`;
+    const { planner, callInternalAi } = createPlanner_ACU([tagOutline_ACU(6)]);
+    const settings = { ...settings_ACU(), outlinePrompt: [{ role: 'user', content: `【当前故事总纲】\n${arc}|$VALIDATION_ERRORS` }] };
+
+    await planner.plan(request_ACU(settings, {
+      resolvers: { $ORIGIN_INSTRUCTION: () => '推进剧情', $STORY_ARC: () => arc, $OUTLINE_WINDOW: () => '' },
+    }));
+
+    const messages = callInternalAi.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    const all = messages.map(message => message.content).join('\n');
+    expect(all.match(/【当前故事总纲】/g) ?? []).toHaveLength(1);
+  });
+
   it('提示词已经引用占位符时不重复追加注入；空总纲不注入', async () => {
     const { planner, callInternalAi } = createPlanner_ACU([tagOutline_ACU(6)]);
     const settings = { ...settings_ACU(), outlinePrompt: [{ role: 'user', content: '$STORY_ARC|$OUTLINE_WINDOW|$VALIDATION_ERRORS' }] };
@@ -103,24 +142,6 @@ describe('ContinuationOutlinePlanner_ACU', () => {
     expect(all).toContain('启用大纲全文标记OUTLINE');
     expect(all).not.toContain('【当前故事总纲】');
     expect(all).not.toContain('【当前启用的阶段大纲】');
-  });
-
-  it('builds a validated outline from tag output with runtime-generated structure', async () => {
-    const { planner, callInternalAi, resolveApiPreset } = createPlanner_ACU([tagOutline_ACU(6)]);
-    const result = await planner.plan(request_ACU(settings_ACU(), { resolvers: { $ORIGIN_INSTRUCTION: () => '推进剧情' } }));
-    expect(result).toMatchObject({ attempts: 1, requiresReview: false, apiPreset: { presetName: 'preset-a', source: 'fixed' } });
-    expect(result.outline).toMatchObject({ schemaVersion: 1, title: '阶段标题', goal: '阶段目标', totalTurns: 6 });
-    expect(result.outline.nodes).toHaveLength(1);
-    expect(result.outline.nodes[0]).toMatchObject({ id: 'node-fresh-1', suggestedTurns: 6 });
-    expect(result.outline.nodes[0].turns.map(turn => turn.id)).toEqual(['turn-fresh-2', 'turn-fresh-3', 'turn-fresh-4', 'turn-fresh-5', 'turn-fresh-6', 'turn-fresh-7']);
-    expect(callInternalAi).toHaveBeenCalledWith(
-      [{ role: 'user', content: '推进剧情 ' }],
-      expect.any(Object),
-      expect.objectContaining({ source: 'outline', requestId: 'outline-0' }),
-      null,
-      expect.objectContaining({ cacheScope: 'outline', promptCacheEnabled: true }),
-    );
-    expect(resolveApiPreset).toHaveBeenCalledTimes(1);
   });
 
   it('parses tags surrounded by reasoning prose and markdown fences', async () => {

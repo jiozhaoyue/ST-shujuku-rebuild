@@ -205,8 +205,17 @@ function hasSamePlanScope_ACU(left: RecoveryPlan_ACU, right: RecoveryPlan_ACU): 
 }
 
 function createPlan_ACU(plan: Omit<RecoveryPlan_ACU, 'planId'>): V2RecoverySummary_ACU {
+  const next = plan as RecoveryPlan_ACU;
   for (const [existingPlanId, existingPlan] of plans_ACU) {
-    if (hasSamePlanScope_ACU(existingPlan, plan as RecoveryPlan_ACU)) plans_ACU.delete(existingPlanId);
+    // 同 scope 旧计划：直接替换（原有语义）。
+    // 跨 scope（chat 引用或 chatKey 与当前不符）的旧计划：无条件淘汰。被放弃的诊断计划
+    // 持有整个 chat 数组的强引用与 candidateData 全量克隆，跨聊天来回诊断会累积占用内存
+    // 且永不清理（计划本就要求同 scope 才能提交，跨聊天保留无用途）。G04-05。
+    if (hasSamePlanScope_ACU(existingPlan, next)
+      || existingPlan.chat !== next.chat
+      || existingPlan.chatKey !== next.chatKey) {
+      plans_ACU.delete(existingPlanId);
+    }
   }
   const planId = buildPlanId_ACU();
   plans_ACU.set(planId, { ...plan, planId });
@@ -260,6 +269,33 @@ function planAffectedFramesUnchanged_ACU(plan: RecoveryPlan_ACU): string | null 
   }
   return null;
 }
+/** 恢复候选只改写这些消息的当前隔离槽；提交时据此只回写这些槽，不触碰聊天其余部分。 */
+function getRecoveryTargetMessageIndices_ACU(plan: RecoveryPlan_ACU): number[] {
+  return plan.kind === 'redundant_full_checkpoint_convergence'
+    ? (plan.redundantFullIndices || []).map(Number)
+    : [plan.sourceMessageIndex as number];
+}
+
+/**
+ * 把候选中目标消息的当前隔离槽写回 live 消息（保留消息对象、正文与其他隔离槽）。
+ * 返回逐字段回滚函数：宿主保存失败时只恢复被改写的字段。
+ */
+function applyRecoveredTagDataToLiveChat_ACU(plan: RecoveryPlan_ACU, candidateChat: any[]): () => void {
+  const previous = getRecoveryTargetMessageIndices_ACU(plan).map(messageIndex => {
+    const message = plan.chat[messageIndex];
+    const candidateTagData = readIsolatedTagData_ACU(candidateChat[messageIndex], plan.isolationKey);
+    if (!message || !candidateTagData) throw new Error(`恢复目标消息缺失：messageIndex=${messageIndex}。`);
+    const hadField = Object.prototype.hasOwnProperty.call(message, 'TavernDB_ACU_IsolatedData');
+    const field = message.TavernDB_ACU_IsolatedData;
+    return { message, hadField, field, nextField: { ...cloneIsolatedData_ACU(message), [plan.isolationKey]: candidateTagData } };
+  });
+  previous.forEach(item => { item.message.TavernDB_ACU_IsolatedData = item.nextField; });
+  return () => previous.forEach(item => {
+    if (item.hadField) item.message.TavernDB_ACU_IsolatedData = item.field;
+    else delete item.message.TavernDB_ACU_IsolatedData;
+  });
+}
+
 function buildRecoveredCandidateChat_ACU(plan: RecoveryPlan_ACU): any[] {
   const sourceMessageIndex = plan.sourceMessageIndex;
   if (!Number.isInteger(sourceMessageIndex)) throw new Error('恢复计划缺少 sourceMessageIndex。');
@@ -282,6 +318,8 @@ function buildRecoveredCandidateChat_ACU(plan: RecoveryPlan_ACU): any[] {
       // data_replace 是完整替换语义，必须排在原日志之后且 seq 大于所有原日志，
       // 否则会被回放当成“替换基底之前的普通日志”而重新应用，破坏替换语义。
       const fallbackSeq = originalEntries.reduce((max, entry) => Math.max(max, entry.seq || 0), 0) + 1;
+      // 导入声明的覆盖楼层必须随降级一起保留（对齐 chat-service 轮转降级与 downgrade 工具，上游 issue #18 第五条）。
+      const declaredRestoreFloor = Number((originalCheckpoint as any)?.restoreUpToAiFloor);
       const fallbackEntry = {
         seq: fallbackSeq,
         entryId: `redundant-full-fallback-${messageIndex}`,
@@ -289,6 +327,7 @@ function buildRecoveredCandidateChat_ACU(plan: RecoveryPlan_ACU): any[] {
         source: 'system' as const,
         targetMessageIndex: messageIndex,
         aiFloor: countAiFloorInChat_ACU(plan.chat, messageIndex),
+        ...(Number.isInteger(declaredRestoreFloor) && declaredRestoreFloor > 0 ? { restoreUpToAiFloor: declaredRestoreFloor } : {}),
         filledSheetKeys: originalCheckpoint?.event?.filledSheetKeys ?? [],
         changedSheetKeys: originalCheckpoint?.event?.changedSheetKeys ?? [],
         groupKeys: originalCheckpoint?.event?.groupKeys ?? [],
@@ -725,12 +764,12 @@ export async function commitPreparedV2Recovery_ACU(
           return failure(affectedChanged);
         }
 
-        const beforeChat = clone_ACU(plan.chat);
-        plan.chat.splice(0, plan.chat.length, ...candidateChat);
+        // 候选克隆于锁外；等锁期间宿主可能追加或编辑消息，只回写目标隔离槽，绝不整体替换聊天。
+        const rollback = applyRecoveredTagDataToLiveChat_ACU(plan, candidateChat);
         try {
           await saveChatToHostStrict_ACU();
         } catch (error) {
-          plan.chat.splice(0, plan.chat.length, ...beforeChat);
+          rollback();
           return failure(`宿主保存失败，已恢复内存聊天：${getErrorMessage_ACU(error)}`);
         }
 

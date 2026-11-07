@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
@@ -23,6 +24,61 @@ vi.mock('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surfac
   requestVisualizerExternalRefresh_ACU: h.refreshVisualizer,
   isVisualizerSurfaceActive_ACU: h.isVisualizerActive,
 }));
+
+describe('applySavedThemeToHostSurfaces_ACU', () => {
+  it('启动时把已保存的主题写进主题样式节点，宿主浮层不必等面板打开', async () => {
+    localStorage.setItem('acu_v2_ui_state', JSON.stringify({ theme: { activeId: 'creamy-minimal' } }));
+    const { applySavedThemeToHostSurfaces_ACU } = await import('../../../src/presentation-v2/bootstrap');
+    applySavedThemeToHostSurfaces_ACU();
+    const css = document.getElementById('acu-v2-theme')?.textContent || '';
+    expect(css).toContain('.acu-host-surface');
+    expect(css).toContain('color-scheme: light;');
+    expect(document.getElementById('acu-v2-host-claude-skin')).toBeNull();
+    localStorage.clear();
+  });
+
+  it('保存的是 Claude 风格：启动时宿主浮层就用 Claude 配色与 Claude 弹窗外观', async () => {
+    localStorage.setItem('acu_v2_ui_state', JSON.stringify({
+      theme: { activeId: 'jirai-kei' },
+      appearance: { uiStyle: 'claude', claudeColorMode: 'dark' },
+    }));
+    const { applySavedThemeToHostSurfaces_ACU } = await import('../../../src/presentation-v2/bootstrap');
+    applySavedThemeToHostSurfaces_ACU();
+    const css = document.getElementById('acu-v2-theme')?.textContent || '';
+    expect(css.toLowerCase()).toContain('--acu-accent: #d97757');
+    expect(css).toContain('color-scheme: dark;');
+    expect(document.getElementById('acu-v2-host-claude-skin')?.textContent).toContain('rgba(0, 0, 0, 0.55)');
+    localStorage.clear();
+  });
+});
+
+describe('applySavedThemeToHostSurfaces_ACU 跟随系统', () => {
+  it('Claude 风格跟随系统：面板还没打开过，系统切深色时宿主浮层也跟着切', async () => {
+    let dark = false;
+    const listeners: Array<(e: { matches: boolean }) => void> = [];
+    (window as any).matchMedia = vi.fn(() => ({
+      get matches() { return dark; },
+      addEventListener: (_: string, cb: (e: { matches: boolean }) => void) => listeners.push(cb),
+      removeEventListener() {},
+    }));
+    localStorage.setItem('acu_v2_ui_state', JSON.stringify({ appearance: { uiStyle: 'claude', claudeColorMode: 'system' } }));
+    vi.resetModules();
+    const { applySavedThemeToHostSurfaces_ACU } = await import('../../../src/presentation-v2/bootstrap');
+    applySavedThemeToHostSurfaces_ACU();
+    expect(document.getElementById('acu-v2-theme')?.textContent).toContain('color-scheme: light;');
+
+    dark = true;
+    listeners.forEach(cb => cb({ matches: true }));
+    expect(document.getElementById('acu-v2-theme')?.textContent).toContain('color-scheme: dark;');
+    expect(document.getElementById('acu-v2-host-claude-skin')?.textContent).toContain('rgba(0, 0, 0, 0.55)');
+
+    // 重复调用不重复挂监听
+    applySavedThemeToHostSurfaces_ACU();
+    expect(listeners).toHaveLength(1);
+    delete (window as any).matchMedia;
+    localStorage.clear();
+  });
+});
 
 describe('bootstrapAcuV2', () => {
   beforeEach(() => {

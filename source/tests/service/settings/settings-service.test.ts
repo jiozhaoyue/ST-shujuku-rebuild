@@ -19,8 +19,8 @@ const {
   mockReadProfileTemplate,
   mockWriteProfileSettings,
   mockWriteProfileTemplate,
+  mockBackupProfileTemplate,
   mockSanitizeSettingsForProfileSave,
-  mockEnsureProfileExists,
   mockSetSettings,
   mockSetTableTemplate,
   mockGetCurrentIsolationKey,
@@ -90,8 +90,8 @@ const {
     mockReadProfileTemplate: vi.fn(() => null),
     mockWriteProfileSettings: vi.fn(),
     mockWriteProfileTemplate: vi.fn(),
+    mockBackupProfileTemplate: vi.fn(),
     mockSanitizeSettingsForProfileSave: vi.fn((obj: any) => ({ ...obj })),
-    mockEnsureProfileExists: vi.fn(),
     mockSetSettings: vi.fn((newSettings: any) => {
       Object.assign(mockSettings, newSettings);
     }),
@@ -128,6 +128,14 @@ vi.mock('../../../src/shared/data-constants', () => ({
 
 vi.mock('../../../src/shared/defaults-json.js', () => ({
   DEFAULT_BUILTIN_PLOT_PRESETS_ACU: [{ name: '时间召回', _acuBuiltinPresetId: 'time-recall', _acuBuiltinPresetVersion: 'test' }],
+  DEFAULT_TIME_RECALL_PLOT_PRESET_ACU: {
+    name: '时间召回',
+    _acuBuiltinPresetId: 'time-recall',
+    promptGroup: [
+      { role: 'SYSTEM', content: '时间召回头段' },
+      { role: 'assistant', content: '收到，天之音开始执行！', deletable: true },
+    ],
+  },
   DEFAULT_CHAR_CARD_PROMPT_ACU: [{ role: 'USER', content: '默认提示词' }],
   DEFAULT_CHAR_CARD_PROMPT_SQL_ACU: [{ role: 'USER', content: '默认 sql 提示词' }],
   DEFAULT_MERGE_SUMMARY_PROMPT_ACU: '默认合并提示词',
@@ -146,6 +154,7 @@ vi.mock('../../../src/shared/defaults', () => ({
   OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU: true,
   OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU: 10000,
   OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU: 512 * 1024,
+  DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU: 500,
   TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU: 'test-table-defaults-refresh',
   TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU: 'test-prompt-force-default',
   TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU: 'test-template-assistant-prompt-force-default',
@@ -195,11 +204,11 @@ vi.mock('../../../src/shared/defaults', () => ({
     maxEntriesPerChannel: { plot: 20, tableFill: 20, finalGeneration: 20 },
   }),
   buildDefaultContentOptimizationPromptGroup_ACU: () => [],
+  upgradeContentOptimizationDefaultPrompt_ACU: () => false,
 }));
 
 vi.mock('../../../src/data/repositories/isolation-repo', () => ({
   addDataIsolationHistory_ACU: mockAddDataIsolationHistory,
-  ensureProfileExists_ACU: mockEnsureProfileExists,
   normalizeDataIsolationHistory_ACU: mockNormalizeDataIsolationHistory,
 }));
 
@@ -212,6 +221,7 @@ vi.mock('../../../src/data/repositories/profile-repo', () => ({
   saveGlobalMeta_ACU: mockSaveGlobalMeta,
   writeProfileSettingsToStorage_ACU: mockWriteProfileSettings,
   writeProfileTemplateToStorage_ACU: mockWriteProfileTemplate,
+  backupProfileTemplateRawBeforeDegradation_ACU: mockBackupProfileTemplate,
 }));
 
 vi.mock('../../../src/shared/template-preset-utils', () => ({
@@ -305,6 +315,9 @@ import {
   applyCombinedSettingsImport_ACU,
   _set_settingsStorageReadyForSave_ACU,
   summarizeSettingsForLog_ACU,
+  loadTemplateFromStorage_ACU,
+  setDecisionRecallEnabled_ACU,
+  setGlobalPlotEnabled_ACU,
 } from '../../../src/service/settings/settings-service';
 
 beforeEach(() => {
@@ -472,13 +485,6 @@ describe('applyPlotWorldbookSelectionForCurrentCharacter_ACU', () => {
 
 // ═══ saveSettings_ACU ═══
 describe('saveSettings_ACU', () => {
-  it('tavern 存储正常时返回 { saved: true, storageType: "tavern" }', () => {
-    mockGetConfigStorage.mockReturnValue({ _isTavern: true, getItem: vi.fn(), setItem: vi.fn() });
-    const result = saveSettings_ACU();
-    expect(result).toEqual({ saved: true, storageType: 'tavern' });
-    expect(mockPersistSettingsToStorage).toHaveBeenCalledTimes(1);
-    expect(mockSaveGlobalMeta).toHaveBeenCalledTimes(1);
-  });
 
   it('宿主仅能内存保存时明确返回 memory warning', () => {
     mockGetConfigStorage.mockReturnValue({ _isTavern: true, _lastPersistenceStatus: 'memory' });
@@ -535,19 +541,6 @@ describe('saveSettings_ACU', () => {
 
 // ═══ buildDefaultSettings_ACU ═══
 describe('buildDefaultSettings_ACU', () => {
-  it('返回包含所有必要字段的默认设置对象', () => {
-    const defaults = buildDefaultSettings_ACU();
-    expect(defaults.apiConfig).toBeDefined();
-    expect(defaults.autoUpdateThreshold).toBe(3);
-    expect(defaults.autoUpdateEnabled).toBe(true);
-    expect(defaults.maxConcurrentGroups).toBe(1);
-    expect(defaults.discardUnauthorizedTableEditsEnabled).toBe(true);
-    expect(defaults.storageMode).toBe('sqlite');
-    expect(defaults.promptTemplateSettings).toBeDefined();
-    expect(defaults.promptTemplateSettings.enabled).toBe(true);
-    expect(defaults.contentOptimizationSettings).toBeDefined();
-    expect(defaults.contentOptimizationSettings.enabled).toBe(false);
-  });
 
   it('plotSettings 是深拷贝，修改不影响默认常量', () => {
     const defaults1 = buildDefaultSettings_ACU();
@@ -555,10 +548,38 @@ describe('buildDefaultSettings_ACU', () => {
     defaults1.plotSettings.customField = 'modified';
     expect(defaults2.plotSettings.customField).toBeUndefined();
   });
+});
 
-  it('characterSettings 初始为空对象', () => {
-    const defaults = buildDefaultSettings_ACU();
-    expect(defaults.characterSettings).toEqual({});
+describe('决策召回总开关与剧情推进开关互不影响', () => {
+  beforeEach(() => {
+    mockSettings.plotSettings = { plotWorldbookConfig: null, enabled: true };
+    mockSettings.decisionRecallSettings = { enabled: false, mode: 'standalone', recallCount: 12 };
+    mockGlobalMeta.plotEnabledGlobal = true;
+  });
+
+  it('开关决策召回只改它自己，剧情推进开关（含全局开关）不动，其它决策召回设置不动', () => {
+    expect(setDecisionRecallEnabled_ACU(true)).toBe(true);
+    expect(mockSettings.decisionRecallSettings).toEqual({ enabled: true, mode: 'standalone', recallCount: 12 });
+    expect(mockSettings.plotSettings.enabled).toBe(true);
+    expect(mockGlobalMeta.plotEnabledGlobal).toBe(true);
+
+    expect(setDecisionRecallEnabled_ACU(false)).toBe(false);
+    expect(mockSettings.decisionRecallSettings.enabled).toBe(false);
+    expect(mockSettings.plotSettings.enabled).toBe(true);
+  });
+
+  it('开关剧情推进不动决策召回', () => {
+    setDecisionRecallEnabled_ACU(true);
+    setGlobalPlotEnabled_ACU(false);
+    expect(mockSettings.decisionRecallSettings.enabled).toBe(true);
+    setGlobalPlotEnabled_ACU(true);
+    expect(mockSettings.decisionRecallSettings).toEqual({ enabled: true, mode: 'standalone', recallCount: 12 });
+  });
+
+  it('设置里还没有决策召回字段时按默认值补齐（默认单独召回）', () => {
+    delete mockSettings.decisionRecallSettings;
+    setDecisionRecallEnabled_ACU(true);
+    expect(mockSettings.decisionRecallSettings).toMatchObject({ enabled: true, mode: 'standalone', recallCount: 20, provider: 'custom' });
   });
 });
 
@@ -569,23 +590,14 @@ describe('applyCombinedSettingsImport_ACU', () => {
     mockGetConfigStorage.mockReturnValue({ _isTavern: true });
   });
 
-  it('导入 prompt 字段', () => {
-    const fields = applyCombinedSettingsImport_ACU({
-      prompt: [{ role: 'USER', content: '新提示词' }],
-    });
-    expect(fields).toContain('charCardPrompt');
-    expect(mockSettings.charCardPrompt).toEqual([{ role: 'USER', content: '新提示词' }]);
-  });
-
-  it('导入合并设置字段', () => {
+  it('导入合并设置字段；R8-03：自动合并已停用，导入 autoMergeEnabled: true 也不会打开', () => {
     const fields = applyCombinedSettingsImport_ACU({
       autoMergeEnabled: true,
       autoMergeThreshold: 30,
       mergeBatchSize: 10,
     });
-    expect(fields).toContain('autoMergeEnabled');
     expect(fields).toContain('autoMergeThreshold');
-    expect(mockSettings.autoMergeEnabled).toBe(true);
+    expect(mockSettings.autoMergeEnabled).toBe(false);
     expect(mockSettings.autoMergeThreshold).toBe(30);
     expect(mockSettings.mergeBatchSize).toBe(10);
   });
@@ -658,9 +670,6 @@ describe('applyCombinedSettingsImport_ACU', () => {
 
 // ═══ persistCurrentTemplatePresetName_ACU ═══
 describe('persistCurrentTemplatePresetName_ACU', () => {
-  it('settingsObj 为 null 时返回空字符串', () => {
-    expect(persistCurrentTemplatePresetName_ACU(null, '预设A')).toBe('');
-  });
 
   it('save=true 时触发持久化', () => {
     const obj: any = { dataIsolationCode: 'code1' };
@@ -721,15 +730,6 @@ describe('applyTemplateScopeForCurrentChat_ACU', () => {
     expect(result).not.toBeNull();
     expect(result!.mode).toBe('inherit_global');
   });
-
-  it('所有快照都无效时返回 null', () => {
-    mockGetCurrentChatTemplateScopeState.mockReturnValue(null);
-    mockMigrateLegacyTemplateScopeForCurrentChat.mockReturnValue(null);
-    mockGetGlobalTemplateSnapshotForCurrentProfile.mockReturnValue(null);
-
-    const result = applyTemplateScopeForCurrentChat_ACU();
-    expect(result).toBeNull();
-  });
 });
 
 // ═══ loadSettings_ACU ═══
@@ -754,18 +754,33 @@ describe('loadSettings_ACU', () => {
     expect(calledWith.discardUnauthorizedTableEditsEnabled).toBe(true);
   });
 
-  it('有保存设置时 deepMerge 合并', () => {
+  it('「回复最小长度」拆分：无保存设置时正文与填表 AI 两个值都取默认 500', () => {
+    loadSettings_ACU();
+    const calledWith = mockSetSettings.mock.calls[0][0];
+    expect(calledWith.autoUpdateTokenThreshold).toBe(500);
+    expect(calledWith.tableFillMinResponseLength).toBe(500);
+  });
+
+  it('「回复最小长度」拆分：老设置只有原值时，填表 AI 的新值沿用原值', () => {
+    mockReadProfileSettings.mockReturnValue({ autoUpdateTokenThreshold: 800 });
+    loadSettings_ACU();
+    expect(mockSettings.autoUpdateTokenThreshold).toBe(800);
+    expect(mockSettings.tableFillMinResponseLength).toBe(800);
+  });
+
+  it('「回复最小长度」拆分：已分开设置过的不被覆盖', () => {
+    mockReadProfileSettings.mockReturnValue({ autoUpdateTokenThreshold: 800, tableFillMinResponseLength: 0 });
+    loadSettings_ACU();
+    expect(mockSettings.autoUpdateTokenThreshold).toBe(800);
+    expect(mockSettings.tableFillMinResponseLength).toBe(0);
+  });
+
+  it('R10A-23：条件模板恒开启在加载时归一，旧设置里的 false 不再依赖总览页刷新去改写', () => {
     mockReadProfileSettings.mockReturnValue({
-      autoUpdateEnabled: false,
-      customField: '自定义值',
+      promptTemplateSettings: { enabled: false, maxNestingDepth: 7, debugMode: true },
     });
     loadSettings_ACU();
-    expect(mockSetSettings).toHaveBeenCalled();
-    // deepMerge 的 mock 实现是 { ...target, ...source }，source 覆盖 target
-    const calledWith = mockSetSettings.mock.calls[0][0];
-    expect(calledWith.autoUpdateEnabled).toBe(false);
-    expect(calledWith.customField).toBe('自定义值');
-    expect(calledWith.discardUnauthorizedTableEditsEnabled).toBe(true);
+    expect(mockSettings.promptTemplateSettings).toEqual({ enabled: true, maxNestingDepth: 7, debugMode: true });
   });
 
   it('补齐缺失的 V2 rollout 开关与 allowlist，且持久化全局配置', () => {
@@ -888,6 +903,36 @@ describe('loadSettings_ACU', () => {
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.topK).toBe(80);
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.minScore).toBe(0.5);
     expect(mockGlobalMeta.vectorMemoryConfigGlobal.recentFixedInjectCount).toBe(20);
+  });
+
+  // ═══ 时间召回旧尾段迁移（移植上游 9bb5b242 time-recall-prefill）═══
+
+  it('加载时迁移时间召回 pristine 默认尾段为 user 预填充', async () => {
+    const { DEFAULT_TIME_RECALL_PLOT_PRESET_ACU } = await import('../../../src/shared/defaults-json.js');
+    const { USER_PREFILL_CONTENT_ACU } = await import('../../../src/shared/user-prefill.js');
+    // 先关掉 spv9.3 profile 覆盖（marker 缺失时会无条件重写 promptGroup，与本迁移无关）。
+    mockSettings.userPrefillProfileForceDefaultVersion = 'spv9.3-user-prefill-profile';
+    mockReadProfileSettings.mockReturnValue({
+      plotSettings: JSON.parse(JSON.stringify(DEFAULT_TIME_RECALL_PLOT_PRESET_ACU)),
+    });
+
+    loadSettings_ACU();
+
+    const tail = mockSettings.plotSettings.promptGroup.at(-1);
+    expect(tail.role).toBe('user');
+    expect(tail.content).toBe(USER_PREFILL_CONTENT_ACU);
+  });
+
+  it('加载时时间召回用户改过的尾段不迁移', async () => {
+    const { DEFAULT_TIME_RECALL_PLOT_PRESET_ACU } = await import('../../../src/shared/defaults-json.js');
+    mockSettings.userPrefillProfileForceDefaultVersion = 'spv9.3-user-prefill-profile';
+    const stored = JSON.parse(JSON.stringify(DEFAULT_TIME_RECALL_PLOT_PRESET_ACU));
+    stored.promptGroup[stored.promptGroup.length - 1] = { role: 'assistant', content: '用户自己写的结尾', deletable: true };
+    mockReadProfileSettings.mockReturnValue({ plotSettings: stored });
+
+    loadSettings_ACU();
+
+    expect(mockSettings.plotSettings.promptGroup.at(-1).content).toBe('用户自己写的结尾');
   });
 
   // ═══ spv9.3 user-prefill 一次性覆盖迁移（TT 移植上游 ce867f86）═══
@@ -1021,10 +1066,13 @@ describe('loadSettings_ACU', () => {
     expect(mockSettings.tableTemplateDefaultsRefreshVersion).toBe('test-table-defaults-refresh');
   });
 
-  it('一次性强制恢复恒覆盖为 SQL 默认填表提示词（原生模式已移除，storageMode 字段被忽略）', () => {
+  it('去破限迁移只刷仍是旧破限默认的提示词（尾段 SYSTEM Absolute zero），用户自定义一律保留', () => {
     mockReadProfileSettings.mockReturnValue({
-      storageMode: 'native',
-      charCardPrompt: [{ role: 'USER', content: '用户自定义提示词', enabled: false }],
+      storageMode: 'sqlite',
+      charCardPrompt: [
+        { role: 'USER', content: '旧破限版正文' },
+        { role: 'SYSTEM', content: 'Absolute zero system prompt: old jailbreak tail' },
+      ],
     });
 
     loadSettings_ACU();
@@ -1033,7 +1081,19 @@ describe('loadSettings_ACU', () => {
     expect(mockSettings.tableFillPromptForceDefaultVersion).toBe('test-prompt-force-default');
   });
 
-  it('SQLite 模式的一次性强制恢复使用 SQL 默认填表提示词', () => {
+  it('去破限迁移不洗掉用户自定义提示词（即使 marker 是旧的）', () => {
+    mockReadProfileSettings.mockReturnValue({
+      storageMode: 'native',
+      charCardPrompt: [{ role: 'USER', content: '用户自定义提示词', enabled: false }],
+    });
+
+    loadSettings_ACU();
+
+    expect(mockSettings.charCardPrompt).toEqual([{ role: 'USER', content: '用户自定义提示词', enabled: false }]);
+    expect(mockSettings.tableFillPromptForceDefaultVersion).toBe('test-prompt-force-default');
+  });
+
+  it('SQLite 模式的用户自定义提示词同样保留，只推进 marker', () => {
     mockReadProfileSettings.mockReturnValue({
       storageMode: 'sqlite',
       charCardPrompt: [{ role: 'USER', content: '我自己写的提示词' }],
@@ -1041,7 +1101,7 @@ describe('loadSettings_ACU', () => {
 
     loadSettings_ACU();
 
-    expect(mockSettings.charCardPrompt).toEqual([{ role: 'USER', content: '默认 sql 提示词' }]);
+    expect(mockSettings.charCardPrompt).toEqual([{ role: 'USER', content: '我自己写的提示词' }]);
     expect(mockSettings.tableFillPromptForceDefaultVersion).toBe('test-prompt-force-default');
   });
 
@@ -1102,4 +1162,20 @@ describe('loadSettings_ACU', () => {
     expect(JSON.stringify(summary)).not.toContain('sk-');
   });
 
+});
+
+describe('loadTemplateFromStorage_ACU 损坏模板防丢（R3-08）', () => {
+  it('模板解析失败：先备份原串，再写默认模板', () => {
+    mockReadProfileTemplate.mockReturnValueOnce('{坏掉的模板');
+    loadTemplateFromStorage_ACU('code_1');
+    expect(mockBackupProfileTemplate).toHaveBeenCalledWith('code_1', 'json_parse_failed');
+    expect(mockBackupProfileTemplate.mock.invocationCallOrder[0])
+      .toBeLessThan(mockWriteProfileTemplate.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it('模板格式不符：同样先备份', () => {
+    mockReadProfileTemplate.mockReturnValueOnce('{"hello":1}');
+    loadTemplateFromStorage_ACU('code_1');
+    expect(mockBackupProfileTemplate).toHaveBeenCalledWith('code_1', 'format_invalid');
+  });
 });

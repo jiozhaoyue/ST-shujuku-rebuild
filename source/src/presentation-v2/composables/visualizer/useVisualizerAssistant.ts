@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type ComputedRef } from 'vue';
 import { applySheetOrderNumbers_ACU, logWarn_ACU } from '../../../shared/utils';
 import { settings_ACU } from '../../../service/runtime/state-manager';
 import {
@@ -7,6 +7,7 @@ import {
   createTemplateAssistantSessionGuard_ACU,
   hasTemplateAssistantApplicableDraft_ACU,
   getTemplateAssistantApplyBaselineFingerprint_ACU,
+  migrateLegacyV2ProtocolSegments_ACU,
   runTemplateAssistantSession_ACU,
   setTemplateAssistantPrompt_ACU,
   TemplateAssistantSessionStoppedError_ACU,
@@ -22,6 +23,8 @@ import {
   recordVisualizerRowInsert_ACU,
 } from '../../../service/visualizer/visualizer-data-ops';
 import { useToastStore } from '../../stores/toast-store';
+import { downloadJsonToHost_ACU } from '../../bootstrap/host-download';
+import { persistedSheetNameForOverrides_ACU } from './table-api-preset-rename';
 import {
   useVisualizerStore,
   type VisualizerAssistantTurnState,
@@ -51,6 +54,11 @@ export interface VisualizerAssistantRiskItem {
 }
 
 let guardController = createTemplateAssistantSessionGuard_ACU();
+/**
+ * R10A-16：当前有效会话的编号。切表/重载会作废在飞会话（编号前进），
+ * 被作废的旧会话结束时不得再改写共享状态（运行标志、错误信息、会话记录）。
+ */
+let activeAssistantRunId = 0;
 
 function cloneData<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
@@ -74,7 +82,14 @@ function joinChanges(changes: unknown): string {
 
 function resolveEffectiveTableApiPreset(visualizer = useVisualizerStore()): string {
   const currentSheet = visualizer.currentSheet;
-  const currentTableName = String(currentSheet?.name || '').trim();
+  // G09-04：与结构页面板（R10A-14 修复后）同一口径——表级覆盖按「已保存表名」查，
+  // 草稿改名未提交的窗口内，助手与面板命中同一份覆盖，不再按草稿名查空后静默回落到整体配置。
+  // 新建未保存的表（templateBaseData 里没有）才回退草稿名。
+  const currentTableName = persistedSheetNameForOverrides_ACU(
+    visualizer.templateBaseData,
+    visualizer.currentSheetKey,
+    currentSheet?.name,
+  );
   const overrides = settings_ACU.tableApiPresetOverridesByName;
   if (
     currentTableName
@@ -298,6 +313,80 @@ function rowIdOf(row: unknown): string {
   return Array.isArray(row) ? String(row[0] ?? '').trim() : '';
 }
 
+type AssistantCandidateRowOp =
+  | { kind: 'insert'; rowId: string }
+  | { kind: 'delete'; rowId: string }
+  | { kind: 'update'; rowId: string; columnName: string; value: unknown };
+
+function headerNamesOf(sheet: any): string[] {
+  const headers = Array.isArray(sheet?.content?.[0]) ? sheet.content[0] : [];
+  return headers.map((header: unknown) => String(header ?? '').trim());
+}
+
+/**
+ * 草稿与编辑器当前内容的行级差异。R10A-05：按列名对比（原先按位置，列删除/重排后会记出一批错位的伪更新）；
+ * 新增列在旧行里视为空值。
+ */
+function diffAssistantCandidateRows(previousSheet: any, candidateSheet: any): AssistantCandidateRowOp[] {
+  const ops: AssistantCandidateRowOp[] = [];
+  const previousRows = Array.isArray(previousSheet?.content) ? previousSheet.content.slice(1) : [];
+  const candidateRows = Array.isArray(candidateSheet?.content) ? candidateSheet.content.slice(1) : [];
+  const previousById = new Map<string, any[]>();
+  for (const row of previousRows) {
+    const rowId = rowIdOf(row);
+    if (rowId) previousById.set(rowId, row);
+  }
+  const previousColumnIndex = new Map<string, number>();
+  headerNamesOf(previousSheet).forEach((name, index) => {
+    if (index > 0 && name && !previousColumnIndex.has(name)) previousColumnIndex.set(name, index);
+  });
+  const candidateHeaders = headerNamesOf(candidateSheet);
+  const candidateIds = new Set<string>();
+
+  for (const row of candidateRows) {
+    const rowId = rowIdOf(row);
+    if (!rowId) continue;
+    candidateIds.add(rowId);
+    const previousRow = previousById.get(rowId);
+    if (!previousRow) {
+      ops.push({ kind: 'insert', rowId });
+      continue;
+    }
+    for (let columnIndex = 1; columnIndex < candidateHeaders.length; columnIndex += 1) {
+      const columnName = candidateHeaders[columnIndex];
+      if (!columnName) continue;
+      const previousIndex = previousColumnIndex.get(columnName);
+      const nextValue = row[columnIndex] === undefined ? '' : row[columnIndex];
+      const previousValue = previousIndex === undefined || previousRow[previousIndex] === undefined ? '' : previousRow[previousIndex];
+      if (String(nextValue) !== String(previousValue)) {
+        ops.push({ kind: 'update', rowId, columnName, value: nextValue });
+      }
+    }
+  }
+  for (const [rowId] of previousById) {
+    if (!candidateIds.has(rowId)) ops.push({ kind: 'delete', rowId });
+  }
+  return ops;
+}
+
+/**
+ * R10A-05：同一张表既改了列结构又改了行数据的草稿无路可存——模板保存只迁移结构、拒绝带数据增量，
+ * 数据保存拒绝混入模板改动。返回这类表的显示名，供应用前拦截。
+ */
+function findSheetsMixingSchemaAndRowChanges(previousData: Record<string, any>, candidateData: Record<string, any>): string[] {
+  const names: string[] = [];
+  for (const [sheetKey, candidateSheet] of Object.entries(candidateData || {})) {
+    if (!sheetKey.startsWith('sheet_') || !candidateSheet || typeof candidateSheet !== 'object') continue;
+    const previousSheet = previousData?.[sheetKey];
+    if (!previousSheet || typeof previousSheet !== 'object') continue;
+    const headersChanged = JSON.stringify(headerNamesOf(previousSheet)) !== JSON.stringify(headerNamesOf(candidateSheet));
+    if (headersChanged && diffAssistantCandidateRows(previousSheet, candidateSheet).length > 0) {
+      names.push(String(candidateSheet.name || previousSheet.name || sheetKey));
+    }
+  }
+  return names;
+}
+
 function recordAssistantCandidateDataOps(
   visualizer: ReturnType<typeof useVisualizerStore>,
   previousData: Record<string, any>,
@@ -307,41 +396,30 @@ function recordAssistantCandidateDataOps(
     if (!sheetKey.startsWith('sheet_') || !candidateSheet || typeof candidateSheet !== 'object') continue;
     const previousSheet = previousData?.[sheetKey];
     if (!previousSheet || typeof previousSheet !== 'object') continue;
-
-    const previousRows = Array.isArray(previousSheet.content) ? previousSheet.content.slice(1) : [];
-    const candidateRows = Array.isArray(candidateSheet.content) ? candidateSheet.content.slice(1) : [];
-    const previousById = new Map<string, any[]>();
-    for (const row of previousRows) {
-      const rowId = rowIdOf(row);
-      if (rowId) previousById.set(rowId, row);
-    }
-    const candidateIds = new Set<string>();
-    const headers = Array.isArray(candidateSheet.content?.[0]) ? candidateSheet.content[0] : [];
-
-    for (const row of candidateRows) {
-      const rowId = rowIdOf(row);
-      if (!rowId) continue;
-      candidateIds.add(rowId);
-      const previousRow = previousById.get(rowId);
-      if (!previousRow) {
-        recordVisualizerRowInsert_ACU(visualizer, sheetKey, rowId);
-        continue;
-      }
-      for (let columnIndex = 1; columnIndex < headers.length; columnIndex += 1) {
-        const columnName = String(headers[columnIndex] ?? '').trim();
-        if (!columnName) continue;
-        const nextValue = row[columnIndex] === undefined ? '' : row[columnIndex];
-        const previousValue = previousRow[columnIndex] === undefined ? '' : previousRow[columnIndex];
-        if (String(nextValue) !== String(previousValue)) {
-          recordVisualizerCellUpdate_ACU(visualizer, sheetKey, rowId, columnName, nextValue);
-        }
-      }
-    }
-
-    for (const [rowId] of previousById) {
-      if (!candidateIds.has(rowId)) recordVisualizerRowDelete_ACU(visualizer, sheetKey, rowId);
+    for (const op of diffAssistantCandidateRows(previousSheet, candidateSheet)) {
+      if (op.kind === 'insert') recordVisualizerRowInsert_ACU(visualizer, sheetKey, op.rowId);
+      else if (op.kind === 'delete') recordVisualizerRowDelete_ACU(visualizer, sheetKey, op.rowId);
+      else recordVisualizerCellUpdate_ACU(visualizer, sheetKey, op.rowId, op.columnName, op.value);
     }
   }
+}
+
+/**
+ * 草稿指纹 memo：把「全 sheet 全 content 的结构指纹」收敛为每次 tempData 变化只算一次，
+ * 面板上所有卡片（canApplyTurn / getTurnApplyBlockReason）共用同一份结果。
+ *
+ * 必须挂 Vue 响应式而不是对象引用缓存：tempData 是 Pinia 深响应式对象，编辑器存在
+ * 原地改行（单元格编辑、增删行/表）的路径，按引用缓存会在原地编辑后返回陈旧指纹，
+ * 让「当前结构已变化，草稿已失效」这道门禁失效。
+ *
+ * @param readTempData 响应式草稿读取器（读 tempData 本身，触发引用级依赖）。
+ * @param builder 指纹构造器（会遍历全部内容，依赖收集覆盖每个单元格）。
+ */
+export function createDraftFingerprintMemo_ACU(
+  readTempData: () => Record<string, any> | null | undefined,
+  builder: (tempData: Record<string, any>) => string,
+): ComputedRef<string> {
+  return computed(() => builder(readTempData() || {}));
 }
 
 export function useVisualizerAssistant() {
@@ -370,6 +448,11 @@ export function useVisualizerAssistant() {
   const latestResult = computed(() => visualizer.assistantLatestResult as TemplateAssistantSessionResult_ACU | null);
   const turns = computed(() => visualizer.assistantTurns as VisualizerAssistantTurn[]);
   const riskConfirmations = computed(() => visualizer.assistantRiskConfirmations);
+  // 一次 tempData 变化只算一次结构指纹，全部卡片共用（见 createDraftFingerprintMemo_ACU）。
+  const currentDraftFingerprint = createDraftFingerprintMemo_ACU(
+    () => visualizer.tempData,
+    buildTemplateAssistantFingerprint_ACU,
+  );
 
   const apiPresetOptions = computed(() => [
     { value: '', label: '当前配置' },
@@ -455,12 +538,14 @@ export function useVisualizerAssistant() {
   function loadPromptSegments(): void {
     const saved = settings_ACU.templateAssistantPromptSegments;
     if (Array.isArray(saved) && saved.length > 0) {
-      promptSegments.value = saved.map((seg: any) => ({
+      // G09-07：v2 时代保存的存量段先做协议卡迁移再展示——编辑器里不再显示过期的
+      // 「严格使用 protocolVersion=2」文案；用户自定义卡原样保留。
+      promptSegments.value = migrateLegacyV2ProtocolSegments_ACU(saved.map((seg: any) => ({
         role: String(seg?.role || 'SYSTEM'),
         content: String(seg?.content ?? ''),
         deletable: seg?.deletable !== false,
         pinned: seg?.pinned === true,
-      }));
+      })));
     } else {
       promptSegments.value = buildPseudoRoleTemplateAssistantPromptSegments_ACU();
     }
@@ -529,16 +614,7 @@ export function useVisualizerAssistant() {
 
   function exportPrompt(): void {
     try {
-      const text = JSON.stringify(promptSegments.value, null, 2);
-      const blob = new Blob([text], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'acu-visualizer-assistant-prompt.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadJsonToHost_ACU('acu-visualizer-assistant-prompt.json', promptSegments.value);
     } catch (error: any) {
       toastStore.error(error?.message || '提示词导出失败。', { muteable: false });
     }
@@ -612,6 +688,8 @@ export function useVisualizerAssistant() {
     }
 
     const requestSheetKey = visualizer.currentSheetKey;
+    const runId = ++activeAssistantRunId;
+    const isCurrentRun = () => runId === activeAssistantRunId;
     const createdAt = Date.now();
     const sessionBaselineFingerprint = buildTemplateAssistantFingerprint_ACU(visualizer.tempData || {});
     guardController = createTemplateAssistantSessionGuard_ACU();
@@ -633,6 +711,8 @@ export function useVisualizerAssistant() {
     try {
       const result = await runTemplateAssistantSession_ACU({
         tempData: cloneData(visualizer.tempData),
+        // G09-04：把已保存基线一并传给 service，端上兜底解析表级覆盖时与助手同口径（按已保存表名）。
+        templateBaseData: visualizer.templateBaseData,
         currentSheetKey: visualizer.currentSheetKey,
         sheetOrder: [...visualizer.sheetOrder],
         userRequest: request,
@@ -640,12 +720,13 @@ export function useVisualizerAssistant() {
         tableApiPreset: tableApiPreset.value,
         guard: guardController.createRunGuard(),
         onRoundComplete(progress) {
-          if (requestSheetKey !== visualizer.currentSheetKey) return;
+          if (!isCurrentRun() || requestSheetKey !== visualizer.currentSheetKey) return;
           // 一问一答：单轮即最终，round 与 final 是同一份成功结果。
           // 不创建独立 round turn（避免一条请求出现两条 AI 消息），仅同步轮次状态供摘要使用。
           visualizer.assistantRounds = [...progress.rounds];
         },
       });
+      if (!isCurrentRun()) return false;
       if (requestSheetKey !== visualizer.currentSheetKey) {
         visualizer.assistantErrorMessage = '当前选中表已变化，请重新生成 AI 草稿。';
         appendErrorTurn(
@@ -671,6 +752,7 @@ export function useVisualizerAssistant() {
       userRequest.value = '';
       return true;
     } catch (error) {
+      if (!isCurrentRun()) return false;
       if (error instanceof TemplateAssistantSessionStoppedError_ACU) {
         visualizer.assistantErrorMessage = error.message;
         appendErrorTurn(error.message, requestSheetKey, (error as any)?.failureRawText);
@@ -684,7 +766,7 @@ export function useVisualizerAssistant() {
       }
       return false;
     } finally {
-      visualizer.assistantIsRunning = false;
+      if (isCurrentRun()) visualizer.assistantIsRunning = false;
     }
   }
 
@@ -782,9 +864,13 @@ export function useVisualizerAssistant() {
       return '这份草稿属于其他锚点表，请切回原表或重新生成。';
     }
     if (payload && !payload.baselineFingerprint) return '缺少基线指纹，无法校验当前结构，请重新生成。';
-    const currentFingerprint = buildTemplateAssistantFingerprint_ACU(visualizer.tempData || {});
+    const currentFingerprint = currentDraftFingerprint.value;
     if (payload && payload.baselineFingerprint !== currentFingerprint) {
       return '当前结构已变化，该草稿已失效，请重新生成。';
+    }
+    const mixedSheets = payload ? findSheetsMixingSchemaAndRowChanges(visualizer.tempData || {}, payload.candidateData || {}) : [];
+    if (mixedSheets.length > 0) {
+      return `这份草稿同时改了「${mixedSheets.join('」「')}」的列结构和行数据，无法一次保存。请让助手分两步：先只改结构并「保存模板到当前聊天」，再让它填数据。`;
     }
     return '';
   }
@@ -884,6 +970,8 @@ export function useVisualizerAssistant() {
     () => {
       guardController.invalidate();
       if (isRunning.value) {
+        // 作废在飞会话：它之后的 catch/finally 不再改写共享状态
+        activeAssistantRunId += 1;
         visualizer.assistantIsRunning = false;
         visualizer.assistantErrorMessage = '会话已失效（结构变化或切表）。';
       }

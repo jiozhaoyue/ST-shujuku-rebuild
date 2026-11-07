@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   mirrorConflict: false,
   rebuild: vi.fn(),
   hasLegacy: false,
+  restoreFullIndex: vi.fn(),
+  settings: {} as any,
 }));
 
 vi.mock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logWarn_ACU: vi.fn(), logError_ACU: vi.fn(), assertSafeHttpEndpoint_ACU: vi.fn() }));
@@ -77,7 +79,11 @@ vi.mock('../../../src/service/settings/settings-readers', () => ({
   allowUnsafeApiEndpointsEnabled_ACU: () => false,
 }));
 vi.mock('../../../src/data/repositories/profile-repo', () => ({ globalMeta_ACU: { summaryVectorIndexModeGlobal: true } }));
-vi.mock('../../../src/service/worldbook/injection-engine', () => ({ getInjectionTargetLorebook_ACU: async () => 'book', getIsolationPrefix_ACU: () => '' }));
+vi.mock('../../../src/service/worldbook/injection-engine', () => ({
+  getInjectionTargetLorebook_ACU: async () => 'book',
+  getIsolationPrefix_ACU: () => '',
+  restoreFullSummaryIndexContent_ACU: (...a: any[]) => h.restoreFullIndex(...a),
+}));
 vi.mock('../../../src/service/worldbook/worldbook-service', () => ({
   isWorldbookApiAvailable_ACU: () => true,
   getLorebookEntries_ACU: async () => h.entries,
@@ -119,6 +125,8 @@ vi.mock('../../../src/service/vector/summary-vector-mirror-resolver', () => ({
   }),
 }));
 vi.mock('../../../src/service/vector/summary-vector-mirror-storage', () => ({
+  SUMMARY_VECTOR_MIRROR_PACK_READ_CONCURRENCY_ACU: 4,
+  getSummaryVectorMirrorPackCacheHitCount_ACU: () => 0,
   loadSummaryVectorMirrorManifest_ACU: async () => ({ schema: 'summary_vector_mirror_manifest', version: 1, sourceTableKey: 'summary-source', rows: [] }),
   loadSummaryVectorMirrorPack_ACU: async (ref: any) => {
     const chunk = (h.chunks || []).find((item: any) => `p-${item.rowKey}` === ref.packHash);
@@ -148,11 +156,14 @@ vi.mock('../../../src/service/vector/summary-vector-mirror-writer', () => ({
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   currentChatFileIdentifier_ACU: 'chat-a',
   getCurrentIsolationKey_ACU: () => 'iso-source',
+  settings_ACU: h.settings,
 }));
 
+import { getRecentRuntimePerformanceSpans_ACU } from '../../../src/shared/runtime-performance';
 import {
   processSummaryVectorIndexBeforeGeneration_ACU,
   resetSummaryVectorIndexRuntimeDedupeState_ACU,
+  shouldRestoreFullSummaryIndexAfterSkip_ACU,
 } from '../../../src/service/vector/summary-vector-index-runtime';
 
 
@@ -238,6 +249,7 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
     h.mirrorStale = false;
     h.mirrorConflict = false;
     h.hasLegacy = false;
+    h.restoreFullIndex.mockReset().mockResolvedValue(false);
     h.rebuild.mockResolvedValue({ success: true, skipped: false, indexedRowCount: 1, skippedRowCount: 0, chunkCount: 1, errors: [] });
     vi.stubGlobal('fetch', vi.fn());
     setFixture_ACU();
@@ -267,6 +279,22 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
     const content = createdContent_ACU();
     expect(content).toContain('old sparse summary');
     expect(content).toContain('dense summary');
+  });
+
+  it('读取向量镜像 pack 的耗时与读取数计入性能诊断（开启诊断时）', async () => {
+    h.settings.performanceDiagnosticsEnabled = true;
+    try {
+      const second = row_ACU('second', 2, 'second row');
+      h.rows = [h.rows[0], second];
+      h.chunks = [h.chunks[0]];
+
+      await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'secret relic', source: 'perf-span' });
+
+      const span = getRecentRuntimePerformanceSpans_ACU().filter((item) => item.name === 'vector-mirror-pack-load').pop();
+      expect(span?.metrics).toMatchObject({ packCount: 2, packMissingCount: 1, packCacheHitCount: 0 });
+    } finally {
+      h.settings.performanceDiagnosticsEnabled = false;
+    }
   });
 
   it('部分 pack/chunk 缺失时触发 repair，repair 未恢复前 fail-closed', async () => {
@@ -676,42 +704,82 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU hybrid retrieval', () =>
   });
 
 
-  it('T5：createEmbeddings 抛异常但有最近固定行时，降级为仅注入固定行，不中断生成', async () => {
+  it('T5（移植上游 2adf068b）：query embedding 抛异常时召回失败，不再降级只注入最近固定行，也不写世界书', async () => {
     h.config.summaryIndexRecentFixedInjectCount = 1;
     h.createEmbeddings.mockRejectedValueOnce(new Error('Embedding 请求失败 403: insufficient balance'));
 
-    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 't5-degrade' });
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 't5-fail' });
 
-    expect(result.success).toBe(true);
-    expect(result.reason).toBe('query_embedding_failed_recent_fixed_only');
-    expect(result.injectedCount).toBe(1);
-    expect(result.keywordCount).toBe(0);
-    // 固定行（rowOrder 3 = recent fixed summary）被注入，向量候选为 0。
-    const content = createdContent_ACU();
-    expect(content).toContain('recent fixed summary');
-    expect(content).not.toContain('old sparse summary');
-    expect(content).not.toContain('dense summary');
-  });
-
-  it('T5：createEmbeddings 抛异常且无最近固定行时，异常穿透（由上层 init.ts try/catch 兜底）', async () => {
-    h.config.summaryIndexRecentFixedInjectCount = 0;
-    h.createEmbeddings.mockRejectedValueOnce(new Error('Embedding 请求失败 500: boom'));
-
-    await expect(processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 't5-rethrow' }))
-      .rejects.toThrow('Embedding 请求失败 500: boom');
+    expect(result).toMatchObject({ success: false, reason: 'query_embedding_failed' });
+    expect(result.skipped).not.toBe(true);
     expect(h.createEntries).not.toHaveBeenCalled();
   });
 
-  it('T5：createEmbeddings 返回空向量但有最近固定行时，同样降级注入固定行', async () => {
+  it('召回失败后放掉 8 秒去重：马上重发同一句会重新召回，而不是被当成「已召回过」直接放行', async () => {
+    h.createEmbeddings.mockRejectedValueOnce(new Error('Embedding 请求失败 401'));
+    const failed = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 'dedupe-1' });
+    expect(failed).toMatchObject({ success: false, reason: 'query_embedding_failed' });
+
+    const retried = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 'dedupe-2' });
+    expect(retried.reason).not.toBe('deduped');
+    expect(retried.success).toBe(true);
+  });
+
+  it('长消息被向量模型拒绝（输入过长）：截短查询重试一次后照常召回', async () => {
+    const longInput = `find secret relic ${'很长的正文'.repeat(200)}`;
+    h.createEmbeddings.mockRejectedValueOnce(new Error('Embedding 请求失败 400: input too long'));
+
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: longInput, source: 'long-input' });
+
+    expect(result.success).toBe(true);
+    const retryInput = h.createEmbeddings.mock.calls.at(-1)[0].input[0];
+    expect(retryInput.length).toBeLessThan(longInput.length);
+  });
+
+  it('用户输入不长、AI 关键词把查询撑过上限被拒：重试时真的截短（不与首次相同），照常召回', async () => {
+    h.config.keywordGenerationEnabled = true;
+    h.config.keywordPromptGroup = [{ role: 'user', content: '$USER_INPUT' }];
+    const longKeyword = '很长的关键词'.repeat(80);
+    h.callAI.mockResolvedValue(`<keywords>secret relic，${longKeyword}</keywords>`);
+    h.createEmbeddings.mockRejectedValueOnce(new Error('Embedding 请求失败 400: input too long'));
+
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 'long-keywords' });
+
+    expect(result.success).toBe(true);
+    const calls = h.createEmbeddings.mock.calls.map((call: any) => call[0].input[0]);
+    const firstInput = calls.at(-2);
+    const retryInput = calls.at(-1);
+    expect(firstInput).toContain(longKeyword);
+    expect(retryInput).not.toBe(firstInput);
+    expect(retryInput.length).toBeLessThanOrEqual(300);
+    expect(retryInput.startsWith('find secret relic')).toBe(true);
+  });
+
+  it('T5：query embedding 返回空向量同样判召回失败（非跳过）', async () => {
     h.config.summaryIndexRecentFixedInjectCount = 1;
     h.createEmbeddings.mockResolvedValueOnce([{ index: 0, embedding: [] }]);
 
     const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'find secret relic', source: 't5-empty-vector' });
 
-    expect(result.success).toBe(true);
-    expect(result.reason).toBe('query_embedding_failed_recent_fixed_only');
-    const content = createdContent_ACU();
-    expect(content).toContain('recent fixed summary');
+    expect(result).toMatchObject({ success: false, reason: 'empty_query_embedding' });
+    expect(result.skipped).not.toBe(true);
+    expect(h.createEntries).not.toHaveBeenCalled();
+  });
+
+  it('召回途中这次发送已失效（停止生成或切走聊天）：迟到的结果不写世界书（移植上游 2adf068b）', async () => {
+    let active = true;
+    h.createEmbeddings.mockImplementationOnce(async () => {
+      active = false;
+      return [{ index: 0, embedding: [1, 0] }];
+    });
+
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({
+      userInput: 'find secret relic', source: 'lease-test', isActive: () => active,
+    });
+
+    expect(result).toMatchObject({ success: false, skipped: true, reason: 'send_cancelled' });
+    expect(h.createEntries).not.toHaveBeenCalled();
+    expect(h.setEntries).not.toHaveBeenCalled();
   });
 
 });
@@ -729,11 +797,74 @@ describe('processSummaryVectorIndexBeforeGeneration_ACU mirror protocol recovery
     h.mirrorStale = false;
     h.mirrorConflict = false;
     h.hasLegacy = false;
+    h.restoreFullIndex.mockReset().mockResolvedValue(false);
     h.rebuild.mockResolvedValue({ success: true, skipped: false, indexedRowCount: 1, skippedRowCount: 0, chunkCount: 1, errors: [] });
     h.summaryTable = { summaryKey: 'summary-source', table: {} };
     h.preparedRows = [{ rowKey: 'r1', rowId: 'r1', rowOrder: 1, summary: 'summary', chronicleText: '' }];
     h.createEmbeddings.mockResolvedValue([{ index: 0, embedding: [1, 0] }]);
     h.createEntries.mockResolvedValue(undefined);
+  });
+
+  it('纪要行数不到门槛跳过时回填完整纪要索引，而不是留着旧正文（issue #3）', async () => {
+    h.config = defaultConfig_ACU({ summaryIndexKeywordMinRows: 200 });
+    let active = true;
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'below-min', source: 'min-rows-test', isActive: () => active });
+    expect(result).toMatchObject({ success: false, skipped: true, reason: 'below_min_rows' });
+    expect(h.restoreFullIndex).toHaveBeenCalledTimes(1);
+    const isActive = h.restoreFullIndex.mock.calls[0][0];
+    expect(isActive()).toBe(true);
+    active = false;
+    expect(isActive()).toBe(false);
+    expect(h.createEntries).not.toHaveBeenCalled();
+  });
+
+  it('镜像缺失跳过时同样回填；召回成功与去重时不回填', async () => {
+    h.mirrorStatus = 'no_mirror';
+    await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'no-mirror', source: 'no-mirror-test' });
+    expect(h.restoreFullIndex).toHaveBeenCalledTimes(1);
+
+    h.restoreFullIndex.mockClear();
+    h.mirrorStatus = 'ok';
+    const ok = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'recall-ok', source: 'a' });
+    expect(ok.success).toBe(true);
+    const deduped = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'recall-ok', source: 'b' });
+    expect(deduped).toMatchObject({ skipped: true, reason: 'deduped' });
+    expect(h.restoreFullIndex).not.toHaveBeenCalled();
+  });
+
+  it('回填失败只记 warn，不影响这次发送', async () => {
+    h.config = defaultConfig_ACU({ summaryIndexKeywordMinRows: 200 });
+    h.restoreFullIndex.mockRejectedValue(new Error('lorebook busy'));
+    const result = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: 'restore-fails', source: 'restore-fail-test' });
+    expect(result).toMatchObject({ skipped: true, reason: 'below_min_rows' });
+  });
+
+  it('发送内容为空时：纪要不到门槛才回填，过了门槛保留上一轮交火结果', async () => {
+    h.config = defaultConfig_ACU({ summaryIndexKeywordMinRows: 200 });
+    const below = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: '', source: 'empty-below' });
+    expect(below).toMatchObject({ skipped: true, reason: 'empty_user_input' });
+    expect(h.restoreFullIndex).toHaveBeenCalledTimes(1);
+
+    h.restoreFullIndex.mockClear();
+    h.config = defaultConfig_ACU({ summaryIndexKeywordMinRows: 1 });
+    const above = await processSummaryVectorIndexBeforeGeneration_ACU({ userInput: '', source: 'empty-above' });
+    expect(above).toMatchObject({ skipped: true, reason: 'empty_user_input' });
+    expect(h.restoreFullIndex).not.toHaveBeenCalled();
+  });
+
+  it('回填判定：已过门槛才会出现的「没检索到 / 没选上」不回填，结构性跳过照常回填', () => {
+    const above = () => false;
+    const below = () => true;
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('no_candidates', below)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('no_selected_rows', below)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('deduped', below)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('send_cancelled', below)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('summary_vector_index_disabled', below)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('empty_user_input', above)).toBe(false);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('empty_user_input', below)).toBe(true);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('below_min_rows', above)).toBe(true);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('no_mirror', above)).toBe(true);
+    expect(shouldRestoreFullSummaryIndexAfterSkip_ACU('invalid_config', above)).toBe(true);
   });
 
   it('no_mirror 且存在 legacy 字段时要求确认重建', async () => {

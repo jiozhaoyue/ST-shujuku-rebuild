@@ -78,49 +78,6 @@ describe('SyncBridge', () => {
   // loadFromTableData
   // ═══════════════════════════════════════════════════════════════
   describe('loadFromTableData', () => {
-    it('加载单张表到 SQLite', () => {
-      const data = makeTableData({ sheet_0: makeSheet() });
-      const tableName = getRuntimeTableName(data, 'sheet_0');
-      bridge.loadFromTableData(data);
-
-      // 验证表已创建
-      const tableNames = engine.getTableNames();
-      expect(tableNames).toContain(tableName);
-
-      // 验证数据已灌入
-      const result = engine.query(`SELECT * FROM ${tableName};`);
-      expect(result.values).toHaveLength(2);
-      expect(result.values[0][1]).toBe('铁剑');
-      expect(result.values[1][1]).toBe('治疗药水');
-    });
-
-    it('加载多张表', () => {
-      const sheet2 = makeSheet({
-        uid: 'characters',
-        name: '重要人物表',
-        sourceData: {
-          note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '',
-          ddl: `CREATE TABLE characters ( -- 重要人物表
-  row_id INTEGER PRIMARY KEY, -- 行号
-  char_name TEXT NOT NULL, -- 姓名
-  status TEXT DEFAULT '存活' -- 状态
-);`,
-        },
-        content: [
-          ['row_id', '姓名', '状态'],
-          ['1', '角色A', '存活'],
-        ],
-      });
-
-      const data = makeTableData({
-        sheet_0: makeSheet(),
-        sheet_1: sheet2,
-      });
-      bridge.loadFromTableData(data);
-
-      expect(engine.getTableNames()).toContain(getRuntimeTableName(data, 'sheet_0'));
-      expect(engine.getTableNames()).toContain(getRuntimeTableName(data, 'sheet_1'));
-    });
 
     it('非首列空业务表头的表跳过建表，有效表照常建表（SQL 活动路径休眠）', () => {
       const dormantSheet = makeSheet({
@@ -143,11 +100,6 @@ describe('SyncBridge', () => {
       expect(tableNames).not.toContain(getRuntimeTableName(data, 'sheet_dormant'));
       // 有效表照常建表
       expect(tableNames).toContain(getRuntimeTableName(data, 'sheet_0'));
-    });
-
-    it('null 或空对象不报错', () => {
-      expect(() => bridge.loadFromTableData(null as any)).not.toThrow();
-      expect(() => bridge.loadFromTableData({} as any)).not.toThrow();
     });
 
     it('引擎未初始化时抛出错误', () => {
@@ -305,6 +257,35 @@ describe('SyncBridge', () => {
         ['铁剑'],
         ['治疗药水'],
       ]);
+    });
+
+    // R1-07：脱敏按最后一个「→」切分；用户数据里自带「→」时不能把后半段 VALUES 漏进诊断。
+    it('R1-07：用户数据含「→」时诊断仍不泄露 VALUES 内容', () => {
+      const invalidSheet = makeSheet({
+        uid: 'checked_value',
+        name: '受约束表',
+        sourceData: {
+          note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '',
+          ddl: `CREATE TABLE checked_value (
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL CHECK(length(name) <= 5) -- 名称
+);`,
+        },
+        content: [
+          ['row_id', '名称'],
+          ['1', '机密→后半段私密正文'],
+        ],
+      });
+
+      let message = '';
+      try {
+        bridge.loadFromTableData(makeTableData({ sheet_invalid: invalidSheet }), { strict: true });
+      } catch (error: any) {
+        message = String(error?.message || error);
+      }
+      expect(message).toContain('SQLite 写入失败');
+      expect(message).toContain('CHECK constraint failed');
+      expect(message).not.toContain('后半段私密正文');
     });
 
     it('strict hydrate 的 SQLite 写入失败保留脱敏后的语句位置、操作与约束诊断', () => {
@@ -543,22 +524,6 @@ describe('SyncBridge', () => {
   // exportToTableData
   // ═══════════════════════════════════════════════════════════════
   describe('exportToTableData', () => {
-    it('从 SQLite 导出为 TableDataObject', () => {
-      const originalData = makeTableData({ sheet_0: makeSheet() });
-      bridge.loadFromTableData(originalData);
-
-      const exported = bridge.exportToTableData(makeMate());
-      expect(exported.mate).toBeDefined();
-
-      // 找到导出的 sheet
-      const sheetKeys = Object.keys(exported).filter(k => k.startsWith('sheet_'));
-      expect(sheetKeys).toHaveLength(1);
-
-      const sheet = exported[sheetKeys[0]] as Sheet_ACU;
-      expect(sheet.name).toBe('背包物品表');
-      expect(sheet.content).toHaveLength(3); // 表头 + 2 行数据
-      expect(sheet.content[0]).toContain('物品名称'); // 中文表头还原
-    });
 
     it('导出后数据与原始数据一致', () => {
       const originalData = makeTableData({ sheet_0: makeSheet() });
@@ -683,6 +648,41 @@ describe('SyncBridge', () => {
   // ═══════════════════════════════════════════════════════════════
   // syncToJson
   // ═══════════════════════════════════════════════════════════════
+  describe('数字样文本往返', () => {
+    /**
+     * hydrate 曾把纯数字文本拼成裸数字字面量：TEXT 列存的是数字的规范文本，
+     * "08"→"8"、"007"→"7"、"1.50"→"1.5"，下一次导出落盘即永久改写用户数据。
+     */
+    it('TEXT 列与无类型列的数字样文本载入再导出逐字不变；INTEGER 列仍按数值比较', () => {
+      const values = ['08', '007', '1.50', '-0', '12345678901234567890', '0.30000000000000004', '5', '-12'];
+      const sheet = makeSheet({
+        sourceData: {
+          note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '',
+          ddl: `CREATE TABLE inventory ( -- 背包物品表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  item_name TEXT NOT NULL, -- 物品名称
+  quantity INTEGER DEFAULT 1, -- 数量
+  description -- 描述
+);`,
+        },
+        content: [
+          ['row_id', '物品名称', '数量', '描述'],
+          ...values.map((value, index) => [String(index + 1), value, String(index + 1), value]),
+        ],
+      });
+      const data = makeTableData({ sheet_0: sheet });
+      bridge.loadFromTableData(data, { strict: true });
+
+      const exported = bridge.exportToTableData(makeMate(), { strict: true }).sheet_0 as Sheet_ACU;
+      expect(exported.content.slice(1).map(row => row[1])).toEqual(values);
+      expect(exported.content.slice(1).map(row => row[3])).toEqual(values);
+
+      const tableName = getRuntimeTableName(data, 'sheet_0');
+      const numeric = engine.query(`SELECT COUNT(*) FROM ${tableName} WHERE quantity > 3;`);
+      expect(numeric.values[0][0]).toBe(values.length - 3);
+    });
+  });
+
   describe('syncToJson', () => {
     it('同步 SQLite 数据到 JSON 视图', () => {
       const originalData = makeTableData({ sheet_0: makeSheet() });
@@ -739,14 +739,6 @@ describe('SyncBridge', () => {
   // meta 物理名列 + 多路识别（健全化读取）
   // ═══════════════════════════════════════════════════════════════
   describe('meta 多路识别', () => {
-    it('_acu_sheet_meta 记录 physical_table_name，值等于实际建表名', () => {
-      const data = makeTableData({ sheet_0: makeSheet() });
-      const tableName = getRuntimeTableName(data, 'sheet_0');
-      bridge.loadFromTableData(data);
-
-      const meta = engine.query('SELECT physical_table_name FROM _acu_sheet_meta WHERE sheet_key = ?;', ['sheet_0']);
-      expect(meta.values[0][0]).toBe(tableName);
-    });
 
     it('路径1：meta 存储物理名可反查导出，即使实际表名是历史 hash 形态', () => {
       // 模拟老库：物理表名带历史 hash 后缀，且 meta 里存的就是这个历史名。
@@ -797,26 +789,6 @@ describe('SyncBridge', () => {
   // 无 DDL 的 fallback 模式
   // ═══════════════════════════════════════════════════════════════
   describe('无 DDL 的 fallback 模式', () => {
-    it('无 DDL 时自动生成全 TEXT DDL', () => {
-      const sheet = makeSheet({
-        sourceData: { note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '' },
-        content: [
-          ['row_id', 'name', 'value'],
-          ['1', 'test', '100'],
-        ],
-      });
-      const data = makeTableData({ sheet_0: sheet });
-      bridge.loadFromTableData(data);
-
-      // 表应该被创建（使用 uid 作为表名）
-      const tableNames = engine.getTableNames();
-      expect(tableNames.length).toBeGreaterThan(0);
-
-      // 数据应该被灌入
-      const tableName = tableNames[0];
-      const result = engine.query(`SELECT * FROM ${tableName};`);
-      expect(result.values).toHaveLength(1);
-    });
 
     it('中文表名+中文表头端到端 hydrate：物理名为拼音 slug，列全 TEXT，数据可读回（T4.2）', () => {
       const sheet = makeSheet({

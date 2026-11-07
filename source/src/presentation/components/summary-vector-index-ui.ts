@@ -6,21 +6,33 @@
  */
 import { toastr_API_ACU } from '../../shared/host-api';
 import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
-import { logDebug_ACU } from '../../shared/utils';
-import { processSummaryVectorIndexBeforeGeneration_ACU, type SummaryVectorIndexRuntimeResult_ACU } from '../../service/vector/summary-vector-index-runtime';
+import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import {
+  processSummaryVectorIndexBeforeGeneration_ACU,
+  resetSummaryVectorIndexRuntimeDedupeState_ACU,
+  type SummaryVectorIndexRuntimeOptions_ACU,
+  type SummaryVectorIndexRuntimeResult_ACU,
+} from '../../service/vector/summary-vector-index-runtime';
 import { rebuildCurrentSummaryVectorIndexNow_ACU } from '../../service/vector/summary-vector-index-rebuild-service';
 import { isSummaryVectorIndexSourceTextOutdated_ACU, type SummaryVectorIndexArchiveResult_ACU } from '../../service/vector/summary-vector-index-archive-service';
 import { getLatestSummaryVectorIndexSnapshotState_ACU } from '../../service/vector/summary-vector-index-state-service';
 import { validateSummaryVectorIndexConfig_ACU } from '../../service/vector/vector-memory-config';
 import { globalMeta_ACU } from '../../data/repositories/profile-repo';
 import { showToastr_ACU } from '../theme/toast';
+import { showCustomConfirm_ACU } from '../theme/custom-confirm';
+// G12-02：重建确认是异步弹框，复用 V2 既有的聊天作用域快照守卫（R10A-01 同款），确认后复核聊天身份
+import {
+  CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU,
+  captureChatActionScope_ACU,
+  isChatActionScopeCurrent_ACU,
+} from '../../presentation-v2/composables/chat-action-scope';
 
 const SUMMARY_VECTOR_REBUILD_REQUIRED_REASONS_ACU = new Set([
   'legacy_vector_scheme_rebuild_required',
   'embedding_identity_changed_rebuild_required',
 ]);
 
-const SUMMARY_VECTOR_SCHEME_REBUILD_CONFIRM_ACU = '向量方案已优化，需要重建';
+const SUMMARY_VECTOR_SCHEME_REBUILD_CONFIRM_ACU = '向量方案已优化，旧的交火索引已失效，需要重建后才能召回。现在重建吗？';
 
 function clearToastElement_ACU($toast: JQuery<HTMLElement> | null) {
   try { if ($toast) toastr_API_ACU?.clear?.($toast); } catch (e) {}
@@ -118,8 +130,24 @@ export async function rebuildOutdatedSummaryVectorIndexInBackground_ACU(): Promi
 /**
  * 包装交火发送前处理，显示“正在召回记忆”进度提示。
  */
+export const SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU = '交火记忆召回失败，本次生成已停止。请检查向量接口后点「重新生成」重试（会重新召回）。';
+
+/** 召回真的失败了（不是关闭、无可召回内容、已去重等跳过）：发送层据此停止这次生成。 */
+export function isSummaryVectorRecallFailure_ACU(result: SummaryVectorIndexRuntimeResult_ACU | null | undefined): boolean {
+  return !!result && result.success !== true && result.skipped !== true;
+}
+
+/**
+ * 首轮召回（rebuild_required，属 skipped）已写下 8 秒去重签名：这里合成的失败不经 runtime 的失败释放，
+ * 不放掉签名的话，发送层提示的「点重新生成会重新召回」在 8 秒内会被当成已召回直接放行。
+ */
+function recallFailedAfterRebuild_ACU(reason: string): SummaryVectorIndexRuntimeResult_ACU {
+  resetSummaryVectorIndexRuntimeDedupeState_ACU();
+  return { success: false, reason };
+}
+
 export async function processSummaryVectorIndexBeforeGenerationWithUI_ACU(
-  options: { userInput?: string; source?: string } = {},
+  options: SummaryVectorIndexRuntimeOptions_ACU = {},
 ): Promise<SummaryVectorIndexRuntimeResult_ACU> {
   const toastMsg = `
       <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -156,16 +184,25 @@ export async function processSummaryVectorIndexBeforeGenerationWithUI_ACU(
   }
 
   if (shouldRebuildSummaryVectorIndexWithUI_ACU(result.reason)) {
-    const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function'
-      ? window.confirm(SUMMARY_VECTOR_SCHEME_REBUILD_CONFIRM_ACU)
-      : true;
+    // 不用原生 confirm：TauriTavern 2.3.0 的原生 confirm 返回 Promise，会被当成「确定」直接执行
+    // G12-02：确认期间聊天可能被程序化切换；不复核会在另一个聊天上白烧一次 embedding 重建，
+    // 旧聊天下次发送仍会提示重建。进确认框前捕获聊天身份，确认后不一致即放弃（发送层租约随后停发）。
+    const chatScope = captureChatActionScope_ACU();
+    const confirmed = await showCustomConfirm_ACU('交火索引需要重建', SUMMARY_VECTOR_SCHEME_REBUILD_CONFIRM_ACU, { confirmLabel: '重建' });
     if (!confirmed) return result;
+    if (!isChatActionScopeCurrent_ACU(chatScope)) {
+      showToastr_ACU('warning', CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU);
+      return result;
+    }
     let rebuilt = false;
     try {
       const rebuildResult = await rebuildCurrentSummaryVectorIndexWithUI_ACU();
-      rebuilt = rebuildResult.success && !rebuildResult.skipped;
+      // 用户已确认重建却没建成：这一轮没有可用记忆，按召回失败处理，由发送层停止这次生成
+      if (!rebuildResult.success) return recallFailedAfterRebuild_ACU('rebuild_failed');
+      rebuilt = !rebuildResult.skipped;
     } catch (error) {
-      logDebug_ACU(`[交火模式纪要索引] 失效索引已删除，但普通重建路径执行失败；继续原始生成：${error instanceof Error ? error.message : String(error)}`);
+      logWarn_ACU(`[交火模式纪要索引] 失效索引已删除，但普通重建路径执行失败：${error instanceof Error ? error.message : String(error)}`);
+      return recallFailedAfterRebuild_ACU('rebuild_failed');
     }
     // 重建成功后在同一次发送里补跑一次召回，否则这一轮目录沿用上一轮的内容。
     if (rebuilt) {
@@ -182,7 +219,9 @@ export async function processSummaryVectorIndexBeforeGenerationWithUI_ACU(
         }
         return retried;
       } catch (error) {
-        logDebug_ACU(`[交火模式纪要索引] 自愈重建后补跑召回失败；继续原始生成：${error instanceof Error ? error.message : String(error)}`);
+        // 索引已重建、补跑召回却失败：按召回失败处理，由发送层停止这次生成
+        logWarn_ACU(`[交火模式纪要索引] 自愈重建后补跑召回失败：${error instanceof Error ? error.message : String(error)}`);
+        return recallFailedAfterRebuild_ACU('recall_after_rebuild_failed');
       }
     }
   }

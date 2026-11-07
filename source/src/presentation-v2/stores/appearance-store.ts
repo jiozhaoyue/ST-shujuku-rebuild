@@ -1,7 +1,7 @@
 /**
  * appearance-store — 新 UI 外观偏好。
  *
- * 界面缩放是本机显示偏好，独立持久化到 acu_v2_ui_state.appearance；
+ * 界面缩放、界面风格（默认 / Claude）、Claude 风格的颜色模式与侧栏收起都是本机显示偏好，独立持久化到 acu_v2_ui_state.appearance；
  * 不进入主题导入/导出，也不触碰业务配置。
  */
 import { defineStore } from 'pinia';
@@ -23,14 +23,46 @@ export const ACU_UI_SCALE_OPTIONS: readonly AcuUiScaleOption[] = [
 
 export const ACU_DEFAULT_UI_SCALE: AcuUiScale = '100';
 
+/** 界面风格：默认 = 所选主题；Claude = 按 Claude 界面规范重排外壳与控件，并改用自带配色（见 theme/effective-theme.ts）。 */
+export type AcuUiStyle = 'default' | 'claude';
+
+export const ACU_UI_STYLE_OPTIONS: readonly { value: AcuUiStyle; label: string }[] = [
+  { value: 'default', label: '默认' },
+  { value: 'claude', label: 'Claude' },
+] as const;
+
+export const ACU_DEFAULT_UI_STYLE: AcuUiStyle = 'default';
+
+/** Claude 风格自带配色，明暗由这里决定（主题只在默认风格下生效）。 */
+export type AcuClaudeColorMode = 'light' | 'system' | 'dark';
+
+export const ACU_CLAUDE_COLOR_MODE_OPTIONS: readonly { value: AcuClaudeColorMode; label: string }[] = [
+  { value: 'light', label: '浅色' },
+  { value: 'system', label: '跟随系统' },
+  { value: 'dark', label: '深色' },
+] as const;
+
+export const ACU_DEFAULT_CLAUDE_COLOR_MODE: AcuClaudeColorMode = 'system';
+
 const SECTION_KEY = 'appearance';
 
 interface PersistedAppearance {
   uiScale?: unknown;
+  uiStyle?: unknown;
+  railCollapsed?: unknown;
+  claudeColorMode?: unknown;
+  claudeStyleSuggested?: unknown;
 }
 
 interface AppearanceState {
   uiScale: AcuUiScale;
+  uiStyle: AcuUiStyle;
+  railCollapsed: boolean;
+  claudeColorMode: AcuClaudeColorMode;
+  /** 默认风格下选 Claude 主题时是否已提示过「有 Claude 整体风格」（只提示一次，不论是否切换） */
+  claudeStyleSuggested: boolean;
+  /** 宿主窗口当前的系统明暗（不持久化，由挂载时的监听写入）。 */
+  systemPrefersDark: boolean;
 }
 
 export function isUiScale(value: unknown): value is AcuUiScale {
@@ -41,17 +73,44 @@ export function normalizeUiScale(value: unknown): AcuUiScale {
   return isUiScale(value) ? value : ACU_DEFAULT_UI_SCALE;
 }
 
+export function isUiStyle(value: unknown): value is AcuUiStyle {
+  return typeof value === 'string' && ACU_UI_STYLE_OPTIONS.some(option => option.value === value);
+}
+
+export function normalizeUiStyle(value: unknown): AcuUiStyle {
+  return isUiStyle(value) ? value : ACU_DEFAULT_UI_STYLE;
+}
+
+export function normalizeClaudeColorMode(value: unknown): AcuClaudeColorMode {
+  return ACU_CLAUDE_COLOR_MODE_OPTIONS.some(option => option.value === value)
+    ? value as AcuClaudeColorMode
+    : ACU_DEFAULT_CLAUDE_COLOR_MODE;
+}
+
 function getScaleOption(value: AcuUiScale): AcuUiScaleOption {
   return ACU_UI_SCALE_OPTIONS.find(option => option.value === value) ?? ACU_UI_SCALE_OPTIONS[0];
 }
 
 function readInitialAppearanceState(): AppearanceState {
   const persisted = readSection<PersistedAppearance>(SECTION_KEY);
-  return { uiScale: normalizeUiScale(persisted?.uiScale) };
+  return {
+    uiScale: normalizeUiScale(persisted?.uiScale),
+    uiStyle: normalizeUiStyle(persisted?.uiStyle),
+    railCollapsed: persisted?.railCollapsed === true,
+    claudeColorMode: normalizeClaudeColorMode(persisted?.claudeColorMode),
+    claudeStyleSuggested: persisted?.claudeStyleSuggested === true,
+    systemPrefersDark: false,
+  };
 }
 
 function buildPersistedAppearance(state: AppearanceState): PersistedAppearance {
-  return { uiScale: state.uiScale };
+  return {
+    uiScale: state.uiScale,
+    uiStyle: state.uiStyle,
+    railCollapsed: state.railCollapsed,
+    claudeColorMode: state.claudeColorMode,
+    claudeStyleSuggested: state.claudeStyleSuggested,
+  };
 }
 
 export const useAppearanceStore = defineStore('acu-v2-appearance', {
@@ -66,12 +125,39 @@ export const useAppearanceStore = defineStore('acu-v2-appearance', {
     uiScaleCssValue(state): string {
       return getScaleOption(state.uiScale).cssScale;
     },
+    isClaudeStyle(state): boolean {
+      return state.uiStyle === 'claude';
+    },
   },
   actions: {
     setUiScale(value: AcuUiScale): void {
       if (!isUiScale(value)) return;
       if (this.uiScale === value) return;
       this.uiScale = value;
+      this.persist();
+    },
+    setUiStyle(value: AcuUiStyle): void {
+      if (!isUiStyle(value)) return;
+      if (this.uiStyle === value) return;
+      this.uiStyle = value;
+      this.persist();
+    },
+    setClaudeColorMode(value: AcuClaudeColorMode): void {
+      if (normalizeClaudeColorMode(value) !== value) return;
+      if (this.claudeColorMode === value) return;
+      this.claudeColorMode = value;
+      this.persist();
+    },
+    markClaudeStyleSuggested(): void {
+      if (this.claudeStyleSuggested) return;
+      this.claudeStyleSuggested = true;
+      this.persist();
+    },
+    setSystemPrefersDark(value: boolean): void {
+      this.systemPrefersDark = value === true;
+    },
+    toggleRailCollapsed(): void {
+      this.railCollapsed = !this.railCollapsed;
       this.persist();
     },
     persist(): void {

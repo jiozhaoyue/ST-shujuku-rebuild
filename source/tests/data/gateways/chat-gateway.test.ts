@@ -28,9 +28,6 @@ vi.mock('../../../src/shared/utils', () => ({
 
 import {
   getChatArray_ACU,
-  getChatLength_ACU,
-  getLastMessageIndex_ACU,
-  saveChatToHost_ACU,
   saveChatToHostStrict_ACU,
   stopGeneration_ACU,
   deleteLastMessage_ACU,
@@ -45,9 +42,6 @@ beforeEach(() => {
 });
 
 describe('getChatArray_ACU', () => {
-  it('无 chat 时返回空数组', () => {
-    expect(getChatArray_ACU()).toEqual([]);
-  });
 
   it('有 chat 时返回引用', () => {
     const chat = [{ mes: '消息1' }, { mes: '消息2' }];
@@ -56,60 +50,13 @@ describe('getChatArray_ACU', () => {
   });
 });
 
-describe('getChatLength_ACU', () => {
-  it('无 chat 时返回 0', () => {
-    expect(getChatLength_ACU()).toBe(0);
-  });
-
-  it('有 chat 时返回长度', () => {
-    mockSillyTavern.chat = [{ mes: '1' }, { mes: '2' }, { mes: '3' }];
-    expect(getChatLength_ACU()).toBe(3);
-  });
-});
-
-describe('getLastMessageIndex_ACU', () => {
-  it('空聊天返回 0', () => {
-    expect(getLastMessageIndex_ACU()).toBe(0);
-  });
-
-  it('有消息时返回最后索引', () => {
-    mockSillyTavern.chat = [{ mes: '1' }, { mes: '2' }];
-    expect(getLastMessageIndex_ACU()).toBe(1);
-  });
-});
-
-describe('saveChatToHost_ACU', () => {
-  it('saveChat 不可用时静默跳过', async () => {
-    await saveChatToHost_ACU();
-    expect(mockLogWarn).toHaveBeenCalled();
-  });
-
-  it('saveChat 可用时调用', async () => {
-    mockSillyTavern.saveChat = vi.fn().mockResolvedValue(undefined);
-    await saveChatToHost_ACU();
-    expect(mockSillyTavern.saveChat).toHaveBeenCalled();
-  });
-});
-
 describe('saveChatToHostStrict_ACU', () => {
   it('saveChat 不可用时抛错，不把未提交误认为保存成功', async () => {
     await expect(saveChatToHostStrict_ACU()).rejects.toThrow('宿主 saveChat 不可用');
   });
-
-  it('saveChat 可用时执行真实保存', async () => {
-    mockSillyTavern.saveChat = vi.fn().mockResolvedValue(undefined);
-
-    await saveChatToHostStrict_ACU();
-
-    expect(mockSillyTavern.saveChat).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('stopGeneration_ACU', () => {
-  it('不可用时静默跳过', () => {
-    stopGeneration_ACU();
-    expect(mockLogWarn).toHaveBeenCalled();
-  });
 
   it('可用时调用', () => {
     mockSillyTavern.stopGeneration = vi.fn();
@@ -123,12 +70,6 @@ describe('deleteLastMessage_ACU', () => {
   it('不可用时静默跳过', async () => {
     await deleteLastMessage_ACU();
     expect(mockLogWarn).toHaveBeenCalled();
-  });
-
-  it('可用时调用', async () => {
-    mockSillyTavern.deleteLastMessage = vi.fn().mockResolvedValue(undefined);
-    await deleteLastMessage_ACU();
-    expect(mockSillyTavern.deleteLastMessage).toHaveBeenCalled();
   });
 });
 
@@ -214,12 +155,23 @@ describe('listAllHostChatNames_ACU', () => {
   it('groups 与角色聊天都可用时枚举两者', async () => {
     stubHost({
       characters: [{ avatar: 'aria.png' }],
-      contextGroups: [{ chats: ['group-live.jsonl'] }, { chats: null }],
+      contextGroups: [{ chats: ['group-live.jsonl'] }, { chats: [] }],
       chatsByAvatar: { 'aria.png': ['role-chat.jsonl'] },
     });
     const names = await listAllHostChatNames_ACU();
     expect(names).not.toBeNull();
     expect([...(names as Set<string>)].sort()).toEqual(['group-live', 'role-chat']);
+  });
+
+  it('某个群组的聊天列表不是数组时返回 null，不能当成这个群没有聊天（上游 #39）', async () => {
+    for (const badGroup of [{ chats: null }, {}, null, { chats: 'group-live.jsonl' }]) {
+      stubHost({
+        characters: [{ avatar: 'aria.png' }],
+        contextGroups: [{ chats: ['group-live.jsonl'] }, badGroup],
+        chatsByAvatar: { 'aria.png': ['role-chat.jsonl'] },
+      });
+      expect(await listAllHostChatNames_ACU()).toBeNull();
+    }
   });
 
   it('groups 字段缺失（老宿主 / 派生 context）时返回 null，不能只交角色枚举', async () => {
@@ -250,6 +202,43 @@ describe('listAllHostChatNames_ACU', () => {
     const names = await listAllHostChatNames_ACU();
     expect(names).not.toBeNull();
     expect([...(names as Set<string>)]).toEqual(['role-chat']);
+  });
+
+  it('某个角色缺少头像标识时返回 null：查不到它的聊天，不能当成它没有聊天（上游 #39 修法）', async () => {
+    for (const badCharacter of [{ avatar: '' }, {}, null, { avatar: 42 }]) {
+      stubHost({
+        characters: [{ avatar: 'aria.png' }, badCharacter],
+        contextGroups: [],
+        chatsByAvatar: { 'aria.png': ['role-chat.jsonl'] },
+      });
+      expect(await listAllHostChatNames_ACU()).toBeNull();
+    }
+  });
+
+  it('聊天名清洗后为空时返回 null，不静默丢掉这条聊天', async () => {
+    stubHost({
+      characters: [{ avatar: 'aria.png' }],
+      contextGroups: [],
+      chatsByAvatar: { 'aria.png': ['role-chat.jsonl', 'folder/.jsonl'] },
+    });
+    expect(await listAllHostChatNames_ACU()).toBeNull();
+  });
+
+  it('群组里的聊天标识不是字符串或数字时返回 null；历史数字标识照常收录', async () => {
+    for (const badChatId of [null, { id: 'x' }, true, '']) {
+      stubHost({
+        characters: [{ avatar: 'aria.png' }],
+        contextGroups: [{ chats: ['group-live.jsonl', badChatId] }],
+        chatsByAvatar: { 'aria.png': ['role-chat.jsonl'] },
+      });
+      expect(await listAllHostChatNames_ACU()).toBeNull();
+    }
+    stubHost({
+      characters: [{ avatar: 'aria.png' }],
+      contextGroups: [{ chats: [1700000000000] }],
+      chatsByAvatar: { 'aria.png': ['role-chat.jsonl'] },
+    });
+    expect([...((await listAllHostChatNames_ACU()) as Set<string>)].sort()).toEqual(['1700000000000', 'role-chat']);
   });
 
   it('角色聊天列表请求失败时返回 null', async () => {

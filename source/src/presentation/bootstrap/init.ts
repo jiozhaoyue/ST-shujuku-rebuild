@@ -4,7 +4,8 @@
 
 import {
   cancelPendingChatMutationRefresh_ACU,
-  scheduleChatMutationRefresh_ACU
+  scheduleChatMutationRefresh_ACU,
+  flushChatMutationRefreshNow_ACU,
 } from './chat-mutation-scheduler';
 import {
   showToastr_ACU
@@ -37,7 +38,13 @@ import {
   recordGenerationContext_ACU,
   type AiFloorSignatureEx_ACU,
   recordLastUserSend_ACU,
+  settings_ACU,
   shouldProcessAutoTableUpdateForGenerationEnded_ACU,
+  markChatChangedForEndedGate_ACU,
+  markStoppedSendForRetry_ACU,
+  clearStoppedSendRetry_ACU,
+  isRetryOfStoppedSend_ACU,
+  shouldProcessDecisionRecallForGeneration_ACU,
   shouldProcessPlotForGeneration_ACU,
   shouldProcessSummaryVectorIndexForGeneration_ACU,
   _set_allChatMessages_ACU,
@@ -55,18 +62,21 @@ import {
   loadSettings_ACU
 } from '../../service/settings/settings-service';
 import {
+  releaseAgentGreenlightsOfPreviousChat_ACU,
   resetScriptStateForNewChat_ACU
 } from '../../service/worldbook/injection-engine';
 import {
   resetPlotAgentWorldbookSessionSnapshot_ACU
 } from '../../service/agent/agent-worldbook-takeover';
+import { loadAgentWorldbookRuntimeControl_ACU } from '../../service/agent/agent-worldbook-config-meta';
+import { getAgentWorldbookRuntimeRevision_ACU } from '../../service/agent/agent-worldbook-runtime-state';
 import {
   reloadStorageProvider,
   disposeStorageProvider,
   getRuntimeLifecycleEpoch_ACU,
   hydrateStorageProviderFromSnapshot_ACU
 } from '../../service/table/table-storage-strategy';
-import { captureCheckpointVaultForCurrentChat_ACU, installCheckpointDeleteGuard_ACU } from '../../service/chat/checkpoint-delete-guard';
+import { captureCheckpointVaultForCurrentChat_ACU, installCheckpointDeleteGuard_ACU, noteMessagesPresentAtDeletion_ACU } from '../../service/chat/checkpoint-delete-guard';
 import { installMaterialCheckpointScheduler_ACU } from '../../service/continuation/agent/agent-checkpoint-scheduler';
 import { auditDormantDataIntegrity_ACU } from '../../service/template/dormant-data-service';
 import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
@@ -86,10 +96,11 @@ import {
   loadAllChatMessages_ACU
 } from '../../service/worldbook/pipeline';
 import {
-  emitMessageUpdated_ACU
+  emitMessageUpdated_ACU,
+  installChatSavePageHideFlush_ACU
 } from '../../data/gateways/chat-gateway';
-import { resolveAiFloorSignature_ACU, resolveAiFloorSignatureEx_ACU } from '../../service/table/auto-fill-echo-guard';
-import { countAiModelOutputFloors_ACU } from '../../shared/ai-floor';
+import { scanAiFloorSignature_ACU, toAiFloorSignatureEx_ACU } from '../../service/table/auto-fill-echo-guard';
+import { abortTableFillRequestsWithStaleTarget_ACU } from '../../service/table/table-fill-target-watch';
 import { notifyAcuTauriVersionIfOutdated_ACU } from './tauri-version-gate';
 import {
   refreshMergedDataAndNotifyWithUI_ACU
@@ -109,13 +120,27 @@ import {
   setSendTextareaValue_ACU
 } from '../../shared/host-input';
 import {
+  cancelPendingAutoTasks_ACU,
   handleNewMessageDebounced_ACU
 } from '../triggers/settings-ui-sync/settings-ui-connect';
 import {
   runOptimizationLogicWithUI_ACU
 } from '../components/plot-planning-ui';
 import {
+  DECISION_RECALL_PENDING_NOTICE_ACU,
+  runDecisionRecallWithUI_ACU
+} from '../components/decision-recall-ui';
+import {
+  beginPlotPendingDisguise_ACU,
+  shouldBeginPlotPendingDisguise_ACU,
+  PLOT_PENDING_NOTICE_ACU,
+  SUMMARY_RECALL_PENDING_NOTICE_ACU,
+  type PlotPendingDisguiseHandle_ACU,
+} from '../components/plot-pending-disguise';
+import {
   processSummaryVectorIndexBeforeGenerationWithUI_ACU,
+  isSummaryVectorRecallFailure_ACU,
+  SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU,
   rebuildCurrentSummaryVectorIndexWithUI_ACU,
   rebuildOutdatedSummaryVectorIndexInBackground_ACU,
   shouldRebuildSummaryVectorIndexWithUI_ACU
@@ -290,6 +315,7 @@ function clearDerivedRuntimeState_ACU(): void {
 }
 
 function clearRuntimeForNoActiveChat_ACU(chatFileName: unknown): void {
+  releaseAgentGreenlightsOfPreviousChat_ACU(false);
   resetPlotAgentWorldbookSessionSnapshot_ACU();
   clearDerivedRuntimeState_ACU();
   _set_currentChatFileIdentifier_ACU('');
@@ -304,64 +330,51 @@ function clearRuntimeForNoActiveChat_ACU(chatFileName: unknown): void {
   logDebug_ACU(`ACU: No active chat after CHAT_CHANGED (${String(chatFileName)}), runtime table state cleared.`);
 }
 
-// [M1] 发送意图钩子改按「当前已绑定元素实例」记录（沿用 __ACU_sendIntentHooksInstalled 结构，
-// send/enter 字段由布尔改为当前绑定的元素引用）：宿主 DOM 重建后 #send_but/#send_textarea 是新
-// 元素实例，必须按实例比对才能感知并重绑。
-const SEND_INTENT_HOOK_MAX_SELF_RETRY_ACU = 10; // [L5] 元素缺失时自重排重试上限
+// 发送意图钩子挂在宿主文档上按目标委托（上游 #59 / #55）：此前挂在 #send_but / #send_textarea
+// 节点本身，宿主或其他脚本重建这两个控件后监听随旧节点失效，剧情推进每轮被判「非用户发送」跳过，
+// 要等切换聊天的重装路径才恢复。委托不依赖节点身份；按文档幂等安装（标记写在文档上，
+// 插件被重新注入时也不会叠出第二份监听），capture 阶段先于酒馆自身发送逻辑执行。
+const SEND_INTENT_DOC_MARK_ACU = '__ACU_sendIntentDelegated';
 
 function installSendIntentCaptureHooks_ACU() {
   try {
-    const parentDoc = (window.parent || window).document;
-    const doc = parentDoc || document;
-
-    const hooksState = (window as any).__ACU_sendIntentHooksInstalled
-      || ((window as any).__ACU_sendIntentHooksInstalled = { send: null, enter: null });
-
-    const sendBtn = doc.getElementById('send_but');
-    if (sendBtn && hooksState.send !== sendBtn) {
-      sendBtn.addEventListener('click', () => markUserSendIntent_ACU(), true);
-      sendBtn.addEventListener('pointerup', () => markUserSendIntent_ACU(), true);
-      sendBtn.addEventListener('touchend', () => markUserSendIntent_ACU(), true);
-      hooksState.send = sendBtn;
+    const doc: any = (window.parent || window).document || document;
+    if (!doc || doc[SEND_INTENT_DOC_MARK_ACU]) return;
+    const isWithin = (event: Event, selector: string): boolean => {
+      const target = event.target as Element | null;
+      return typeof target?.closest === 'function' && !!target.closest(selector);
+    };
+    const onSendPointer = (event: Event): void => {
+      if (isWithin(event, '#send_but')) markUserSendIntent_ACU();
+    };
+    for (const eventType of ['click', 'pointerup', 'touchend']) {
+      doc.addEventListener(eventType, onSendPointer, true);
     }
-
-    const ta = doc.getElementById('send_textarea');
-    if (ta && hooksState.enter !== ta) {
-      ta.addEventListener('keydown', (e: Event) => {
-        try {
-          const key = (e as KeyboardEvent).key || (e as KeyboardEvent).code;
-          if ((key === 'Enter' || key === 'NumpadEnter') && !(e as KeyboardEvent).shiftKey) {
-            markUserSendIntent_ACU();
-          }
-        } catch (err) {}
-      }, true);
-      hooksState.enter = ta;
-    }
-
-    if (sendBtn && ta) {
-      (window as any).__ACU_sendIntentHooksRetryCount = 0; // 绑定齐全，复位自重试计数
-      return;
-    }
-
-    // [L5] 元素缺失时自重排重试，加上限防止无限循环；超限放弃自动重试，
-    // 但 CHAT_CHANGED 重装路径仍会显式调用本函数按元素实例比对补绑。
-    const retryCount = Number((window as any).__ACU_sendIntentHooksRetryCount) || 0;
-    if (retryCount >= SEND_INTENT_HOOK_MAX_SELF_RETRY_ACU) {
-      logWarn_ACU(`[触发门控] 发送意图钩子自重试已达上限（${SEND_INTENT_HOOK_MAX_SELF_RETRY_ACU} 次；缺 send_but=${!sendBtn}, 缺 send_textarea=${!ta}），停止自动重试，等待 CHAT_CHANGED 重装路径补绑。`);
-      return;
-    }
-    if (!(window as any).__ACU_sendIntentHooksRetryScheduled) {
-      (window as any).__ACU_sendIntentHooksRetryScheduled = true;
-      (window as any).__ACU_sendIntentHooksRetryCount = retryCount + 1;
-      setTimeout(() => {
-        (window as any).__ACU_sendIntentHooksRetryScheduled = false;
-        installSendIntentCaptureHooks_ACU();
-      }, 1200);
-    }
+    doc.addEventListener('keydown', (event: KeyboardEvent) => {
+      try {
+        if (!isWithin(event, '#send_textarea')) return;
+        // 输入法上屏的回车不是「发送」：TT 2.3.0 已在宿主侧修掉 WebKit 的事件倒序（PR #208），
+        // 但本钩子是我们自己的监听器，仍会把上屏回车记成一次发送意图，而该意图是自动填表/剧情的
+        // 真实门控（isRecentUserSendIntent_ACU 被 init.ts 与 state-manager.ts 消费）⇒ 必须自行过滤。
+        // keyCode 229 是「IME 处理中」的历史判据，旧 WebKit/Safari 不填 isComposing。
+        if (event.isComposing || event.keyCode === 229) return;
+        const key = event.key || event.code;
+        if ((key === 'Enter' || key === 'NumpadEnter') && !event.shiftKey) {
+          markUserSendIntent_ACU();
+        }
+      } catch (err) {}
+    }, true);
+    doc[SEND_INTENT_DOC_MARK_ACU] = true;
   } catch (e) {
     // ignore
   }
 }
+
+/**
+ * 测试钩子：直接安装发送意图捕获（业务路径由 mainInitialize / CHAT_CHANGED / 重装路径调用）。
+ * IME 上屏回车的过滤属于门控正确性，需要能在 jsdom 里按元素实例重绑后逐个事件断言。
+ */
+export const __installSendIntentCaptureHooksForTests_ACU = installSendIntentCaptureHooks_ACU;
 
 /**
  * [mid-run 复检] 延迟重建链长 await 之间的低成本复检：排程时捕获的聊天身份/存储 epoch
@@ -532,7 +545,7 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
   try {
     logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
 
-    // [中止] 楼层变更（删楼/ROLL/切聊天）时中止所有在飞的依赖楼层的 API 调用
+    // [中止] 切聊天时中止所有在飞的依赖楼层的 API 调用
     //（表格填表/生理追踪等），避免用旧上下文的结果写入当前状态。
     abortOnChatMutation_ACU();
 
@@ -557,6 +570,8 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
     }
 
     await resetScriptStateForNewChat_ACU(chatFileName, { reason: 'chat_changed' });
+    // reset 已作废上一会话的 Agent 开关缓存；记下本会话 revision，预加载迟到时自行放弃（上游 1.3.6）。
+    const agentRuntimeRevision_ACU = getAgentWorldbookRuntimeRevision_ACU();
 
     // [触发门控] generationGate 重置已搬到 service 层的 resetScriptStateForNewChat_ACU 中
 
@@ -565,6 +580,8 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
 
     // [剧情推进] 切换聊天时加载预设
     await loadPresetAndCleanCharacterData_ACU();
+    // Agent 世界书功能开关：只读开关、不扫描候选；失败只关本会话 Agent，剧情推进开跑前会再补读。
+    void loadAgentWorldbookRuntimeControl_ACU(agentRuntimeRevision_ACU);
 
     // [新增] 切换角色卡（聊天）时，强制从新聊天记录的本地数据读取最新的表格并刷新UI
     logDebug_ACU('ACU: Chat changed, forcing reload of table data from new chat history.');
@@ -584,6 +601,165 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
 // 不做全量 off 配对（大重构超范围），卫兵封死 double-fire 主路径。
 let mainInitializeDone_ACU = false;
 
+// 发送租约用的两个计数：宿主「停止生成」次数与聊天切换次数。宿主切聊天时 chat 数组可能原地复用，
+// 不能只靠数组身份判断「还是不是这次发送」。
+let hostGenerationStopSeq_ACU = 0;
+let chatChangeEpoch_ACU = 0;
+
+interface SendLease_ACU {
+  /** 这次发送仍有效：之后没停止过生成、没切换过聊天或隔离标识。 */
+  isActive: () => boolean;
+  /** 失效原因是宿主停止了生成（用户按了停止）。 */
+  stoppedByHost: () => boolean;
+}
+
+/** 捕获「这次发送」的租约。 */
+function captureSendLease_ACU(): SendLease_ACU {
+  const stopSeq = hostGenerationStopSeq_ACU;
+  const chatEpoch = chatChangeEpoch_ACU;
+  const chatKey = currentChatFileIdentifier_ACU;
+  const isolationKey = getCurrentIsolationKey_ACU();
+  return {
+    isActive: () => hostGenerationStopSeq_ACU === stopSeq
+      && chatChangeEpoch_ACU === chatEpoch
+      && currentChatFileIdentifier_ACU === chatKey
+      && getCurrentIsolationKey_ACU() === isolationKey,
+    stoppedByHost: () => hostGenerationStopSeq_ACU !== stopSeq,
+  };
+}
+
+// 本库自己停掉宿主生成（召回 / 规划失败）时宿主照样派发 GENERATION_STOPPED。那不是用户终止：
+// 不能把它记成「用户终止」，否则会连带掐掉正在跑的、与这次发送无关的填表。
+let selfHostStopAt_ACU = 0;
+const SELF_HOST_STOP_WINDOW_MS_ACU = 2_000;
+
+// 本轮正文已被停止（上游 issue #51）：宿主停止时按 GENERATION_ENDED → GENERATION_STOPPED 的顺序派发，
+// 有的宿主还会在停止后再交付一次本轮结束事件。停止时作废已排队的自动任务，并记住「本轮已停」，
+// 挡住停止之后才到的同轮结束事件；下一轮正文生成（非 quiet / dryRun / 插件自动触发）开始时恢复。
+// 只管自动链，不碰填表自身的 wasStoppedByUser，手动填表照常可用。
+let foregroundTurnStopped_ACU = false;
+/**
+ * 上游 #56：前台 regenerate 已开始、宿主还没删旧回复。宿主删完会 await MESSAGE_DELETED 再读世界书，
+ * 所以这一次删楼要当场跑完回滚与世界书刷新再放行；用完即清，停止 / 结束 / 其它前台生成也清掉。
+ */
+let regenerateAwaitingDeletion_ACU = false;
+
+/**
+ * 召回期间这次发送已失效。用户按了停止：宿主已停，无需再做；
+ * 其它原因（切聊天、宿主重载当前聊天、隔离标识变化）：宿主生成并未被中止，记忆不可信，停掉它。
+ */
+function stopSendAfterLostLease_ACU(lease: SendLease_ACU): void {
+  if (lease.stoppedByHost()) {
+    logDebug_ACU('[交火模式纪要索引] 召回期间用户已停止生成，本次发送不再继续后续处理。');
+    return;
+  }
+  logWarn_ACU('[交火模式纪要索引] 召回期间聊天已切换或重载，本次生成已停止。');
+  stopHostGeneration_ACU();
+  showToastr_ACU('warning', '召回期间聊天已切换或重载，本次生成已停止，请重新发送。', '交火召回');
+}
+
+function stopHostGeneration_ACU(): void {
+  selfHostStopAt_ACU = Date.now();
+  try {
+    if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') SillyTavern_API_ACU.stopGeneration();
+    else if ((window as any).SillyTavern?.stopGeneration) (window as any).SillyTavern.stopGeneration();
+  } catch (e) {}
+}
+
+/**
+ * 启动时已有聊天的初始化链（原 mainInitialize_ACU 内的 initWithChatId 闭包）。
+ * 经 scheduleInitChainRun_ACU 与 CHAT_CHANGED 延迟链共用互斥守卫。
+ */
+export async function runStartupChatInit_ACU(chatId: string): Promise<void> {
+  lastDelayedRebuildRefreshOk_ACU = false; // [M3]
+  logDebug_ACU(`ACU: Initializing with current chat on load: ${chatId}`);
+  await resetScriptStateForNewChat_ACU(chatId, { reason: 'startup_restore' });
+  const agentRuntimeRevision_ACU = getAgentWorldbookRuntimeRevision_ACU();
+  // R9-10：与 CHAT_CHANGED 链一致，每个 await 之后复核聊天身份；切了聊天就停下，
+  // 交给随后补跑的 CHAT_CHANGED 链，避免把旧聊天的表以新聊天身份 hydrate / 发布。
+  const scheduledChatIdentifier_ACU = String(currentChatFileIdentifier_ACU || '');
+  const abortedMidRun = (stage: string, epoch?: number) => shouldAbortDelayedRebuildMidRun_ACU(scheduledChatIdentifier_ACU, epoch, `initWithChatId ${stage}`);
+  await loadPresetAndCleanCharacterData_ACU();
+  if (abortedMidRun('预设加载后')) return;
+  void loadAgentWorldbookRuntimeControl_ACU(agentRuntimeRevision_ACU);
+  
+  // 再次强制刷新数据和UI，确保初始加载时表格显示正确
+  await loadAllChatMessages_ACU();
+  if (abortedMidRun('loadAllChatMessages 后')) return;
+
+  // [provisional bridge] 启动加载当前聊天后统一恢复门：
+  // 若上次运行崩溃留下 active provisional bridge（原 full 被暂存、临时根在链上），
+  // 在首次读写前自动 finalize（有已提交 bucket）或 rollback（零提交）；
+  // 无法证明安全时记录错误并 fail-closed，避免在残留拓扑上继续写入。
+  const bridgeGate = await ensureNoActiveProvisionalBridgeForCurrentScope_ACU();
+  if (!bridgeGate.ok) {
+    logError_ACU(`[ManualCatchUpBridge] 启动恢复残留 provisional bridge 失败：${(bridgeGate as { ok: false; error: string }).error}`);
+  }
+  if (abortedMidRun('provisional bridge 恢复后')) return;
+  // epoch 在 refresh 前捕获：bridge 恢复可能合法地重建 provider；refresh 之后再有 dispose 即视为切聊。
+  let scheduledLifecycleEpoch_ACU: number | undefined;
+  try {
+      scheduledLifecycleEpoch_ACU = getRuntimeLifecycleEpoch_ACU();
+  } catch {
+      scheduledLifecycleEpoch_ACU = undefined;
+  }
+
+  // 阶段 D：启动补偿同样收敛为“一轮 merged refresh → snapshot hydrate”。
+  // 老卡（有聊天历史）从聊天记录合并数据建表；新卡（无数据）由 refresh
+  // 走 guide/模板基底，hydrate 失败或 degraded 时回退冷 reload。
+  const refreshResult = await refreshMergedDataAndNotifyWithUI_ACU();
+  lastDelayedRebuildRefreshOk_ACU = true; // [M3]
+  if (abortedMidRun('merged refresh 后', scheduledLifecycleEpoch_ACU)) return;
+
+  // S0-4：初始加载完成后捕获 checkpoint 保管库（删楼恢复的影子基线）。
+  try {
+      captureCheckpointVaultForCurrentChat_ACU();
+  } catch (e: any) {
+      logWarn_ACU(`[删楼守卫] initWithChatId 保管库捕获失败: ${e?.message}`);
+  }
+
+  // S3-3：初始加载完成后做休眠完整性自检（只读，发现孤儿即警告）。
+  runDormantIntegrityAuditQuietly_ACU('initWithChatId');
+
+  if (isSqliteMode()) {
+      const envelope = refreshResult
+          && !refreshResult.degraded
+          && refreshResult.mergedData
+          ? createCanonicalSnapshotEnvelope_ACU({
+              data: refreshResult.mergedData,
+              chatIdentity: String(currentChatFileIdentifier_ACU || ''),
+              isolationKey: getCurrentIsolationKey_ACU(),
+              storageMode: 'sqlite',
+              lifecycleEpoch: getRuntimeLifecycleEpoch_ACU(),
+              source: 'merged_refresh',
+          })
+          : null;
+      if (envelope) {
+          logDebug_ACU('[SQLite] initWithChatId: 用 canonical snapshot hydrate 内存数据库...');
+          const hydrated = await hydrateStorageProviderFromSnapshot_ACU(envelope);
+          if (hydrated.ok) {
+              logDebug_ACU('[SQLite] initWithChatId: snapshot hydrate 完成');
+          } else if (hydrated.failureCode === 'stale_load_discarded') {
+              logDebug_ACU('[SQLite] initWithChatId: snapshot 身份漂移，回退冷 reload。');
+              try {
+                  await reloadStorageProvider();
+              } catch (e: any) {
+                  logError_ACU('[SQLite] initWithChatId: 冷 reload 失败:', e);
+              }
+          } else {
+              logError_ACU(`[SQLite] initWithChatId: snapshot hydrate 失败: ${hydrated.failureCode || 'unknown'}${hydrated.error ? `: ${hydrated.error}` : ''}`);
+          }
+      } else {
+          logDebug_ACU('[SQLite] initWithChatId: merged refresh 未产出可用 canonical（degraded/空数据），回退冷 reload。');
+          try {
+              await reloadStorageProvider();
+          } catch (e: any) {
+              logError_ACU('[SQLite] initWithChatId: 数据库初始化失败:', e);
+          }
+      }
+  }
+}
+
 export   function mainInitialize_ACU() {
 
     logDebug_ACU('ACU_INIT_DEBUG: mainInitialize_ACU called.');
@@ -595,7 +771,7 @@ export   function mainInitialize_ACU() {
       mainInitializeDone_ACU = true;
       logDebug_ACU('AutoCardUpdater Initialization successful! Core APIs loaded.');
       showToastr_ACU('success', '数据库已加载！', '数据库');
-      // [版本闸门] TT 宿主低于 2.3.0 时弹模态提醒升级。不 await：模态窗由用户自行关闭，
+      // [版本闸门] TT 宿主低于要求基线（ACU_REQUIRED_TAURITAVERN_VERSION）时弹模态提醒升级。不 await：模态窗由用户自行关闭，
       // 不得阻塞后续初始化；非 TT 宿主与版本读取失败都按 fail-open 不打扰。
       void notifyAcuTauriVersionIfOutdated_ACU();
 
@@ -610,6 +786,8 @@ export   function mainInitialize_ACU() {
       installCheckpointDeleteGuard_ACU();
       // TT 帧架构：续写基线跟随表格 checkpoint 落层 + 删楼恢复适配（与删楼守卫并列，函数幂等）。
       installMaterialCheckpointScheduler_ACU();
+      // 大聊天存盘合并：填表运行中暂缓的全量存盘，页面转入后台（手机）/ 关闭时立即补存。
+      installChatSavePageHideFlush_ACU();
       // Register the bridge before generation events are subscribed. Runtime
       // migration remains page-owned so no chat persistence is touched at startup.
       getContinuationRuntime_ACU();
@@ -645,6 +823,9 @@ export   function mainInitialize_ACU() {
         // [H2/M3] 处理体抽至模块级 handleChatChangedEvent_ACU：整体 try/catch，延迟链走互斥守卫入口。
         if (SillyTavern_API_ACU.eventTypes.CHAT_CHANGED) {
           SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, (chatFileName: string) => {
+            // 同步标记：宿主载入聊天时收起停止按钮派发的无配对 ENDED 只立新聊天基线，不误开自动链
+            markChatChangedForEndedGate_ACU();
+            chatChangeEpoch_ACU += 1;
             void handleChatChangedEvent_ACU(chatFileName);
           });
         }
@@ -701,16 +882,24 @@ export   function mainInitialize_ACU() {
               // quiet/dryRun/续写桥逻辑一字不动。
               let preSignature: AiFloorSignatureEx_ACU | undefined;
               try {
-                preSignature = resolveAiFloorSignatureEx_ACU(SillyTavern_API_ACU?.chat);
+                preSignature = toAiFloorSignatureEx_ACU(scanAiFloorSignature_ACU(SillyTavern_API_ACU?.chat));
               } catch {
                 preSignature = undefined;
+              }
+              const quietLike = isQuietLikeGeneration_ACU(type, params);
+              // 新一轮正文生成会重写 / 追加楼层：上一轮还在排队（防抖、等 MVU、等楼层落地）的自动填表与
+              // 正文替换不能再对着旧楼层或没写完的新回复跑（移植上游 2657754a + f874c888）。
+              // quiet / dryRun / 插件自动触发的生成不动正文，不作废。
+              if (!dryRun && !quietLike && !params?.automatic_trigger) {
+                cancelPendingAutoTasks_ACU('generation_started');
+                foregroundTurnStopped_ACU = false;
+                regenerateAwaitingDeletion_ACU = type === 'regenerate';
               }
               const context = recordGenerationContext_ACU(type, params, dryRun, preSignature);
               bindContinuationInternalAiGenerationStarted_ACU(context.seq);
               // 宿主的 GENERATION_STARTED 通常在发送点击返回后的微任务里才送达，同步配对必然错过；
               // 对非 quiet/非 dryRun/非自动触发的生成开放宽松认领（spv8.9.2 状态法），桥内部只在
               // 存在未绑定序列号的等待轮时才会认领。
-              const quietLike = isQuietLikeGeneration_ACU(type, params);
               // TT 2.3.0：Agent 断点续连以 { agentResume: true, runId } 作为第三参派发 STARTED，
               // 形态上不含 automatic_trigger/quiet_prompt，会被误判成「普通前台生成」而吃宽松认领。
               // 它不是本轮用户生成，不许被续写桥认领。
@@ -728,8 +917,20 @@ export   function mainInitialize_ACU() {
           SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STOPPED, () => {
             try {
               // TT 的 GENERATION_STOPPED 是本轮停止事实：立即使已排队的旧自动填表回调失效。
-              _set_wasStoppedByUser_ACU(true);
+              // 本库自己停掉的（召回 / 规划失败）不算用户终止，不连带掐掉在跑的填表。
+              const selfInitiated = Date.now() - selfHostStopAt_ACU <= SELF_HOST_STOP_WINDOW_MS_ACU;
+              selfHostStopAt_ACU = 0;
+              if (!selfInitiated) _set_wasStoppedByUser_ACU(true);
+              hostGenerationStopSeq_ACU += 1;
               const discarded = discardLatestGenerationContext_ACU();
+              // 停掉的是后台 quiet / dryRun 生成时与正文轮次无关；上下文已被 ENDED 消费（拿不到）时按正文停止处理。
+              const stoppedBackground = !!discarded
+                && (discarded.dryRun || isQuietLikeGeneration_ACU(discarded.type, discarded.params));
+              if (!stoppedBackground) {
+                foregroundTurnStopped_ACU = true;
+                regenerateAwaitingDeletion_ACU = false;
+                cancelPendingAutoTasks_ACU('generation_stopped');
+              }
               // 被中止的生成不会再有 GENERATION_ENDED；通知桥把等待中的续写轮转为可重试，避免卡死。
               void getContinuationHostGenerationBridge_ACU()?.onGenerationStopped(discarded?.seq);
             } catch (e) {}
@@ -739,9 +940,14 @@ export   function mainInitialize_ACU() {
             const onGenerationEnded = (message_id: any) => {
                 logDebug_ACU(`ACU GENERATION_ENDED event for message_id: ${message_id}`);
                 const chatAtCapture = SillyTavern_API_ACU?.chat || [];
+                // 开头单次扫描产出本事件所需的全部楼层量（宽档签名 + 最新 AI 楼 mes + 窄档楼数）。
+                // 旧实现对同一条 chat 重复全量扫描 3~4 趟（两次 filter 拷贝 + 两次逆扫 + sha256）。
+                // 本函数从读到派发全程同步无 await，chat 数组在这段时间内不会被改写，
+                // 因此一次扫描的产物可被下面全部分支复用（含放行后的诊断读数）。
+                const floorScan_ACU = scanAiFloorSignature_ACU(chatAtCapture);
                 let endedSignatureEx: AiFloorSignatureEx_ACU | undefined;
                 try {
-                    endedSignatureEx = resolveAiFloorSignatureEx_ACU(chatAtCapture);
+                    endedSignatureEx = toAiFloorSignatureEx_ACU(floorScan_ACU);
                 } catch {
                     endedSignatureEx = undefined;
                 }
@@ -791,7 +997,7 @@ export   function mainInitialize_ACU() {
                       isolationKey: getCurrentIsolationKey_ACU(),
                       capturedAt: Date.now(),
                       capturedChatLength: chatAtCapture.length,
-                      capturedAiFloorCount: countAiModelOutputFloors_ACU(chatAtCapture),
+                      capturedAiFloorCount: floorScan_ACU.aiModelOutputCount,
                       // 已配对时必须携带该轮自己的 seq；并发下不能用全局最新 seq 冒充较早 ENDED。
                       generationSeq: generationContext?.seq ?? (generationGate_ACU.generationSeq > 0 ? generationGate_ACU.generationSeq : undefined),
                       // [配对零产出证据] 仅配对携带 STARTED 时刻的扩展签名；无配对时为 undefined，下游直接放行。
@@ -800,8 +1006,17 @@ export   function mainInitialize_ACU() {
                   : undefined;
                 // [152 收紧] 「新 AI 楼证据」签名：本事件时刻的 AI 楼数 + 最新 AI 楼 message_id（含 narrator，
                 // 与 auto-fill-echo-guard 同口径）。聊天数组在这里读一次，交给门控自行决定无配对假 ended 的去留。
-                const endedFloorSignature_ACU = resolveAiFloorSignature_ACU(chatAtCapture);
-                if (shouldProcessAutoTableUpdateForGenerationEnded_ACU(generationContext, endedFloorSignature_ACU)) {
+                const endedFloorSignature_ACU = floorScan_ACU.signature;
+                if (foregroundTurnStopped_ACU) {
+                  logDebug_ACU('ACU: Skip auto table update: 本轮正文已被停止。');
+                  logAutoFillSkip_ACU('generation_stopped', {
+                    eventType: 'GENERATION_ENDED',
+                    messageId: message_id,
+                    eventMessageId: message_id,
+                    chatKey: currentChatFileIdentifier_ACU,
+                    isolationKey: getCurrentIsolationKey_ACU(),
+                  });
+                } else if (shouldProcessAutoTableUpdateForGenerationEnded_ACU(generationContext, endedFloorSignature_ACU)) {
                   handleNewMessageDebounced_ACU('GENERATION_ENDED', autoFillIntent);
                 } else if (generationContext) {
                   // 只有拿到配对上下文时「quiet/dryRun/自动触发」这条诊断才成立；
@@ -814,7 +1029,7 @@ export   function mainInitialize_ACU() {
                     chatKey: currentChatFileIdentifier_ACU,
                     isolationKey: getCurrentIsolationKey_ACU(),
                     capturedChatLength: chatAtCapture.length,
-                    capturedAiFloorCount: countAiModelOutputFloors_ACU(chatAtCapture),
+                    capturedAiFloorCount: floorScan_ACU.aiModelOutputCount,
                     lastGenerationType: generationGate_ACU.lastGeneration?.type,
                   });
                 }
@@ -847,8 +1062,20 @@ export   function mainInitialize_ACU() {
             try {
             // 前置过滤（纯 UI/宿主层判断）
             if (params?._qrf_processed_by_hook) return;
+            // 租约在任何 await 之前捕获：等待期间的停止 / 切聊天也要算进来
+            const sendLease = captureSendLease_ACU();
             const shouldProcessSummaryVectorIndex = shouldProcessSummaryVectorIndexForGeneration_ACU(type, params, dryRun);
-            const shouldProcessPlot = shouldProcessPlotForGeneration_ACU(type, params, dryRun);
+            // 决策召回「单独召回」占用剧情推进的发送前规划位（写回本轮输入、伪装、中止恢复同一套），
+            // 此时剧情推进暂停、开关不动；「替换剧情推进的任务」时这里不接管，由剧情推进照常运行。
+            const shouldProcessDecisionRecall = shouldProcessDecisionRecallForGeneration_ACU(type, params, dryRun);
+            const shouldProcessPlot = shouldProcessDecisionRecall || shouldProcessPlotForGeneration_ACU(type, params, dryRun);
+            const runPlanning_ACU = shouldProcessDecisionRecall ? runDecisionRecallWithUI_ACU : runOptimizationLogicWithUI_ACU;
+            const planningNotice_ACU = shouldProcessDecisionRecall ? DECISION_RECALL_PENDING_NOTICE_ACU : PLOT_PENDING_NOTICE_ACU;
+            // 「重新生成」是否在重试本库刚停掉的那次发送（门控已据此放行召回与规划）；任何一次用户发送都消费掉标记
+            const retryOfStoppedSend = isRetryOfStoppedSend_ACU(type);
+            if (!dryRun && !params?.automatic_trigger && !isQuietLikeGeneration_ACU(type, params)) {
+              clearStoppedSendRetry_ACU();
+            }
             const plotScope_ACU = shouldProcessPlot ? capturePlotRuntimeScope_ACU() : null;
             const plotScopeStillCurrent_ACU = (): boolean => {
               if (!plotScope_ACU) return true;
@@ -869,20 +1096,63 @@ export   function mainInitialize_ACU() {
               await ensureInitialSeedCheckpointBeforeGeneration_ACU('generation_after_commands_before_ai', { allowPendingFirstUserMessage: true });
             }
             if (!shouldProcessSummaryVectorIndex && !shouldProcessPlot) return;
+            // [伪装发送·可选项] 默认关闭，用户在剧情页显式开启才生效。召回与剧情推进共用
+            // 同一个伪装实例：召回开始即渲染伪装楼层并清空发送框，进入剧情推进只切换拦截提示；
+            // 本 try 的任何 return/throw 都经 finally 把文本交还发送框，宿主随后按原生流程入楼并生成。
+            const chatAtStart = SillyTavern_API_ACU.chat;
+            const lastAtStart = chatAtStart?.length ? (chatAtStart as any)[chatAtStart.length - 1] : null;
+            const pendingTextInBox = String(getSendTextareaValue_ACU() || '');
+            const pendingDisguiseEnabled = settings_ACU?.plotSettings?.pendingDisguiseEnabled === true;
+            let disguise: PlotPendingDisguiseHandle_ACU | null = null;
+            let textForHost = pendingTextInBox;
+            try {
             if (shouldProcessSummaryVectorIndex) {
               try {
-                const chatForSummaryIndex = SillyTavern_API_ACU.chat;
-                const lastUserText = (chatForSummaryIndex?.length && (chatForSummaryIndex as any)[chatForSummaryIndex.length - 1]?.is_user)
-                  ? String((chatForSummaryIndex as any)[chatForSummaryIndex.length - 1].mes || '')
-                  : String(getSendTextareaValue_ACU() || params?.prompt || '');
-                const summaryVectorResult = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: lastUserText, source: 'generation_after_commands' });
+                // G14-10：「继续」类发送末楼是 AI 楼且发送框为空时兜底取宿主 params.prompt——它可能是
+                // 整段格式化提示词（文本补全后端可达数万字符）甚至非字符串，直接当用户输入向量化会
+                // 失真并白烧 token。只接受字符串形态并截尾 500 字符，否则视为无用户输入（走 empty_user_input 跳过）。
+                const promptFallbackText = typeof params?.prompt === 'string' ? params.prompt.slice(-500) : '';
+                const lastUserText = lastAtStart?.is_user
+                  ? String(lastAtStart.mes || '')
+                  : String(pendingTextInBox || promptFallbackText);
+                if (shouldBeginPlotPendingDisguise_ACU({
+                  disguiseEnabled: pendingDisguiseEnabled,
+                  generationType: type,
+                  lastIsUserFloor: lastAtStart?.is_user === true,
+                  text: pendingTextInBox,
+                })) {
+                  disguise = beginPlotPendingDisguise_ACU(pendingTextInBox, { notice: SUMMARY_RECALL_PENDING_NOTICE_ACU });
+                }
+                const summaryVectorResult = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({
+                  userInput: lastUserText, source: 'generation_after_commands', isActive: sendLease.isActive,
+                });
                 logDebug_ACU(`[交火模式纪要索引] GENERATION_AFTER_COMMANDS 发送前处理完成：success=${summaryVectorResult.success}, skipped=${summaryVectorResult.skipped === true}, reason=${summaryVectorResult.reason || 'none'}, keywords=${summaryVectorResult.keywordCount ?? 0}, injected=${summaryVectorResult.injectedCount ?? 0}`);
+                if (!sendLease.isActive()) {
+                  stopSendAfterLostLease_ACU(sendLease);
+                  return;
+                }
+                if (isSummaryVectorRecallFailure_ACU(summaryVectorResult)) {
+                  // 宁可不发，也不带着残缺的记忆发（移植上游 2adf068b）；用户楼保留，「重新生成」会补跑召回与规划
+                  logWarn_ACU(`[交火模式纪要索引] 发送前召回失败（${summaryVectorResult.reason || 'unknown'}），本次生成已停止。`);
+                  stopHostGeneration_ACU();
+                  markStoppedSendForRetry_ACU();
+                  showToastr_ACU('error', SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU, '交火召回失败');
+                  return;
+                }
               } catch (error) {
-                logWarn_ACU('[交火模式纪要索引] 发送前注入失败，继续原始生成:', error);
+                if (!sendLease.isActive()) {
+                  stopSendAfterLostLease_ACU(sendLease);
+                  return;
+                }
+                logWarn_ACU('[交火模式纪要索引] 发送前召回失败，本次生成已停止:', error);
+                stopHostGeneration_ACU();
+                markStoppedSendForRetry_ACU();
+                showToastr_ACU('error', SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU, '交火召回失败');
+                return;
               }
             }
             if (!shouldProcessPlot) return;
-            if (type === 'regenerate' || isProcessing_Plot_ACU) return;
+            if ((type === 'regenerate' && !retryOfStoppedSend) || isProcessing_Plot_ACU) return;
 
             const chat = SillyTavern_API_ACU.chat;
             if (!chat || chat.length === 0) return;
@@ -900,7 +1170,7 @@ export   function mainInitialize_ACU() {
             const s1 = await orchestrateAfterCommandsStrategy1_ACU(
               lastMessage,
               lastMessageIndex,
-              runOptimizationLogicWithUI_ACU,
+              runPlanning_ACU,
               plotScope_ACU ? { runtimeScope: plotScope_ACU } : undefined,
             );
 
@@ -912,13 +1182,13 @@ export   function mainInitialize_ACU() {
             if (s1.action !== 'no_match') {
               // 策略1匹配，根据结果做 UI 操作
               switch (s1.action) {
-                case 'aborted':
-                  if (s1.manual) {
-                    // 停止生成
-                    try {
-                      if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') SillyTavern_API_ACU.stopGeneration();
-                      else if ((window as any).SillyTavern?.stopGeneration) (window as any).SillyTavern.stopGeneration();
-                    } catch (e) {}
+                case 'failed':
+                case 'aborted': {
+                  // 规划失败（重试耗尽或其它失败）与手动中止同口径中断：停生成、删刚建的用户楼、恢复输入框。
+                  // failed 必带 apiRetriesExhausted 或 blocked（编排器保证），裸 failed 不处理。
+                  const interrupted = s1.action === 'aborted' ? !!s1.manual : (s1.apiRetriesExhausted === true || s1.blocked === true);
+                  if (interrupted) {
+                    stopHostGeneration_ACU();
                     // 删除刚创建的用户消息
                     try {
                       const chatNow = SillyTavern_API_ACU.chat;
@@ -928,10 +1198,14 @@ export   function mainInitialize_ACU() {
                         else if ((window as any).SillyTavern?.deleteLastMessage) await (window as any).SillyTavern.deleteLastMessage();
                       }
                     } catch (e) {}
-                    // 恢复输入框
-                    try { setSendTextareaValue_ACU(s1.restoreText || ''); } catch (e) {}
+                    // 恢复输入框（failed 无 restoreText 时用 originalMessage，编排器已回填；
+                    // 伪装激活时经 finally 的 release 统一交还，直接写框会被覆盖导致文本丢失）
+                    const restore = s1.restoreText || (s1.action === 'failed' ? s1.originalMessage : '') || '';
+                    if (disguise) textForHost = restore;
+                    else try { setSendTextareaValue_ACU(restore); } catch (e) {}
                   }
                   break;
+                }
 
                 case 'planned':
                   // 写回 params 和消息对象
@@ -939,7 +1213,10 @@ export   function mainInitialize_ACU() {
                   lastMessage.mes = s1.finalMessage;
                   // [L6] 裸 emit 改走 chat-gateway 的统一出口（含 eventTypes 缺失降级与空值防御）
                   emitMessageUpdated_ACU(lastMessageIndex);
-                  if (getSendTextareaValue_ACU() === s1.originalMessage) setSendTextareaValue_ACU('');
+                  // 伪装激活时发送框已清空且由 release 交还：仅当原文仍是交还文本时才清（与无伪装语义一致）。
+                  if (disguise) {
+                    if (disguise.originalText === s1.originalMessage) textForHost = '';
+                  } else if (getSendTextareaValue_ACU() === s1.originalMessage) setSendTextareaValue_ACU('');
                   break;
 
                 // 'skipped' — 不做额外操作
@@ -952,7 +1229,18 @@ export   function mainInitialize_ACU() {
             // 交火召回可能耗时超过 USER_SEND_TRIGGER_TTL_MS_ACU；这里不能再用 TTL 二次否决，
             // 否则会出现“交火已覆盖纪要索引，但剧情推进被跳过并直接正文生成”的断链。
             if (!shouldProcessPlot && !isRecentUserSendIntent_ACU()) return;
-            const textInBox = getSendTextareaValue_ACU();
+            // 召回未伪装时策略2入口再给一次机会；召回已伪装则只切换拦截提示，共用同一实例。
+            const textInBox = disguise ? disguise.originalText : getSendTextareaValue_ACU();
+            if (!disguise && shouldBeginPlotPendingDisguise_ACU({
+              disguiseEnabled: pendingDisguiseEnabled,
+              generationType: type,
+              lastIsUserFloor: lastAtStart?.is_user === true,
+              text: textInBox,
+            })) {
+              disguise = beginPlotPendingDisguise_ACU(String(textInBox || ''), { notice: planningNotice_ACU });
+            } else if (disguise) {
+              disguise.setNotice(planningNotice_ACU);
+            }
 
             // [重构] 调用 service 层策略2编排
             if (!plotScopeStillCurrent_ACU()) {
@@ -961,7 +1249,7 @@ export   function mainInitialize_ACU() {
             }
             const s2 = await orchestrateAfterCommandsStrategy2_ACU(
               String(textInBox || ''),
-              runOptimizationLogicWithUI_ACU,
+              runPlanning_ACU,
               plotScope_ACU ? { runtimeScope: plotScope_ACU } : undefined,
             );
 
@@ -971,23 +1259,35 @@ export   function mainInitialize_ACU() {
             }
 
             switch (s2.action) {
-              case 'aborted':
-                if (s2.manual) {
-                  try {
-                    if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') SillyTavern_API_ACU.stopGeneration();
-                    else if ((window as any).SillyTavern?.stopGeneration) (window as any).SillyTavern.stopGeneration();
-                  } catch (e) {}
+              case 'failed':
+              case 'aborted': {
+                // 规划失败（重试耗尽或其它失败）与手动中止同口径：停掉本轮生成（S2 楼层未建，输入框原文保留供重试）。
+                // 注：此处只能截停已起的生成，拦不住宿主续发（无发送门控）；真中断要改 params.prompt，
+                // 超出本批口径，保持现状。
+                if (s2.manual || s2.apiRetriesExhausted === true || s2.blocked === true) {
+                  stopHostGeneration_ACU();
+                  // 宿主随后仍会按输入框入楼（无发送门控）：标记给「重新生成」补跑规划
+                  markStoppedSendForRetry_ACU();
                 }
                 break;
+              }
 
               case 'planned':
-                setSendTextareaValue_ACU(s2.finalMessage!);
+                // 伪装接管时发送框写入由 finally 的 release 统一交还，避免双写；
+                // 未伪装保持原行为（直接写框 + params.prompt）。
+                textForHost = s2.finalMessage!;
+                if (!disguise) setSendTextareaValue_ACU(s2.finalMessage!);
                 try { params.prompt = s2.finalMessage; } catch (e) {}
                 break;
             }
 
             // 消费掉本次发送意图
             generationGate_ACU.lastUserSendIntentAt = 0;
+            } finally {
+              // 任何路径（成功/跳过/失败/中止/作用域变化提前 return）都把文本交还发送框，
+              // 未伪装时 release 为 no-op（disguise 为 null）。
+              disguise?.release(textForHost);
+            }
             } catch (afterCommandsOuterError_ACU) {
               logWarn_ACU('[剧情推进] GENERATION_AFTER_COMMANDS 处理失败，继续原始生成:', afterCommandsOuterError_ACU);
             }
@@ -998,7 +1298,26 @@ export   function mainInitialize_ACU() {
             if (SillyTavern_API_ACU.eventTypes[evName as keyof typeof SillyTavern_API_ACU.eventTypes]) {
                 SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName as keyof typeof SillyTavern_API_ACU.eventTypes], async (data: any) => {
                     logDebug_ACU(`ACU ${evName} event detected. Triggering data reload and merge from chat history.`);
+                    // 删楼或切换版本后旧任务的楼层锚点已失效，排队中的自动任务一并作废。
+                    cancelPendingAutoTasks_ACU(evName === 'MESSAGE_DELETED' ? 'message_deleted' : 'message_swiped');
+                    // 已发出的填表请求：目标楼层换成另一条回复的当场中止，回复回来也会被提交阶段拒收，不必再花 token。
+                    const abortedFillRequests_ACU = abortTableFillRequestsWithStaleTarget_ACU();
+                    if (abortedFillRequests_ACU > 0) {
+                        logDebug_ACU(`[聊天变更] ${evName} 后中止了 ${abortedFillRequests_ACU} 个目标楼层已失效的在途填表请求。`);
+                    }
+                    // 删楼守卫：同步登记此刻在场的楼层（重新生成的流式新回复要到事件派发完才追加）。
+                    if (evName === 'MESSAGE_DELETED') {
+                        try { noteMessagesPresentAtDeletion_ACU(); } catch (error) { logWarn_ACU('[删楼守卫] 删楼当刻登记在场楼层失败:', error); }
+                    }
                     scheduleChatMutationRefresh_ACU(evName === 'MESSAGE_DELETED' ? 'chat_modified_deleted' : 'chat_modified_swiped');
+                    // 上游 #56：重新生成删掉旧回复后，宿主等本回调返回才读世界书组装正文请求；
+                    // 防抖要 1.2s 后才回滚，新请求会带着被替换回复的表格结果 ⇒ 这一次当场跑完再放行。
+                    if (evName === 'MESSAGE_DELETED' && regenerateAwaitingDeletion_ACU) {
+                        regenerateAwaitingDeletion_ACU = false;
+                        const startedAt = Date.now();
+                        await flushChatMutationRefreshNow_ACU();
+                        logDebug_ACU(`[聊天变更] 重新生成前已回滚被替换回复的表格数据并刷新世界书，耗时 ${Date.now() - startedAt}ms。`);
+                    }
                 });
             }
         });
@@ -1020,82 +1339,9 @@ export   function mainInitialize_ACU() {
       // 我们在初始化时主动获取一次当前聊天信息并进行设置。
       // 这确保了无论脚本何时加载，都能正确初始化。
       // [修复] 添加轮询重试机制：如果 chatId 暂时不可用，持续轮询直到可用
-      const initWithChatId = async (chatId: string) => {
-          lastDelayedRebuildRefreshOk_ACU = false; // [M3]
-          logDebug_ACU(`ACU: Initializing with current chat on load: ${chatId}`);
-          await resetScriptStateForNewChat_ACU(chatId, { reason: 'startup_restore' });
-          await loadPresetAndCleanCharacterData_ACU();
-          
-          // 再次强制刷新数据和UI，确保初始加载时表格显示正确
-          await loadAllChatMessages_ACU();
-
-          // [provisional bridge] 启动加载当前聊天后统一恢复门：
-          // 若上次运行崩溃留下 active provisional bridge（原 full 被暂存、临时根在链上），
-          // 在首次读写前自动 finalize（有已提交 bucket）或 rollback（零提交）；
-          // 无法证明安全时记录错误并 fail-closed，避免在残留拓扑上继续写入。
-          const bridgeGate = await ensureNoActiveProvisionalBridgeForCurrentScope_ACU();
-          if (!bridgeGate.ok) {
-            logError_ACU(`[ManualCatchUpBridge] 启动恢复残留 provisional bridge 失败：${(bridgeGate as { ok: false; error: string }).error}`);
-          }
-
-          // 阶段 D：启动补偿同样收敛为“一轮 merged refresh → snapshot hydrate”。
-          // 老卡（有聊天历史）从聊天记录合并数据建表；新卡（无数据）由 refresh
-          // 走 guide/模板基底，hydrate 失败或 degraded 时回退冷 reload。
-          const refreshResult = await refreshMergedDataAndNotifyWithUI_ACU();
-          lastDelayedRebuildRefreshOk_ACU = true; // [M3]
-
-          // S0-4：初始加载完成后捕获 checkpoint 保管库（删楼恢复的影子基线）。
-          try {
-              captureCheckpointVaultForCurrentChat_ACU();
-          } catch (e: any) {
-              logWarn_ACU(`[删楼守卫] initWithChatId 保管库捕获失败: ${e?.message}`);
-          }
-
-          // S3-3：初始加载完成后做休眠完整性自检（只读，发现孤儿即警告）。
-          runDormantIntegrityAuditQuietly_ACU('initWithChatId');
-
-          if (isSqliteMode()) {
-              const envelope = refreshResult
-                  && !refreshResult.degraded
-                  && refreshResult.mergedData
-                  ? createCanonicalSnapshotEnvelope_ACU({
-                      data: refreshResult.mergedData,
-                      chatIdentity: String(currentChatFileIdentifier_ACU || ''),
-                      isolationKey: getCurrentIsolationKey_ACU(),
-                      storageMode: 'sqlite',
-                      lifecycleEpoch: getRuntimeLifecycleEpoch_ACU(),
-                      source: 'merged_refresh',
-                  })
-                  : null;
-              if (envelope) {
-                  logDebug_ACU('[SQLite] initWithChatId: 用 canonical snapshot hydrate 内存数据库...');
-                  const hydrated = await hydrateStorageProviderFromSnapshot_ACU(envelope);
-                  if (hydrated.ok) {
-                      logDebug_ACU('[SQLite] initWithChatId: snapshot hydrate 完成');
-                  } else if (hydrated.failureCode === 'stale_load_discarded') {
-                      logDebug_ACU('[SQLite] initWithChatId: snapshot 身份漂移，回退冷 reload。');
-                      try {
-                          await reloadStorageProvider();
-                      } catch (e: any) {
-                          logError_ACU('[SQLite] initWithChatId: 冷 reload 失败:', e);
-                      }
-                  } else {
-                      logError_ACU(`[SQLite] initWithChatId: snapshot hydrate 失败: ${hydrated.failureCode || 'unknown'}${hydrated.error ? `: ${hydrated.error}` : ''}`);
-                  }
-              } else {
-                  logDebug_ACU('[SQLite] initWithChatId: merged refresh 未产出可用 canonical（degraded/空数据），回退冷 reload。');
-                  try {
-                      await reloadStorageProvider();
-                  } catch (e: any) {
-                      logError_ACU('[SQLite] initWithChatId: 数据库初始化失败:', e);
-                  }
-              }
-          }
-      };
-
       if (SillyTavern_API_ACU && SillyTavern_API_ACU.chatId) {
           // chatId 已可用，延迟初始化。[H2/M4] 与 CHAT_CHANGED 延迟链共用同一互斥守卫入口
-          scheduleInitChainRun_ACU(1000, 'initWithChatId', () => initWithChatId(SillyTavern_API_ACU!.chatId));
+          scheduleInitChainRun_ACU(1000, 'initWithChatId', () => runStartupChatInit_ACU(SillyTavern_API_ACU!.chatId));
       } else {
           // chatId 暂时不可用，启动轮询重试（每200ms检查一次，最多等15秒）
           logWarn_ACU('ACU: chatId not available on initial load. Starting polling...');
@@ -1107,7 +1353,7 @@ export   function mainInitialize_ACU() {
               if (chatId) {
                   clearInterval(pollTimer);
                   logDebug_ACU(`ACU: chatId became available after ${pollCount * 200}ms polling: ${chatId}`);
-                  scheduleInitChainRun_ACU(0, 'chatId-polling', () => initWithChatId(chatId));
+                  scheduleInitChainRun_ACU(0, 'chatId-polling', () => runStartupChatInit_ACU(chatId));
               } else if (pollCount >= maxPolls) {
                   clearInterval(pollTimer);
                   logWarn_ACU(`ACU: chatId still not available after ${maxPolls * 200}ms polling. Waiting for CHAT_CHANGED event.`);

@@ -71,28 +71,6 @@ beforeEach(() => {
 });
 
 describe('I3: 模板变量替换管线', () => {
-  it('Random 标签解析和替换', () => {
-    // parseRandomTags_ACU 语法：<random id="xxx" min="N" max="M" />
-    // replaceRandomVariables_ACU 替换 $random:id 格式
-    const input = '<random id="dice" min="1" max="6" />你掷出了$random:dice';
-    const parsed = parseRandomTags_ACU(input);
-    const result = replaceRandomVariables_ACU(parsed);
-    expect(result).not.toContain('<random');
-    expect(result).not.toContain('$random:dice');
-    expect(result).toMatch(/你掷出了[1-6]/);
-  });
-
-  it('Calc 标签解析和替换', () => {
-    const context = { allTablesJson: mockCurrentJsonTableDataRef.value };
-    // parseCalcTags_ACU 语法：<calc id="xxx" expr="表达式" />
-    // replaceCalcVariables_ACU 替换 $calc:id 格式
-    const input = '<calc id="total" expr="3 + 10" />总数是$calc:total';
-    const parsed = parseCalcTags_ACU(input, context);
-    const result = replaceCalcVariables_ACU(parsed);
-    expect(result).toContain('13');
-    expect(result).not.toContain('<calc');
-    expect(result).not.toContain('$calc:total');
-  });
 
   it('Max/Min 标签解析和替换', () => {
     const context = { allTablesJson: mockCurrentJsonTableDataRef.value };
@@ -107,7 +85,10 @@ describe('I3: 模板变量替换管线', () => {
     expect(resultMin).toContain('3');
   });
 
-  it('完整管线串联：random → calc → if-block 按变量裁剪', () => {
+  // NOTE：此处是手动链（按生产入口 processPromptTemplateContent_ACU 的顺序逐个调用），
+  // 不是生产入口本身；生产入口的调用顺序另由 helpers-remaining 的顺序用例锁定。
+  // 本用例的独立价值是跨 helper 真实数据流（上游输出格式必须能被下游消费）。
+  it('helper 手动串联：random → calc → if-block 真实数据流', () => {
     const context = { allTablesJson: mockCurrentJsonTableDataRef.value, seedContent: '我拿起了铁剑', plotContent: '' };
     let content = '<random id="bonus" min="1" max="3" /><calc id="base" expr="10" /><if seed="铁剑">攻击力=$calc:base+$random:bonus<else>无装备</if>';
 

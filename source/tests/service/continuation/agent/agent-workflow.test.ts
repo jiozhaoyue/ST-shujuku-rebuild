@@ -47,7 +47,7 @@ function harness_ACU(patch: Partial<ContinuationWorkflowInput_ACU> = {}) {
             delta: delta_ACU({ hooks: [{ action: 'upsert', id: 'H1', summary: '断裂的封印', status: 'planted', importance: 'mid', plantedIndex: 2, plannedPayoff: '后文回收', reason: '' }] }),
           },
           writes: ['hooks'],
-          readRevisions: snapshot_ACU().revisions,
+          readRevisions: input.snapshot.revisions,
         } satisfies ContinuationWorkflowAgentPayload_ACU;
       }
       return {
@@ -67,6 +67,123 @@ function harness_ACU(patch: Partial<ContinuationWorkflowInput_ACU> = {}) {
 }
 
 describe('续写固定工作流（TT）', () => {
+  it('结算窗口外的 pendingFixes 不被按模块清账（移植上游 5f8afe3a）', async () => {
+    const inWindow = {
+      module: 'hooks', agentName: 'hook-cognition-maintainer',
+      violations: [{ path: 'hooks', message: 'x' }], attempts: 1, firstFailedAtIndex: 5,
+      lastError: 'x', source: 'maintainer', completion: 'failed',
+      rangeStartIndex: 5, rangeEndIndex: 6, acceptedKeys: [], createdAt: 1, updatedAt: 1,
+    } as const;
+    const outWindow = { ...inWindow, rangeStartIndex: 100, rangeEndIndex: 100 };
+    const { run } = harness_ACU({
+      snapshot: snapshot_ACU({ pendingFixes: [inWindow as any, outWindow as any] }),
+    });
+    const result = await run();
+    const remaining = result.pendingFixes;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ module: 'hooks', rangeStartIndex: 100, rangeEndIndex: 100 });
+  });
+
+  it('旧 invoke_failed 缺口在同范围成功后清除，不靠无变化交付清账（移植上游 365dd863）', async () => {
+    const stale = {
+      module: 'hooks', agentName: 'hook-cognition-maintainer',
+      violations: [{ path: 'hooks', message: '维护子代理调用失败' }], attempts: 1, firstFailedAtIndex: 5,
+      lastError: '维护子代理调用失败', source: 'invoke_failed', completion: 'failed',
+      rangeStartIndex: 5, rangeEndIndex: 6, acceptedKeys: [], createdAt: 1, updatedAt: 1,
+    } as const;
+    const { run } = harness_ACU({ snapshot: snapshot_ACU({ pendingFixes: [stale as any] }) });
+    const result = await run();
+    expect(result.pendingFixes.some(item => item.source === 'invoke_failed')).toBe(false);
+  });
+
+  it('窗口外仍有未处理正文时不得推进连续结算水位（移植上游 365dd863）', async () => {
+    const { run } = harness_ACU({ canAdvanceSettlement: false });
+    const result = await run();
+    expect(result.snapshot.settledThroughIndex).toBe(4);
+  });
+
+  it('窗口结算只记录实际窗口：水位不动、完成区间如实记（移植上游 5f8afe3a）', async () => {
+    const { run } = harness_ACU({
+      snapshot: snapshot_ACU({ settledThroughIndex: -1 }),
+      settledIndex: 999,
+      settlementStartIndex: 997,
+      canAdvanceSettlement: false,
+    });
+    const result = await run();
+    expect(result.outcome).toBe('deliver');
+    expect(result.snapshot.settledThroughIndex).toBe(-1);
+    expect(result.snapshot.materialCompletion).toMatchObject({
+      state: 'complete_changed', rangeStartIndex: 997, rangeEndIndex: 999,
+    });
+  });
+
+  it('连续窗口结算合并完成区间；空隙后重新起算（移植上游 5f8afe3a）', async () => {
+    const first = harness_ACU({
+      snapshot: snapshot_ACU({ settledThroughIndex: -1 }),
+      settledIndex: 999,
+      settlementStartIndex: 997,
+      canAdvanceSettlement: false,
+    });
+    const firstResult = await first.run();
+    expect(firstResult.snapshot.materialCompletion).toMatchObject({ rangeStartIndex: 997, rangeEndIndex: 999 });
+    const resumed = harness_ACU({
+      snapshot: firstResult.snapshot,
+      settledIndex: 1001,
+      settlementStartIndex: 1000,
+      canAdvanceSettlement: false,
+    });
+    const resumedResult = await resumed.run();
+    expect(resumedResult.snapshot.settledThroughIndex).toBe(-1);
+    expect(resumedResult.snapshot.materialCompletion).toMatchObject({ rangeStartIndex: 997, rangeEndIndex: 1001 });
+    const afterGap = harness_ACU({
+      snapshot: resumedResult.snapshot,
+      settledIndex: 1009,
+      settlementStartIndex: 1007,
+      canAdvanceSettlement: false,
+    });
+    const afterGapResult = await afterGap.run();
+    expect(afterGapResult.outcome).toBe('deliver');
+    expect(afterGapResult.snapshot.settledThroughIndex).toBe(-1);
+    expect(afterGapResult.snapshot.materialCompletion).toMatchObject({ rangeStartIndex: 1007, rangeEndIndex: 1009 });
+  });
+
+  it('无变化交付同样清除同范围旧 invoke_failed（移植上游 365dd863）', async () => {    const stale = {
+      module: 'hooks', agentName: 'hook-cognition-maintainer',
+      violations: [{ path: 'hooks', message: '维护子代理调用失败' }], attempts: 1, firstFailedAtIndex: 5,
+      lastError: '维护子代理调用失败', source: 'invoke_failed', completion: 'failed',
+      rangeStartIndex: 5, rangeEndIndex: 6, acceptedKeys: [], createdAt: 1, updatedAt: 1,
+    } as const;
+    const base = harness_ACU({ snapshot: snapshot_ACU({ pendingFixes: [stale as any] }) });
+    const { run } = harness_ACU({
+      snapshot: snapshot_ACU({ pendingFixes: [stale as any] }),
+      runAgent: async (call: any) => {
+        if (call.agentName === 'hook-cognition-maintainer') {
+          return {
+            ok: true, summary: '复查无变化', noChange: true,
+            maintainer: { summary: '复查无变化', delta: delta_ACU() },
+            writes: ['hooks'], readRevisions: snapshot_ACU().revisions,
+          };
+        }
+        return base.input.runAgent(call);
+      },
+    });
+    const result = await run();
+    expect(result.pendingFixes.some(item => item.source === 'invoke_failed')).toBe(false);
+  });
+
+  it('settlementStartIndex 入参覆盖缺省起点（移植上游 5f8afe3a）', async () => {    const pending = {
+      module: 'hooks', agentName: 'hook-cognition-maintainer',
+      violations: [{ path: 'hooks', message: 'x' }], attempts: 1, firstFailedAtIndex: 5,
+      lastError: 'x', source: 'maintainer', completion: 'failed',
+      rangeStartIndex: 5, rangeEndIndex: 6, acceptedKeys: [], createdAt: 1, updatedAt: 1,
+    } as const;
+    const { run } = harness_ACU({
+      snapshot: snapshot_ACU({ pendingFixes: [pending as any] }),
+      settlementStartIndex: 2,
+    });
+    const result = await run();
+    expect(result.snapshot.materialCompletion.rangeStartIndex).toBe(2);
+  });
   it('伏笔义务由程序判定（turnNumber 接管轮次判定）', () => {
     expect(continuationBeatObligation_ACU({ function: 'payoff', goal: '喝茶' })).toBe(true);
     expect(continuationBeatObligation_ACU({ goal: '回收旧伏笔' })).toBe(true);
@@ -122,6 +239,70 @@ describe('续写固定工作流（TT）', () => {
     expect(result.steps.some(step => step.agentName === 'continuity-reviewer')).toBe(false);
     expect(harness.composerPrompts[0]).toContain('保守');
     expect(harness.composerPrompts[0]).toContain('不得原样拼接');
+  });
+
+  it('策划交接保留来源、必须保留与风险，失败的策划标为失败而不是静默缺席（上游 37948da1）', async () => {
+    const harness = harness_ACU({
+      hasUnsettledHistory: false,
+      turnNumber: 2,
+      runAgent: async call => {
+        if (call.agentName === 'beat-planner') return { ok: false, summary: '节拍策划超时' };
+        return { ok: true, summary: call.agentName,
+          planner: { summary: '建议', recommendation: '安静地问一句', mustPreserve: ['守门人不说谎'], risks: ['提前揭底'] } };
+      },
+    });
+    await harness.run();
+    const prompt = harness.composerPrompts[0];
+    expect(prompt).toContain('mainline-planner');
+    expect(prompt).toContain('守门人不说谎');
+    expect(prompt).toContain('提前揭底');
+    expect(prompt).toMatch(/beat-planner[^\n]*failed/);
+    expect(prompt).toContain('节拍策划超时');
+  });
+
+  it('终审打回后的修订带上本轮上下文与终审要求保留的内容（上游 37948da1）', async () => {
+    const settings = buildDefaultContinuationSettings_ACU();
+    settings.finalReview.enabled = true;
+    settings.workflow.reviseLimit = 3;
+    const verdicts: AgentFinalReviewerOutput_ACU['verdict'][] = ['revise', 'pass'];
+    const harness = harness_ACU({
+      settings,
+      hasUnsettledHistory: false,
+      runFinalReview: async () => ({ ...review_ACU(verdicts.shift() ?? 'pass', ['补上时间锚']), preserve: ['结尾的沉默'] }),
+    });
+    await harness.run();
+    const revision = harness.composerPrompts[1];
+    expect(revision).toContain('本轮焦点：守门人的回避');
+    expect(revision).toContain('安静地问一句');
+    expect(revision).toContain('补上时间锚');
+    expect(revision).toContain('结尾的沉默');
+  });
+
+  it('结算后的策划、指导与终审拿到工作流当前资料，而不是结算前的旧快照', async () => {
+    const settings = buildDefaultContinuationSettings_ACU();
+    settings.finalReview.enabled = true;
+    const seen: Record<string, string[]> = {};
+    const record = (who: string, snapshot: AgentModuleSnapshot_ACU | undefined) => {
+      seen[who] = (snapshot?.hooks ?? []).map(item => item.id);
+    };
+    const base = harness_ACU({ settings });
+    const maintainerRun = base.input.runAgent;
+    base.input.runAgent = async call => {
+      if (call.agentName !== 'hook-cognition-maintainer') record(call.agentName, call.snapshot);
+      return maintainerRun(call);
+    };
+    base.input.runComposer = async call => {
+      record('composer', call.snapshot);
+      return { instruction: '从守门人的回避写起', summary: '试探', constraints: null };
+    };
+    base.input.runFinalReview = async (_instruction, _summary, snapshot) => {
+      record('final', snapshot);
+      return review_ACU('pass');
+    };
+    await base.run();
+    expect(seen['mainline-planner']).toEqual(['H1']);
+    expect(seen.composer).toEqual(['H1']);
+    expect(seen.final).toEqual(['H1']);
   });
 
   it('没有未结算正文时 maintainer 短路，不调用模型', async () => {
@@ -221,6 +402,41 @@ describe('续写固定工作流（TT）', () => {
     expect(blockedResult.escalationKind).toBe('pending_fix');
   });
 
+  it('先整行契约结算、定向重派改用 write_sql：契约已受理的条目派工前先落帧，读回帧时不被顶掉', async () => {
+    const hook = (id: string) => ({ action: 'upsert' as const, id, summary: `伏笔${id}`, status: 'planted' as const, importance: 'mid' as const, plantedIndex: 2, plannedPayoff: '后文回收', reason: '' });
+    let frame = snapshot_ACU();
+    let maintainerCalls = 0;
+    const { run } = harness_ACU({
+      snapshot: frame,
+      readCommittedSnapshot: () => frame,
+      syncSnapshot: async next => { frame = next; },
+      runAgent: async call => {
+        if (call.agentName !== 'hook-cognition-maintainer') {
+          return { ok: true, summary: call.agentName, planner: { summary: '建议', recommendation: '安静地问一句', mustPreserve: [], risks: [] } };
+        }
+        maintainerCalls += 1;
+        if (maintainerCalls === 1) {
+          return {
+            ok: true,
+            summary: '契约结算',
+            maintainer: { summary: '契约结算', delta: delta_ACU({ hooks: [hook('H_RUN1')] }) },
+            writes: ['hooks'],
+            readRevisions: frame.revisions,
+            unresolvedIssues: [{ module: 'hooks', source: 'contract_rejected', path: 'hooks.H_BAD', message: '缺少回收计划' }],
+          };
+        }
+        // 第二次按提示改用 write_sql：模拟子代理按帧逐栏提交
+        frame = { ...frame, hooks: [...frame.hooks, { ...frame.hooks[0], id: 'H_RUN2', summary: '伏笔H_RUN2' }], revisions: { ...frame.revisions, hooks: frame.revisions.hooks + 1 } };
+        return { ok: true, summary: '逐栏补齐', writes: ['hooks'], usedFieldWrites: true };
+      },
+    });
+
+    const result = await run();
+
+    expect(maintainerCalls).toBe(2);
+    expect(result.snapshot.hooks.map(item => item.id).sort()).toEqual(['H_RUN1', 'H_RUN2']);
+  });
+
   it('工作流内容斥证据门：chronology 引用非 AI 楼时记入 pendingFixes 且不入库', async () => {
     const harness = harness_ACU({
       allowedEvidenceIndexes: new Set([2, 4, 6]),
@@ -261,5 +477,22 @@ describe('续写固定工作流（TT）', () => {
     expect(result.pendingFixes[0]).toMatchObject({ module: 'chronology' });
     expect(result.pendingFixes[0].attempts).toBeGreaterThanOrEqual(1);
     expect(result.pendingFixes[0].lastError).toContain('AI 正文楼层');
+  });
+});
+
+describe('定向补足的写集裁剪（R4-05）', () => {
+  it('只补 hooks 时，模型顺手带的 chronologyPatches 被裁掉，hooks 照常入库', async () => {
+    const { runContinuationMaterialRepair_ACU } = await import('../../../../src/service/continuation/agent/agent-workflow');
+    const base = { ...buildEmptyAgentModuleSnapshot_ACU(), settledThroughIndex: 1,
+      chronology: [{ id: 'T001', anchor: 'a', elapsed: 'e', precision: 'exact', transition: 't', evidenceIndexes: [1], updatedIndex: 1, retired: false, retiredReason: '' }],
+      pendingFixes: [{ module: 'hooks', agentName: 'x', violations: [{ path: 'hooks', message: 'm' }], attempts: 1, firstFailedAtIndex: 1, lastError: 'm', source: 'invoke_failed', completion: 'failed', rangeStartIndex: 1, rangeEndIndex: 1, acceptedKeys: [], createdAt: 1, updatedAt: 1 }] } as any;
+    const result = await runContinuationMaterialRepair_ACU({
+      snapshot: base, targetModules: ['hooks'], settledIndex: 1, completedStageNumbers: [], allowedEvidenceIndexes: new Set([0, 1]),
+      runAgent: async () => ({ ok: true, summary: 'ok', writes: ['hooks', 'infoGap', 'chronology'],
+        maintainer: { summary: '', delta: { hooks: [{ action: 'upsert', id: 'H001', summary: '玉佩', status: 'planted', importance: 'high', plantedIndex: 1, plannedPayoff: '', reason: '' }], hookPatches: [], infoGap: [], infoGapPatches: [], storyArc: [], storyArcPatches: [], chronology: [], chronologyPatches: [{ id: 'T001', elapsed: '三天' }], constraintProposals: [], expectedRevisions: {} } } } as any),
+    } as any);
+    expect(result.failedModules).not.toContain('hooks');
+    expect(result.snapshot.hooks.map((hook: { id: string }) => hook.id)).toEqual(['H001']);
+    expect(result.snapshot.chronology[0].elapsed).toBe('e');
   });
 });

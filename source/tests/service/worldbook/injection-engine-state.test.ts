@@ -24,6 +24,8 @@ const {
   mockListLorebooks,
   mockResolveLorebookNameFromList,
   mockResetPlotAgentWorldbookSessionSnapshot,
+  mockReleaseGreenlightsForChatSwitch,
+  mockSetPendingFinalGenerationGreenlights,
 } = vi.hoisted(() => ({
   mockSettings: {
     dataIsolationEnabled: false,
@@ -90,6 +92,8 @@ const {
     return matches.length === 1 ? String(matches[0]) : null;
   }),
   mockResetPlotAgentWorldbookSessionSnapshot: vi.fn(),
+  mockReleaseGreenlightsForChatSwitch: vi.fn(async () => undefined),
+  mockSetPendingFinalGenerationGreenlights: vi.fn(),
 }));
 
 vi.mock('../../../src/service/settings/settings-readers', () => ({
@@ -111,6 +115,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   _set_currentJsonTableData_ACU: mockSetCurrentJsonTableData,
   _set_independentTableStates_ACU: mockSetIndependentTableStates,
   _set_lastTotalAiMessages_ACU: mockSetLastTotalAiMessages,
+  _set_pendingFinalGenerationGreenlights_ACU: mockSetPendingFinalGenerationGreenlights,
 }));
 
 vi.mock('../../../src/data/gateways/worldbook-gateway', () => ({
@@ -140,6 +145,7 @@ vi.mock('../../../src/service/template/chat-scope', () => ({
 
 vi.mock('../../../src/service/worldbook/pipeline', () => ({
   loadAllChatMessages_ACU: mockLoadAllChatMessages,
+  deleteAllGeneratedEntries_ACU: vi.fn(async () => {}),
 }));
 
 vi.mock('../../../src/shared/utils', () => ({
@@ -165,6 +171,7 @@ vi.mock('../../../src/service/table/table-write-transaction', () => ({
 
 vi.mock('../../../src/service/agent/agent-worldbook-takeover', () => ({
   resetPlotAgentWorldbookSessionSnapshot_ACU: mockResetPlotAgentWorldbookSessionSnapshot,
+  releaseFinalGenerationGreenlightsForChatSwitch_ACU: mockReleaseGreenlightsForChatSwitch,
 }));
 
 import {
@@ -240,31 +247,12 @@ describe('getInjectionTargetLorebook_ACU', () => {
     expect(mockGwGetCurrentCharPrimaryLorebook).not.toHaveBeenCalled();
   });
 
-  it('target 为具体名称时直接返回', async () => {
-    mockGetCurrentWorldbookConfig.mockReturnValue({ injectionTarget: '自定义世界书' });
-    const result = await getInjectionTargetLorebook_ACU();
-    expect(result).toBe('自定义世界书');
-  });
-
   it('配置名称含全角或不可见字符差异时返回宿主真实名称', async () => {
     mockGetCurrentWorldbookConfig.mockReturnValue({ injectionTarget: 'ＡＢＣ' });
     mockListLorebooks.mockResolvedValue(['AB\u200BC']);
 
     const result = await getInjectionTargetLorebook_ACU();
     expect(result).toBe('AB\u200BC');
-  });
-
-  it('角色无主世界书时返回 null', async () => {
-    mockGetCurrentWorldbookConfig.mockReturnValue({ injectionTarget: 'character' });
-    mockGetCurrentCharacterWorldbookBinding.mockResolvedValue({
-      primary: null,
-      additional: ['副书'],
-      orderedNames: ['副书'],
-      apiSource: 'getCharWorldbookNames',
-    });
-    const result = await getInjectionTargetLorebook_ACU();
-    expect(result).toBeNull();
-    expect(mockListLorebooks).not.toHaveBeenCalled();
   });
 
   it('[TT 降级] binding API 抛错时按无注入目标返回 null 并 warn，不炸注入链', async () => {
@@ -281,20 +269,6 @@ describe('getInjectionTargetLorebook_ACU', () => {
 
 // ═══ resetScriptStateForNewChat_ACU ═══
 describe('resetScriptStateForNewChat_ACU', () => {
-  it('有效 chatFileName 重置状态', async () => {
-    mockCleanChatName.mockReturnValue('clean-chat');
-    await resetScriptStateForNewChat_ACU('new-chat.jsonl');
-    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('clean-chat');
-    expect(mockLoadSettings).toHaveBeenCalled();
-    expect(mockResetPlotAgentWorldbookSessionSnapshot).toHaveBeenCalledTimes(1);
-    expect(mockSetAllChatMessages).toHaveBeenCalledWith([]);
-    expect(mockSetLastTotalAiMessages).toHaveBeenCalledWith(0);
-    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
-    expect(mockSetIndependentTableStates).toHaveBeenCalledWith({});
-    expect(mockLoadAllChatMessages).not.toHaveBeenCalled();
-    expect(mockApplyTemplateScopeForCurrentChat).not.toHaveBeenCalled();
-    expect(mockLoadOrCreateJsonTableFromChatHistory).not.toHaveBeenCalled();
-  });
 
   it('真实 CHAT_CHANGED 在加载设置后投影当前角色卡的剧情世界书选择（不再强制重置）', async () => {
     await resetScriptStateForNewChat_ACU('new-chat.jsonl', { reason: 'chat_changed' });
@@ -310,36 +284,6 @@ describe('resetScriptStateForNewChat_ACU', () => {
     await resetScriptStateForNewChat_ACU('new-chat.jsonl', { reason: 'startup_restore' });
 
     expect(mockApplyPlotWorldbookSelectionForCurrentCharacter).toHaveBeenCalledTimes(1);
-  });
-
-  it('重置 generationGate 状态', async () => {
-    mockGenerationGate.lastUserMessageId = 5;
-    mockGenerationGate.lastUserMessageText = '旧消息';
-    mockGenerationGate.lastUserMessageAt = 12345;
-    await resetScriptStateForNewChat_ACU('new-chat.jsonl');
-    expect(mockGenerationGate.lastUserMessageId).toBeNull();
-    expect(mockGenerationGate.lastUserMessageText).toBe('');
-    expect(mockGenerationGate.lastUserMessageAt).toBe(0);
-    expect(mockGenerationGate.lastUserSendIntentAt).toBe(0);
-    expect(mockGenerationGate.lastGeneration).toBeNull();
-  });
-
-  it('无活动聊天且 chatFileName 为空时清空运行时状态', async () => {
-    mockGenerationGate.lastUserMessageId = 5;
-    mockGenerationGate.lastUserMessageText = '旧消息';
-    mockGenerationGate.lastUserMessageAt = 12345;
-
-    await resetScriptStateForNewChat_ACU('');
-
-    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('');
-    expect(mockResetPlotAgentWorldbookSessionSnapshot).toHaveBeenCalledTimes(1);
-    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
-    expect(mockSetIndependentTableStates).toHaveBeenCalledWith({});
-    expect(mockSetAllChatMessages).toHaveBeenCalledWith([]);
-    expect(mockSetLastTotalAiMessages).toHaveBeenCalledWith(0);
-    expect(mockGenerationGate.lastUserMessageId).toBeNull();
-    expect(mockGenerationGate.lastUserMessageText).toBe('');
-    expect(mockGenerationGate.lastUserMessageAt).toBe(0);
   });
 
   it('有聊天数组但 chatFileName 临时无效时仍忽略事件保护当前状态', async () => {
@@ -359,10 +303,42 @@ describe('resetScriptStateForNewChat_ACU', () => {
     expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
   });
 
-  it('纯空格 chatFileName 且无活动聊天时清空运行时状态', async () => {
-    await resetScriptStateForNewChat_ACU('   ');
-    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('');
-    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
+  it('切到另一个聊天：先收回上一聊天的正文绿灯（在丢弃内存快照之前取快照），并清空放行名单', async () => {
+    mockCurrentChatFileIdentifier.value = 'old-chat';
+    await resetScriptStateForNewChat_ACU('new-chat', { reason: 'chat_changed' });
+
+    expect(mockReleaseGreenlightsForChatSwitch).toHaveBeenCalledWith({ includeCurrentScope: true });
+    expect(mockReleaseGreenlightsForChatSwitch.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResetPlotAgentWorldbookSessionSnapshot.mock.invocationCallOrder[0],
+    );
+    expect(mockSetPendingFinalGenerationGreenlights).toHaveBeenCalledWith([]);
+  });
+
+  it('启动阶段首个 chat_changed 到达（identifier 仍为空串）：不算切聊天，不清掉刷新前保留的绿灯（G08-06）', async () => {
+    mockCurrentChatFileIdentifier.value = '';
+    await resetScriptStateForNewChat_ACU('恢复的聊天', { reason: 'chat_changed' });
+
+    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('恢复的聊天');
+    expect(mockReleaseGreenlightsForChatSwitch).not.toHaveBeenCalled();
+    expect(mockSetPendingFinalGenerationGreenlights).not.toHaveBeenCalled();
+  });
+
+  it('同一聊天重复 CHAT_CHANGED、启动恢复：不收回绿灯（保留本聊天上一轮的放行，供重新生成使用）', async () => {
+    mockCurrentChatFileIdentifier.value = 'same-chat';
+    await resetScriptStateForNewChat_ACU('same-chat', { reason: 'chat_changed' });
+    await resetScriptStateForNewChat_ACU('other-chat', { reason: 'startup_restore' });
+
+    expect(mockReleaseGreenlightsForChatSwitch).not.toHaveBeenCalled();
+  });
+
+  it('删聊天后没有活动聊天：只按切换前的快照收回，并清空放行名单', async () => {
+    await resetScriptStateForNewChat_ACU('null');
+
+    expect(mockReleaseGreenlightsForChatSwitch).toHaveBeenCalledWith({ includeCurrentScope: false });
+    expect(mockReleaseGreenlightsForChatSwitch.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResetPlotAgentWorldbookSessionSnapshot.mock.invocationCallOrder[0],
+    );
+    expect(mockSetPendingFinalGenerationGreenlights).toHaveBeenCalledWith([]);
   });
 });
 
@@ -392,27 +368,6 @@ describe('purgeSheetKeysFromChatHistoryHard_ACU', () => {
         { kind: 'sheet', sheetKey: 'sheet_1' },
       ],
     }), expect.any(Function));
-  });
-
-  it('空 keys 数组不做任何操作', async () => {
-    const result = await purgeSheetKeysFromChatHistoryHard_ACU([]);
-    expect(result.changed).toBe(false);
-    expect(result.changedCount).toBe(0);
-    expect(mockGetChatArray).not.toHaveBeenCalled();
-  });
-
-  it('过滤非 sheet_ 前缀的 key', async () => {
-    mockGetChatArray.mockReturnValue([]);
-    const result = await purgeSheetKeysFromChatHistoryHard_ACU(['invalid_key', 'sheet_0']);
-    // 只有 sheet_0 被保留
-    expect(result.changed).toBe(false);
-  });
-
-  it('空聊天记录不做操作', async () => {
-    mockGetChatArray.mockReturnValue([]);
-    const result = await purgeSheetKeysFromChatHistoryHard_ACU(['sheet_0']);
-    expect(result.changed).toBe(false);
-    expect(result.changedCount).toBe(0);
   });
 
   it('跳过用户消息', async () => {

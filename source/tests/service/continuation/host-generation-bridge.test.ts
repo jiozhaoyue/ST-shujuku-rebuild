@@ -39,7 +39,6 @@ function createHarness(options: { tags?: string; chat?: any[]; pending?: any; se
   };
   const hostInput = {
     send: vi.fn(() => options.send ?? true),
-    removeLastMessage: vi.fn(async () => { chat = chat.slice(0, -1); return true; }),
     retryGeneration: vi.fn(() => options.retry ?? true),
     stopGeneration: vi.fn(),
   };
@@ -191,8 +190,6 @@ describe('ContinuationHostGenerationBridge_ACU', () => {
     h.setChat([{ is_user: true }, { is_user: false, mes: '正文', message_id: 9 }]);
     await h.bridge.onGenerationEnded(9, 7);
     expect(h.runtime.rejectHostTurnForMissingTags).toHaveBeenCalledWith({ identity, messageIndex: 1 });
-    // 删楼交还给酒馆 regenerate 自己完成：桥不再手持 deleteLastMessage 原语。
-    expect(h.hostInput.removeLastMessage).not.toHaveBeenCalled();
     expect(h.hostInput.send).toHaveBeenCalledOnce();
     expect(h.hostInput.retryGeneration).toHaveBeenCalledWith('regenerate');
     expect(h.runtime.recordHostTurn).toHaveBeenLastCalledWith({
@@ -214,9 +211,39 @@ describe('ContinuationHostGenerationBridge_ACU', () => {
     expect(h.runtime.rejectHostTurnForShortGeneration).toHaveBeenCalledWith({ identity, messageIndex: 1, tokenCount: 12, threshold: 1000 });
     // 短楼同样会被宿主 regenerate 删掉重生成：先作废待填表防抖，避免对已删楼双写。
     expect(invalidatePendingAutoFill).toHaveBeenCalledOnce();
-    expect(h.hostInput.removeLastMessage).not.toHaveBeenCalled();
     expect(h.hostInput.retryGeneration).toHaveBeenCalledWith('regenerate');
     expect(h.runtime.confirmCurrentTurn).not.toHaveBeenCalled();
+  });
+
+  it('空正文按生成失败重试（没配标签、没设最短长度时也不能当合格正文确认；上游 80096e51）', async () => {
+    for (const mes of ['', '  \n\t']) {
+      const invalidatePendingAutoFill = vi.fn();
+      const h = createHarness({ tags: '', minTokens: 0, invalidatePendingAutoFill });
+      h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
+      h.hostInput.retryGeneration.mockImplementation(() => { h.bridge.onGenerationStarted(8); return true; });
+      await h.bridge.send(prepared);
+      h.setChat([{ is_user: true }, { is_user: false, mes, message_id: 9 }]);
+      await h.bridge.onGenerationEnded(9, 7);
+
+      expect(h.runtime.confirmCurrentTurn).not.toHaveBeenCalled();
+      expect(h.runtime.rejectHostTurnForFailedGeneration).toHaveBeenCalledWith(identity);
+      expect(h.runtime.rejectHostTurnForMissingTags).not.toHaveBeenCalled();
+      // 空楼同样会被宿主 regenerate 删掉重生成：先作废待填表防抖。
+      expect(invalidatePendingAutoFill).toHaveBeenCalledOnce();
+      expect(h.hostInput.retryGeneration).toHaveBeenCalledWith('regenerate');
+    }
+  });
+
+  it('配了循环标签时，空正文同样按生成失败处理，不按缺标签', async () => {
+    const h = createHarness({ tags: '<required>' });
+    h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
+    h.hostInput.retryGeneration.mockImplementation(() => { h.bridge.onGenerationStarted(8); return true; });
+    await h.bridge.send(prepared);
+    h.setChat([{ is_user: true }, { is_user: false, mes: '', message_id: 9 }]);
+    await h.bridge.onGenerationEnded(9, 7);
+
+    expect(h.runtime.rejectHostTurnForFailedGeneration).toHaveBeenCalledWith(identity);
+    expect(h.runtime.rejectHostTurnForMissingTags).not.toHaveBeenCalled();
   });
 
   it('confirms short bodies directly when the token threshold is 0 (gate off)', async () => {
@@ -249,7 +276,6 @@ describe('ContinuationHostGenerationBridge_ACU', () => {
 
     await h.bridge.onGenerationEnded(9, 7);
 
-    expect(h.hostInput.removeLastMessage).not.toHaveBeenCalled();
     expect(h.hostInput.retryGeneration).not.toHaveBeenCalled();
     expect(h.runtime.pauseForHostResultFailure).toHaveBeenCalledWith(identity);
     expect(h.runtime.rejectHostTurnForMissingTags).not.toHaveBeenCalled();
@@ -268,6 +294,35 @@ describe('ContinuationHostGenerationBridge_ACU', () => {
     expect(h.runtime.confirmCurrentTurn).not.toHaveBeenCalled();
     expect(h.runtime.pauseForHostResultFailure).not.toHaveBeenCalled();
     expect(h.runtime.rejectHostTurnForMissingTags).not.toHaveBeenCalled();
+  });
+
+  it('生成中切到别的聊天，原聊天那次生成在后台结束或中止：切回后不残留「在飞」认领', async () => {
+    for (const finish of ['ended', 'stopped'] as const) {
+      const h = createHarness();
+      h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
+      await h.bridge.send(prepared);
+      expect(h.bridge.hasLiveClaim('chat-a')).toBe(true);
+
+      h.setChatIdentity('chat-b');
+      if (finish === 'ended') await h.bridge.onGenerationEnded(undefined, 7);
+      else await h.bridge.onGenerationStopped(7);
+      h.setChatIdentity('chat-a');
+
+      expect(h.bridge.hasLiveClaim('chat-a')).toBe(false);
+    }
+  });
+
+  it('重试等待窗内用户删掉了指令楼 → 放弃自动重试前不把任务置回运行中', async () => {
+    let harnessRef: ReturnType<typeof createHarness> | null = null;
+    const h = createHarness({ onWait: () => { harnessRef?.setChat([]); } });
+    harnessRef = h;
+    h.hostInput.send.mockImplementation(() => { h.bridge.onGenerationStarted(7); return true; });
+    await h.bridge.send(prepared);
+
+    await h.bridge.onGenerationEnded(undefined, 7);
+
+    expect(h.retryCurrentTurn).not.toHaveBeenCalled();
+    expect(h.hostInput.retryGeneration).not.toHaveBeenCalled();
   });
 
   it('auto-retries the current turn through host generate when an errored generation ends without a new floor', async () => {

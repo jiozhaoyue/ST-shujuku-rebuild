@@ -78,6 +78,7 @@ vi.mock('../../src/presentation/dom-utils', () => ({
 
 vi.mock('../../src/presentation/theme/toast', () => ({
   showToastr_ACU: vi.fn(() => null),
+  showHostSurfaceToast_ACU: vi.fn(),
 }));
 
 vi.mock('../../src/shared/html-helpers', () => ({
@@ -86,17 +87,10 @@ vi.mock('../../src/shared/html-helpers', () => ({
   renderToastActionButton_ACU: () => '',
 }));
 
-vi.mock('../../src/service/plot/plot-state', () => ({
-  _set_currentEditablePlotPresetState_ACU: vi.fn(),
-  _set_activePlotEditorSettings_ACU: vi.fn(),
-  _set_currentPlotTaskEditorId_ACU: vi.fn(),
-}));
-
 vi.mock('../../src/service/optimization/content-optimization', () => ({
   cancelContentOptimization_ACU: vi.fn(() => ({ cancelled: false, reason: '' })),
   optimizationProgressToast_ACU: null,
   _set_optimizationProgressToast_ACU: vi.fn(),
-  _set_contentOptimizationAbortRequested_ACU: vi.fn(),
 }));
 
 // optimization-ui-diff 顶部循环 import exec；打桩切断 exec 的重依赖链
@@ -110,8 +104,14 @@ import {
   showOptimizationOverlay_ACU,
   hideOptimizationOverlay_ACU,
 } from '../../src/presentation/components/optimization-ui/optimization-ui-overlay';
-import { showOptimizationDiffDialogForLoop_ACU } from '../../src/presentation/components/optimization-ui/optimization-ui-diff';
-import { _set_jQuery_API_ACU } from '../../src/shared/host-api';
+import {
+  showOptimizationDiffDialogForLoop_ACU,
+  showOptimizationResultDialog_ACU,
+  showOptimizationResultToast_ACU,
+} from '../../src/presentation/components/optimization-ui/optimization-ui-diff';
+import { showHostSurfaceToast_ACU } from '../../src/presentation/theme/toast';
+import { _set_jQuery_API_ACU, _set_SillyTavern_API_ACU } from '../../src/shared/host-api';
+import { _set_currentChatFileIdentifier_ACU } from '../../src/service/runtime/state-manager';
 
 function makeResult(currentLoop: number, totalLoops: number) {
   return {
@@ -129,7 +129,11 @@ function makeResult(currentLoop: number, totalLoops: number) {
 describe('optimization-ui TT surface 打标', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    document.getElementById('acu-host-dialog-styles')?.remove();
     _set_jQuery_API_ACU(miniJQuery_ACU as any);
+    // G01-01：结果 toast 出现时会同步捕获楼层身份快照（聊天数组 + 聊天标识），这里备好可读的目标楼
+    _set_SillyTavern_API_ACU({ chat: [{}, {}, {}, { is_user: false, mes: '内容', message_id: 9, swipe_id: 0 }] } as any);
+    _set_currentChatFileIdentifier_ACU('chat-a');
   });
 
   it('优化遮罩 #acu-optimization-overlay 声明为 backdrop', () => {
@@ -152,5 +156,72 @@ describe('optimization-ui TT surface 打标', () => {
     expect(backdrop).not.toBeNull();
     expect(dialog!.getAttribute('data-tt-mobile-surface')).toBe('free-window');
     expect(backdrop!.getAttribute('data-tt-mobile-surface')).toBe('backdrop');
+  });
+
+  /**
+   * `free-window` 在宿主 geometry firewall 里**零规则**，而且显式打标会让分类器提前 return
+   * （mobile-overlay-compat-controller.js:226-229），连准入时的一次性 nudge 都不会有
+   * ⇒ 顶部偏移必须我们自己吃安全区。硬编码 `top: 10px` 在 Android 非沉浸模式 / iOS 刘海机上
+   * 会顶进状态栏，正是宿主文档 docs/AndroidDevelopment.md:309-318 记录的原始 bug 形态。
+   */
+  it('对话框顶部偏移消费宿主安全区变量，不再硬编码', () => {
+    showOptimizationDiffDialogForLoop_ACU(3, makeResult(1, 2), vi.fn());
+
+    const dialog = document.querySelector<HTMLElement>('.acu-optimization-dialog');
+    expect(dialog!.classList.contains('acu-hd-dialog--floating')).toBe(true);
+    const css = document.getElementById('acu-host-dialog-styles')?.textContent || '';
+    const rule = css.slice(css.indexOf('.acu-hd-dialog--floating {'), css.indexOf('}', css.indexOf('.acu-hd-dialog--floating {')));
+    expect(rule).toContain('--tt-inset-top');
+    expect(rule).toContain('safe-area-inset-top');
+    expect(rule).not.toMatch(/top:\s*10px\s*;/);
+  });
+
+  it('结果对话框同样使用插件弹窗样式，关闭按钮与遮罩都能关', () => {
+    showOptimizationResultDialog_ACU(3, makeResult(1, 1));
+
+    const dialog = document.querySelector<HTMLElement>('.acu-optimization-dialog')!;
+    expect(dialog.classList.contains('acu-hd-dialog')).toBe(true);
+    expect(dialog.getAttribute('data-tt-mobile-surface')).toBe('free-window');
+    expect(document.getElementById('acu-opt-backdrop')!.getAttribute('data-tt-mobile-surface')).toBe('backdrop');
+    expect(document.body.innerHTML).not.toContain('style=');
+    expect(document.getElementById('acu-opt-result-close')!.className).toContain('acu-hd-btn--primary');
+    expect(dialog.textContent).toContain('共 1 处改进');
+
+    document.getElementById('acu-opt-backdrop')!.click();
+    expect(document.querySelector('.acu-optimization-dialog')).toBeNull();
+  });
+
+  it('无感模式完成提示：走插件提示框（不受静默拦截），点「查看对比」打开只读结果对话框', async () => {
+    vi.mocked(showHostSurfaceToast_ACU).mockClear();
+    showOptimizationResultToast_ACU(3, makeResult(1, 1), '正文优化完成，共 1 轮优化，累计 1 处改进');
+
+    expect(showHostSurfaceToast_ACU).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(showHostSurfaceToast_ACU).mock.calls[0][0];
+    expect(payload.kind).toBe('success');
+    expect(payload.text).toContain('正文优化完成');
+    expect(payload.action?.label).toBe('查看对比');
+    expect(document.querySelector('.acu-optimization-dialog')).toBeNull();
+
+    await payload.action!.onClick();
+    const dialog = document.querySelector<HTMLElement>('.acu-optimization-dialog');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.textContent).toContain('正文替换完成');
+    expect(dialog!.querySelectorAll('.acu-hd-item').length).toBe(1);
+  });
+
+  it('优化遮罩为主题化卡片：强调色转圈、次级取消按钮，无旧配色', () => {
+    showOptimizationOverlay_ACU('正在优化正文...');
+
+    const overlay = document.getElementById('acu-optimization-overlay')!;
+    expect(overlay.classList.contains('acu-hd-layer')).toBe(true);
+    expect(overlay.classList.contains('acu-host-surface')).toBe(true);
+    expect(overlay.querySelector('.acu-hd-spinner')).not.toBeNull();
+    expect(overlay.textContent).toContain('正在优化正文...');
+    expect(document.getElementById('acu-optimization-overlay-cancel')!.className).toContain('acu-hd-btn--ghost');
+    expect(document.body.innerHTML).not.toContain('style=');
+    expect(document.body.innerHTML).not.toContain('#7bb7ff');
+    expect(document.body.innerHTML).not.toContain('#ffc107');
+    const css = document.getElementById('acu-host-dialog-styles')?.textContent || '';
+    expect(css).toMatch(/\.acu-hd-spinner\s*\{[^}]*var\(--acu-accent/);
   });
 });

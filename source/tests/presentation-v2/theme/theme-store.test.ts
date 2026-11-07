@@ -15,6 +15,37 @@ type PersistenceModule = typeof import('../../../src/presentation-v2/stores/pers
 type HostDocModule = typeof import('../../../src/presentation-v2/bootstrap/host-document');
 type PiniaModule = typeof import('pinia');
 
+type Rgba = [number, number, number, number];
+
+function parseColor(color: string): Rgba {
+  const value = color.trim();
+  if (value === 'transparent') return [0, 0, 0, 0];
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return [0, 2, 4].map(i => parseInt(hex[1].slice(i, i + 2), 16)).concat(1) as Rgba;
+  const rgba = value.match(/^rgba?\(([^)]+)\)$/i);
+  if (!rgba) throw new Error(`无法解析颜色：${color}`);
+  const parts = rgba[1].split(',').map(Number);
+  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+}
+
+function composite(fg: Rgba, bg: Rgba): Rgba {
+  const a = fg[3];
+  return [0, 1, 2].map(i => fg[i] * a + bg[i] * (1 - a)).concat(1) as Rgba;
+}
+
+function luminance(c: Rgba): number {
+  const [r, g, b] = c.slice(0, 3).map(v => {
+    const x = v / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: Rgba, b: Rgba): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 const JIRAI_TOKENS = {
   bg0: '#2B2B2B',
   bg1: '#1F1F1F',
@@ -122,18 +153,6 @@ describe('theme-store', () => {
     expect(store.activeId).toBe(before);
   });
 
-  it('只暴露当前维护的四个内置主题', async () => {
-    const m = await freshImport();
-    m.pinia.setActivePinia(m.pinia.createPinia());
-    const store = m.themeStore.useThemeStore();
-    expect(store.themes.map(t => t.id)).toEqual([
-      'default-light',
-      'default-dark',
-      'creamy-minimal',
-      'jirai-kei',
-    ]);
-  });
-
   it('导入 v2 自定义主题后加入列表、切为活动主题并持久化', async () => {
     const m = await freshImport();
     m.pinia.setActivePinia(m.pinia.createPinia());
@@ -163,6 +182,10 @@ describe('theme-store', () => {
       'default-dark',
       'creamy-minimal',
       'jirai-kei',
+      'claude',
+      'claude-night',
+      'mist-blue',
+      'midnight',
       'custom:theme',
     ]);
 
@@ -203,6 +226,10 @@ describe('theme-store', () => {
       'default-dark',
       'creamy-minimal',
       'jirai-kei',
+      'claude',
+      'claude-night',
+      'mist-blue',
+      'midnight',
     ]);
     expect(store.activeTheme.tokens.bg0).toBe('#2B2B2B');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
@@ -348,104 +375,86 @@ describe('theme-store', () => {
     }))).toThrow('主题文件缺少 v2 主题所需的颜色模式或 token。');
   });
 
-  it('深色使用灰蓝底色与冷薄荷 accent', async () => {
+  it('R10B-16：拒绝能让界面请求外部资源的 token（CSS 转义的 url、image-set、协议地址）', async () => {
     const m = await freshImport();
     m.pinia.setActivePinia(m.pinia.createPinia());
     const store = m.themeStore.useThemeStore();
-    const defaultDark = store.themes.find(t => t.id === 'default-dark');
-    expect(defaultDark).toMatchObject({
-      name: '深色',
-      colorScheme: 'dark',
-      tokens: {
-        bg0: '#1F2428',
-        bg1: '#24292E',
-        bg2: '#2D343B',
-        sidebarBg: '#1F2428',
-        hoverOverlay: 'rgba(201, 209, 217, 0.08)',
-        border: 'rgba(205, 217, 229, 0.08)',
-        border2: 'rgba(205, 217, 229, 0.14)',
-        text1: '#F0F3F6',
-        text2: '#C9D1D9',
-        text3: '#8B949E',
-        accent: '#7FD6CA',
-        accent2: '#69C7BC',
-        onAccent: '#1F2428',
-        accentGlow: 'rgba(127, 214, 202, 0.26)',
-        success: '#8DBA9A',
-        warning: '#C9A35E',
-        danger: '#D07A74',
-        shadow: '0 18px 48px rgba(1, 4, 9, 0.36)',
-      },
-    });
+    const base = store.themes.find(t => t.id === 'default-dark')!;
+    const attempt = (bg0: string) => () => store.importCustomThemeFromJsonText(JSON.stringify({
+      kind: 'acu-v2-theme',
+      version: 1,
+      theme: { name: '外链主题', colorScheme: 'dark', tokens: { ...base.tokens, bg0 } },
+    }));
+
+    for (const bad of [
+      String.raw`\75 rl(https://evil.example/x.png)`,
+      'image-set("https://evil.example/x.png" 1x)',
+      '-webkit-image-set("https://evil.example/x.png" 1x)',
+      'linear-gradient(red, blue), src("//evil.example/a")',
+      '"https://evil.example/a"',
+    ]) {
+      expect(attempt(bad), bad).toThrow('主题文件缺少 v2 主题所需的颜色模式或 token。');
+    }
+    // 正常的渐变与带引号的字体名仍可导入
+    expect(attempt('linear-gradient(180deg, #111 0%, rgba(0, 0, 0, 0.8) 100%)')).not.toThrow();
   });
 
-  it('包含奶油风主题', async () => {
+  /**
+   * 新版界面靠「页面底色 bg0 / 卡片 bg1」分层、靠 accent 做选中与主按钮。
+   * 旧浅色 / 深色 / 奶油风两层几乎同色（对比 1.04~1.07）、奶油风主按钮字看不清，
+   * 这正是它们放到新界面上显得发灰发糊的原因。这里给所有内置主题立同一道可读性下限。
+   */
+  it('所有内置主题满足新版界面的可读性下限：文字对比、主按钮文字、卡片与底色分层', async () => {
     const m = await freshImport();
     m.pinia.setActivePinia(m.pinia.createPinia());
     const store = m.themeStore.useThemeStore();
-    const creamyMinimal = store.themes.find(t => t.id === 'creamy-minimal');
-    expect(creamyMinimal).toMatchObject({
-      name: '奶油风',
-      colorScheme: 'light',
-      tokens: {
-        bg0: '#F7F0E6',
-        bg1: '#FCF8F1',
-        bg2: '#EFE4D7',
-        sidebarBg: '#F6ECDD',
-        border: 'rgba(116, 91, 62, 0.12)',
-        text1: '#514638',
-        accent: '#85A76A',
-        onAccent: '#FCF8F1',
-        hoverOverlay: 'rgba(116, 91, 62, 0.08)',
-        success: '#7F9B69',
-        warning: '#AA8050',
-        danger: '#A76561',
-        radiusLg: '18px',
-      },
-    });
+    const builtins = store.themes.filter(t => !t.id.startsWith('custom:'));
+    expect(builtins.length).toBeGreaterThanOrEqual(8);
 
-    store.setTheme('creamy-minimal');
-    expect(store.activeId).toBe('creamy-minimal');
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
-      theme: { activeId: 'creamy-minimal' },
-    });
-  });
-
-  it('包含地雷色主题', async () => {
-    const m = await freshImport();
-    m.pinia.setActivePinia(m.pinia.createPinia());
-    const store = m.themeStore.useThemeStore();
-    const jiraiKei = store.themes.find(t => t.id === 'jirai-kei');
-    expect(jiraiKei).toMatchObject({
-      name: '地雷色',
-      colorScheme: 'dark',
-      tokens: {
-        bg0: '#2B2B2B',
-        bg1: '#1F1F1F',
-        bg2: 'rgba(255, 196, 212, 0.08)',
-        sidebarBg: '#1F1F1F',
-        border: 'transparent',
-        text1: '#FFFFFF',
-        accent: '#FFC4D4',
-        accent2: '#FFD9E4',
-        onAccent: '#2B2B2B',
-        hoverOverlay: 'rgba(255, 196, 212, 0.12)',
-        success: '#E5A0B5',
-        warning: '#FFB38B',
-        danger: '#D96C6C',
-        radiusLg: '18px',
-      },
-    });
-
-    store.setTheme('jirai-kei');
-    expect(store.activeId).toBe('jirai-kei');
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
-      theme: { activeId: 'jirai-kei' },
-    });
+    for (const theme of builtins) {
+      const t = theme.tokens;
+      const bg1 = parseColor(t.bg1);
+      const on = (color: string, base = bg1) => composite(parseColor(color), base);
+      const accent = on(t.accent);
+      const checks = {
+        正文: [contrast(on(t.text1), bg1), 7],
+        次要文字: [contrast(on(t.text2), bg1), 4.5],
+        辅助文字: [contrast(on(t.text3), bg1), 3.5],
+        主按钮文字: [contrast(on(t.onAccent, accent), accent), 4.5],
+        卡片与底色分层: [contrast(parseColor(t.bg0), bg1), 1.08],
+      } as const;
+      for (const [label, [value, min]] of Object.entries(checks)) {
+        expect(value, `${theme.name}：${label}对比 ${value.toFixed(2)} 低于 ${min}`).toBeGreaterThanOrEqual(min);
+      }
+    }
   });
 });
 
 describe('theme-injector', () => {
+  it('面板外的宿主浮层（提示框/旧弹窗）同样拿到主题 token 与配色方案', async () => {
+    const m = await freshImport();
+    const dark = (await import('../../../src/presentation-v2/theme/builtin-themes')).ACU_V2_BUILTIN_THEMES
+      .find(t => t.id === 'default-dark')!;
+    m.injector.applyTheme(dark);
+    const css = document.getElementById(STYLE_NODE_ID)!.textContent!;
+    const rule = css.slice(css.indexOf(`.${m.injector.HOST_SURFACE_CLASS}`));
+    expect(rule).toContain(`--acu-bg-1: ${dark.tokens.bg1};`);
+    expect(rule).toContain(`--acu-accent: ${dark.tokens.accent};`);
+    expect(css).toContain(`.${m.injector.HOST_SURFACE_CLASS} {\n  color-scheme: dark;`);
+  });
+
+  it('不建 store 也能读出已保存的主题（供启动时给宿主浮层上色）', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: { activeId: 'creamy-minimal' } }));
+    const m = await freshImport();
+    expect(m.themeStore.readPersistedActiveTheme_ACU().id).toBe('creamy-minimal');
+  });
+
+  it('没有保存过主题时回退默认主题', async () => {
+    const m = await freshImport();
+    const { ACU_V2_DEFAULT_THEME_ID } = await import('../../../src/presentation-v2/theme/builtin-themes');
+    expect(m.themeStore.readPersistedActiveTheme_ACU().id).toBe(ACU_V2_DEFAULT_THEME_ID);
+  });
+
   it('applyTheme 把内置主题分别写入同一个 <style id="acu-v2-theme">', async () => {
     const m = await freshImport();
     m.pinia.setActivePinia(m.pinia.createPinia());
@@ -477,14 +486,14 @@ describe('theme-injector', () => {
     m.injector.applyTheme(store.activeTheme);
     const style2 = document.getElementById(STYLE_NODE_ID) as HTMLStyleElement | null;
     expect(style2).toBe(style1); // 同一个节点，textContent 被替换
-    expect(style2!.textContent).toContain('#f8f5ee'); // light 的 bg-0
+    expect(style2!.textContent).toContain('#F2F1ED'); // light 的 bg-0
 
     store.setTheme('creamy-minimal');
     m.injector.applyTheme(store.activeTheme);
     const style3 = document.getElementById(STYLE_NODE_ID) as HTMLStyleElement | null;
     expect(style3).toBe(style1);
-    expect(style3!.textContent).toContain('#F7F0E6'); // 奶油风的 bg-0
-    expect(style3!.textContent).toContain('#85A76A'); // 奶油风的 accent
+    expect(style3!.textContent).toContain('#F2E8DA'); // 奶油风的 bg-0
+    expect(style3!.textContent).toContain('#5A7A44'); // 奶油风的 accent
     expect(style3!.textContent).toContain('rgba(116, 91, 62, 0.08)'); // 奶油风的 hover overlay
   });
 

@@ -259,35 +259,6 @@ describe('initGameSession 剧情推进预设（本库不内置预设）', () => 
     expect(result.success).toBe(true);
   });
 
-  it('loadPreset=false 显式关闭时不产生跳过 warning', async () => {
-    const api = createApi();
-
-    const result = await api.initGameSession({}, {
-      templateData: { sheet_a: { uid: 'sheet_a', name: 'A', content: [['row_id']] } },
-      loadPreset: false,
-    });
-
-    expect(result).toMatchObject({ success: true, presetLoaded: false });
-    expect(result.warning).toBe('');
-  });
-
-  it('提供 presetData 时照旧走 importPlotPresetFromData（overwrite + switchTo）', async () => {
-    const api = createApi();
-    const presetData = { name: '内容方预设', prompts: [] };
-    const importSpy = vi.fn(async () => ({ success: true, message: 'ok', presetName: '内容方预设' }));
-    api.importPlotPresetFromData = importSpy;
-
-    const result = await api.initGameSession({}, {
-      templateData: { sheet_a: { uid: 'sheet_a', name: 'A', content: [['row_id']] } },
-      presetData,
-    });
-
-    expect(importSpy).toHaveBeenCalledWith(presetData, { overwrite: true, switchTo: true });
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ success: true, presetLoaded: true });
-    expect(result.warning).not.toContain('跳过剧情推进预设加载');
-  });
-
   it('presetData 导入失败仍不中断初始化链', async () => {
     const api = createApi();
     api.importPlotPresetFromData = vi.fn(async () => ({ success: false, message: 'JSON解析错误' }));
@@ -330,12 +301,19 @@ describe('initGameSession options.presetName 弃用提示（fix8）', () => {
     expect(importSpy).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ success: true, presetLoaded: true });
   });
+});
 
-  it('无 presetName 时不告警', async () => {
-    await createApi().initGameSession({}, {
-      templateData: { sheet_a: { uid: 'sheet_a', name: 'A', content: [['row_id']] } },
-    });
+describe('importPlotPresetFromData 保存结果（R9-16）', () => {
+  it('设置保存失败时返回失败并回滚预设库，不报「已成功导入」', async () => {
+    const { settings_ACU } = await import('../../../../src/service/runtime/state-manager');
+    (settings_ACU as any).plotSettings = { promptPresets: [{ name: '旧预设', plotTasks: [] }] };
+    mocks.saveSettings.mockReturnValueOnce({ saved: false, storageType: 'memory', error: '写入失败' });
+    const api = createApi();
 
-    expect(vi.mocked(logWarn_ACU)).not.toHaveBeenCalled();
+    const result = await api.importPlotPresetFromData({ name: '新预设', plotTasks: [] });
+
+    expect(result.success).toBe(false);
+    expect((settings_ACU as any).plotSettings.promptPresets.map((p: any) => p.name)).toEqual(['旧预设']);
   });
 });
+

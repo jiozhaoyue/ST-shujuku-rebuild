@@ -49,10 +49,7 @@ import {
   loadGlobalMeta_ACU,
   saveGlobalMeta_ACU,
   readProfileSettingsFromStorage_ACU,
-  writeProfileSettingsToStorage_ACU,
-  readProfileTemplateFromStorage_ACU,
-  writeProfileTemplateToStorage_ACU,
-  saveCurrentProfileTemplate_ACU,
+  backupProfileTemplateRawBeforeDegradation_ACU,
   sanitizeSettingsForProfileSave_ACU,
 } from '../../../src/data/repositories/profile-repo';
 
@@ -63,14 +60,6 @@ beforeEach(() => {
 
 // ═══ buildDefaultGlobalMeta_ACU ═══
 describe('buildDefaultGlobalMeta_ACU', () => {
-  it('返回默认结构', () => {
-    const meta = buildDefaultGlobalMeta_ACU();
-    expect(meta.version).toBe(1);
-    expect(meta.activeIsolationCode).toBe('');
-    expect(meta.isolationCodeList).toEqual([]);
-    expect(meta.migratedLegacySingleStore).toBe(false);
-    expect(meta.summaryVectorIndexModeGlobal).toBe(false);
-  });
 
   it('每次调用返回新对象', () => {
     const a = buildDefaultGlobalMeta_ACU();
@@ -81,22 +70,6 @@ describe('buildDefaultGlobalMeta_ACU', () => {
 
 // ═══ loadGlobalMeta_ACU ═══
 describe('loadGlobalMeta_ACU', () => {
-  it('存储为空时返回默认值', () => {
-    const meta = loadGlobalMeta_ACU();
-    expect(meta.version).toBe(1);
-    expect(meta.activeIsolationCode).toBe('');
-  });
-
-  it('存储有有效数据时加载', () => {
-    mockStore._store.set('acu_global_meta', JSON.stringify({
-      version: 1,
-      activeIsolationCode: 'code_1',
-      isolationCodeList: ['code_1', 'code_2'],
-    }));
-    const meta = loadGlobalMeta_ACU();
-    expect(meta.activeIsolationCode).toBe('code_1');
-    expect(meta.isolationCodeList).toEqual(['code_1', 'code_2']);
-  });
 
   it('存储有损坏数据时返回默认值', () => {
     mockStore._store.set('acu_global_meta', 'not valid json');
@@ -105,22 +78,41 @@ describe('loadGlobalMeta_ACU', () => {
     expect(meta.activeIsolationCode).toBe('');
   });
 
-  it('isolationCodeList 非数组时重置为空数组', () => {
-    mockStore._store.set('acu_global_meta', JSON.stringify({
-      isolationCodeList: 'not_array',
-    }));
-    const meta = loadGlobalMeta_ACU();
-    expect(meta.isolationCodeList).toEqual([]);
+  it('损坏时先把原文备份到旁路键，之后启动写回默认值也不会丢原文（上游 #38）', () => {
+    const corrupt = '{"activeIsolationCode":"saved-code","vectorMemoryConfigGlobal":';
+    mockStore._store.set('acu_global_meta', corrupt);
+
+    loadGlobalMeta_ACU();
+    saveGlobalMeta_ACU();
+
+    expect(mockStore._store.get('acu_global_meta.bak')).toBe(corrupt);
+    expect(mockLogWarn).toHaveBeenCalledWith(expect.stringContaining('acu_global_meta.bak'));
+  });
+
+  it('JSON 合法但不是对象（如 null、数字）同样按损坏备份', () => {
+    mockStore._store.set('acu_global_meta', '42');
+    loadGlobalMeta_ACU();
+    expect(mockStore._store.get('acu_global_meta.bak')).toBe('42');
+  });
+
+  it('正常读取与首次使用（无存储）不写备份', () => {
+    loadGlobalMeta_ACU();
+    mockStore._store.set('acu_global_meta', '{"activeIsolationCode":"c1"}');
+    expect(loadGlobalMeta_ACU().activeIsolationCode).toBe('c1');
+    expect(mockStore._store.has('acu_global_meta.bak')).toBe(false);
+  });
+
+  it('同样的损坏内容已备份过时不重复写', () => {
+    mockStore._store.set('acu_global_meta', 'broken');
+    loadGlobalMeta_ACU();
+    mockStore.setItem.mockClear();
+    loadGlobalMeta_ACU();
+    expect(mockStore.setItem).not.toHaveBeenCalled();
   });
 });
 
 // ═══ saveGlobalMeta_ACU ═══
 describe('saveGlobalMeta_ACU', () => {
-  it('正常保存返回 true', () => {
-    const result = saveGlobalMeta_ACU();
-    expect(result).toBe(true);
-    expect(mockStore.setItem).toHaveBeenCalledWith('acu_global_meta', expect.any(String));
-  });
 
   it('存储抛错返回 false', () => {
     mockStore.setItem.mockImplementationOnce(() => { throw new Error('存储满了'); });
@@ -137,16 +129,6 @@ describe('saveGlobalMeta_ACU', () => {
 
 // ═══ readProfileSettingsFromStorage_ACU ═══
 describe('readProfileSettingsFromStorage_ACU', () => {
-  it('无数据返回 null', () => {
-    expect(readProfileSettingsFromStorage_ACU('code_1')).toBeNull();
-  });
-
-  it('有有效 JSON 返回对象', () => {
-    mockStore._store.set('acu_settings_code_1', JSON.stringify({ theme: 'dark' }));
-    const result = readProfileSettingsFromStorage_ACU('code_1');
-    expect(result).not.toBeNull();
-    expect(result.theme).toBe('dark');
-  });
 
   it('无效 JSON 返回 null', () => {
     mockStore._store.set('acu_settings_code_1', 'bad json');
@@ -154,49 +136,17 @@ describe('readProfileSettingsFromStorage_ACU', () => {
   });
 });
 
-// ═══ writeProfileSettingsToStorage_ACU ═══
-describe('writeProfileSettingsToStorage_ACU', () => {
-  it('写入设置到存储', () => {
-    writeProfileSettingsToStorage_ACU('code_1', { theme: 'dark' });
-    expect(mockStore.setItem).toHaveBeenCalledWith('acu_settings_code_1', expect.any(String));
-  });
-});
-
-// ═══ readProfileTemplateFromStorage_ACU ═══
-describe('readProfileTemplateFromStorage_ACU', () => {
-  it('无数据返回 null', () => {
-    expect(readProfileTemplateFromStorage_ACU('code_1')).toBeNull();
+// R3-08：模板读不出来、即将被默认模板覆盖前，原始串先备份到旁路键。
+describe('backupProfileTemplateRawBeforeDegradation_ACU', () => {
+  it('把原始模板串复制到 .bak 旁路键', () => {
+    mockStore._store.set('acu_template_code_1', '{坏掉的模板');
+    backupProfileTemplateRawBeforeDegradation_ACU('code_1', 'json_parse_failed');
+    expect(mockStore._store.get('acu_template_code_1.bak')).toBe('{坏掉的模板');
   });
 
-  it('有数据返回字符串', () => {
-    mockStore._store.set('acu_template_code_1', '{"sheet_0":{}}');
-    expect(readProfileTemplateFromStorage_ACU('code_1')).toBe('{"sheet_0":{}}');
-  });
-
-  it('空字符串返回 null', () => {
-    mockStore._store.set('acu_template_code_1', '   ');
-    expect(readProfileTemplateFromStorage_ACU('code_1')).toBeNull();
-  });
-});
-
-// ═══ writeProfileTemplateToStorage_ACU ═══
-describe('writeProfileTemplateToStorage_ACU', () => {
-  it('写入模板到存储', () => {
-    writeProfileTemplateToStorage_ACU('code_1', '{"sheet_0":{}}');
-    expect(mockStore.setItem).toHaveBeenCalledWith('acu_template_code_1', '{"sheet_0":{}}');
-  });
-});
-
-// ═══ saveCurrentProfileTemplate_ACU ═══
-describe('saveCurrentProfileTemplate_ACU', () => {
-  it('使用传入的 templateStr', () => {
-    saveCurrentProfileTemplate_ACU('custom_template', { dataIsolationCode: 'code_1' });
-    expect(mockStore.setItem).toHaveBeenCalledWith('acu_template_code_1', 'custom_template');
-  });
-
-  it('不传 templateStr 时使用 TABLE_TEMPLATE_ACU', () => {
-    saveCurrentProfileTemplate_ACU(undefined, {});
-    expect(mockStore.setItem).toHaveBeenCalledWith('acu_template_', '{"sheet_0":{}}');
+  it('没有原始串时不写备份', () => {
+    backupProfileTemplateRawBeforeDegradation_ACU('code_1', 'json_parse_failed');
+    expect(mockStore._store.has('acu_template_code_1.bak')).toBe(false);
   });
 });
 

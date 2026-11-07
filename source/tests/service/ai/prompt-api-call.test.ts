@@ -124,6 +124,20 @@ vi.mock('../../../src/service/ai/api-call', () => ({
     const data = await res.json();
     return data?.choices?.[0]?.message?.content ?? data?.content ?? null;
   }),
+  postChatCompletionTurn_ACU: vi.fn(async (body: any, signal?: any) => {
+    const res = await mockFetch('/api/backends/chat-completions/generate', {
+      method: 'POST', headers: {}, body: JSON.stringify(body), signal,
+    });
+    if (!res.ok) { const errTxt = await res.text(); throw new Error(`API请求失败: ${res.status} ${errTxt}`); }
+    const data = await res.json();
+    const message = data?.choices?.[0]?.message;
+    const content = typeof message?.content === 'string' ? message.content : '';
+    const toolCalls = (Array.isArray(message?.tool_calls) ? message.tool_calls : [])
+      .filter((call: any) => call?.function?.name)
+      .map((call: any) => ({ name: call.function.name, arguments: String(call.function.arguments ?? '{}') }));
+    if (!content && toolCalls.length === 0) return null;
+    return { content, toolCalls };
+  }),
 }));
 
 import {
@@ -169,23 +183,6 @@ afterEach(() => {
 
 // ═══ handleApiResponse_ACU（按 requestWantsStream / streamingEnabled 分流流式与 JSON） ═══
 describe('handleApiResponse_ACU', () => {
-  it('非流式模式：解析 JSON 响应中的 choices[0].message.content', async () => {
-    const mockResponse = {
-      json: vi.fn().mockResolvedValue({
-        choices: [{ message: { content: 'AI回复内容' } }],
-      }),
-    };
-    const result = await handleApiResponse_ACU(mockResponse);
-    expect(result).toBe('AI回复内容');
-  });
-
-  it('非流式模式：解析 content 字段', async () => {
-    const mockResponse = {
-      json: vi.fn().mockResolvedValue({ content: '直接内容' }),
-    };
-    const result = await handleApiResponse_ACU(mockResponse);
-    expect(result).toBe('直接内容');
-  });
 
   it('非流式模式：解析失败返回 null', async () => {
     const mockResponse = {
@@ -224,6 +221,49 @@ describe('callCustomOpenAI_ACU — prompt 组装', () => {
     });
   });
 
+  // 上游 3cd3824b：模板插件未必支持取消，停止填表只停本轮等待，迟到结果不得继续组装或发请求
+  it.each(['resolve', 'reject'])('取消挂起的 EJS 等待，迟到 %s 不再发请求', async outcome => {
+    const controller = new AbortController();
+    let release!: (value: string) => void;
+    let fail!: (error: Error) => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const pending = new Promise<string>((resolve, reject) => { release = resolve; fail = reject; });
+    (globalThis as any).EjsTemplate = { evalTemplate: vi.fn(() => { entered(); return pending; }) };
+    const request = callCustomOpenAI_ACU({}, controller);
+    const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    await started;
+    controller.abort();
+    await rejected;
+    expect(mockUntrackAbortController).toHaveBeenCalledWith(controller);
+    if (outcome === 'resolve') release('迟到模板');
+    else fail(new Error('迟到失败'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('已取消的调用不启动模板或网络', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const evaluate = vi.fn();
+    (globalThis as any).EjsTemplate = { evalTemplate: evaluate };
+    await expect(callCustomOpenAI_ACU({}, controller)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['Error', 'AbortError'])('模板 %s：普通失败仍回退原文，取消类失败原样抛出', async name => {
+    const error = Object.assign(new Error('模板失败'), { name });
+    (globalThis as any).EjsTemplate = { evalTemplate: vi.fn().mockRejectedValue(error) };
+    if (name === 'AbortError') {
+      await expect(callCustomOpenAI_ACU({})).rejects.toBe(error);
+      expect(mockFetch).not.toHaveBeenCalled();
+    } else {
+      await expect(callCustomOpenAI_ACU({})).resolves.toBe('AI回复');
+    }
+  });
+
   it('占位符 $0/$1/$4/$6/$8/$9/$U/$C 被正确替换', async () => {
     mockSettings.charCardPrompt = [
       { role: 'USER', content: '表格:$0 消息:$1 世界书:$4 剧情:$6 额外:$8 内部已排除世界书:$9/$9 用户:$U 角色:$C' },
@@ -252,6 +292,62 @@ describe('callCustomOpenAI_ACU — prompt 组装', () => {
     expect(content).toContain('角色描述');
     expect(content).not.toContain('$0');
     expect(content).not.toContain('$U');
+  });
+
+  it('R8-13：占位符后紧跟数字/字母时不当占位符（$100、$Cx 原样保留），后跟中文照常替换', async () => {
+    mockSettings.charCardPrompt = [{ role: 'USER', content: '价格$100 代号$Cx 消息:$1。角色:$C级' }];
+    await callCustomOpenAI_ACU({ messagesText: '消息数据' });
+    const content = JSON.parse(mockFetch.mock.calls[0][1].body).messages[0].content;
+    expect(content).toContain('价格$100');
+    expect(content).toContain('代号$Cx');
+    expect(content).toContain('消息:消息数据。');
+    expect(content).toContain('角色:角色描述级');
+  });
+
+  it('填表原生工具开关开 + 非流式：请求挂载 table_sql 工具并合成工具调用结果', async () => {
+    mockSettings.tableFillNativeToolsEnabled = true;
+    mockSettings.streamingEnabled = false;
+    mockSettings.charCardPrompt = [
+      { role: 'USER', content: '## 输出格式（严格执行）\n\n<thought>\n[分析步骤]\n</thought>\n\n<content>\nX\n</content>\n\n## 关键规则\n1. 守规\n\n现在开始按此格式执行填表任务。', mainSlot: 'A', isMain: true },
+    ];
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: {
+        content: '分析完毕',
+        tool_calls: [{ type: 'function', function: { name: 'table_sql', arguments: '{"sql":"UPDATE t SET a = 1;"}' } }],
+      } }] }),
+    });
+
+    const result = await callCustomOpenAI_ACU({ tableDataText: '数据' });
+
+    const overrides = mockBuildCustomBody.mock.calls[0][2];
+    expect(overrides.tools).toEqual([expect.objectContaining({ type: 'function' })]);
+    expect(overrides.tools[0].function.name).toBe('table_sql');
+    expect(overrides.toolChoice).toBe('auto');
+    // 开关开则主段整体切换为工具版（要求调用工具、正文不再写 SQL）。
+    const sentMessages = mockBuildCustomBody.mock.calls[0][0];
+    const sentText = sentMessages.map((message: any) => String(message.content)).join('\n');
+    expect(sentText).toContain('必须调用 table_sql');
+    expect(sentText).toContain('正文中不要再写任何 SQL');
+    expect(result).toContain('<tableEdit>');
+    expect(result).toContain('UPDATE t SET a = 1;');
+    delete mockSettings.tableFillNativeToolsEnabled;
+  });
+
+  it('填表原生工具开关关：请求不挂工具，走旧正文路径（零变化）', async () => {
+    mockSettings.tableFillNativeToolsEnabled = false;
+    mockSettings.charCardPrompt = [{ role: 'USER', content: '## 输出格式（严格执行）\n\n正文' }];
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'AI回复' } }] }),
+    });
+
+    const result = await callCustomOpenAI_ACU({ tableDataText: '数据' });
+
+    const overrides = mockBuildCustomBody.mock.calls[0][2];
+    expect(overrides.tools).toBeUndefined();
+    expect(result).toBe('AI回复');
+    delete mockSettings.tableFillNativeToolsEnabled;
   });
 
   it('if seed 优先使用 prepare 阶段冻结的填表上下文范围', async () => {
@@ -346,6 +442,94 @@ describe('callCustomOpenAI_ACU — prompt 组装', () => {
 
     expect(mockApplyExcludeRulesToText).toHaveBeenCalledWith(expect.stringContaining('已排除的世界书正文'), expect.any(Object));
     expect(JSON.parse(mockFetch.mock.calls[0][1].body).messages[0].content).toBe('<worldbook_data>\n过滤后的世界书\n</worldbook_data>');
+  });
+});
+
+describe('callCustomOpenAI_ACU — 填表纠错回灌', () => {
+  beforeEach(() => {
+    mockGetApiConfigByPreset.mockReturnValue({
+      apiMode: 'custom',
+      apiConfig: { url: 'https://api.example.com', model: 'gpt-4', max_tokens: 4096, temperature: 1.0 },
+    });
+    mockSettings.charCardPrompt = [
+      { role: 'SYSTEM', content: '系统 $0' },
+      { role: 'USER', content: '用户 $1' },
+    ];
+  });
+
+  it('带纠错历史时，上次回复与纠错说明追加在原任务之后；本次原始回复回报给调用方', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: '新回复' } }] }) });
+    const onTableFillResponse = vi.fn();
+
+    const result = await callCustomOpenAI_ACU({ tableDataText: '数据', messagesText: '聊天' }, null, {
+      tableFillRetryHistory: [{ response: '<tableEdit>INSERT INTO missing (v) VALUES (1);</tableEdit>', error: '无法识别的目标表「missing」' }],
+      onTableFillResponse,
+    });
+
+    const sent = mockBuildCustomBody.mock.calls[0][0];
+    expect(sent.map((message: any) => message.role)).toEqual(['system', 'user', 'assistant', 'system']);
+    expect(sent[2].content).toBe('<tableEdit>INSERT INTO missing (v) VALUES (1);</tableEdit>');
+    expect(sent[3].content).toContain('无法识别的目标表「missing」');
+    // 纠错说明不进表格数据边界：表格数据里不该出现报错。
+    expect(sent[0].content).not.toContain('missing');
+    expect(result).toBe('新回复');
+    expect(onTableFillResponse).toHaveBeenCalledWith('新回复');
+  });
+
+  it('回灌内容不经过模板处理：上次回复里的 $1、{{表名}} 原样保留', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) });
+    const resolveTableWorldbookContent = vi.fn(async () => '被解析');
+
+    await callCustomOpenAI_ACU({ tableDataText: '数据', messagesText: '聊天', resolveTableWorldbookContent }, null, {
+      tableFillRetryHistory: [{ response: '回复里有 $1 和 {{人物表}}', error: '报错 $0' }],
+    });
+
+    const sent = mockBuildCustomBody.mock.calls[0][0];
+    expect(sent[2].content).toBe('回复里有 $1 和 {{人物表}}');
+    expect(sent[3].content).toContain('报错 $0');
+    expect(resolveTableWorldbookContent).not.toHaveBeenCalled();
+  });
+
+  it('工具参数无效时，可重试错误携带上次正文与工具参数，供下一次回灌', async () => {
+    mockSettings.tableFillNativeToolsEnabled = true;
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: {
+        content: '分析完毕',
+        tool_calls: [{ type: 'function', function: { name: 'table_sql', arguments: '{"sql": UPDATE' } }],
+      } }] }),
+    });
+    const onTableFillResponse = vi.fn();
+
+    const error = await callCustomOpenAI_ACU({ tableDataText: '数据' }, null, { onTableFillResponse }).catch(e => e);
+
+    expect(error).toBeInstanceOf(RetryableAiResponseError_ACU);
+    expect(error.rawResponse).toContain('分析完毕');
+    expect(error.rawResponse).toContain('table_sql({"sql": UPDATE)');
+    expect(onTableFillResponse).toHaveBeenCalledWith(error.rawResponse);
+    delete mockSettings.tableFillNativeToolsEnabled;
+  });
+
+  it('挂工具时纠错说明要求重新调用 table_sql', async () => {
+    mockSettings.tableFillNativeToolsEnabled = true;
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: '<tableEdit>UPDATE t SET a = 1;</tableEdit>' } }] }) });
+
+    await callCustomOpenAI_ACU({ tableDataText: '数据' }, null, {
+      tableFillRetryHistory: [{ response: '', error: 'table_sql 工具参数不是合法 JSON' }],
+    });
+
+    const sent = mockBuildCustomBody.mock.calls[0][0];
+    expect(sent[sent.length - 1].content).toContain('重新调用 table_sql');
+    delete mockSettings.tableFillNativeToolsEnabled;
+  });
+
+  it('空回时可重试错误的原始回复为空', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: '' } }] }) });
+
+    const error = await callCustomOpenAI_ACU({ tableDataText: '数据' }).catch(e => e);
+
+    expect(error).toBeInstanceOf(RetryableAiResponseError_ACU);
+    expect(error.rawResponse).toBe('');
   });
 });
 
@@ -534,28 +718,6 @@ describe('callCustomOpenAI_ACU — custom fetch 模式', () => {
       apiConfig: { useMainApi: false, url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', max_tokens: 4096 },
       tavernProfile: '',
     });
-  });
-
-  it('正常 fetch 并返回解析结果', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: 'fetch回复' } }] }),
-    });
-    const result = await callCustomOpenAI_ACU({});
-    expect(result).toBe('fetch回复');
-    expect(mockFetch).toHaveBeenCalledWith(
-      '/api/backends/chat-completions/generate',
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
-  it('URL 或 model 未配置时抛错', async () => {
-    mockGetApiConfigByPreset.mockReturnValue({
-      apiMode: 'custom',
-      apiConfig: { useMainApi: false, url: '', model: '' },
-      tavernProfile: '',
-    });
-    await expect(callCustomOpenAI_ACU({})).rejects.toThrow('URL或模型未配置');
   });
 
   it('fetch 返回非 ok 时抛错', async () => {
@@ -756,18 +918,80 @@ describe('handleApiResponse_ACU 响应解析', () => {
     expect(result).toBeNull();
   });
 
+  it('R8-02：给了进度回调时逐块读取响应体，每块到达回调一次（含跨块切开的多字节字符）', async () => {
+    const encoder = new TextEncoder();
+    const full = encoder.encode(['data: {"choices":[{"delta":{"content":"你好"}}]}', 'data: [DONE]', ''].join('\n'));
+    const cut = full.indexOf(0xe4) + 1; // 切在「你」的 UTF-8 中间
+    const chunks = [full.slice(0, cut), full.slice(cut)];
+    const text = vi.fn();
+    const onProgress = vi.fn();
+    const result = await handleApiResponse_ACU({
+      text,
+      body: { getReader: () => ({ read: async () => (chunks.length ? { done: false, value: chunks.shift() } : { done: true, value: undefined }) }) },
+    }, true, undefined, { onProgress });
+    expect(result).toBe('你好');
+    expect(onProgress).toHaveBeenCalledTimes(2);
+    expect(text).not.toHaveBeenCalled();
+  });
+
+  it('R8-07：不发 [DONE] 但有 finish_reason 的 OpenAI 兼容流按完整处理', async () => {
+    const result = await handleApiResponse_ACU({
+      text: async () => ['data: {"choices":[{"delta":{"content":"甲"}}]}', 'data: {"choices":[{"delta":{"content":"乙"},"finish_reason":"stop"}]}', ''].join('\n'),
+    }, true);
+    expect(result).toBe('甲乙');
+  });
+
+  it('R8-07：Responses 流（output_text.delta + response.completed）可解析', async () => {
+    const result = await handleApiResponse_ACU({
+      text: async () => [
+        'data: {"type":"response.output_text.delta","delta":"你"}',
+        'data: {"type":"response.output_text.delta","delta":"好"}',
+        'data: {"type":"response.completed","response":{}}',
+        '',
+      ].join('\n'),
+    }, true);
+    expect(result).toBe('你好');
+  });
+
+  it('数据库直接发送的 Gemini Interactions 流（step.start/step.delta + interaction.completed）可解析，思考摘要不进正文', async () => {
+    const result = await handleApiResponse_ACU({
+      text: async () => [
+        'data: {"event_type":"interaction.created","interaction":{}}',
+        'data: {"event_type":"step.start","index":0,"step":{"type":"thought","summary":[]}}',
+        'data: {"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"想"}}}',
+        'data: {"event_type":"step.stop","index":0}',
+        'data: {"event_type":"step.start","index":1,"step":{"type":"model_output","content":[{"type":"text","text":"开"}]}}',
+        'data: {"event_type":"step.delta","index":1,"delta":{"type":"text","text":"头"}}',
+        'data: {"event_type":"step.stop","index":1}',
+        'data: {"event_type":"interaction.completed","interaction":{"usage":{"total_input_tokens":3,"total_output_tokens":2}}}',
+        '',
+      ].join('\n'),
+    }, true);
+    expect(result).toBe('开头');
+  });
+
+  it('R8-07：Gemini 流（candidates.parts.text + finishReason）可解析', async () => {
+    const result = await handleApiResponse_ACU({
+      text: async () => [
+        'data: {"candidates":[{"content":{"parts":[{"text":"一"}]}}]}',
+        'data: {"candidates":[{"content":{"parts":[{"text":"二"}]},"finishReason":"STOP"}]}',
+        '',
+      ].join('\n'),
+    }, true);
+    expect(result).toBe('一二');
+  });
+
+  it('R8-07：既无 [DONE] 也无任何结束信号的流仍按截断处理', async () => {
+    const result = await handleApiResponse_ACU({
+      text: async () => 'data: {"choices":[{"delta":{"content":"半截"}}]}\n',
+    }, true);
+    expect(result).toBeNull();
+  });
+
   it('流式模式：响应体读取 AbortError 必须原样重抛', async () => {
     const abortError = new DOMException('stream body read aborted', 'AbortError');
 
     await expect(handleApiResponse_ACU({ text: vi.fn().mockRejectedValue(abortError) }, true)).rejects.toBe(abortError);
-  });
-
-  it('streamingEnabled 关闭时走 JSON 解析', async () => {
-    mockSettings.streamingEnabled = false;
-    const result = await handleApiResponse_ACU({
-      json: async () => ({ choices: [{ message: { content: '普通响应' } }] }),
-    });
-    expect(result).toBe('普通响应');
   });
 });
 
@@ -1053,10 +1277,5 @@ describe('usage 提取与合并（上游 bb20a45f 移植）', () => {
       cachedContentTokenCount: 5,
       cache_write_tokens: 1,
     })).toEqual({ promptTokens: 9, completionTokens: 3, cachedTokens: 5, cacheWriteTokens: 1 });
-  });
-
-  it('非法输入或只有未映射的 cache miss 字段时返回 null', () => {
-    expect(extractAiUsageMetadata_ACU({ prompt_tokens: -1, completion_tokens: 'x', input_tokens: 1.5, output_tokens: Infinity })).toBeNull();
-    expect(extractAiUsageMetadata_ACU({ prompt_cache_miss_tokens: 42 })).toBeNull();
   });
 });

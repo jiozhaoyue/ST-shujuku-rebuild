@@ -21,6 +21,7 @@ import {
     planEmbeddingBatches_ACU,
 } from './summary-vector-embedding-batches';
 import { buildVectorIndexSingleSnapshotV2FilePath_ACU } from '../../data/storage/vector-index-st-files-storage';
+import { findSummaryTableSelection_ACU } from './summary-vector-index-scope-resolver';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { getLatestAiMessageIndexFromChat_ACU } from '../table/table-history';
@@ -45,7 +46,7 @@ import {
     finalizeSummaryVectorIndexSnapshotPublication_ACU,
     persistSummaryVectorIndexSnapshot_ACU,
 } from './summary-vector-index-storage-service';
-import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { hashUserInput_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { hashSummaryVectorSourceText_ACU } from './summary-vector-row-fingerprint';
 import { normalizeSummaryVectorIndexScope_ACU, serializeSummaryVectorIndexScope_ACU } from '../../shared/summary-vector-index-scope';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
@@ -370,7 +371,11 @@ function buildStableSummaryRowKey_ACU(summaryKey: string, rowId: string, indexCo
 }
 
 /**
- * 单一指纹公式：所有行指纹必须经由这里计算，避免三处内联公式漂移。
+ * legacy 归档链私有的行复用指纹公式（与 summary-vector-row-fingerprint 模块不同：
+ * 原文直拼、无版本标签，且不含 rowOrder）。仅在本 legacy 归档链内自洽——行复用比较
+ * （existingFingerprint vs prepared.sourceFingerprint）两侧都用这一份，故不改行为。
+ * 注意：本公式产出的 sourceFingerprint 会被持久化进 legacy manifest，镜像 V2 主链路的
+ * 内容变化判定走的是 vectorSourceHash（hashSummaryVectorSourceText_ACU），二者不可混用。G10-02。
  * 输入字段顺序与 join 分隔符与历史实现逐字符一致（T1，零行为变化）。
  */
 function buildSummaryRowFingerprint_ACU(source: {
@@ -396,25 +401,9 @@ function buildPreparedRowFingerprint_ACU(row: SummaryVectorArchivePreparedRow_AC
 }
 
 export function findSummaryTable_ACU(sourceTableKey?: string): SummaryTableSelection_ACU | null {
-    if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object') {
-        return null;
-    }
-
-    const requestedKey = normalizeText_ACU(sourceTableKey);
-    const candidateKeys = requestedKey ? [requestedKey] : Object.keys(currentJsonTableData_ACU);
-    const summaryKey = candidateKeys.find((key) => {
-        const table = currentJsonTableData_ACU[key];
-        return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
-    });
-
-    if (!summaryKey) return null;
-    const table = currentJsonTableData_ACU[summaryKey];
-    if (!table || !Array.isArray(table.content)) return null;
-
-    return {
-        summaryKey,
-        table,
-    };
+    // 委托给叶模块：纪要表判定必须全仓单一实现，否则 flush 队列的 scopeKey 会与
+    // 状态面板/清理路径解析出的 scope 漂移。
+    return findSummaryTableSelection_ACU(sourceTableKey);
 }
 
 function splitSentences_ACU(text: string): string[] {

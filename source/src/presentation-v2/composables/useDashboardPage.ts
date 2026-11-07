@@ -17,6 +17,7 @@ import {
 } from "../../service/runtime/state-manager";
 import {
   saveSettings_ACU,
+  setDecisionRecallEnabled_ACU,
   setGlobalPlotEnabled_ACU,
   setSummaryVectorIndexMode_ACU,
 } from "../../service/settings/settings-service";
@@ -70,6 +71,7 @@ import {
   useDevOptions
 } from "./useDevOptions";
 import { countAiFloors_ACU } from '../../shared/ai-floor';
+import { CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU, isChatActionScopeCurrent_ACU, type ChatActionScope_ACU } from './chat-action-scope';
 
 type MessageKind = "info" | "success" | "warning" | "error";
 type HealthKind = "ok" | "info" | "warning" | "error";
@@ -131,9 +133,22 @@ export interface DashboardPageState {
   logHealthItem: ComputedRef<DashboardHealthItem>;
   contentReplaceGateEnabled: ComputedRef<boolean>;
   refresh: () => Promise<void>;
-  setFlightMode: (enabled: boolean, options?: { confirmTemplateScopeChange?: boolean }) => Promise<FlightModeTransitionResult_ACU>;
+  setFlightMode: (enabled: boolean, options?: DashboardFlightModeOptions) => Promise<DashboardFlightModeResult>;
   setToggle: (key: string, value: boolean) => void;
 }
+
+export interface DashboardFlightModeOptions {
+  confirmTemplateScopeChange?: boolean;
+  /** 弹确认框前拍下的所属聊天；确认后聊天已切换就不执行（R10A-04）。 */
+  scope?: ChatActionScope_ACU | null;
+}
+
+export type DashboardFlightModeResult =
+  | FlightModeTransitionResult_ACU
+  | { ok: false; reason: 'busy' | 'context_changed'; error: string };
+
+/** 飞行模式切换（关闭时会硬删大总结表）全局只允许一个在途。 */
+let flightModeTransitionInFlight_ACU = false;
 
 interface Snapshot {
   chatFileIdentifier: string;
@@ -205,18 +220,6 @@ function countAiMessages(): number {
 function hasActiveChatContext(chatFileIdentifier: string): boolean {
   const normalized = String(chatFileIdentifier || "").trim();
   return !!normalized && normalized !== "unknown_chat_init";
-}
-
-function ensurePromptTemplateEnabled(): void {
-  if (
-    !settings_ACU.promptTemplateSettings ||
-    typeof settings_ACU.promptTemplateSettings !== "object"
-  ) {
-    settings_ACU.promptTemplateSettings = {};
-  }
-  if (settings_ACU.promptTemplateSettings.enabled === true) return;
-  settings_ACU.promptTemplateSettings.enabled = true;
-  saveSettings_ACU();
 }
 
 function makeHealthItem(input: {
@@ -920,6 +923,12 @@ export function useDashboardPage(): DashboardPageState {
           value: settings_ACU.plotSettings?.enabled === true,
         },
         {
+          key: "decisionRecallEnabled",
+          label: dashboardCopy.toggles.decisionRecall.label,
+          description: dashboardCopy.toggles.decisionRecall.description,
+          value: settings_ACU.decisionRecallSettings?.enabled === true,
+        },
+        {
           key: "continuationPageEnabled",
           label: dashboardCopy.toggles.continuation.label,
           description: dashboardCopy.toggles.continuation.description,
@@ -1034,7 +1043,6 @@ export function useDashboardPage(): DashboardPageState {
 
   async function refresh(): Promise<void> {
     refreshDevOptions();
-    ensurePromptTemplateEnabled();
     syncContentReplaceAvailability();
     const next = safeReadSnapshot();
     chatFileIdentifier.value = next.chatFileIdentifier;
@@ -1045,12 +1053,19 @@ export function useDashboardPage(): DashboardPageState {
 
   async function setFlightMode(
     enabled: boolean,
-    options: { confirmTemplateScopeChange?: boolean } = {},
-  ): Promise<FlightModeTransitionResult_ACU> {
+    options: DashboardFlightModeOptions = {},
+  ): Promise<DashboardFlightModeResult> {
+    if (flightModeTransitionInFlight_ACU) {
+      return { ok: false, reason: "busy", error: "飞行模式正在切换，请等当前操作完成。" };
+    }
+    if (!isChatActionScopeCurrent_ACU(options.scope)) {
+      return { ok: false, reason: "context_changed", error: CHAT_ACTION_SCOPE_CHANGED_MESSAGE_ACU };
+    }
+    flightModeTransitionInFlight_ACU = true;
     try {
       return enabled
         ? await enableFlightMode_ACU()
-        : await disableFlightMode_ACU(options);
+        : await disableFlightMode_ACU({ confirmTemplateScopeChange: options.confirmTemplateScopeChange });
     } catch (error: any) {
       return {
         ok: false,
@@ -1058,7 +1073,11 @@ export function useDashboardPage(): DashboardPageState {
         error: error?.message || String(error || "飞行模式切换失败。"),
       };
     } finally {
-      await refresh();
+      try {
+        await refresh();
+      } finally {
+        flightModeTransitionInFlight_ACU = false;
+      }
     }
   }
 
@@ -1077,6 +1096,9 @@ export function useDashboardPage(): DashboardPageState {
         settings_ACU.plotSettings.enabled = next;
       }
       saveSettings_ACU();
+    } else if (key === "decisionRecallEnabled") {
+      setDecisionRecallEnabled_ACU(!!value);
+      saveSettings_ACU();
     } else if (key === "summaryVectorIndexModeEnabled") {
       setSummaryVectorIndexMode_ACU(!!value);
     } else if (key === "continuationPageEnabled") {
@@ -1090,7 +1112,7 @@ export function useDashboardPage(): DashboardPageState {
     } else if (key === "contentReplaceEnabled") {
       setContentReplaceEnabledBySettings(!!value);
       saveSettings_ACU();
-    } else if (key === "autoUpdateEnabled" || key === "toastMuteEnabled" || key === "streamingEnabled") {
+    } else if (key === "autoUpdateEnabled" || key === "toastMuteEnabled") {
       settings_ACU[key] = !!value;
       saveSettings_ACU();
     }

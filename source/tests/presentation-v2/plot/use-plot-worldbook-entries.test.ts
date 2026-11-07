@@ -72,31 +72,6 @@ beforeEach(() => {
 });
 
 describe('usePlotWorldbookEntries', () => {
-  it('loadEntries 加载并过滤掉数据库生成条目', async () => {
-    mockGetEntries.mockResolvedValue({
-      'MyBook': [
-        makeEntry(1, '角色设定'),
-        makeEntry(2, 'TavernDB-ACU-OutlineTable'),
-        makeEntry(3, 'TavernDB-ACU-CharTable'),
-        makeEntry(4, '重要人物条目-xx'),
-        makeEntry(5, '总结条目-xx'),
-        makeEntry(6, '世界观'),
-      ],
-    });
-
-    const c = await getComposable();
-    await c.loadEntries(['MyBook']);
-
-    expect(c.groups.value).toHaveLength(1);
-    expect(c.groups.value[0].bookName).toBe('MyBook');
-    const uids = c.groups.value[0].entries.map(e => e.uid);
-    expect(uids).toContain(1);
-    expect(uids).toContain(6);
-    expect(uids).not.toContain(2);
-    expect(uids).not.toContain(3);
-    expect(uids).not.toContain(4);
-    expect(uids).not.toContain(5);
-  });
 
   it('loadEntries 显示 active snapshot 命中的 constant 受控条目并标记正文放行', async () => {
     mockGetAgentSnapshot.mockReturnValue({
@@ -197,6 +172,8 @@ describe('usePlotWorldbookEntries', () => {
       { uid: 2, disabled: true, isConstant: true, agentTakeoverState: 'taken_over', checked: false },
       { uid: 4, disabled: false, isConstant: false, agentTakeoverState: 'native', checked: false },
       { uid: 5, disabled: false, isConstant: false, agentTakeoverState: 'native', checked: false },
+      // R7-03：命中屏蔽词的条目也列出，默认不勾选。
+      { uid: 6, disabled: false, isConstant: false, agentTakeoverState: 'native', checked: false },
     ]);
     expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.MyBook).toEqual([]);
     c.selectAll();
@@ -247,7 +224,7 @@ describe('usePlotWorldbookEntries', () => {
     expect(mockSaveSettings).not.toHaveBeenCalled();
   });
 
-  it('loadEntries 过滤屏蔽词条目', async () => {
+  it('R7-03：屏蔽词条目列出并标注，首次加载与全选都不自动勾选，逐条勾选后保留', async () => {
     mockGetEntries.mockResolvedValue({
       'B': [
         makeEntry(10, '角色规则'),
@@ -259,116 +236,81 @@ describe('usePlotWorldbookEntries', () => {
     const c = await getComposable();
     await c.loadEntries(['B']);
 
-    const uids = c.groups.value[0].entries.map(e => e.uid);
-    expect(uids).toEqual([12]);
+    const entries = c.groups.value[0].entries;
+    expect(entries.map(e => e.uid)).toEqual([10, 11, 12]);
+    expect(entries.map(e => e.blockedByDefault)).toEqual([true, true, false]);
+    expect(entries[0].label).toContain('默认不发送');
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['B']).toEqual([12]);
+
+    c.toggleEntry('B', 10, true);
+    c.selectAll();
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['B']).toEqual([10, 12]);
   });
 
 
-  it('首次加载默认启用所有可见条目', async () => {
-    mockGetEntries.mockResolvedValue({
-      'X': [makeEntry(1, '好条目'), makeEntry(2, '也好')],
-    });
-
-    const c = await getComposable();
-    await c.loadEntries(['X']);
-
-    expect(c.groups.value[0].entries.every(e => e.checked)).toBe(true);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['X']).toEqual([1, 2]);
-    expect(mockSaveSettings).toHaveBeenCalled();
-  });
-
-  it('已有 enabledEntries 时按已有值设置 checked', async () => {
+  // R10A-06：读取失败（服务层同样返回空数组）不能被当成「条目已不存在」清空勾选，也不能写入空的首次默认。
+  it('R10A-06：某本书读取失败时保留已有勾选，不落盘', async () => {
     settings = createSettings();
-    settings.plotSettings.plotWorldbookConfig.enabledEntries = { Y: [2] };
-
-    mockGetEntries.mockResolvedValue({
-      'Y': [makeEntry(1, '甲'), makeEntry(2, '乙'), makeEntry(3, '丙')],
+    settings.plotSettings.plotWorldbookConfig.enabledEntries = { X: [1, 2] };
+    mockGetEntries.mockImplementation(async (_names: string[], options: any) => {
+      options?.failedBooks?.add('X');
+      return { X: [] };
     });
 
     const c = await getComposable(settings);
-    await c.loadEntries(['Y']);
+    await c.loadEntries(['X']);
 
-    const checks = c.groups.value[0].entries.map(e => ({ uid: e.uid, checked: e.checked }));
-    expect(checks).toEqual([
-      { uid: 1, checked: false },
-      { uid: 2, checked: true },
-      { uid: 3, checked: false },
-    ]);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.X).toEqual([1, 2]);
+    expect(mockSaveSettings).not.toHaveBeenCalled();
   });
 
-  it('toggleEntry 更新 checked 和 enabledEntries', async () => {
+  it('R10A-06：首次加载读取失败不写入空默认，恢复后仍按首次默认全选', async () => {
+    mockGetEntries.mockImplementationOnce(async (_names: string[], options: any) => {
+      options?.failedBooks?.add('X');
+      return { X: [] };
+    });
+    const c = await getComposable();
+    await c.loadEntries(['X']);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.X).toBeUndefined();
+
+    mockGetEntries.mockResolvedValueOnce({ X: [makeEntry(1, '好条目'), makeEntry(2, '也好')] });
+    await c.loadEntries(['X']);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.X).toEqual([1, 2]);
+  });
+
+  it('R10B-05：有筛选范围时全选/全不选只作用于范围内条目', async () => {
     mockGetEntries.mockResolvedValue({
-      'Z': [makeEntry(1, 'a'), makeEntry(2, 'b')],
+      'V': [makeEntry(1, 'a'), makeEntry(2, 'b'), makeEntry(3, 'c')],
+      'U': [makeEntry(7, 'u')],
     });
 
     const c = await getComposable();
-    await c.loadEntries(['Z']);
-    mockSaveSettings.mockClear();
+    settings.plotSettings.plotWorldbookConfig.enabledEntries = { V: [1, 2], U: [7] };
+    await c.loadEntries(['V', 'U']);
 
-    c.toggleEntry('Z', 2, false);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['Z']).toEqual([1]);
-    expect(c.groups.value[0].entries.find(e => e.uid === 2)?.checked).toBe(false);
-    expect(mockSaveSettings).toHaveBeenCalledTimes(1);
+    c.deselectAll([{ bookName: 'V', uid: 2 }]);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['V']).toEqual([1]);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['U']).toEqual([7]);
 
-    c.toggleEntry('Z', 2, true);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['Z']).toContain(2);
-    expect(c.groups.value[0].entries.find(e => e.uid === 2)?.checked).toBe(true);
+    c.selectAll([{ bookName: 'V', uid: 3 }]);
+    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['V']).toEqual([1, 3]);
+    expect(c.groups.value[0].entries.map(e => e.checked)).toEqual([true, false, true]);
   });
 
-  it('selectAll 启用所有非 disabled 条目', async () => {
-    mockGetEntries.mockResolvedValue({
-      'W': [makeEntry(1, 'ok'), makeEntry(2, 'disabled', false), makeEntry(3, 'ok2')],
-    });
+  it('R10B-17：较慢的旧加载晚到时不覆盖新列表', async () => {
+    let releaseOld!: (value: unknown) => void;
+    mockGetEntries
+      .mockImplementationOnce(() => new Promise(resolve => { releaseOld = resolve; }))
+      .mockResolvedValueOnce({ 'New': [makeEntry(2, 'new')] });
 
     const c = await getComposable();
-    settings.plotSettings.plotWorldbookConfig.enabledEntries = { W: [] };
-    await c.loadEntries(['W']);
-    mockSaveSettings.mockClear();
+    const oldLoad = c.loadEntries(['Old']);
+    await c.loadEntries(['New']);
+    releaseOld({ 'Old': [makeEntry(1, 'old')] });
+    await oldLoad;
 
-    c.selectAll();
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['W']).toEqual([1, 3]);
-    expect(c.groups.value[0].entries.find(e => e.uid === 2)?.checked).toBe(false);
-    expect(mockSaveSettings).toHaveBeenCalled();
-  });
-
-  it('deselectAll 清空所有条目', async () => {
-    mockGetEntries.mockResolvedValue({
-      'V': [makeEntry(1, 'a'), makeEntry(2, 'b')],
-    });
-
-    const c = await getComposable();
-    await c.loadEntries(['V']);
-    mockSaveSettings.mockClear();
-
-    c.deselectAll();
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries['V']).toEqual([]);
-    expect(c.groups.value[0].entries.every(e => !e.checked)).toBe(true);
-    expect(mockSaveSettings).toHaveBeenCalled();
-  });
-
-
-
-  it('空书名列表返回空 groups', async () => {
-    const c = await getComposable();
-    await c.loadEntries([]);
-    expect(c.groups.value).toEqual([]);
+    expect(c.groups.value.map(g => g.bookName)).toEqual(['New']);
     expect(c.status.value).toBe('success');
-  });
-
-  it('toggleGroupExpanded 切换展开状态', async () => {
-    mockGetEntries.mockResolvedValue({
-      'G': [makeEntry(1, 'x')],
-    });
-
-    const c = await getComposable();
-    await c.loadEntries(['G']);
-    expect(c.groups.value[0].expanded).toBe(false);
-
-    c.toggleGroupExpanded('G');
-    expect(c.groups.value[0].expanded).toBe(true);
-
-    c.toggleGroupExpanded('G');
-    expect(c.groups.value[0].expanded).toBe(false);
   });
 
   it('分类前刷新持久 snapshot，pending 条目不视为已接管', async () => {

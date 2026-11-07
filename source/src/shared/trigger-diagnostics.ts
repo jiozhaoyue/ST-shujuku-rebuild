@@ -21,12 +21,25 @@ export type AutoFillSkipReason_ACU =
   | 'auto_update_coalesced'
   | 'preconditions_failed'
   | 'no_tables_due'
+  | 'reply_below_threshold'
+  | 'execution_failed'
+  | 'request_failed'
+  | 'input_preparation_failed'
+  | 'commit_failed'
+  | 'staging_runner_unavailable'
+  | 'refresh_failed'
   /** 同一楼已成功自动填表后，宿主又派发了一条 GENERATION_ENDED（外部插件回声）→ 自动填表入口短路 */
   | 'duplicate_auto_fill_ended'
   /** 无配对上下文的 GENERATION_ENDED，且自上次门控放行以来 AI 楼零产出（外部插件假事件 / 查看器中途停止）→ 门控源头丢弃 */
   | 'unpaired_ended_no_new_output'
   /** 配对上下文的 GENERATION_ENDED，但自 STARTED 以来 AI 楼三元组（楼数/id/末楼内容哈希）零变化（查看器配对空转）→ 防抖回调源头跳过 */
-  | 'paired_ended_no_new_output';
+  | 'paired_ended_no_new_output'
+  /** 排队期间开始了新一轮正文生成、删了楼或切换了回复版本 → 旧任务的目标楼层已失效，丢弃 */
+  | 'generation_changed'
+  /** 防抖到期时正文还在生成 → 不对没写完的回复填表 / 替换 */
+  | 'generation_in_progress'
+  /** 用户停止了本轮正文生成 → 不对半截回复填表 / 替换（下一轮正文生成恢复） */
+  | 'generation_stopped';
 
 export interface AutoFillSkipContext_ACU {
   eventType?: string;
@@ -56,12 +69,40 @@ export interface AutoFillSkipContext_ACU {
   inFlight?: boolean;
   /** 前置检查失败分支的稳定原因码（来自 checkAutoUpdatePreConditions_ACU） */
   preconditionReason?: string;
+  runId?: string;
+  queueId?: number;
+  stage?: string;
+  groupCount?: number;
+  sheetCount?: number;
+  failedGroupCount?: number;
+  batchNumber?: number;
+  attempt?: number;
+  replyLength?: number;
+  threshold?: number;
+  diagnosticCode?: string;
+  errorCategory?: string;
+  apiMode?: string;
+  apiSource?: 'current' | 'fixed' | 'snapshot';
+  success?: boolean;
+}
+
+/** 详细过程遵从 Debug 开关；仅挑选诊断字段，不序列化业务载荷。 */
+export function logAutoFillStage_ACU(stage: string, context: AutoFillSkipContext_ACU = {}): void {
+  logDebug_ACU('[AutoFill] Stage', { ...pickTriggerContext_ACU(context), stage });
 }
 
 export function logAutoFillSkip_ACU(
   reason: AutoFillSkipReason_ACU,
   context: AutoFillSkipContext_ACU = {},
 ): void {
+  const log = AUTO_FILL_SKIP_WARN_REASONS_ACU.has(reason) ? logWarn_ACU : logDebug_ACU;
+  log('[AutoFill] Trigger skipped', {
+    reason,
+    ...pickTriggerContext_ACU(context),
+  });
+}
+
+function pickTriggerContext_ACU(context: AutoFillSkipContext_ACU): AutoFillSkipContext_ACU {
   const {
     eventType,
     messageId,
@@ -80,10 +121,23 @@ export function logAutoFillSkip_ACU(
     inFlight,
     preconditionReason,
     latestAiMessageId,
+    runId,
+    queueId,
+    stage,
+    groupCount,
+    sheetCount,
+    failedGroupCount,
+    batchNumber,
+    attempt,
+    replyLength,
+    threshold,
+    diagnosticCode,
+    errorCategory,
+    apiMode,
+    apiSource,
+    success,
   } = context;
-  const log = AUTO_FILL_SKIP_WARN_REASONS_ACU.has(reason) ? logWarn_ACU : logDebug_ACU;
-  log('[AutoFill] Trigger skipped', {
-    reason,
+  return {
     eventType,
     messageId,
     eventMessageId,
@@ -101,5 +155,20 @@ export function logAutoFillSkip_ACU(
     inFlight,
     preconditionReason,
     latestAiMessageId,
-  });
+    runId,
+    queueId,
+    stage,
+    groupCount,
+    sheetCount,
+    failedGroupCount,
+    batchNumber,
+    attempt,
+    replyLength,
+    threshold,
+    diagnosticCode,
+    errorCategory,
+    apiMode,
+    apiSource,
+    success,
+  };
 }

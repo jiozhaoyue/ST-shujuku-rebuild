@@ -15,13 +15,20 @@ import { logWarn_ACU } from '../../shared/utils';
 
 export type ApiPresetApiMode_ACU = 'custom';
 
-/** 思考强度等级（reasoning_effort）：'false' 传 false 关闭思考，'auto' 则请求体省略该参数由服务端自定 */
+/** 思考强度等级（reasoning_effort）：'false' 关闭思考（各协议的落地字段见 api-call 的 resolveReasoningControl_ACU），'auto' 则请求体省略该参数由服务端自定 */
 export type ReasoningEffort_ACU = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'false' | 'auto';
 
 /** 接口协议（预设级）：对齐 TauriTavern 主 API 的四个「自定义」选项（custom_api_format 四值契约） */
 export type CustomApiFormat_ACU = 'openai_compat' | 'openai_responses' | 'claude_messages' | 'gemini_interactions' | 'gemini_generate_content';
 
 const CUSTOM_API_FORMATS_ACU: readonly CustomApiFormat_ACU[] = ['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'];
+
+/** 发送方式（预设级）：tavern = 经酒馆转接发送（默认）；direct = 数据库直接发送（插件直连端点，见 service/ai/direct-send.ts） */
+export type ApiSendChannel_ACU = 'tavern' | 'direct';
+
+export function normalizeApiSendChannel_ACU(value: unknown): ApiSendChannel_ACU {
+  return value === 'direct' ? 'direct' : 'tavern';
+}
 
 export function normalizeCustomApiFormat_ACU(value: unknown): CustomApiFormat_ACU {
   const raw = String(value ?? '').trim();
@@ -85,6 +92,10 @@ export interface ApiPresetApiConfig_ACU {
   customApiFormat: CustomApiFormat_ACU;
   /** 提示词后处理（预设级）：strict（默认）/ merge / semi / single / *_tools；显式 '' = 未选择，请求体省略该字段 */
   promptPostProcessing: ApiPromptPostProcessingValue_ACU;
+  /** 保留多个 system（预设级）：默认开启；严格/半严格后处理也不把中部 system 降级为 user */
+  preserveMultipleSystem?: boolean;
+  /** 发送方式（预设级）：缺省 tavern（经酒馆转接发送）；direct = 数据库直接发送 */
+  sendChannel?: ApiSendChannel_ACU;
 }
 
 export interface ApiPreset_ACU {
@@ -148,11 +159,13 @@ export function normalizeApiConfig_ACU(value: any): ApiPresetApiConfig_ACU {
     requestHeaders: typeof source.requestHeaders === 'string' ? source.requestHeaders : '',
     customApiFormat: normalizeCustomApiFormat_ACU(source.customApiFormat),
     promptPostProcessing: normalizePromptPostProcessing_ACU(source.promptPostProcessing),
+    preserveMultipleSystem: typeof source.preserveMultipleSystem === 'boolean' ? source.preserveMultipleSystem : true,
+    sendChannel: normalizeApiSendChannel_ACU(source.sendChannel),
     ...(streamingEnabled !== undefined ? { streamingEnabled } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...Object.fromEntries(
       Object.entries(source).filter(([key]) =>
-        !['url', 'apiKey', 'model', 'useMainApi', 'max_tokens', 'maxTokens', 'temperature', 'bodyParams', 'excludeBodyParams', 'requestHeaders', 'streamingEnabled', 'reasoningEffort', 'customApiFormat', 'promptPostProcessing'].includes(key)
+        !['url', 'apiKey', 'model', 'useMainApi', 'max_tokens', 'maxTokens', 'temperature', 'bodyParams', 'excludeBodyParams', 'requestHeaders', 'streamingEnabled', 'reasoningEffort', 'customApiFormat', 'promptPostProcessing', 'preserveMultipleSystem', 'sendChannel'].includes(key)
       )
     ),
   };
@@ -247,6 +260,37 @@ export function getBoundPresetNameForChat_ACU(chatKey?: string): string {
   if (!binding || typeof binding !== 'object') return '';
   const preset = findPresetByName_ACU(settings_ACU.apiPresets, binding.presetName);
   return preset ? preset.name : '';
+}
+
+/** 与当前运行配置（apiMode/apiConfig）逐键一致的预设；同名异协议/异后处理不算一致。 */
+export function findPresetMatchingCurrentApiConfig_ACU(presets: ApiPreset_ACU[]): ApiPreset_ACU | null {
+  ensureApiSettingsShape_ACU();
+  const current = normalizeApiConfig_ACU(settings_ACU.apiConfig);
+  return presets.find(preset => (
+    preset.apiConfig.url === current.url &&
+    preset.apiConfig.apiKey === current.apiKey &&
+    preset.apiConfig.model === current.model &&
+    preset.apiConfig.max_tokens === current.max_tokens &&
+    preset.apiConfig.temperature === current.temperature &&
+    preset.apiConfig.bodyParams === current.bodyParams &&
+    preset.apiConfig.excludeBodyParams === current.excludeBodyParams &&
+    preset.apiConfig.requestHeaders === current.requestHeaders &&
+    // 同名异协议/异后处理预设不得误判为同一：两字段都参与匹配（缺失由归一化补为默认值后比较）。
+    preset.apiConfig.promptPostProcessing === current.promptPostProcessing &&
+    preset.apiConfig.customApiFormat === current.customApiFormat
+  )) ?? null;
+}
+
+/** API 页显示为「当前」的预设：聊天绑定 > 全局默认 > 与当前运行配置一致的预设。 */
+export function resolveDisplayedActiveApiPresetName_ACU(chatKey?: string): string {
+  ensureApiSettingsShape_ACU();
+  const defaultName = findPresetByName_ACU(settings_ACU.apiPresets, settings_ACU.defaultApiPresetName)
+    ? settings_ACU.defaultApiPresetName
+    : '';
+  return getBoundPresetNameForChat_ACU(chatKey)
+    || defaultName
+    || findPresetMatchingCurrentApiConfig_ACU(settings_ACU.apiPresets)?.name
+    || '';
 }
 
 /** 按预设名解析运行配置；空名或悬挂引用返回可断言结果（不静默复用当前配置） */
@@ -521,6 +565,8 @@ export function saveApiPreset_ACU(presetInput: ApiPreset_ACU, originalName = '')
   ensureApiSettingsShape_ACU();
   const snapshot = snapshotApiFields_ACU();
   const oldName = String(originalName || '').trim();
+  // 改动前页面显示的当前预设（改完后运行配置就和它对不上了，必须先取）
+  const displayedActiveName = resolveDisplayedActiveApiPresetName_ACU();
   const existingByNewName = settings_ACU.apiPresets.findIndex((p: ApiPreset_ACU) => p.name === preset.name);
   if (existingByNewName >= 0 && settings_ACU.apiPresets[existingByNewName].name !== oldName) {
     // 重命名/新建撞上已有名称：拒绝覆盖，避免静默销毁已有预设（不可逆数据丢失）
@@ -553,6 +599,11 @@ export function saveApiPreset_ACU(presetInput: ApiPreset_ACU, originalName = '')
       presetName: preset.name,
       updatedAt: Date.now(),
     };
+    settings_ACU.apiMode = preset.apiMode;
+    settings_ACU.apiConfig = clone(preset.apiConfig);
+  } else if (oldName && displayedActiveName === oldName && findPresetByName_ACU(settings_ACU.apiPresets, preset.name)) {
+    // 聊天没绑定预设、页面显示的当前预设来自全局默认或与当前配置一致：编辑它要同步到当前配置，
+    // 否则页面和预设都是新模型，「跟随当前配置」的请求还发旧模型（上游 #37）。不新建聊天绑定。
     settings_ACU.apiMode = preset.apiMode;
     settings_ACU.apiConfig = clone(preset.apiConfig);
   }

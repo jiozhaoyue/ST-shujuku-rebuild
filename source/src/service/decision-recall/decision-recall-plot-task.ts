@@ -1,0 +1,70 @@
+/**
+ * service/decision-recall/decision-recall-plot-task.ts — 剧情推进任务改由决策召回执行。
+ *
+ * 只在决策召回开着、用法选了「替换剧情推进的任务」、剧情推进页的「由决策召回执行 recall 任务」开着时生效，
+ * 且只在多任务预设上生效（单任务预设不替换）；自动匹配标签恰好是一个 recall、没有注入专用标签的任务，
+ * 因为决策召回只产出编码列表，产不出别的标签。产出是与模型回复同形的 recall 标签块，
+ * 交给剧情推进照常摘取、传给后续任务、按预设自己的最终注入指令写进本轮输入。
+ */
+import { isDecisionRecallReplacingPlotTasks_ACU, normalizeDecisionRecallSettings_ACU } from './decision-recall-settings';
+import {
+  buildDecisionRecallTagBlock_ACU,
+  logDecisionRecallResult_ACU,
+  runDecisionRecall_ACU,
+  type DecisionRecallRunDeps_ACU,
+  type DecisionRecallRunResult_ACU,
+} from './decision-recall-runtime';
+import { settings_ACU } from '../runtime/state-manager';
+
+export const DECISION_RECALL_PLOT_TASK_TAG_ACU = 'recall';
+
+function splitTags_ACU(value: unknown): string[] {
+  return String(value || '').split(',').map(tag => tag.trim()).filter(Boolean);
+}
+
+/** 预设里实际会跑的任务数：停用的任务不算，「只启用一个任务的预设不替换」按这个数判断。 */
+export function countEnabledPlotTasks_ACU(tasks: readonly any[] | null | undefined): number {
+  return (Array.isArray(tasks) ? tasks : []).filter(task => task && task.enabled !== false).length;
+}
+
+/** 这个任务能否改由决策召回执行：预设有多个启用的任务，且任务标签恰好是 recall。 */
+export function canPlotTaskUseDecisionRecall_ACU(task: Record<string, any> | null | undefined, presetTaskCount: number): boolean {
+  if (!task || presetTaskCount < 2) return false;
+  const tags = splitTags_ACU(task.extractTags);
+  return tags.length === 1
+    && tags[0].toLowerCase() === DECISION_RECALL_PLOT_TASK_TAG_ACU
+    && splitTags_ACU(task.extractInjectTags).length === 0;
+}
+
+/**
+ * 本轮这个任务是否由决策召回执行：替换开着且任务满足条件
+ * （关掉剧情推进页的开关、关掉决策召回、换成单独召回、改了标签或删到只剩一个任务后照常由模型执行）。
+ */
+export function isDecisionRecallPlotTask_ACU(task: Record<string, any> | null | undefined, presetTaskCount: number): boolean {
+  return canPlotTaskUseDecisionRecall_ACU(task, presetTaskCount)
+    && isDecisionRecallReplacingPlotTasks_ACU(settings_ACU?.decisionRecallSettings);
+}
+
+export type DecisionRecallPlotTaskOutcome_ACU =
+  | { kind: 'aborted' }
+  | { kind: 'done'; rawResponse: string; result: DecisionRecallRunResult_ACU };
+
+/** 跑一次决策召回并产出任务回复；纪要表为空或读不到时产出空的 recall 块（不算任务失败，也不注入）。 */
+export async function runDecisionRecallForPlotTask_ACU(
+  task: Record<string, any>,
+  options: { userInput: string; signal?: AbortSignal | null },
+  deps: DecisionRecallRunDeps_ACU = {},
+): Promise<DecisionRecallPlotTaskOutcome_ACU> {
+  const settings = normalizeDecisionRecallSettings_ACU(settings_ACU?.decisionRecallSettings);
+  const result = await runDecisionRecall_ACU({ userInput: options.userInput, settings, signal: options.signal }, deps);
+  logDecisionRecallResult_ACU(result);
+  if (result.status === 'aborted') return { kind: 'aborted' };
+  const codes = result.status === 'ok' ? result.selected.map(row => row.indexCode) : [];
+  return { kind: 'done', rawResponse: buildDecisionRecallPlotTaskResponse_ACU(task, codes), result };
+}
+
+/** 任务回复：沿用任务自己的标签写法；没有编码时是空的 recall 块（不注入）。 */
+export function buildDecisionRecallPlotTaskResponse_ACU(task: Record<string, any>, codes: readonly string[]): string {
+  const tagName = splitTags_ACU(task.extractTags)[0] || DECISION_RECALL_PLOT_TASK_TAG_ACU;
+  return buildDecisionRecallTagBlock_ACU(codes, tagName);
+}

@@ -15,11 +15,13 @@ const h = vi.hoisted(() => ({
 vi.mock('../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: () => h.chat,
   saveChatToHost_ACU: h.save,
+  saveChatToHostCoalesced_ACU: h.save,
   saveChatToHostStrict_ACU: h.strictSave,
 }));
 vi.mock('../../src/data/storage/chat-history', () => ({
   getActiveChatStorageIdentity_ACU: () => 'flight-mode-lifecycle',
   getChatScopedConfigContainer_ACU: () => h.scope,
+  getChatScopedConfigField_ACU: (_chat: unknown[], field: string) => h.scope?.[field],
   peekChatScopedConfigContainer_ACU: () => h.scope,
   normalizeChatScopedConfigContainer_ACU: (value: any) => JSON.parse(JSON.stringify(value || { version: 1 })),
   setChatScopedConfigContainer_ACU: (_chat: any[], value: any) => { h.scope = value; },
@@ -163,7 +165,7 @@ describe.each(['native', 'sqlite'] as const)('flight mode lifecycle (%s)', (mode
     afterWrite.sheet_chronicle.content.push(['3', '同批新增纪要']);
     afterWrite[summaryKey].content.push(['1', '阶段总结']);
     const hiddenRowIds = getHiddenChronicleRowIdsAfterBigSummaryInsert_ACU(beforeWrite, afterWrite, enabled);
-    expect(hiddenRowIds).toEqual(['1', '2', '3']);
+    expect(hiddenRowIds).toEqual(['1', '2']);
     const rollback = stageFlightModeHiddenRowIds_ACU(hiddenRowIds!);
 
     const persisted = await persistTableMutationLogV2_ACU({
@@ -185,7 +187,9 @@ describe.each(['native', 'sqlite'] as const)('flight mode lifecycle (%s)', (mode
 
     const replayed = await loadTableStateFromFramesV2_ACU(h.chat, '');
     expect(replayed?.sheet_chronicle.content).toEqual(afterWrite.sheet_chronicle.content);
-    expect(projectFlightModeHiddenChronicleRows_ACU(replayed!, getCurrentFlightModeState_ACU()).sheet_chronicle.content).toEqual([['row_id', '事件']]);
+    // 投影只摘掉被本次大总结归纳的写入前纪要（'1'、'2'），同批新增的 '3' 仍在可见集合里。
+    expect(projectFlightModeHiddenChronicleRows_ACU(replayed!, getCurrentFlightModeState_ACU()).sheet_chronicle.content)
+      .toEqual([['row_id', '事件'], ['3', '同批新增纪要']]);
 
     h.chat.push({ is_user: false, mes: '后续 AI 楼层', TavernDB_ACU_IsolatedData: { '': clone(h.chat[0].TavernDB_ACU_IsolatedData['']) } });
     await expect(disableFlightMode_ACU()).resolves.toEqual({ ok: true });
@@ -196,9 +200,12 @@ describe.each(['native', 'sqlite'] as const)('flight mode lifecycle (%s)', (mode
     expect(terminalFrame.checkpoint).toMatchObject({ kind: 'full', reason: 'schema_change' });
     expect(terminalFrame.logEntries).toEqual([]);
     expect(terminalFrame.perSheetCheckpoints).toBeUndefined();
+    // R2B-07：硬删后只留最新楼层这一个 full 根，其余根降级为帧内 data_replace fallback（降级前已清掉大总结）。
+    expect(h.chat.filter((message: any) => message.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint?.kind === 'full')).toHaveLength(1);
     for (const message of h.chat) {
-      expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data[summaryKey]).toBeUndefined();
-      expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints?.[summaryKey]).toBeUndefined();
+      const frame = message.TavernDB_ACU_IsolatedData[''].storageFrame;
+      expect(frame.checkpoint?.data?.[summaryKey]).toBeUndefined();
+      expect(frame.perSheetCheckpoints?.[summaryKey]).toBeUndefined();
     }
 
     // data_replace 保持整库语义，硬删除不能只清 checkpoint/单表日志而让它在下一次 replay 复活。
@@ -265,12 +272,13 @@ describe.each(['native', 'sqlite'] as const)('flight mode lifecycle (%s)', (mode
       expect(h.data.sheet_quan_ju.content).toEqual([['row_id', '总结'], ['1', '御苑']]);
 
       // 写入大总结并执行隐藏纪要逻辑，确认无回归。
+      // 隐藏范围只含写入前可见的 '1'、'2'；同批新增的 '3' 没被本次大总结归纳，保持可见。
       const beforeWrite = clone(h.data);
       const afterWrite = clone(h.data);
       afterWrite.sheet_chronicle.content.push(['3', '同批新增纪要']);
       afterWrite[summaryKey].content.push(['1', '阶段总结']);
       const hiddenRowIds = getHiddenChronicleRowIdsAfterBigSummaryInsert_ACU(beforeWrite, afterWrite, enabled);
-      expect(hiddenRowIds).toEqual(['1', '2', '3']);
+      expect(hiddenRowIds).toEqual(['1', '2']);
       const roll = stageFlightModeHiddenRowIds_ACU(hiddenRowIds!);
 
       const persisted = await persistTableMutationLogV2_ACU({
@@ -302,9 +310,12 @@ describe.each(['native', 'sqlite'] as const)('flight mode lifecycle (%s)', (mode
       // 停用后原表仍有效：fallback DDL 保留、数据不变。
       expect(h.data.sheet_chronicle.sourceData.ddl).toContain('row_id INTEGER PRIMARY KEY');
       expect(h.data.sheet_quan_ju.sourceData.ddl).toContain('row_id INTEGER PRIMARY KEY');
+      // R2B-07：硬删后只留最新楼层这一个 full 根，其余根降级为帧内 data_replace fallback（降级前已清掉大总结）。
+      expect(h.chat.filter((message: any) => message.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint?.kind === 'full')).toHaveLength(1);
       for (const message of h.chat) {
-        expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data[summaryKey]).toBeUndefined();
-        expect(message.TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints?.[summaryKey]).toBeUndefined();
+        const frame = message.TavernDB_ACU_IsolatedData[''].storageFrame;
+        expect(frame.checkpoint?.data?.[summaryKey]).toBeUndefined();
+        expect(frame.perSheetCheckpoints?.[summaryKey]).toBeUndefined();
       }
     });
   });

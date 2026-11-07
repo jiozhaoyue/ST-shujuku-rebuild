@@ -10,6 +10,7 @@ const {
   mockRegisterPostChatSaveListener,
   mockAssertSingleFull,
   mockRunTableWriteTransaction,
+  mockDeepClone,
   mockState,
 } = vi.hoisted(() => ({
   mockGetChatArray: vi.fn(),
@@ -17,6 +18,7 @@ const {
   mockRegisterPostChatSaveListener: vi.fn(),
   mockAssertSingleFull: vi.fn(() => null as string | null),
   mockRunTableWriteTransaction: vi.fn(),
+  mockDeepClone: vi.fn(),
   mockState: { chatKey: 'chat-a' },
 }));
 
@@ -29,11 +31,43 @@ vi.mock('../../../src/data/gateways/chat-gateway', () => ({
 vi.mock('../../../src/data/repositories/chat-message-data-repo', () => ({
   readIsolatedDataContainer_ACU: (msg: any) => {
     const container = msg?.TavernDB_ACU_IsolatedData;
-    return container && typeof container === 'object' && !Array.isArray(container) ? container : null;
+    if (container && typeof container === 'object' && !Array.isArray(container)) return container;
+    // 与真实实现同口径：字符串形态解析为对象；解析失败返回 null。
+    if (typeof container === 'string' && container) {
+      try {
+        const parsed = JSON.parse(container);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+      } catch { return null; }
+    }
+    return null;
   },
   readIsolatedTagData_ACU: (msg: any, isolationKey: string) => {
-    const tagData = msg?.TavernDB_ACU_IsolatedData?.[isolationKey];
+    const container = msg?.TavernDB_ACU_IsolatedData;
+    let resolved = container;
+    if (typeof container === 'string' && container) {
+      try { resolved = JSON.parse(container); } catch { resolved = null; }
+    }
+    const tagData = resolved?.[isolationKey];
     return tagData && typeof tagData === 'object' ? tagData : null;
+  },
+  // 与真实实现同口径：对象形态原引用返回；字符串形态解析克隆后按对象形态写回；非法/缺失置 {}。
+  ensureWritableIsolatedDataContainer_ACU: (msg: any) => {
+    const raw = msg?.TavernDB_ACU_IsolatedData;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    if (typeof raw === 'string' && raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        const container = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? JSON.parse(JSON.stringify(parsed)) : {};
+        msg.TavernDB_ACU_IsolatedData = container;
+        return container;
+      } catch {
+        msg.TavernDB_ACU_IsolatedData = {};
+        return msg.TavernDB_ACU_IsolatedData;
+      }
+    }
+    msg.TavernDB_ACU_IsolatedData = {};
+    return msg.TavernDB_ACU_IsolatedData;
   },
 }));
 
@@ -61,13 +95,14 @@ vi.mock('../../../src/shared/utils', () => ({
   logDebug_ACU: vi.fn(),
   logWarn_ACU: vi.fn(),
   logError_ACU: vi.fn(),
-  deepClone_ACU: <T>(value: T): T => (value == null ? value : JSON.parse(JSON.stringify(value))),
+  deepClone_ACU: mockDeepClone,
 }));
 
 import {
   captureCheckpointVaultForCurrentChat_ACU,
   recoverLostCheckpointsAfterMessageDeletion_ACU,
   installCheckpointDeleteGuard_ACU,
+  noteMessagesPresentAtDeletion_ACU,
   __getCheckpointVaultForTests_ACU,
   __resetCheckpointDeleteGuardForTests_ACU,
 } from '../../../src/service/chat/checkpoint-delete-guard';
@@ -110,6 +145,8 @@ beforeEach(() => {
   mockSaveChatToHostStrict.mockResolvedValue(undefined);
   mockAssertSingleFull.mockReturnValue(null);
   mockRunTableWriteTransaction.mockImplementation(async (_options: any, task: any) => task());
+  mockDeepClone.mockReset();
+  mockDeepClone.mockImplementation((value: any) => (value == null ? value : JSON.parse(JSON.stringify(value))));
 });
 
 describe('captureCheckpointVaultForCurrentChat_ACU', () => {
@@ -130,6 +167,107 @@ describe('captureCheckpointVaultForCurrentChat_ACU', () => {
     mockGetChatArray.mockReturnValue([userMsg('u'), aiMsg('plain')]);
     captureCheckpointVaultForCurrentChat_ACU();
     expect(__getCheckpointVaultForTests_ACU()?.isolationKeys).toEqual([]);
+  });
+});
+
+describe('captureCheckpointVaultForCurrentChat_ACU · 产物克隆记忆化', () => {
+  function rootFrame() {
+    return {
+      version: 2,
+      checkpoint: fullCheckpoint(),
+      logEntries: [],
+      perSheetCheckpoints: { sheet_9: hideCheckpoint('sheet_9', 1) },
+    };
+  }
+
+  it('连续两次捕获未变的帧：第二轮零深克隆，条目集合不变', () => {
+    const chat = [userMsg('u'), aiMsg('root', rootFrame()), aiMsg('inc', logFrame())];
+    mockGetChatArray.mockReturnValue(chat);
+
+    captureCheckpointVaultForCurrentChat_ACU();
+    // 首轮：root 楼的 full 根 + per-sheet 锚各克隆一次，log-only 楼层零克隆。
+    expect(mockDeepClone.mock.calls.length).toBe(2);
+    mockDeepClone.mockClear();
+
+    captureCheckpointVaultForCurrentChat_ACU();
+    expect(mockDeepClone).not.toHaveBeenCalled();
+    expect(__getCheckpointVaultForTests_ACU()?.entryCounts['']).toBe(2);
+  });
+
+  it('新增楼层只克隆新增楼层的产物，既有楼层只更新信标', () => {
+    const chat = [userMsg('u'), aiMsg('root', rootFrame()), aiMsg('inc', logFrame())];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    mockDeepClone.mockClear();
+
+    chat.push(aiMsg('tail', { version: 2, checkpoint: fullCheckpoint({ sheet_0: { name: '物品表', content: [['row_id', '物品名'], ['2', '盾']] } }), logEntries: [] }));
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    // 只为新楼层的 full 根克隆一次；旧楼层的两份产物直接复用。
+    expect(mockDeepClone.mock.calls.length).toBe(1);
+    expect(__getCheckpointVaultForTests_ACU()?.entryCounts['']).toBe(3);
+  });
+
+  // R3-09：chat 在锁外取得，等锁期间宿主换了聊天数组就必须放弃，不得把旧聊天产物嫁接进新聊天。
+  it('等锁期间聊天数组被替换：放弃恢复，旧数组与新数组都不改写', async () => {
+    const rootMsg = aiMsg('root', rootFrame());
+    const incMsg = aiMsg('inc', logFrame());
+    const chat = [userMsg('u'), rootMsg, incMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    chat.splice(1, 1);
+    const otherChat = [userMsg('x'), aiMsg('other')];
+    mockRunTableWriteTransaction.mockImplementationOnce(async (_options: any, task: any) => {
+      mockGetChatArray.mockReturnValue(otherChat);
+      return task();
+    });
+    const before = JSON.stringify(incMsg);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+    expect(result.recovered).toBe(false);
+    expect(JSON.stringify(incMsg)).toBe(before);
+    expect(mockRunTableWriteTransaction.mock.calls[0][0].guardChatSwitch).toBe(true);
+  });
+
+  it('帧产物换新后重新深克隆，且嫁接读回的是新产物而非记忆化旧值', async () => {
+    const rootMsg = aiMsg('root', rootFrame());
+    const incMsg = aiMsg('inc', logFrame());
+    const chat = [userMsg('u'), rootMsg, incMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    mockDeepClone.mockClear();
+
+    const nextFull = fullCheckpoint({ sheet_0: { name: '物品表', content: [['row_id', '物品名'], ['1', '斧']] } });
+    rootMsg.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint = nextFull;
+    rootMsg.TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints = { sheet_8: hideCheckpoint('sheet_8', 4) };
+    captureCheckpointVaultForCurrentChat_ACU();
+    expect(mockDeepClone.mock.calls.length).toBe(2);
+
+    chat.splice(1, 1); // 删根楼层
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+    expect(result.recovered).toBe(true);
+    const frame = incMsg.TavernDB_ACU_IsolatedData[''].storageFrame;
+    expect(frame.checkpoint).toEqual(nextFull);
+    expect(Object.keys(frame.perSheetCheckpoints)).toEqual(['sheet_8']);
+    expect(frame.perSheetCheckpoints.sheet_8.timeline.activateAtMessageIndex).toBe(chat.indexOf(incMsg));
+  });
+
+  it('per-sheet 锚被原地增删后重新克隆：记忆化不得停在旧集合', async () => {
+    const rootMsg = aiMsg('root', rootFrame());
+    const incMsg = aiMsg('inc', logFrame());
+    const chat = [userMsg('u'), rootMsg, incMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    mockDeepClone.mockClear();
+
+    // 原地删除一张表的锚（container 引用不变，只有内容变了）。
+    delete rootMsg.TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints.sheet_9;
+    captureCheckpointVaultForCurrentChat_ACU();
+    expect(mockDeepClone.mock.calls.length).toBe(1);
+
+    chat.splice(1, 1);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+    expect(result.recovered).toBe(true);
+    expect(incMsg.TavernDB_ACU_IsolatedData[''].storageFrame.perSheetCheckpoints).toBeUndefined();
   });
 });
 
@@ -244,6 +382,38 @@ describe('recoverLostCheckpointsAfterMessageDeletion_ACU', () => {
     expect(tagData.storageFrame.logEntries).toEqual([]);
   });
 
+  it('G05-01：嫁接目标楼是遗留字符串形态容器时先解析再写，其它标签槽原样保留不被置空', async () => {
+    const rootMsg = aiMsg('root', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    // 旧时代遗留楼层：容器是 JSON 字符串，只有 tagA 槽（没有当前 '' 槽）
+    const tailMsg: any = {
+      is_user: false,
+      mes: 'tail',
+      TavernDB_ACU_IsolatedData: JSON.stringify({
+        tagA: {
+          independentData: { sheet_9: { name: '旧标签表', content: [['row_id', '值'], ['1', 'x']] } },
+          modifiedKeys: [],
+          updateGroupKeys: [],
+        },
+      }),
+    };
+    const chat = [rootMsg, tailMsg, userMsg('u-tail')];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    chat.splice(0, 1);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(true);
+    const container = tailMsg.TavernDB_ACU_IsolatedData;
+    // 修复前：字符串容器被 ensureTargetFrame 整体置 {}，tagA 槽数据被静默清空并随严格保存落盘。
+    expect(typeof container).toBe('object');
+    expect(container.tagA.independentData.sheet_9.name).toBe('旧标签表');
+    expect(container['']._acu_storage_version).toBe(2);
+    expect(container[''].storageFrame.checkpoint).toEqual(fullCheckpoint());
+    expect(container[''].storageFrame.logEntries).toEqual([]);
+    expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
+  });
+
   it('无后继帧且最后 AI 楼层携带更早增量帧时清空其 logs（已被恢复的 full 吸收）', async () => {
     const earlierMsg = aiMsg('earlier', logFrame([{ seq: 2, operations: [] }]));
     const rootMsg = aiMsg('root', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
@@ -258,6 +428,127 @@ describe('recoverLostCheckpointsAfterMessageDeletion_ACU', () => {
     const frame = earlierMsg.TavernDB_ACU_IsolatedData[''].storageFrame;
     expect(frame.checkpoint).toEqual(fullCheckpoint());
     expect(frame.logEntries).toEqual([]);
+  });
+
+  it('重新生成：删楼后宿主已追加的新回复（流式占位）不当嫁接目标，产物落到删楼前就在的楼层', async () => {
+    // issue #2：宿主重新生成先删旧回复，流式开始即 push 新回复；删楼调度 1.2s 后才嫁接，
+    // 若落到新回复上，新回复会被当成「已填过表」，自动填表跳过，且带着旧回复的数据。
+    const earlierMsg = aiMsg('earlier', logFrame([{ seq: 2, operations: [] }]));
+    const oldReply = aiMsg('old-truncated', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    const chat: any[] = [userMsg('u1'), earlierMsg, userMsg('u2'), oldReply];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    chat.splice(3, 1);
+    const newReply: any = { is_user: false, mes: '' };
+    chat.push(newReply);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(true);
+    expect(newReply.TavernDB_ACU_IsolatedData).toBeUndefined();
+    expect(earlierMsg.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toEqual(fullCheckpoint());
+  });
+
+  it('删掉唯一 AI 楼后只剩新追加的回复：不嫁接到新回复，保留保管库', async () => {
+    const oldReply = aiMsg('old', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    const chat: any[] = [userMsg('u'), oldReply];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    chat.splice(1, 1);
+    const newReply: any = { is_user: false, mes: '' };
+    chat.push(newReply);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(false);
+    expect(newReply.TavernDB_ACU_IsolatedData).toBeUndefined();
+    expect(mockSaveChatToHostStrict).not.toHaveBeenCalled();
+  });
+
+  it('保管库过期：上次捕获后宿主追加、插件未保存过的楼，删楼那一刻登记后可作落点', async () => {
+    // 关自动填表 / 频率跳过 / 填表失败时插件不保存，保管库停在旧捕获；删楼那一刻在场的楼都算「删楼前就在」。
+    const rootMsg = aiMsg('root', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    const chat: any[] = [userMsg('u1'), rootMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    const laterReply = aiMsg('later');
+    chat.push(userMsg('u2'), laterReply);
+
+    chat.splice(1, 1);
+    noteMessagesPresentAtDeletion_ACU();
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(true);
+    expect(laterReply.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toEqual(fullCheckpoint());
+  });
+
+  it('删楼时登记在场楼层后，重新生成随后追加的流式新回复仍不当落点', async () => {
+    const earlierMsg = aiMsg('earlier', logFrame([{ seq: 2, operations: [] }]));
+    const oldReply = aiMsg('old', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    const chat: any[] = [userMsg('u1'), earlierMsg, userMsg('u2'), oldReply];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    chat.splice(3, 1);
+    noteMessagesPresentAtDeletion_ACU();
+    const newReply: any = { is_user: false, mes: '' };
+    chat.push(newReply);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(true);
+    expect(newReply.TavernDB_ACU_IsolatedData).toBeUndefined();
+    expect(earlierMsg.TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toEqual(fullCheckpoint());
+  });
+
+  it('删楼登记只作用于保管库所属聊天：聊天标识对不上时不登记', async () => {
+    const rootMsg = aiMsg('root', { version: 2, checkpoint: fullCheckpoint(), logEntries: [] });
+    const chat: any[] = [userMsg('u1'), rootMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+    const laterReply = aiMsg('later');
+    chat.push(userMsg('u2'), laterReply);
+
+    mockState.chatKey = 'chat-b';
+    noteMessagesPresentAtDeletion_ACU();
+    mockState.chatKey = 'chat-a';
+    chat.splice(1, 1);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(false);
+    expect(laterReply.TavernDB_ACU_IsolatedData).toBeUndefined();
+  });
+
+  it('续写基线兜底同样不落到删楼后追加的新回复上（TT-only）', async () => {
+    const { registerMaterialCheckpointRecoveryAdapter_ACU } = await import('../../../src/service/chat/material-checkpoint-sync');
+    registerMaterialCheckpointRecoveryAdapter_ACU({
+      capture: (message: unknown) => {
+        const marker = (message as { _qrf_continuation_agent?: { swipeId: string; snapshot: unknown } })._qrf_continuation_agent;
+        return marker ? { continuation: marker } : null;
+      },
+      graftContinuation(message, artifact) {
+        const target = message as { _qrf_continuation_agent?: unknown };
+        if (target._qrf_continuation_agent) return false;
+        target._qrf_continuation_agent = artifact;
+        return true;
+      },
+      assertContinuation() { return null; },
+    });
+    const earlier = aiMsg('earlier');
+    const oldReply = aiMsg('old');
+    oldReply._qrf_continuation_agent = { swipeId: '0', snapshot: { hooks: ['H1'] } };
+    const chat: any[] = [userMsg('u1'), earlier, userMsg('u2'), oldReply];
+    mockGetChatArray.mockReturnValue(chat);
+    captureCheckpointVaultForCurrentChat_ACU();
+
+    chat.splice(3, 1);
+    noteMessagesPresentAtDeletion_ACU();
+    const newReply: any = { is_user: false, mes: '' };
+    chat.push(newReply);
+    const result = await recoverLostCheckpointsAfterMessageDeletion_ACU();
+
+    expect(result.recovered).toBe(true);
+    expect(newReply._qrf_continuation_agent).toBeUndefined();
+    expect(earlier._qrf_continuation_agent).toEqual({ swipeId: '0', snapshot: { hooks: ['H1'] } });
   });
 
   it('聊天中已无 AI 楼层时放弃且不保存', async () => {

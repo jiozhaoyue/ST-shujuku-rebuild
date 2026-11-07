@@ -229,7 +229,22 @@ export class ContinuationHostGenerationBridge_ACU {
     return boundSequence === null || sequence === undefined || boundSequence === sequence;
   }
 
+  /**
+   * 生成中切到了别的聊天：原聊天那次生成在后台结束 / 中止时，事件按「当前聊天」归属不上，认领会一直留在桥里，
+   * 切回原聊天后续写链永久 BUSY。按生成序号认出它属于哪个聊天，顺带清掉那个聊天的认领。
+   */
+  private releaseClaimsOfOtherChats_ACU(sequence: number | undefined): void {
+    if (sequence === undefined) return;
+    const currentChatIdentity = this.dependencies.runtime.getChatIdentity();
+    for (const [chatIdentity, started] of [...this.startedByChat]) {
+      if (chatIdentity === currentChatIdentity || started.sequence !== sequence) continue;
+      this.startedByChat.delete(chatIdentity);
+      this.armedByChat.delete(chatIdentity);
+    }
+  }
+
   async onGenerationEnded(eventMessageId: unknown, sequence: number | undefined, contextInput: ContinuationHostGenerationEventContextInput_ACU = undefined): Promise<void> {
+    this.releaseClaimsOfOtherChats_ACU(sequence);
     const context = normalizeGenerationEventContext_ACU(contextInput);
     const endedOnlyLocalRetryClaim = this.getMatchingLocalRetryClaim_ACU(context, sequence);
     if (!this.claimsGenerationEnded(sequence, context)) return;
@@ -270,6 +285,14 @@ export class ContinuationHostGenerationBridge_ACU {
       }
       const message = chat[messageIndex];
       const body = String(message.mes ?? '');
+      if (!body.trim()) {
+        // 空正文是生成失败，不是合格正文：没配标签、没设最短长度时也不能确认（上游 80096e51）。
+        // 空楼会被宿主 regenerate 删掉重生成，同样先作废待填表防抖。
+        try { this.dependencies.invalidatePendingAutoFill?.(); } catch { /* 填表作废失败不阻断重试链 */ }
+        await this.dependencies.runtime.rejectHostTurnForFailedGeneration(claimedIdentity);
+        await this.autoRetryHostGenerationIfReady_ACU(claimedIdentity, snapshot.settings.retryDelaySeconds ?? 0);
+        return;
+      }
       if (!message || !validateLoopTags_ACU(body, snapshot.settings.loopTags)) {
         // [双写互斥] 坏标签楼将由宿主 regenerate 删掉重生成：本轮正文对应的
         // 自动填表防抖（GENERATION_ENDED 派发，500ms 窗口）此刻指向即将被删掉的楼，若让它到期
@@ -316,6 +339,7 @@ export class ContinuationHostGenerationBridge_ACU {
    * 转入 retry_ready + 暂停，用户可重试当前轮或继续/停止，不再卡死在等待态。
    */
   async onGenerationStopped(sequence: number | undefined): Promise<void> {
+    this.releaseClaimsOfOtherChats_ACU(sequence);
     const runtime = this.dependencies.runtime;
     const chatIdentity = runtime.getChatIdentity();
     const started = this.startedByChat.get(chatIdentity) ?? null;
@@ -411,6 +435,12 @@ export class ContinuationHostGenerationBridge_ACU {
     // 等待期间用户点了停止（或任务已失败）→ 放弃自动重试：否则 retryCurrentTurn 会把任务置回
     // running 并清空 stopReason，等于静默撤销用户的停止并多烧一次宿主生成。
     if (beforeRetry.taskStopped || beforeRetry.taskRunning) return;
+    // 先判宿主还能不能重发：retryCurrentTurn 会把任务置回运行中，之后放弃重发就没有对称的回写，
+    // 任务悬在「运行中」却没有任何生成在跑。不能重发时保持 retry_ready，由用户「继续」按现存楼层重新规划。
+    if (!resolveHostRetryMode_ACU(this.dependencies.runtime.getChat(), beforeRetry.pending.capture)) {
+      logAgentSession_ACU({ kind: 'run_failed', title: '放弃自动重发', detail: '楼层已与发送时不一致（承载指令的用户楼或上一轮正文已被删除），直接重发会落错位置。请点「继续」让主 Agent 按现存楼层重新规划。', ok: false });
+      return;
+    }
     const action = await this.dependencies.runtime.retryCurrentTurn();
     if (!action.retryHostGeneration) return;
     await this.retryHostGeneration();

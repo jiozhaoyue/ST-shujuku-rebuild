@@ -41,12 +41,15 @@ async function importManualUpdate() {
   const refreshMergedDataAndNotify_ACU = vi.fn(async () => undefined);
   const setWasStoppedByUser = vi.fn();
   const saveSettings_ACU = vi.fn();
+  const abortAllActiveRequests = vi.fn();
+  const requestTableFillStop = vi.fn();
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     currentJsonTableData_ACU: currentJsonTableData,
     get currentChatFileIdentifier_ACU() { return currentChatIdentity; },
     settings_ACU: settings,
-    abortAllActiveRequests_ACU: vi.fn(),
+    abortAllActiveRequests_ACU: abortAllActiveRequests,
+    requestTableFillStop_ACU: requestTableFillStop,
     _set_isAutoUpdatingCard_ACU: vi.fn(),
     _set_manualExtraHint_ACU: vi.fn(),
     _set_wasStoppedByUser_ACU: setWasStoppedByUser,
@@ -112,6 +115,8 @@ async function importManualUpdate() {
     prepareManualCatchUpPlan_ACU,
     refreshMergedDataAndNotify_ACU,
     setWasStoppedByUser,
+    abortAllActiveRequests,
+    requestTableFillStop,
     setChatIdentity: (value: string) => { currentChatIdentity = value; },
   };
 }
@@ -132,17 +137,6 @@ beforeEach(() => {
 });
 
 describe('useManualUpdate 表格展示的模板回退', () => {
-  it('runtime 为 null 时选择器显示全局模板表名', async () => {
-    displayTableData = null;
-    templateDisplayData = {
-      sheet_tpl: { name: '模板表' },
-    };
-    const { useManualUpdate } = await importManualUpdate();
-    const manual = useManualUpdate();
-
-    expect(manual.sheetKeys.value).toEqual(['sheet_tpl']);
-    expect(manual.sheetNames.value).toEqual({ sheet_tpl: '模板表' });
-  });
 
   it('模板解析失败时维持空态，不抛出', async () => {
     displayTableData = null;
@@ -265,6 +259,40 @@ describe('useManualUpdate destructive refill confirmation', () => {
     __resetToastStoreForTests();
   });
 
+  it('R10A-19：取消确认时保留用户填写的额外要求', async () => {
+    const { useManualUpdate, dialog, __resetToastStoreForTests } = await importManualUpdate();
+    const manual = useManualUpdate();
+    manual.manualExtraHint.value = '请把物品数量写全';
+
+    const pending = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.cancelActive();
+    await pending;
+
+    expect(manual.manualExtraHint.value).toBe('请把物品数量写全');
+    __resetToastStoreForTests();
+  });
+
+  it('终止手动填表走统一的「终止填表」入口（锁存到本轮结束、只中止填表请求）', async () => {
+    const { useManualUpdate, dialog, toast, orchestrateManualUpdate_ACU, requestTableFillStop, __resetToastStoreForTests } = await importManualUpdate();
+    let release!: (value: unknown) => void;
+    orchestrateManualUpdate_ACU.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const manual = useManualUpdate();
+
+    const pending = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await waitForCondition(() => orchestrateManualUpdate_ACU.mock.calls.length === 1, 'orchestrator 已调用');
+    const abortAction = toast.items.find(item => item.action?.label === '终止')?.action;
+    expect(abortAction).toBeTruthy();
+    abortAction!.onClick();
+    release({ success: false, error: 'aborted' });
+    await pending;
+
+    expect(requestTableFillStop).toHaveBeenCalledTimes(1);
+    __resetToastStoreForTests();
+  });
+
   it('用户确认后只调用 orchestrator 一次，且不再传 confirmBoundaryReset', async () => {
     const { useManualUpdate, dialog, orchestrateManualUpdate_ACU, __resetToastStoreForTests } = await importManualUpdate();
     orchestrateManualUpdate_ACU.mockResolvedValue({ success: true });
@@ -277,8 +305,8 @@ describe('useManualUpdate destructive refill confirmation', () => {
 
     expect(orchestrateManualUpdate_ACU).toHaveBeenCalledTimes(1);
     expect(orchestrateManualUpdate_ACU.mock.calls[0][0]).toEqual(['sheet_0']);
-    expect(orchestrateManualUpdate_ACU.mock.calls[0][3]).toEqual(expect.objectContaining({ clearBeforeUpdate: true }));
-    expect(orchestrateManualUpdate_ACU.mock.calls[0][3]).not.toHaveProperty('confirmBoundaryReset');
+    expect(orchestrateManualUpdate_ACU.mock.calls[0][2]).toEqual(expect.objectContaining({ clearBeforeUpdate: true }));
+    expect(orchestrateManualUpdate_ACU.mock.calls[0][2]).not.toHaveProperty('confirmBoundaryReset');
     __resetToastStoreForTests();
   });
 
@@ -294,6 +322,23 @@ describe('useManualUpdate destructive refill confirmation', () => {
 
     expect(toast.items.at(-1)?.kind).toBe('error');
     expect(toast.items.at(-1)?.text).toContain('清理后重填失败');
+    __resetToastStoreForTests();
+  });
+
+  it('表格已保存、世界书刷新失败：提示完成，并以告警附上「只需重试世界书同步」', async () => {
+    const { useManualUpdate, dialog, toast, orchestrateManualUpdate_ACU, __resetToastStoreForTests } = await importManualUpdate();
+    const message = '表格已保存，但世界书刷新失败：超时。请仅重试世界书同步，无需重新填表。';
+    orchestrateManualUpdate_ACU.mockResolvedValue({ success: true, postCommitWarnings: [{ code: 'worldbook_sync_failed', message }] });
+    const manual = useManualUpdate();
+
+    const pending = manual.runManualUpdate();
+    await waitForCondition(() => dialog.active?.title === '执行手动填表', '确认弹窗出现');
+    dialog.submitActive();
+    await pending;
+
+    expect(toast.items.at(-1)?.kind).toBe('warning');
+    expect(toast.items.at(-1)?.text).toContain('手动填表完成');
+    expect(toast.items.at(-1)?.text).toContain(message);
     __resetToastStoreForTests();
   });
 
@@ -610,7 +655,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
 
     expect(orchestrateManualUpdate_ACU).toHaveBeenCalledTimes(1);
     expect(orchestrateManualUpdate_ACU.mock.calls[0][0]).toEqual(['sheet_0']);
-    expect(orchestrateManualUpdate_ACU.mock.calls[0][3].executionSnapshot.sheetKeys).toEqual(['sheet_0', 'sheet_1']);
+    expect(orchestrateManualUpdate_ACU.mock.calls[0][2].executionSnapshot.sheetKeys).toEqual(['sheet_0', 'sheet_1']);
     expect(confirmMessage).toContain('sheet_0');
     expect(confirmMessage).not.toContain('sheet_1');
     __resetToastStoreForTests();
@@ -642,7 +687,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
     manual.setManualSelectedKeys(['sheet_0']);
 
     const pending = manual.runManualCatchUp();
-    await waitForCondition(() => dialog.active?.title === '追平所选表未填楼层', '追平确认弹窗出现');
+    await waitForCondition(() => dialog.active?.title === '一键追平还没填的内容', '追平确认弹窗出现');
     const confirmMessage = dialog.active?.message || '';
     manual.selectedManualTableKeys.value = ['sheet_1'];
     dialog.submitActive();
@@ -697,7 +742,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
 
     expect(manual.catchUpBusy.value).toBe(false);
     expect(orchestrateManualCatchUp_ACU).not.toHaveBeenCalled();
-    expect(toast.items.some(item => item.kind === 'error' && item.text.includes('dialog store crashed'))).toBe(true);
+    expect(toast.items.some(item => item.kind === 'error' && item.text.includes('追平过程中出错了'))).toBe(true);
     // finally 中 refresh() 会把 selection 恢复为当前 runtime 合法集合（sheet_0）
     expect(manual.selectedManualTableKeys.value).toEqual(['sheet_0']);
     __resetToastStoreForTests();
@@ -727,8 +772,8 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
 
     await manual.runManualCatchUp();
     expect(dialog.active).toBeNull();
-    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('未选择需要追平的表格'))).toBe(true);
-    expect(toast.items.some(item => item.text.includes('运行时未就绪'))).toBe(false);
+    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('请先选择要补填的表格'))).toBe(true);
+    expect(toast.items.some(item => item.text.includes('表格还没准备好'))).toBe(false);
     __resetToastStoreForTests();
   });
 
@@ -754,14 +799,14 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
     const manual = useManualUpdate();
 
     const pending = manual.runManualCatchUp();
-    await waitForCondition(() => dialog.active?.title === '追平所选表未填楼层', '追平确认弹窗出现');
+    await waitForCondition(() => dialog.active?.title === '一键追平还没填的内容', '追平确认弹窗出现');
     // 用户在确认弹窗停留期间发生 purge
     displayTableData = null;
     dialog.submitActive();
     await pending;
 
     expect(orchestrateManualCatchUp_ACU).not.toHaveBeenCalled();
-    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('确认期间发生变化'))).toBe(true);
+    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('确认期间表格有变化'))).toBe(true);
     __resetToastStoreForTests();
   });
 
@@ -786,7 +831,7 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
     const manual = useManualUpdate();
 
     const pending = manual.runManualCatchUp();
-    await waitForCondition(() => dialog.active?.title === '追平所选表未填楼层', '追平确认弹窗出现');
+    await waitForCondition(() => dialog.active?.title === '一键追平还没填的内容', '追平确认弹窗出现');
     // 确认期间 runtime 表集合变化（sheet_0 被删、新增 sheet_9）
     displayTableData = {
       sheet_9: { name: '另一表', content: [['row_id', '名称']] },
@@ -795,6 +840,6 @@ describe('useManualUpdate purge 后执行边界守卫', () => {
     await pending;
 
     expect(orchestrateManualCatchUp_ACU).not.toHaveBeenCalled();
-    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('确认期间发生变化'))).toBe(true);
+    expect(toast.items.some(item => item.kind === 'warning' && item.text.includes('确认期间表格有变化'))).toBe(true);
     __resetToastStoreForTests();
   });

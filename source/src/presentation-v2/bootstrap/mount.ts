@@ -7,17 +7,19 @@
  * - 应用生命周期：首次打开惰性创建 + mount，后续打开/关闭只切换 display；
  *   根 Vue app 与 Pinia 保留，当前页面组件在重开时由 MainArea key remount。
  */
-import type { App as VueApp } from 'vue';
+import { effectScope, onScopeDispose, watch, type App as VueApp, type EffectScope } from 'vue';
 import { createPinia, type Pinia } from 'pinia';
 import { logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { TT_MOBILE_SURFACE_ACU, applyTtMobileSurface_ACU } from '../../shared/tt-mobile-surface';
 import { setSfcStyleHost } from '../build/sfc-style-runtime';
-import App from '../App.vue';
+import App from '../../presentation-v3/App.vue';
 import { useAppearanceStore } from '../stores/appearance-store';
 import { useRootShellStore } from '../stores/root-shell-store';
-import { useThemeStore } from '../stores/theme-store';
 import { applyAppearance, __resetAppearanceInjectorForTests } from '../theme/appearance-injector';
 import { applyTheme } from '../theme/theme-injector';
+import { hostSkinSchemeFor_ACU, systemPrefersDark_ACU, watchSystemColorScheme_ACU } from '../theme/effective-theme';
+import { applyHostClaudeSkin } from '../theme/host-claude-skin';
+import { useEffectiveTheme } from '../composables/useEffectiveTheme';
 import { __resetUiCloseGuardsForTests } from '../composables/useUiCloseGuard';
 import { __resetToastStoreForTests } from '../stores/toast-store';
 import {
@@ -27,6 +29,7 @@ import {
   getAcuHostWindow,
 } from './host-document';
 import { createHostDocumentApp, __resetHostRendererForTests } from './host-renderer';
+import { setGlobalBuildBadgeVisible_ACU } from '../../presentation/bootstrap/install-build-badge';
 
 const ROOT_ID = 'acu-app-v2';
 
@@ -34,6 +37,8 @@ interface MountedState {
   vueApp: VueApp;
   pinia: Pinia;
   root: HTMLElement;
+  /** 主题跟随（界面风格 / 颜色模式 / 系统明暗）的监听，销毁时一并停掉。 */
+  themeScope: EffectScope;
 }
 
 let state: MountedState | null = null;
@@ -55,6 +60,21 @@ function createAcuRenderErrorHandler(): (err: unknown, instance: unknown, info: 
       renderErrorReentry_ACU = false;
     }
   };
+}
+
+/** 创建根 Vue app 并挂到 root。 */
+function mountRootApp(root: HTMLElement, pinia: Pinia, doc: Document): VueApp {
+  const vueApp = createHostDocumentApp(App, {
+    onClose: () => closeAcuV2App(),
+  }, doc);
+  vueApp.use(pinia);
+  // 渲染异常证据链：Vue 默认只把 setup/render 抛错打到 console，用户侧是主区空白
+  // 且运行日志零记录（偶发时无从查起）。收进 log-buffer（含 Debug 导出）以便下次可查。
+  vueApp.config.errorHandler = createAcuRenderErrorHandler();
+  vueApp.mount(root);
+  root.removeAttribute('v-cloak');
+  root.setAttribute('data-v-app', '');
+  return vueApp;
 }
 
 function ensureMounted(): MountedState {
@@ -90,26 +110,24 @@ function ensureMounted(): MountedState {
   const pinia = createPinia();
   root.textContent = '';
   // 主题与外观：先应用一次，避免首帧缺少 root token；订阅后续变更。
-  const themeStore = useThemeStore(pinia);
-  applyTheme(themeStore.activeTheme);
-  themeStore.$subscribe(() => applyTheme(themeStore.activeTheme));
-
+  // 生效配色由界面风格决定（Claude 风格自带配色并按颜色模式 / 系统明暗切换）。
   const appearanceStore = useAppearanceStore(pinia);
+  appearanceStore.setSystemPrefersDark(systemPrefersDark_ACU(hostWindow));
+  const themeScope = effectScope(true);
+  themeScope.run(() => {
+    watch(useEffectiveTheme(pinia), (theme) => {
+      applyTheme(theme);
+      applyHostClaudeSkin(hostSkinSchemeFor_ACU(theme));
+    }, { immediate: true });
+    onScopeDispose(watchSystemColorScheme_ACU(hostWindow, dark => appearanceStore.setSystemPrefersDark(dark)));
+  });
+
   applyAppearance(appearanceStore.uiScaleOption);
   appearanceStore.$subscribe(() => applyAppearance(appearanceStore.uiScaleOption));
 
-  const vueApp = createHostDocumentApp(App, {
-    onClose: () => closeAcuV2App(),
-  }, doc);
-  vueApp.use(pinia);
-  // 渲染异常证据链：Vue 默认只把 setup/render 抛错打到 console，用户侧是主区空白
-  // 且运行日志零记录（偶发时无从查起）。收进 log-buffer（含 Debug 导出）以便下次可查。
-  vueApp.config.errorHandler = createAcuRenderErrorHandler();
-  vueApp.mount(root);
-  root.removeAttribute('v-cloak');
-  root.setAttribute('data-v-app', '');
+  const vueApp = mountRootApp(root, pinia, doc);
 
-  state = { vueApp, pinia, root };
+  state = { vueApp, pinia, root, themeScope };
   logDebug_ACU(`[ACU-V2] app mounted into ${source} (id=#${ROOT_ID}, width=${hostWidth}px)`);
   return state;
 }
@@ -120,6 +138,7 @@ export async function openAcuV2App(): Promise<void> {
   const s = ensureMounted();
   renderErrorReportCount_ACU = 0;
   s.root.style.display = '';
+  setGlobalBuildBadgeVisible_ACU(true);
   const store = useRootShellStore(s.pinia);
   const wasOpen = store.isOpen;
   store.setOpen(true);
@@ -145,6 +164,7 @@ export function __getAcuV2AppForTests(): VueApp | null {
 export function closeAcuV2App(): void {
   if (!state) return;
   state.root.style.display = 'none';
+  setGlobalBuildBadgeVisible_ACU(false);
   const store = useRootShellStore(state.pinia);
   store.setOpen(false);
   store.requestScrollReset();
@@ -158,6 +178,7 @@ export function __resetAcuV2MountForTests(): void {
     } catch {
       /* swallow */
     }
+    state.themeScope.stop();
     state.root.parentNode?.removeChild(state.root);
     state = null;
   }

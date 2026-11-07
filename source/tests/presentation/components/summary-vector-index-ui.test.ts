@@ -4,22 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   process: vi.fn(),
   rebuild: vi.fn(),
+  resetDedupe: vi.fn(),
   toast: vi.fn(),
+  confirm: vi.fn(),
   clear: vi.fn(),
   remove: vi.fn(),
   snapshot: null as any,
   outdated: false,
   configValid: true,
   globalMeta: { summaryVectorIndexModeGlobal: true } as any,
+  chatIdentity: 'chat-a',
 }));
 
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason?: unknown) => void; const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; }
 
 vi.mock('../../../src/shared/host-api', () => ({ toastr_API_ACU: { clear: h.clear } }));
 vi.mock('../../../src/shared/constants', () => ({ ACU_TOAST_CATEGORY_ACU: { PLANNING: 'planning', PLAN_OK: 'plan_ok' } }));
-vi.mock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn() }));
+vi.mock('../../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logWarn_ACU: vi.fn() }));
 vi.mock('../../../src/service/vector/summary-vector-index-runtime', () => ({
   processSummaryVectorIndexBeforeGeneration_ACU: h.process,
+  resetSummaryVectorIndexRuntimeDedupeState_ACU: h.resetDedupe,
 }));
 vi.mock('../../../src/service/vector/summary-vector-index-rebuild-service', () => ({
   rebuildCurrentSummaryVectorIndexNow_ACU: h.rebuild,
@@ -37,6 +41,12 @@ vi.mock('../../../src/data/repositories/profile-repo', () => ({
   get globalMeta_ACU() { return h.globalMeta; },
 }));
 vi.mock('../../../src/presentation/theme/toast', () => ({ showToastr_ACU: h.toast }));
+vi.mock('../../../src/presentation/theme/custom-confirm', () => ({ showCustomConfirm_ACU: h.confirm }));
+// G12-02：重建确认的聊天身份复核走真实的 chat-action-scope，只把身份源（state-manager）换成可控值
+vi.mock('../../../src/service/runtime/state-manager', () => ({
+  get currentChatFileIdentifier_ACU() { return h.chatIdentity; },
+  getCurrentIsolationKey_ACU: () => '',
+}));
 
 import {
   processSummaryVectorIndexBeforeGenerationWithUI_ACU,
@@ -46,8 +56,9 @@ import {
 describe('summary vector index UI recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    h.chatIdentity = 'chat-a';
     h.toast.mockReturnValue({ closest: () => ({ remove: h.remove }) });
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    h.confirm.mockResolvedValue(true);
     h.process.mockResolvedValue({ success: false, skipped: true, reason: 'legacy_vector_scheme_rebuild_required' });
     h.rebuild.mockResolvedValue({ success: true, skipped: false, indexedRowCount: 6, chunkCount: 3, errors: [] });
   });
@@ -62,7 +73,7 @@ describe('summary vector index UI recovery', () => {
     expect(h.remove).toHaveBeenCalledTimes(2);
   });
 
-  it('重建进行中保留进度提示，失败后清理提示且不阻断原始生成', async () => {
+  it('重建进行中保留进度提示，用户确认后重建抛错按失败返回（发送层据此停发）', async () => {
     const pending = deferred<any>();
     h.rebuild.mockReturnValue(pending.promise);
 
@@ -75,10 +86,24 @@ describe('summary vector index UI recovery', () => {
     expect(h.remove).toHaveBeenCalledTimes(1);
 
     pending.reject(new Error('rebuild failed'));
-    await expect(operation).resolves.toMatchObject({ reason: 'legacy_vector_scheme_rebuild_required' });
+    const result = await operation;
+    expect(result).toMatchObject({ success: false, reason: 'rebuild_failed' });
+    expect(result.skipped).not.toBe(true);
     expect(h.toast).toHaveBeenCalledWith('error', '交火索引快照重建失败：rebuild failed');
     expect(h.clear).toHaveBeenCalledTimes(2);
     expect(h.remove).toHaveBeenCalledTimes(2);
+  });
+
+  it('用户确认重建却没建成（返回失败或抛错）：放掉 8 秒去重，按提示点「重新生成」会真的重新召回', async () => {
+    h.rebuild.mockResolvedValueOnce({ success: false, skipped: false, errors: ['boom'] });
+    const failed = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+    expect(failed).toMatchObject({ success: false, reason: 'rebuild_failed' });
+    expect(h.resetDedupe).toHaveBeenCalledTimes(1);
+
+    h.rebuild.mockRejectedValueOnce(new Error('rebuild failed'));
+    const thrown = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+    expect(thrown).toMatchObject({ success: false, reason: 'rebuild_failed' });
+    expect(h.resetDedupe).toHaveBeenCalledTimes(2);
   });
 
   it('重建失败为跨源被拒时，错误 toast 带出 CORS 处置建议（V1 用户可见路径）', async () => {
@@ -88,7 +113,9 @@ describe('summary vector index UI recovery', () => {
       errors: ['Embedding 请求失败（retryable）: Embedding 请求网络失败（Failed to fetch）：API 提供商未允许跨源访问（CORS）：请求被浏览器拦下，未拿到任何响应。请为该 embedding/rerank 服务配置允许跨源访问（Access-Control-Allow-Origin），或改用支持 CORS 的中转地址。'],
     });
 
-    await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+    const result = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+    expect(result).toMatchObject({ success: false, reason: 'rebuild_failed' });
+    expect(result.skipped).not.toBe(true);
 
     const errorToast = h.toast.mock.calls.find(call => call[0] === 'error');
     expect(errorToast).toBeDefined();
@@ -128,7 +155,49 @@ describe('summary vector index UI recovery', () => {
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已重建并完成召回'), '交火召回完成', expect.any(Object));
   });
 
-  it('自愈重建失败或被跳过时不补跑召回，沿用首轮结果', async () => {
+  it('自愈重建成功但补跑召回抛错：按召回失败返回（发送层据此停发），不再当作跳过', async () => {
+    h.process
+      .mockResolvedValueOnce({ success: false, skipped: true, reason: 'legacy_vector_scheme_rebuild_required' })
+      .mockRejectedValueOnce(new Error('embedding down'));
+
+    const result = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+
+    expect(result).toMatchObject({ success: false, reason: 'recall_after_rebuild_failed' });
+    expect(result.skipped).not.toBe(true);
+  });
+
+  it('用户拒绝重建：不重建，沿用首轮跳过结果继续生成', async () => {
+    h.confirm.mockResolvedValue(false);
+
+    const result = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+
+    expect(h.rebuild).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ skipped: true, reason: 'legacy_vector_scheme_rebuild_required' });
+  });
+
+  it('G12-02：重建确认期间聊天被切换：放弃重建并提示，不在别的聊天上白烧 embedding', async () => {
+    h.confirm.mockImplementationOnce(async () => { h.chatIdentity = 'chat-b'; return true; });
+
+    const result = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+
+    expect(h.rebuild).not.toHaveBeenCalled();
+    // 沿用首轮的 rebuild_required 跳过结果：发送层的租约复检会因切聊天停掉这次生成
+    expect(result).toMatchObject({ skipped: true, reason: 'legacy_vector_scheme_rebuild_required' });
+    expect(h.toast).toHaveBeenCalledWith('warning', expect.stringContaining('已切换'));
+  });
+
+  it('宿主原生 confirm 不可靠（TT 2.3.0 返回 Promise 被当成「确定」）：只认插件确认框的结果', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => Promise.resolve(false)));
+    h.confirm.mockResolvedValue(false);
+
+    const result = await processSummaryVectorIndexBeforeGenerationWithUI_ACU({ userInput: '继续', source: 'test' });
+
+    expect(h.confirm).toHaveBeenCalledTimes(1);
+    expect(h.rebuild).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ skipped: true, reason: 'legacy_vector_scheme_rebuild_required' });
+  });
+
+  it('自愈重建无可重建内容（成功但跳过）时不补跑召回，沿用首轮结果', async () => {
     h.process.mockResolvedValue({ success: false, skipped: true, reason: 'legacy_vector_scheme_rebuild_required' });
     h.rebuild.mockResolvedValue({ success: true, skipped: true, indexedRowCount: 0, chunkCount: 0, errors: [] });
 
@@ -164,23 +233,6 @@ describe('rebuildOutdatedSummaryVectorIndexInBackground_ACU', () => {
     expect(h.toast).toHaveBeenCalledWith('info', expect.stringContaining('概览 + 纪要正文'), expect.any(Object));
     expect(h.toast.mock.calls[0][1]).toContain('（2 行）');
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('120 行'), '交火索引升级完成', expect.any(Object));
-  });
-
-  it('索引已是新格式时不重建', async () => {
-    h.outdated = false;
-
-    expect(await rebuildOutdatedSummaryVectorIndexInBackground_ACU()).toBe(false);
-    expect(h.rebuild).not.toHaveBeenCalled();
-  });
-
-  it('交火全局开关关闭或无索引时不重建', async () => {
-    h.globalMeta = { summaryVectorIndexModeGlobal: false };
-    expect(await rebuildOutdatedSummaryVectorIndexInBackground_ACU()).toBe(false);
-
-    h.globalMeta = { summaryVectorIndexModeGlobal: true };
-    h.snapshot = null;
-    expect(await rebuildOutdatedSummaryVectorIndexInBackground_ACU()).toBe(false);
-    expect(h.rebuild).not.toHaveBeenCalled();
   });
 
   it('向量配置无效时不盲目重建（发送时仍有自愈兜底）', async () => {

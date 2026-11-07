@@ -4,17 +4,23 @@
  * service 层不驱动 UI，只返回结果/状态，presentation 层根据返回值自行决定 UI 操作。
  */
 
-import { currentChatFileIdentifier_ACU, isAutoUpdatingCard_ACU, pendingFinalGenerationGreenlights_ACU, wasStoppedByUser_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
+import { currentChatFileIdentifier_ACU, getTableFillStopSeq_ACU, isAutoUpdatingCard_ACU, isTableFillStopRequested_ACU, latchTableFillStopRequestedSince_ACU, pendingFinalGenerationGreenlights_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { callCustomOpenAI_ACU, RetryableAiResponseError_ACU } from '../ai/prompt-builder';
+import type { TableFillRetryTurn_ACU } from '../ai/prompt-builder/table-fill-retry';
 import { clearManualRefillSheetDataInRange_ACU, cleanupCheckpointVectorIndexManifestsAfterCommit_ACU, commitManualRefillSheetSnapshotInRangeAtomic_ACU, ensureManualCatchUpAnchorBeforeTarget_ACU, ensureV2BoundaryCheckpointForRetainedBuffer_ACU, establishManualRefillTemplateRoot_ACU, getChatArray_ACU, rollbackManualRefillRangeSnapshotAtomic_ACU, shouldRotateV2BoundaryCheckpointForRetainedBuffer_ACU } from '../chat/chat-service';
 import type { ManualRefillRangeRollbackHandle_ACU } from '../chat/chat-service';
 import { coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { resolveManualUpdateBatchSize_ACU, resolveManualUpdateContextDepth_ACU } from './manual-update-settings';
-import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../summary/merge-logic';
 import { ensureStableRowIdsForSheetContent_ACU, filterSheetKeysByTemplateScope_ACU, getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, getEffectiveSeedRowsForSheet_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, resolveTemplateScope_ACU, sanitizeTemplateSnapshotForChat_ACU, shouldUseInitialSeedRows_ACU } from '../template/chat-scope';
 import type { TemplateScope_ACU } from '../template/chat-scope';
 import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
+import type { TableUpdatePostCommitWarning_ACU } from '../../shared/post-commit-warnings';
+export type { TableUpdatePostCommitWarning_ACU } from '../../shared/post-commit-warnings';
+export { formatPostCommitWarnings_ACU } from '../../shared/post-commit-warnings';
+import { logAutoFillSkip_ACU, logAutoFillStage_ACU } from '../../shared/trigger-diagnostics';
+import { abortableDelay } from '../../shared/abortable-delay';
+import { maskSensitiveText_ACU } from '../../shared/log-buffer';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../vector/summary-vector-index-flush-queue';
 import {
   ensureSummaryVectorMirrorAfterTableFill_ACU,
@@ -86,18 +92,22 @@ import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU } from '.
 import { isSqliteMode } from './storage-mode';
 import type { TableMutationOperationV2_ACU } from './storage-frame-v2-types';
 import { applySqlEditsToTableDataSnapshot_ACU, assertNoHiddenPhysicalColumnMutations_ACU, buildSqlSheetBatchOperations_ACU, captureSqlTableApplyScope_ACU, extractRowIdsFromSqlSheetBatch_ACU, extractTableNamesFromStatements, mapSqlTableNamesToSheetKeys_ACU, normalizeSqlStatementsForRuntimeLog_ACU, rebindSqlMutationIdentifiers_ACU, splitSqlStatements, SqlRowIdMaterializationError_ACU, SqlRuntimeSchemaInvalidError_ACU, SqlRuntimeSchemaStaleError_ACU, SqlRuntimeSnapshotError_ACU } from './sql-table-service';
-import { hasStructuralReplayCompatibilityRepairs_ACU, hasUnanchoredReplayArtifactsForChatV2_ACU, loadTableStateFromFramesV2Detailed_ACU } from './storage-frame-v2-replay';
+import { buildCompatReadonlyGuidance_ACU, hasStructuralReplayCompatibilityRepairs_ACU, hasUnanchoredReplayArtifactsForChatV2_ACU, loadTableStateFromFramesV2Detailed_ACU } from './storage-frame-v2-replay';
 import { ensureStorageProviderReady_ACU, getStorageProvider, reloadStorageProvider } from './table-storage-strategy';
 import { applySpecialIndexSequenceToSummaryTables_ACU } from '../runtime/helpers-remaining';
 import { isSameSheetHeader_ACU } from '../template/guide-metadata-overlay';
 import { captureTableRuntimeRevisionForWriteSet_ACU } from './table-write-transaction';
 import { runTableUpdateCommit_ACU, type TableUpdateCommitErrorCategory_ACU } from './table-update-commit';
+import { beginChatSaveCoalescing_ACU, endChatSaveCoalescing_ACU } from '../../data/gateways/chat-gateway';
 import { flushRuntimeOnlyPendingChanges_ACU } from './runtime-only-pending-flush';
 import { commitPreparedV2Recovery_ACU, prepareV2Recovery_ACU } from './table-v2-recovery-service';
 import { isV2TagData_ACU, resolveTableStorageStrategy_ACU } from './storage-strategy-resolver';
 import { getHiddenChronicleRowIdsAfterBigSummaryInsert_ACU } from '../flight-mode/flight-mode-hidden-rows';
 import { getCurrentFlightModeState_ACU, stageFlightModeHiddenRowIds_ACU } from '../flight-mode/flight-mode-state';
 import { isAiFloor_ACU, isDataBearingMessage_ACU } from '../../shared/ai-floor';
+import { stripHtmlCommentMarkersOutsideSqlLiterals_ACU } from './sql-protocol-markers';
+import { captureTableFillTargetGuard_ACU, type TableFillTargetGuard_ACU } from './table-fill-target-guard';
+import { watchTableFillTarget_ACU } from './table-fill-target-watch';
 
 interface ManualRefillSummaryVectorCleanup_ACU {
     sourceTableKey: string;
@@ -348,10 +358,28 @@ export interface BatchUpdateProgressContext {
     batchBaseSnapshot?: Record<string, any>;
 }
 
+/**
+ * 表格已提交后刷新可读世界书：失败只记成告警，不算填表失败、也不触发重试
+ * （否则用户看到「填表失败」而表格其实已存上；上游 issue #34）。
+ */
+export async function refreshCommittedWorldbook_ACU(tableData: Record<string, any>): Promise<TableUpdatePostCommitWarning_ACU[]> {
+    try {
+        await updateReadableLorebookEntry_ACU(true, false, null, tableData);
+        return [];
+    } catch (error: any) {
+        const reason = sanitizeRetryFeedback_ACU(error?.message || String(error), MAX_WARN_ERROR_LENGTH_ACU);
+        const message = `表格已保存，但世界书刷新失败：${reason}。请仅重试世界书同步，无需重新填表。`;
+        logWarn_ACU(`[TableUpdate] ${message}`);
+        return [{ code: 'worldbook_sync_failed', message }];
+    }
+}
+
 /** executeCardUpdateCore 的返回值 */
 export interface CardUpdateResult {
     success: boolean;
     modifiedKeys: string[];
+    /** 仅在提交后刷新失败时出现；success 与 modifiedKeys 仍表示表格变更结果。 */
+    postCommitWarnings?: TableUpdatePostCommitWarning_ACU[];
     tableData?: Record<string, any>;
     error?: string;
     errorCategory?: TableUpdateCommitErrorCategory_ACU;
@@ -368,6 +396,7 @@ export interface CardUpdateResult {
 /** processUpdatesBatch 的返回值 */
 export interface BatchUpdateResult {
     success: boolean;
+    postCommitWarnings?: TableUpdatePostCommitWarning_ACU[];
     failedBatch?: number;
     error?: string;
     /** 稳定失败分类，供 UI 与日志按 code 判断，不解析 error 文案。 */
@@ -399,9 +428,8 @@ export interface WriteTargetAdmissionDiagnostic_ACU {
 export interface ManualUpdateResult {
     success: boolean;
     error?: string;
+    postCommitWarnings?: TableUpdatePostCommitWarning_ACU[];
     /** 是否触发了自动合并 */
-    autoMergeTriggered?: boolean;
-    autoMergeSuccess?: boolean;
     checkpointWarning?: string;
     outcome?: 'complete' | 'no_work' | 'stopped' | 'sync_pending' | 'blocked' | 'integrity_failed' | 'progress_metadata_failed';
     committedBucketCount?: number;
@@ -491,6 +519,8 @@ export interface GroupFillJob_ACU {
     isolationKey?: string;
     templateScope?: TemplateScope_ACU;
     sqlApplyScope?: SqlTableApplyScope_ACU;
+    /** 与提交阶段同一个目标楼层守卫：失效时不发请求，在途请求随删楼 / 滑动事件中止。导入模式不带。 */
+    targetGuard?: Pick<TableFillTargetGuard_ACU, 'isCurrent'>;
     performanceRunId?: string;
     performanceParentSpanId?: string;
 }
@@ -500,6 +530,10 @@ export interface GroupFillResponse_ACU {
     attempt: number;
     job: GroupFillJob_ACU;
     aiResponse?: string;
+    /** 本组最后一次可读的原回复（正文 + 工具参数），供统一提交失败后的重试回灌。 */
+    rawAiResponse?: string;
+    /** 本组至今的纠错历史（不含本次成功的回复）。 */
+    retryHistory?: TableFillRetryTurn_ACU[];
     tableEditText?: string;
     error?: string;
     rawError?: string;
@@ -518,6 +552,8 @@ interface FillExecutionScope_ACU {
     chatKey: string;
     isolationKey: string;
     promptMessages: any[];
+    /** 与 promptMessages 同一时刻冻结的楼层身份：写回前目标楼层换成另一条回复就放弃结果。 */
+    targetGuard: TableFillTargetGuard_ACU;
     templateScope: TemplateScope_ACU;
     sqlApplyScope?: SqlTableApplyScope_ACU;
 }
@@ -581,6 +617,8 @@ async function captureFillExecutionScope_ACU(
     const isolationKey = getCurrentIsolationKey_ACU();
     const liveChat = getChatArray_ACU() || [];
     const promptMessages = capturePromptMessageSnapshot_ACU(liveChat);
+    // 与 promptMessages 同一时刻（下面的 await 之前）冻结：否则等待期间滑动，基线会变成新回复
+    const targetGuard = captureTableFillTargetGuard_ACU(liveChat, () => getChatArray_ACU() || []);
     let sqlApplyScope: SqlTableApplyScope_ACU | undefined;
     if (isSqliteMode()) {
         let runtimeData: TableDataObject_ACU | null = null;
@@ -606,7 +644,7 @@ async function captureFillExecutionScope_ACU(
     const templateScope = sqlApplyScope
         ? buildTemplateScopeFromData_ACU(sqlApplyScope.templateData)
         : resolveTemplateScope_ACU(isolationKey);
-    const result = { chatKey, isolationKey, promptMessages, templateScope, sqlApplyScope };
+    const result = { chatKey, isolationKey, promptMessages, targetGuard, templateScope, sqlApplyScope };
     performanceSpan.end({ messageCount: liveChat.length });
     return result;
 }
@@ -644,8 +682,6 @@ interface PlannedGroupedRuntimeJob_ACU {
     updateMode: string;
 }
 
-const SQL_ERROR_MARKER_ACU = '\n\n<!-- SQL_ERROR_FEEDBACK -->\n';
-const UNIFIED_GROUP_ERROR_MARKER_ACU = '\n\n<!-- UNIFIED_GROUP_ERROR_FEEDBACK -->\n';
 const MAX_RETRY_FEEDBACK_LENGTH_ACU = 500;
 const MAX_WARN_ERROR_LENGTH_ACU = 800;
 
@@ -663,12 +699,17 @@ class UpdateAttemptError_ACU extends Error {
     }
 }
 
+/**
+ * 填表重试反馈脱敏 + 限长。
+ * G02-02 收敛：密钥形态（Authorization 头、Bearer/Basic 长令牌、api_key=/cookie= 等
+ * 裸键值、?key= 查询参数、裸 sk-/AIza）统一走 shared 的 maskSensitiveText_ACU——
+ * 此前本函数自带一份平行清单（漏裸 sk-，?key= 只认 api_key= 变体）。
+ * 这里只保留重试反馈专用处理：协议标记剥离、URL 整体抹除（比 shared 更严的口径，
+ * 保留）、控制/零宽字符清理、空白折叠与限长。
+ */
 function sanitizeRetryFeedback_ACU(value: unknown, maxLength = MAX_RETRY_FEEDBACK_LENGTH_ACU): string {
-    return String(value || '')
+    return maskSensitiveText_ACU(String(value || ''))
         .replace(/<!--\s*(?:SQL_ERROR_FEEDBACK|UNIFIED_GROUP_ERROR_FEEDBACK)\s*-->/gi, '')
-        .replace(/\b(?:authorization\s*:\s*)?bearer\s+[a-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
-        .replace(/\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|cookie)\b(\s*[:=]\s*)([^\s,;}&]+)/gi, '$1$2[REDACTED]')
-        .replace(/([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd)=)[^&#\s]*/gi, '$1[REDACTED]')
         .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1[REDACTED]@')
         .replace(/https?:\/\/[^\s]+/gi, '[REDACTED_URL]')
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
@@ -937,6 +978,35 @@ function buildSqlSheetBatchOperationsFromText_ACU(
     return { success: true, operations: buildResult.operations };
 }
 
+const NONDETERMINISTIC_SQL_PATTERN_ACU = /\b(?:random|randomblob)\s*\(|\bcurrent_(?:timestamp|date|time)\b|['"](?:now|localtime)['"]/i;
+
+/**
+ * 回放会原样重新执行 SQL：含随机数/当前时间的语句每次载入都会算出不同的值。
+ * 涉及这类语句（或 DDL 带此类 DEFAULT）的表改为以执行后的表快照（sheet_replace）落盘，
+ * 其 SQL 操作整体移除。快照取自 afterData；自动编号前后调用均可（编号表另有 sheet_replace 追加在后）。
+ */
+function stabilizeNondeterministicSqlOperations_ACU(
+    operations: TableMutationOperationV2_ACU[],
+    afterData: Record<string, any>,
+): TableMutationOperationV2_ACU[] {
+    // 无法按表归属的旧式多表 sql_batch 存在时不改写，避免拆散跨表语句的回放顺序。
+    if (operations.some(operation => operation.kind === 'sql_batch')) return operations;
+    const unstableSheetKeys = new Set<string>();
+    for (const operation of operations) {
+        if (operation.kind !== 'sql_sheet_batch') continue;
+        const ddl = String(afterData?.[operation.sheetKey]?.sourceData?.ddl || '');
+        if (NONDETERMINISTIC_SQL_PATTERN_ACU.test(ddl)
+            || operation.statements.some(statement => NONDETERMINISTIC_SQL_PATTERN_ACU.test(statement))) {
+            unstableSheetKeys.add(operation.sheetKey);
+        }
+    }
+    if (unstableSheetKeys.size === 0) return operations;
+    return [
+        ...operations.filter(operation => !(operation.kind === 'sql_sheet_batch' && unstableSheetKeys.has(operation.sheetKey))),
+        ...buildSheetReplaceOperationsFromData_ACU(afterData, [...unstableSheetKeys], 'system'),
+    ];
+}
+
 function buildSheetReplaceOperationsFromData_ACU(
     afterData: Record<string, any> | null | undefined,
     sheetKeys: string[] | null | undefined,
@@ -991,6 +1061,40 @@ function getTouchedSheetKeysFromSqlText_ACU(sqlText: string, tableData: Record<s
 
 function shouldDiscardUnauthorizedTableEdits_ACU(): boolean {
     return settings_ACU.discardUnauthorizedTableEditsEnabled !== false;
+}
+
+type SqlTargetAuthorization_ACU =
+    | { ok: true; statements: string[]; discardedKeys: string[] }
+    | { ok: false; reason: 'unauthorized'; unauthorizedKeys: string[] }
+    | { ok: false; reason: 'all_discarded' };
+
+/**
+ * SQL 执行前的目标表授权（统一路径与 legacy 路径共用，必须在 live 引擎执行之前调用）。
+ * 只触及非目标表的语句在允许丢弃时剔除；同时触及目标与非目标表的语句一律拒绝。
+ */
+function authorizeSqlStatementsForTargets_ACU(
+    statements: readonly string[],
+    allowedSheetKeys: readonly string[],
+    lookupData: Record<string, any>,
+): SqlTargetAuthorization_ACU {
+    const allowed = new Set(allowedSheetKeys);
+    const retained: string[] = [];
+    const discardedKeys = new Set<string>();
+    for (const statement of statements) {
+        const touchedKeys = getTouchedSheetKeysFromSqlText_ACU(statement, lookupData);
+        const unauthorizedKeys = touchedKeys.filter(sheetKey => !allowed.has(sheetKey));
+        if (unauthorizedKeys.length === 0) {
+            retained.push(statement);
+            continue;
+        }
+        const touchesAuthorized = touchedKeys.some(sheetKey => allowed.has(sheetKey));
+        if (!shouldDiscardUnauthorizedTableEdits_ACU() || touchesAuthorized) {
+            return { ok: false, reason: 'unauthorized', unauthorizedKeys };
+        }
+        unauthorizedKeys.forEach(sheetKey => discardedKeys.add(sheetKey));
+    }
+    if (retained.length === 0) return { ok: false, reason: 'all_discarded' };
+    return { ok: true, statements: retained, discardedKeys: [...discardedKeys].sort() };
 }
 
 /**
@@ -1110,7 +1214,8 @@ async function loadV2ReplayMergeBase_ACU(
         if (replayResult?.baseKind === 'compat_tolerant_replay') {
             throw new Error(
                 `V2 replay 仅可经兼容宽容回放读出（严格回放失败：${replayResult.legacyToleranceDiagnosis?.strictError || '未知错误'}），不能作为填表基底；`
-                + '请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。',
+                // G13-02：指引与真实 UI 对齐（后台自动固化 / 历史恢复诊断入口），不再指向不存在的按钮。
+                + buildCompatReadonlyGuidance_ACU(replayResult.legacyToleranceDiagnosis),
             );
         }
         if (hasStructuralReplayCompatibilityRepairs_ACU(replayResult?.compatibilityRepairs)) {
@@ -1244,6 +1349,9 @@ export async function buildBatchMergeBase_ACU(
     try {
         const hasBoundedScope = Number.isInteger(options.maxMessageIndex);
         const replayOptions = hasBoundedScope ? { maxMessageIndex: options.maxMessageIndex } : {};
+        // 本批 SQL 直接在 live runtime 上执行时，基底必须就是 live runtime（即使有 maxMessageIndex）：
+        // 若改用边界内回放，AI 看不到已存在的行，会重复 INSERT 撞 UNIQUE 或把行数翻倍。
+        // 下方「不越过 maxMessageIndex」的约束只约束非 live 执行的路径（stage_only / 非 SQLite / runtime 不可用）。
         if (options.liveRuntimeAuthoritative) {
             const liveRuntimeBase = await readLiveSqliteRuntimeMergeBase_ACU(batchNumber);
             if (liveRuntimeBase) return { data: liveRuntimeBase, error: null };
@@ -1259,7 +1367,7 @@ export async function buildBatchMergeBase_ACU(
                     error: `历史表格数据回放失败（已自动尝试全部兼容读取层仍失败），已中止填表以避免写出冲突增量。请在数据管理中导出原始数据后执行 V2 恢复：${v2ReplayResult.failed}`,
                 };
             }
-            // 有历史边界时不能让 SQLite latest runtime 越过 maxMessageIndex；
+            // （非 live 执行路径）有历史边界时不能让 SQLite latest runtime 越过 maxMessageIndex；
             // 若当前聊天已进入 V2 replay 语义但边界内无可用基底，同样不能退回最新 runtime，
             // 否则会把目标范围之后的未来表格状态带回 prompt。只有非 SQLite 且未命中 V2 replay
             // 的旧路径才允许沿用 runtime fallback，以保留连续 bucket 的既有行为。
@@ -1323,25 +1431,92 @@ export function resolveUpdateMode_ACU(mode: string): string {
     }
 }
 
+/** 统一提交 / 格式失败后的组级重试反馈：报错 + 该组上一轮回复 + 该组已有纠错历史。 */
+function buildGroupRetryFeedback_ACU(error: string, previous: GroupFillResponse_ACU | undefined) {
+    return {
+        lastUnifiedError: error,
+        lastAiResponse: previous?.rawAiResponse || previous?.aiResponse || '',
+        retryHistory: previous?.retryHistory,
+    };
+}
+
+type GroupFillFeedback_ACU = {
+    lastSqlError?: string | null;
+    lastUnifiedError?: string | null;
+    /** 触发本次重试的那次回复（与 lastSqlError / lastUnifiedError 配对）。 */
+    lastAiResponse?: string;
+    /** 更早的纠错历史。 */
+    retryHistory?: readonly TableFillRetryTurn_ACU[];
+};
+
+type GroupFillCollectOptions_ACU = {
+    onProgress?: (event: CardUpdateProgressEvent) => void;
+    maxRetriesOverride?: number;
+    respectGlobalStop?: boolean;
+    worldbookReadContext?: LorebookReadContext_ACU;
+};
+
+const STALE_FILL_TARGET_ERROR_ACU = '目标楼层已被删除、重新生成或切换了回复版本，已中止本次填表请求，结果不会写入。';
+
+/**
+ * 收集一组填表回复。目标楼层守卫判定失效（删楼 / 滑动 / 重新生成）时不发请求；
+ * 请求在途期间登记到目标楼层监视，宿主派发删楼 / 滑动事件时当场中止，不等回复回来再在提交阶段被拒。
+ */
 export async function collectGroupFillResponse_ACU(
     job: GroupFillJob_ACU,
-    feedback?: { lastSqlError?: string | null; lastUnifiedError?: string | null },
+    feedback?: GroupFillFeedback_ACU,
     abortController: AbortController | null = new AbortController(),
-    options: {
-        onProgress?: (event: CardUpdateProgressEvent) => void;
-        maxRetriesOverride?: number;
-        respectGlobalStop?: boolean;
-        worldbookReadContext?: LorebookReadContext_ACU;
-    } = {}
+    options: GroupFillCollectOptions_ACU = {},
 ): Promise<GroupFillResponse_ACU> {
     const effectiveAbortController = abortController || new AbortController();
-    const isStopped = () => effectiveAbortController.signal.aborted || (options.respectGlobalStop !== false && wasStoppedByUser_ACU);
+    const targetGuard = job.targetGuard;
+    const isTargetStale = () => !!targetGuard && !targetGuard.isCurrent(job.saveTargetIndex);
+    const staleResult = (attempt: number): GroupFillResponse_ACU => {
+        logWarn_ACU(`[${formatGroupAttemptLabel_ACU(job)}] ${STALE_FILL_TARGET_ERROR_ACU}`);
+        return {
+            job,
+            success: false,
+            attempt,
+            aborted: true,
+            error: STALE_FILL_TARGET_ERROR_ACU,
+            rawError: STALE_FILL_TARGET_ERROR_ACU,
+            errorCategory: 'precondition',
+        };
+    };
+    if (isTargetStale()) return staleResult(0);
+    const unwatch = targetGuard ? watchTableFillTarget_ACU(targetGuard, job.saveTargetIndex, effectiveAbortController) : null;
+    try {
+        const response = await collectGroupFillResponseCore_ACU(job, feedback, effectiveAbortController, options);
+        return response.aborted && isTargetStale() ? staleResult(response.attempt) : response;
+    } finally {
+        unwatch?.();
+    }
+}
+
+async function collectGroupFillResponseCore_ACU(
+    job: GroupFillJob_ACU,
+    feedback: GroupFillFeedback_ACU | undefined,
+    effectiveAbortController: AbortController,
+    options: GroupFillCollectOptions_ACU,
+): Promise<GroupFillResponse_ACU> {
+    const isStopped = () => effectiveAbortController.signal.aborted || (options.respectGlobalStop !== false && isTableFillStopRequested_ACU());
     const maxRetries = options.maxRetriesOverride || settings_ACU.tableMaxRetries || 3;
-    if (isStopped()) return { job, success: false, attempt: 0, aborted: true };
+    // 准备期诊断（移植上游 ece65f80）：仅自动填表链路开启时留痕，不记业务载荷。
+    const diagnoseInput = (diagnosticCode: string, attempt = 0): void => {
+        if (job.requestOptions?.autoFillDiagnostics) logAutoFillSkip_ACU('input_preparation_failed', {
+            runId: job.performanceRunId || job.requestOptions.performanceRunId,
+            batchNumber: job.batchNumber, stage: 'prepare', diagnosticCode, attempt,
+        });
+    };
+    if (isStopped()) {
+        diagnoseInput('user_aborted');
+        return { job, success: false, attempt: 0, aborted: true };
+    }
     // 请求前冻结 runtime schema 失败 = 本地基础设施失败：模型无法通过重试修复。
     // 必须在 AI 调用前 fail-closed，避免消耗 token 后在提交阶段才失败。
     const runtimeSchemaFailure = job.sqlApplyScope?.runtimeSchemaFailure;
     if (runtimeSchemaFailure) {
+        diagnoseInput('runtime_schema_unavailable');
         const error = `SQLite runtime schema 冻结失败（${runtimeSchemaFailure.code}）：${runtimeSchemaFailure.message}`;
         return {
             job,
@@ -1380,12 +1555,17 @@ export async function collectGroupFillResponse_ACU(
         });
     } catch (error: any) {
         prepareSpan.end({ success: false });
-        if (error?.name === 'AbortError' || isStopped()) return { job, success: false, attempt: 0, aborted: true };
+        if (error?.name === 'AbortError' || isStopped()) {
+            diagnoseInput('user_aborted');
+            return { job, success: false, attempt: 0, aborted: true };
+        }
+        diagnoseInput('prepare_input_exception');
         throw error;
     }
     prepareSpan.end({ success: Boolean(dynamicContent) });
     if (dynamicContent && typeof dynamicContent === 'object' && dynamicContent.ok === false) {
         const failure = dynamicContent as { failureCode?: string; message?: string };
+        diagnoseInput(failure.failureCode || 'provider_load_failed');
         const error = `无法准备AI输入（${failure.failureCode || 'provider_load_failed'}）：${failure.message || 'SQLite 运行时未就绪。'}`;
         return {
             job,
@@ -1398,6 +1578,7 @@ export async function collectGroupFillResponse_ACU(
     }
 
     if (!dynamicContent) {
+        diagnoseInput('table_data_unavailable');
         return {
             job,
             success: false,
@@ -1409,28 +1590,29 @@ export async function collectGroupFillResponse_ACU(
     }
     let lastErrorMessage = 'AI响应中未找到完整有效的 <tableEdit> 标签';
     let lastErrorCategory: TableUpdateCommitErrorCategory_ACU = 'model';
+    // 纠错历史（思路移植上游 789f960b）：报错不再拼进 $0 表格数据，而是连同上次回复按对话回灌。
+    const retryHistory: TableFillRetryTurn_ACU[] = [...(feedback?.retryHistory || [])];
+    const previousError = feedback?.lastUnifiedError || (isSqliteMode() ? feedback?.lastSqlError : null);
+    if (previousError) {
+        retryHistory.push({ response: feedback?.lastAiResponse || '', error: sanitizeRetryFeedback_ACU(previousError) });
+    }
+    let lastAiResponse = '';
+    // 响应期诊断（移植上游 ece65f80）：仅自动填表链路开启时留痕。
+    const diagnoseResponse = (diagnosticCode: string, attempt: number): void => {
+        if (job.requestOptions?.autoFillDiagnostics) logAutoFillSkip_ACU('execution_failed', {
+            runId: job.performanceRunId || job.requestOptions.performanceRunId,
+            batchNumber: job.batchNumber, stage: 'response', attempt, diagnosticCode,
+        });
+    };
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         if (isStopped()) {
+            diagnoseResponse('user_aborted', attempt);
             return { job, success: false, attempt, aborted: true };
         }
 
         options.onProgress?.({ phase: 'calling_ai', attempt, maxRetries });
-
-        if (feedback?.lastSqlError && isSqliteMode()) {
-            const markerIndex = dynamicContent.tableDataText.indexOf(SQL_ERROR_MARKER_ACU);
-            if (markerIndex !== -1) {
-                dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
-            }
-            dynamicContent.tableDataText += `${SQL_ERROR_MARKER_ACU}[SQL执行错误，请修正后重新输出]\n错误信息: ${sanitizeRetryFeedback_ACU(feedback.lastSqlError)}`;
-        }
-        if (feedback?.lastUnifiedError) {
-            const markerIndex = dynamicContent.tableDataText.indexOf(UNIFIED_GROUP_ERROR_MARKER_ACU);
-            if (markerIndex !== -1) {
-                dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
-            }
-            dynamicContent.tableDataText += `${UNIFIED_GROUP_ERROR_MARKER_ACU}[统一提交失败，请修正后重新输出]\n错误信息: ${sanitizeRetryFeedback_ACU(feedback.lastUnifiedError)}`;
-        }
+        lastAiResponse = '';
 
         try {
             const aiWaitSpan = startRuntimePerformanceSpan_ACU('table-fill-ai-wait', {
@@ -1445,22 +1627,29 @@ export async function collectGroupFillResponse_ACU(
                     ...(job.requestOptions || {}),
                     tableData: job.baseSnapshot,
                     targetSheetKeys: job.targetSheetKeys,
+                    tableFillRetryHistory: [...retryHistory],
+                    onTableFillResponse: (response: string) => { lastAiResponse = response; },
                 });
+                if (!lastAiResponse) lastAiResponse = aiResponse || '';
                 aiWaitSpan.end({ success: true });
             } catch (error) {
                 aiWaitSpan.end({ success: false });
                 throw error;
             }
             if (isStopped()) {
+                diagnoseResponse('user_aborted', attempt);
                 return { job, success: false, attempt, aborted: true };
             }
 
-            const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
+            // 填表 AI 的输出看「填表 AI 回复最小长度」；正文长度另由批次跳过处的「正文回复最小长度」判断。
+            const minReplyLength = settings_ACU.tableFillMinResponseLength || 0;
             if (aiResponse && minReplyLength > 0 && aiResponse.length < minReplyLength) {
+                diagnoseResponse('response_below_threshold', attempt);
                 throw new ModelOutputRetryError_ACU(`AI回复过短 (${aiResponse.length} 字符)，低于阈值 (${minReplyLength} 字符)`);
             }
             let tableEditText = '';
             if (!aiResponse || !aiResponse.includes('<tableEdit>') || !aiResponse.includes('</tableEdit>')) {
+                diagnoseResponse('table_edit_block_missing', attempt);
                 throw new ModelOutputRetryError_ACU('AI响应中未找到完整有效的 <tableEdit> 标签');
             }
             tableEditText = (aiResponse.match(/<tableEdit>([\s\S]*?)<\/tableEdit>/i)?.[1] || '').trim();
@@ -1469,16 +1658,19 @@ export async function collectGroupFillResponse_ACU(
                     // 隐藏列保护使用请求前冻结的 live runtime schema 证据，而不是 baseSnapshot：
                     // 历史快照可能缺失 descriptor 或含旧表头，会把 live 合法列误判为隐藏列。
                     assertNoHiddenPhysicalColumnMutations_ACU(
-                        splitSqlStatements(tableEditText),
+                        // 与提交路径同口径：先去 HTML 注释标记再分句（分句器把 -- 视为 SQL 注释）。
+                        splitSqlStatements(stripHtmlCommentMarkersOutsideSqlLiterals_ACU(tableEditText)),
                         job.sqlApplyScope?.runtimeData ? job.sqlApplyScope.runtimeData as any : job.baseSnapshot,
                     );
                 } catch (error: any) {
+                    diagnoseResponse('sql_column_mutation_rejected', attempt);
                     throw new ModelOutputRetryError_ACU(error?.message || 'SQLite 填表 SQL 无效。');
                 }
             }
 
-            return { job, success: true, attempt, aiResponse, tableEditText };
+            return { job, success: true, attempt, aiResponse, tableEditText, rawAiResponse: lastAiResponse, retryHistory };
         } catch (error: any) {
+            if (!lastAiResponse && typeof error?.rawResponse === 'string') lastAiResponse = error.rawResponse;
             lastErrorMessage = error?.message || '未知错误';
             lastErrorCategory = error instanceof ModelOutputRetryError_ACU
                 || error instanceof RetryableAiResponseError_ACU
@@ -1487,9 +1679,11 @@ export async function collectGroupFillResponse_ACU(
             const warnMessage = sanitizeRetryFeedback_ACU(lastErrorMessage, MAX_WARN_ERROR_LENGTH_ACU);
             logWarn_ACU(`[${formatGroupAttemptLabel_ACU(job)}] 第 ${attempt} 次尝试失败: ${warnMessage}`);
             if (error?.name === 'AbortError' || String(lastErrorMessage).toLowerCase().includes('aborted') || isStopped()) {
+                diagnoseResponse('user_aborted', attempt);
                 return { job, success: false, attempt, aborted: true };
             }
             if (lastErrorCategory !== 'model') {
+                diagnoseResponse('request_failed', attempt);
                 const safeError = sanitizeRetryFeedback_ACU(lastErrorMessage, MAX_WARN_ERROR_LENGTH_ACU);
                 return {
                     job,
@@ -1501,13 +1695,14 @@ export async function collectGroupFillResponse_ACU(
                 };
             }
             if (attempt < maxRetries) {
-                if (isSqliteMode() && error instanceof ModelOutputRetryError_ACU) {
-                    const markerIndex = dynamicContent.tableDataText.indexOf(SQL_ERROR_MARKER_ACU);
-                    if (markerIndex !== -1) dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
-                    dynamicContent.tableDataText += `${SQL_ERROR_MARKER_ACU}[上次 SQL 输出无效，请修正后重新输出]\n错误信息: ${sanitizeRetryFeedback_ACU(lastErrorMessage)}`;
-                }
+                retryHistory.push({ response: lastAiResponse, error: sanitizeRetryFeedback_ACU(lastErrorMessage) });
                 options.onProgress?.({ phase: 'retry', attempt, maxRetries, message: sanitizeRetryFeedback_ACU(lastErrorMessage, 50) });
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                // 等待可被终止打断：停止后立即收尾，不再发下一次请求
+                await abortableDelay(5000, effectiveAbortController.signal);
+                if (isStopped()) {
+                    diagnoseResponse('user_aborted', attempt);
+                    return { job, success: false, attempt, aborted: true };
+                }
             }
         }
     }
@@ -1520,6 +1715,8 @@ export async function collectGroupFillResponse_ACU(
         error: `填表在 ${maxRetries} 次尝试后仍失败: ${safeError}`,
         rawError: safeError,
         errorCategory: lastErrorCategory,
+        rawAiResponse: lastAiResponse,
+        retryHistory,
     };
 }
 
@@ -1680,6 +1877,7 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
         isImportMode: boolean;
         chatKey?: string;
         isolationKey?: string;
+        targetGuard?: TableFillTargetGuard_ACU;
         templateScope?: TemplateScope_ACU;
         sqlApplyScope?: SqlTableApplyScope_ACU;
         replaceExistingIncremental?: { targetMessageIndices: number[]; targetSheetKeys: string[] };
@@ -1824,44 +2022,27 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
             if (Array.isArray(response.job.targetSheetKeys) && response.job.targetSheetKeys.length > 0) {
                 // 授权集合必须与"已按 TemplateScope 过滤的目标"一致：隐藏表已从 scope 移除，
                 // 即使 AI 仍把它写进 targetSheetKeys，也不得授权写入（阶段3：统一 allowed）。
-                const allowedSheetKeys = new Set(scopedTargets);
-                const retainedStatements: string[] = [];
-                const discardedKeys = new Set<string>();
-                for (const statement of reboundStatements) {
-                    // 表名归属同样以冻结 runtime 视图为准：baseSnapshot 可能是旧 schema/空表头，
-                    // 用它反查会让真实表被误判为"未授权"或"范围外"。
-                    const touchedKeys = getTouchedSheetKeysFromSqlText_ACU(statement, capturedSqlApplyScope?.runtimeData ? capturedSqlApplyScope.runtimeData as any : baseSnapshot);
-                    const unauthorizedKeys = touchedKeys.filter(sheetKey => !allowedSheetKeys.has(sheetKey));
-                    if (unauthorizedKeys.length === 0) {
-                        retainedStatements.push(statement);
-                        continue;
-                    }
-                    const authorizedKeys = touchedKeys.filter(sheetKey => allowedSheetKeys.has(sheetKey));
-                    const mayDiscardStatement = shouldDiscardUnauthorizedTableEdits_ACU()
-                        && authorizedKeys.length === 0
-                        && touchedKeys.length > 0;
-                    if (!mayDiscardStatement) {
-                        return {
-                            success: false,
-                            modifiedKeys: [],
-                            error: `统一提交失败：${formatResponseGroupReference_ACU(response)} 越权修改了非目标表 (${unauthorizedKeys.join(', ')})。允许写入表：${formatAllowedSheetKeys_ACU(scopedTargets)}。`,
-                            errorCategory: 'model',
-                        };
-                    }
-                    unauthorizedKeys.forEach(sheetKey => discardedKeys.add(sheetKey));
-                }
-                if (discardedKeys.size > 0) {
-                    logWarn_ACU(`[TargetScope] ${formatResponseGroupReference_ACU(response)} 已丢弃仅影响非目标表的 SQL statement: ${[...discardedKeys].sort().join(', ')}`);
-                }
-                reboundStatements = retainedStatements;
-                if (reboundStatements.length === 0) {
+                // 表名归属以冻结 runtime 视图为准：baseSnapshot 可能是旧 schema/空表头，
+                // 用它反查会让真实表被误判为"未授权"或"范围外"。
+                const authorization = authorizeSqlStatementsForTargets_ACU(
+                    reboundStatements,
+                    scopedTargets,
+                    capturedSqlApplyScope?.runtimeData ? capturedSqlApplyScope.runtimeData as any : baseSnapshot,
+                );
+                if (authorization.ok === false) {
                     return {
                         success: false,
                         modifiedKeys: [],
-                        error: `统一提交失败：${formatResponseGroupReference_ACU(response)} 的 SQL 仅修改非目标表，已全部丢弃。允许写入表：${formatAllowedSheetKeys_ACU(scopedTargets)}。请仅生成允许表的写入。`,
+                        error: authorization.reason === 'unauthorized'
+                            ? `统一提交失败：${formatResponseGroupReference_ACU(response)} 越权修改了非目标表 (${authorization.unauthorizedKeys.join(', ')})。允许写入表：${formatAllowedSheetKeys_ACU(scopedTargets)}。`
+                            : `统一提交失败：${formatResponseGroupReference_ACU(response)} 的 SQL 仅修改非目标表，已全部丢弃。允许写入表：${formatAllowedSheetKeys_ACU(scopedTargets)}。请仅生成允许表的写入。`,
                         errorCategory: 'model',
                     };
                 }
+                if (authorization.discardedKeys.length > 0) {
+                    logWarn_ACU(`[TargetScope] ${formatResponseGroupReference_ACU(response)} 已丢弃仅影响非目标表的 SQL statement: ${authorization.discardedKeys.join(', ')}`);
+                }
+                reboundStatements = authorization.statements;
             }
             const sqlText = reboundStatements.join(';\n');
             sqlTexts.push(sqlText);
@@ -1900,6 +2081,7 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
             reason: 'applyUnifiedGroupFillResponses:runtime_sql',
             chatKey: capturedChatKey,
             isolationKey: capturedIsolationKey,
+            targetGuard: options.targetGuard,
             writeSet: buildWriteSetForSheetKeys_ACU([...allTargetSheetKeySet].filter(sheetKey => sqlScopedKeys([sheetKey]).length > 0), baseSnapshot),
             baseRevision: options.baseRevision,
             workingDataMode: 'none',
@@ -1932,7 +2114,10 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
                 const isInfrastructureError = error instanceof SqlRuntimeSnapshotError_ACU
                     || error instanceof SqlRuntimeSchemaInvalidError_ACU
                     || error instanceof SqlRuntimeSchemaStaleError_ACU;
-                const failedGroupKey = findSqlFailureGroupKey_ACU(sqlTexts, sortedResponses, rawErrorMessage);
+                // R2A-10：优先用执行方按实际执行语句换算出的分组下标；倒推只作为兜底。
+                const failedGroupIndex = typeof error?.failedGroupIndex === 'number' ? error.failedGroupIndex : -1;
+                const failedGroupKey = (failedGroupIndex >= 0 ? sqlResponses[failedGroupIndex]?.job?.groupKey : null)
+                    || findSqlFailureGroupKey_ACU(sqlTexts, sqlResponses, rawErrorMessage);
                 return {
                     success: false,
                     error: error instanceof SqlRowIdMaterializationError_ACU
@@ -1997,10 +2182,13 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
                             success: false,
                             error: `统一提交失败：${formatResponseGroupReference_ACU(response)} ${sanitizeRetryFeedback_ACU(operationBuild.error)}`,
                             errorCategory: 'model' as const,
+                            // SQL 已在 live 引擎提交：让提交方重载运行时，避免孤儿行。
+                            runtimeMutated: true,
                         };
                     }
                     operations.push(...operationBuild.operations);
                 }
+                operations.splice(0, operations.length, ...stabilizeNondeterministicSqlOperations_ACU(operations, runtimeData));
                 // sql_sheet_batch 回放不应用自动编号：对编号实际变化的表追加 sheet_replace
                 // 覆盖，保证回放结果与 afterData（含编号）逐字节一致。
                 operations.push(...buildSheetReplaceOperationsFromData_ACU(runtimeData, renumberedSheetKeys, 'system'));
@@ -2041,12 +2229,14 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
                 errorCategory: commitResult.errorCategory || 'infrastructure',
             };
         }
+        const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
         if (!options.isImportMode && options.syncAfterCommit !== false && commitResult.tableData) {
-            await updateReadableLorebookEntry_ACU(true, false, null, commitResult.tableData);
+            postCommitWarnings.push(...await refreshCommittedWorldbook_ACU(commitResult.tableData));
         }
-        return { success: true, modifiedKeys: commitResult.value.modifiedKeys, tableData: commitResult.tableData as any };
+        return { success: true, modifiedKeys: commitResult.value.modifiedKeys, tableData: commitResult.tableData as any, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
     }
 
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
     const sqlInitialization = isSqliteMode()
         ? buildSqlInitializationBase_ACU(baseSnapshot, [...allTargetSheetKeySet])
         : { workingTableData: JSON.parse(JSON.stringify(baseSnapshot)), initializedSheetKeys: new Set<string>() };
@@ -2205,6 +2395,7 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
             reason: 'applyUnifiedGroupFillResponses:snapshot',
             chatKey: capturedChatKey,
             isolationKey: capturedIsolationKey,
+            targetGuard: options.targetGuard,
             writeSet: buildWriteSetForSheetKeys_ACU([...allTargetSheetKeySet], baseSnapshot),
             revisionWriteSet,
             baseRevision: options.baseRevision,
@@ -2246,14 +2437,10 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
                 settings: settings_ACU,
                 metrics: { targetMessageIndex: options.saveTargetIndex },
             });
-            try {
-                await updateReadableLorebookEntry_ACU(true, false, null, workingTableData);
-                lorebookSpan.end({ success: true });
-            } catch (error) {
-                lorebookSpan.end({ success: false });
-                throw error;
-            }
-            if (getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+            postCommitWarnings.push(...await refreshCommittedWorldbook_ACU(workingTableData));
+            lorebookSpan.end({ success: postCommitWarnings.length === 0 });
+            // 刷新失败时照旧跳过向量收尾，但不推翻已完成的表格提交。
+            if (postCommitWarnings.length === 0 && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
                 const vectorSpan = startRuntimePerformanceSpan_ACU('table-fill-vector-flush', {
                     runId: options.performanceRunId,
                     parentSpanId: options.performanceParentSpanId,
@@ -2276,7 +2463,7 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
         }
     }
 
-    return { success: true, modifiedKeys, tableData: workingTableData as any };
+    return { success: true, modifiedKeys, tableData: workingTableData as any, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
 }
 
 export function applyUnifiedGroupFillResponses_ACU(
@@ -2293,14 +2480,27 @@ export function applyUnifiedGroupFillResponses_ACU(
             targetMessageIndex: options.saveTargetIndex,
         },
     });
+    // 提交期诊断（移植上游 ece65f80）：仅诊断任务留痕。
+    const autoFill = responses?.some(response => response?.job?.requestOptions?.autoFillDiagnostics === true);
+    if (autoFill) logAutoFillStage_ACU('commit_started', { runId: options.performanceRunId, groupCount: responses.length });
     return applyUnifiedGroupFillResponsesCore_ACU(args[0], args[1], {
         ...options,
         performanceParentSpanId: performanceSpan.id,
     }).then(result => {
         performanceSpan.end({ success: result.success, changedSheetCount: result.modifiedKeys.length });
+        if (autoFill) {
+            logAutoFillStage_ACU('commit_result', { runId: options.performanceRunId, success: result.success, sheetCount: result.modifiedKeys.length });
+            if (!result.success) logAutoFillSkip_ACU('commit_failed', {
+                runId: options.performanceRunId, stage: 'commit',
+                diagnosticCode: result.diagnosticCode, errorCategory: result.errorCategory,
+            });
+        }
         return result;
     }, error => {
         performanceSpan.end({ success: false });
+        if (autoFill) logAutoFillSkip_ACU('commit_failed', {
+            runId: options.performanceRunId, stage: 'commit', diagnosticCode: 'commit_exception',
+        });
         throw error;
     });
 }
@@ -2344,7 +2544,7 @@ async function processGroupedRuntimeChunkCore_ACU(
         performanceRunId?: string;
         performanceParentSpanId?: string;
     } = {}
-): Promise<{ success: boolean; failedGroups: string[]; error?: string; aborted?: boolean; committedBucketCount: number; committedDataBucketCount: number; diagnosticCode?: ManualUpdateResult['diagnosticCode'] }> {
+): Promise<{ success: boolean; failedGroups: string[]; error?: string; aborted?: boolean; committedBucketCount: number; committedDataBucketCount: number; diagnosticCode?: ManualUpdateResult['diagnosticCode']; postCommitWarnings?: TableUpdatePostCommitWarning_ACU[] }> {
     if (!Array.isArray(groups) || groups.length === 0) {
         return { success: true, failedGroups: [], committedBucketCount: 0, committedDataBucketCount: 0 };
     }
@@ -2477,12 +2677,18 @@ async function processGroupedRuntimeChunkCore_ACU(
             totalBatches: orderedBuckets.length,
         });
     };
-    const isStopped = () => options.abortController?.signal.aborted === true || (options.respectGlobalStop !== false && wasStoppedByUser_ACU);
+    const isStopped = () => options.abortController?.signal.aborted === true || (options.respectGlobalStop !== false && isTableFillStopRequested_ACU());
     let committedBucketCount = 0;
     // 与 committedBucketCount 分开计数：伪提交（帧只落进度/事件，modifiedKeys 为空）会推进前者
     // 但不产生任何表数据，UI 与编排器只有后者能证明「真的写了数据」。
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
     let committedDataBucketCount = 0;
     let aborted = false;
+    // 因目标楼层失效被中止时报这个原因，而不是笼统的「已终止」（那是用户点终止的说法）
+    let staleTargetError: string | undefined;
+    const noteStaleTarget = (response: GroupFillResponse_ACU): void => {
+        if (response.aborted && response.error === STALE_FILL_TARGET_ERROR_ACU) staleTargetError = response.error;
+    };
     for (let bucketIndex = 0; bucketIndex < orderedBuckets.length; bucketIndex++) {
         if (isStopped()) {
             aborted = true;
@@ -2491,6 +2697,8 @@ async function processGroupedRuntimeChunkCore_ACU(
         const bucket = orderedBuckets[bucketIndex];
         const maxBucketRetries = Math.max(1, Number(settings_ACU.tableMaxRetries) || 3);
         let retryUnifiedError: string | null = null;
+        // 统一提交失败后重试：每组带上自己上一轮的回复与纠错历史。
+        const previousResponses = new Map<string, GroupFillResponse_ACU>();
         let bucketSucceeded = false;
         // 阶段 G1：bucket 重试循环外持有 request-scoped replay evidence。
         // 同 bucket 的各次 attempt 共享同一 boundary（mergeBaseMaxMessageIndex），
@@ -2594,6 +2802,10 @@ async function processGroupedRuntimeChunkCore_ACU(
                 const lastAiMessageLength = lastAiMessageContent.length;
                 const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
                 if (isAutoUpdateMode && lastAiMessageLength < minReplyLength) {
+                    logAutoFillSkip_ACU('reply_below_threshold', {
+                        runId: options.performanceRunId, stage: 'batch', batchNumber: plannedJob.batchNumber,
+                        replyLength: lastAiMessageLength, threshold: minReplyLength,
+                    });
                     continue;
                 }
 
@@ -2603,13 +2815,18 @@ async function processGroupedRuntimeChunkCore_ACU(
                 }
                 const messagesForContext = chatHistory.slice(sliceStartIndex, plannedJob.lastMessageIndexOfBatch + 1);
                 let effectiveRequestOptions = plannedJob.group.requestOptions || null;
-                if (!effectiveRequestOptions?.tableApiPreset && Array.isArray(plannedJob.group.sheetKeys) && plannedJob.group.sheetKeys.length > 0) {
+                if (effectiveRequestOptions?.tableApiPreset === undefined && Array.isArray(plannedJob.group.sheetKeys) && plannedJob.group.sheetKeys.length > 0) {
                     const firstTableName = templateForLookup?.[plannedJob.group.sheetKeys[0]]?.name || '';
                     const resolvedPreset = resolveTableApiPresetOverride_ACU(firstTableName);
                     if (resolvedPreset) {
                         effectiveRequestOptions = { ...(effectiveRequestOptions || {}), tableApiPreset: resolvedPreset };
                     }
                 }
+                // 自动模式默认开启诊断：runId/批次随任务透传，准备/响应/提交三段可用同一 runId 串联。
+                if (isAutoUpdateMode) effectiveRequestOptions = {
+                    ...(effectiveRequestOptions || {}), autoFillDiagnostics: true,
+                    performanceRunId: options.performanceRunId, batchNumber: plannedJob.batchNumber,
+                };
 
                 jobs.push({
                     groupKey: plannedJob.group.key,
@@ -2627,6 +2844,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                     isolationKey: executionScope.isolationKey,
                     templateScope: executionScope.templateScope,
                     sqlApplyScope: executionScope.sqlApplyScope,
+                    targetGuard: options.isImportMode === true ? undefined : executionScope.targetGuard,
                     performanceRunId: options.performanceRunId,
                     performanceParentSpanId: options.performanceParentSpanId,
                 });
@@ -2680,10 +2898,9 @@ async function processGroupedRuntimeChunkCore_ACU(
                 try { bucketReadContext.dispose(); } catch { /* dispose 幂等 */ }
             };
             try {
-            const collectFeedback = retryUnifiedError ? { lastUnifiedError: retryUnifiedError } : undefined;
             const settledResponses = await Promise.allSettled(jobs.map(job => collectGroupFillResponse_ACU(
                     job,
-                    collectFeedback,
+                    retryUnifiedError ? buildGroupRetryFeedback_ACU(retryUnifiedError, previousResponses.get(job.groupKey)) : undefined,
                     options.abortController,
                     {
                         onProgress: event => emitBucketProgress(bucketIndex, event),
@@ -2702,6 +2919,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                     collectError = collectError || (settledResponse.reason instanceof Error ? settledResponse.reason.message : String(settledResponse.reason || 'AI响应收集失败'));
                     continue;
                 }
+                noteStaleTarget(settledResponse.value);
                 if (!settledResponse.value.success || settledResponse.value.aborted || !settledResponse.value.aiResponse) {
                     collectFailed = true;
                     collectError = collectError || settledResponse.value.error || settledResponse.value.rawError || 'AI响应收集失败';
@@ -2731,7 +2949,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                     const retryJobs = nonSqlResponses.map(response => response.job);
                     const retrySettled = await Promise.allSettled(retryJobs.map(job => collectGroupFillResponse_ACU(
                         job,
-                        { lastUnifiedError: formatError },
+                        buildGroupRetryFeedback_ACU(formatError, responseByGroupKey.get(job.groupKey)),
                         options.abortController,
                         {
                             onProgress: event => emitBucketProgress(bucketIndex, event),
@@ -2741,6 +2959,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                     )));
                     for (let i = 0; i < retrySettled.length; i++) {
                         const settledResponse = retrySettled[i];
+                        if (settledResponse.status === 'fulfilled') noteStaleTarget(settledResponse.value);
                         if (settledResponse.status === 'fulfilled' && settledResponse.value.success && !settledResponse.value.aborted && settledResponse.value.aiResponse) {
                             responseByGroupKey.set(settledResponse.value.job.groupKey, settledResponse.value);
                         }
@@ -2787,6 +3006,8 @@ async function processGroupedRuntimeChunkCore_ACU(
                 baseRevision,
                 chatKey: executionScope.chatKey,
                 isolationKey: executionScope.isolationKey,
+                // 导入只生成候选、不写聊天楼层，不受目标楼层守卫约束
+                targetGuard: options.isImportMode === true ? undefined : executionScope.targetGuard,
                 templateScope: executionScope.templateScope,
                 sqlApplyScope: executionScope.sqlApplyScope,
                 manualCatchUpRunId: options.manualCatchUpRunId,
@@ -2796,6 +3017,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                 performanceParentSpanId: options.performanceParentSpanId,
             });
             if (applyResult.success) {
+                postCommitWarnings.push(...(applyResult.postCommitWarnings || []));
                 const nextCommittedBucketCount = committedBucketCount + 1;
                 if (Array.isArray(applyResult.modifiedKeys) && applyResult.modifiedKeys.length > 0) {
                     committedDataBucketCount += 1;
@@ -2819,6 +3041,7 @@ async function processGroupedRuntimeChunkCore_ACU(
                 break;
             }
             retryUnifiedError = safeApplyError;
+            responses.forEach(response => previousResponses.set(response.job.groupKey, response));
             if (bucketAttempt >= maxBucketRetries) {
                 jobs.forEach(job => failedGroups.add(job.groupKey));
                 firstError = firstError || `统一提交在 ${maxBucketRetries} 次尝试后仍失败: ${retryUnifiedError}`;
@@ -2846,11 +3069,11 @@ async function processGroupedRuntimeChunkCore_ACU(
     }
 
     if (aborted) {
-        return { success: false, failedGroups: [...failedGroups], error: '手动更新已终止。', aborted: true, committedBucketCount, committedDataBucketCount };
+        return { success: false, failedGroups: [...failedGroups], error: staleTargetError || '手动更新已终止。', aborted: true, committedBucketCount, committedDataBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
     }
     return failedGroups.size > 0
-        ? { success: false, failedGroups: [...failedGroups], error: firstError || '统一提交失败。', committedBucketCount, committedDataBucketCount }
-        : { success: true, failedGroups: [], committedBucketCount, committedDataBucketCount };
+        ? { success: false, failedGroups: [...failedGroups], error: firstError || '统一提交失败。', committedBucketCount, committedDataBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) }
+        : { success: true, failedGroups: [], committedBucketCount, committedDataBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
 }
 
 export function processGroupedRuntimeChunk_ACU(
@@ -2904,7 +3127,7 @@ export async function executeAutoFillStagingGroups_ACU(
             requiresBoundaryStaging: boolean;
         };
     } = {},
-): Promise<{ success: boolean; failedGroups: string[]; error?: string; aborted?: boolean; committedBucketCount: number }> {
+): Promise<{ success: boolean; failedGroups: string[]; error?: string; aborted?: boolean; committedBucketCount: number; postCommitWarnings?: TableUpdatePostCommitWarning_ACU[] }> {
     const boundary = options.boundary;
     const originalFullIndex = boundary?.fullCheckpointIndices?.length === 1 ? boundary.fullCheckpointIndices[0] : null;
     const normalizedGroups = Array.isArray(groups) ? groups : [];
@@ -2923,6 +3146,10 @@ export async function executeAutoFillStagingGroups_ACU(
     const failedGroups = new Set<string>();
     let firstError: string | undefined;
     let committedBucketCount = 0;
+    // G03-06：返回类型声明了 postCommitWarnings，staging 各段的结果就必须真正收集进来
+    // （与 processGroupedRuntimeChunkCore_ACU 同形）。当前 pre/post 段都传 syncAfterCommit:false，
+    // 段级告警恒为空、行为无变化；接上之后未来打开提交后同步或新增告警来源时不再静默丢告警。
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
     let boundaryCommitted = false;
     let stagingRun: TableFillStagingRunContext_ACU | null = null;
     let stagingSession: TableFillStagingSession_ACU | null = null;
@@ -2986,6 +3213,7 @@ export async function executeAutoFillStagingGroups_ACU(
             failedGroups: [...new Set([...failedGroups, ...normalizedGroups.map(group => group.key)])],
             error,
             committedBucketCount,
+            ...(postCommitWarnings.length ? { postCommitWarnings } : {}),
         };
     };
 
@@ -3014,19 +3242,22 @@ export async function executeAutoFillStagingGroups_ACU(
     // 单一批次内用错误旧结构生成增量。
     const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), getCurrentIsolationKey_ACU());
 
-    for (const group of normalizedGroups) {
-        if (options.abortController?.signal.aborted) {
-            return { success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount };
-        }
+    // 三阶段（R2A-07）：先跑完所有组的边界前段（全部进 staging），再统一汇合一次，最后跑所有组的边界后段。
+    // 逐组「pre → 汇合 → post」时，第一组汇合后 session 已清空，后续组的边界前结果会被静默丢弃。
+    const abortedResult = () => ({ success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) });
+    const plannedGroups = normalizedGroups.map((group) => {
         const groupIndices = [...(group.indices || [])].sort((a, b) => a - b);
         const segments = splitMessageIndicesAtSchemaBoundaries_ACU(groupIndices, originalFullIndex, schemaBoundaries);
-        const preSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] < originalFullIndex);
-        const postSegments = segments.filter(segment => segment.indices.length > 0 && segment.indices[0] >= originalFullIndex);
+        return {
+            group,
+            preSegments: segments.filter(segment => segment.indices.length > 0 && segment.indices[0] < originalFullIndex),
+            postSegments: segments.filter(segment => segment.indices.length > 0 && segment.indices[0] >= originalFullIndex),
+        };
+    });
 
+    for (const { group, preSegments } of plannedGroups) {
         for (const preSegment of preSegments) {
-            if (options.abortController?.signal.aborted) {
-                return { success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount };
-            }
+            if (options.abortController?.signal.aborted) return abortedResult();
             const preGroups: GroupedRuntimeUpdateGroup_ACU[] = [{
                 ...group,
                 indices: [...preSegment.indices],
@@ -3044,30 +3275,30 @@ export async function executeAutoFillStagingGroups_ACU(
                 performanceParentSpanId: options.performanceParentSpanId,
             });
             committedBucketCount += preResult.committedBucketCount;
+            postCommitWarnings.push(...(preResult.postCommitWarnings || []));
             if (!preResult.success) {
                 failedGroups.add(group.key);
                 firstError = firstError || preResult.error || '边界前 staging 提交失败。';
                 return failFastAfterSegmentError(firstError);
             }
         }
+    }
 
-        // 首个 post 段提交前收敛 staging：边界前累计快照原子折叠回原根；零 staging 则丢弃。
-        if (postSegments.length > 0) {
-            if (options.abortController?.signal.aborted) {
-                return { success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount };
-            }
-            const settleResult = await settleStagingBoundary();
-            if (!settleResult.ok) {
-                failedGroups.add(group.key);
-                firstError = firstError || `跨根 staging 汇合失败：${(settleResult as { ok: false; error: string }).error}`;
-                return failFastAfterSegmentError(firstError);
-            }
+    // 首个 post 段提交前收敛 staging：边界前累计快照原子折叠回原根；零 staging 则丢弃。
+    const firstGroupWithPost = plannedGroups.find(planned => planned.postSegments.length > 0);
+    if (firstGroupWithPost) {
+        if (options.abortController?.signal.aborted) return abortedResult();
+        const settleResult = await settleStagingBoundary();
+        if (!settleResult.ok) {
+            failedGroups.add(firstGroupWithPost.group.key);
+            firstError = firstError || `跨根 staging 汇合失败：${(settleResult as { ok: false; error: string }).error}`;
+            return failFastAfterSegmentError(firstError);
         }
+    }
 
+    for (const { group, postSegments } of plannedGroups) {
         for (const postSegment of postSegments) {
-            if (options.abortController?.signal.aborted) {
-                return { success: false, failedGroups: [...failedGroups, ...normalizedGroups.map(g => g.key)], error: '自动填表已终止。', aborted: true, committedBucketCount };
-            }
+            if (options.abortController?.signal.aborted) return abortedResult();
             const postGroups: GroupedRuntimeUpdateGroup_ACU[] = [{
                 ...group,
                 indices: [...postSegment.indices],
@@ -3083,6 +3314,7 @@ export async function executeAutoFillStagingGroups_ACU(
                 performanceParentSpanId: options.performanceParentSpanId,
             });
             committedBucketCount += postResult.committedBucketCount;
+            postCommitWarnings.push(...(postResult.postCommitWarnings || []));
             if (!postResult.success) {
                 failedGroups.add(group.key);
                 firstError = firstError || postResult.error || '边界后持久化提交失败。';
@@ -3102,8 +3334,8 @@ export async function executeAutoFillStagingGroups_ACU(
     await stagingSession?.discard();
 
     return failedGroups.size > 0
-        ? { success: false, failedGroups: [...failedGroups], error: firstError || '跨根 staging 执行失败。', committedBucketCount }
-        : { success: true, failedGroups: [], committedBucketCount };
+        ? { success: false, failedGroups: [...failedGroups], error: firstError || '跨根 staging 执行失败。', committedBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) }
+        : { success: true, failedGroups: [], committedBucketCount, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
 }
 
 
@@ -3151,6 +3383,7 @@ export async function executeCardUpdateCore_ACU(
         });
     };
     let success = false;
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
     let modifiedKeys: string[] = [];
     const maxRetries = settings_ACU.tableMaxRetries || 3;
     const executionScope = await captureFillExecutionScope_ACU();
@@ -3188,9 +3421,12 @@ export async function executeCardUpdateCore_ACU(
             };
             }
         }
-        let lastSqlError: string | null = null;
+        // 纠错历史跨 attempt 累积；每次 collect 只跑一轮，提交失败的报错由这里补记。
+        const retryHistory: TableFillRetryTurn_ACU[] = [];
+        let lastAiResponse = '';
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            lastAiResponse = '';
             const attemptReadContext = createLorebookReadContext_ACU({ source: 'form_fill_legacy', isActive: () => !effectiveAbortController?.signal.aborted, isAborted: () => effectiveAbortController?.signal.aborted === true });
             try {
                 let rawBaseSnapshot: Record<string, any> = getRuntimeTableDataSnapshot_ACU(progressContext?.batchBaseSnapshot || null) || {};
@@ -3214,16 +3450,18 @@ export async function executeCardUpdateCore_ACU(
                     isolationKey: executionScope.isolationKey,
                     templateScope: executionScope.templateScope,
                     sqlApplyScope: executionScope.sqlApplyScope,
+                    targetGuard: isImportMode ? undefined : executionScope.targetGuard,
                 };
                 const collectResult = await collectGroupFillResponse_ACU(
                     currentJob,
-                    { lastSqlError },
+                    { retryHistory },
                     effectiveAbortController,
                     { onProgress: emitProgress, maxRetriesOverride: 1, worldbookReadContext: attemptReadContext },
                 );
+                lastAiResponse = collectResult.rawAiResponse || collectResult.aiResponse || '';
 
                 if (collectResult.aborted) {
-                    return { success: false, modifiedKeys: [], aborted: true };
+                    return { success: false, modifiedKeys: [], aborted: true, ...(collectResult.error ? { error: collectResult.error } : {}) };
                 }
                 if (!collectResult.success || !collectResult.aiResponse) {
                     throw new UpdateAttemptError_ACU(
@@ -3258,6 +3496,7 @@ export async function executeCardUpdateCore_ACU(
                         reason: 'executeCardUpdateCore',
                         chatKey: executionScope.chatKey,
                         isolationKey: executionScope.isolationKey,
+                        targetGuard: isImportMode ? undefined : executionScope.targetGuard,
                         writeSet,
                         baseRevision,
                         workingDataMode: 'none',
@@ -3277,10 +3516,47 @@ export async function executeCardUpdateCore_ACU(
                                 errorCategory: 'infrastructure' as const,
                             };
                         }
+                        let tableEditSqlText = collectResult.tableEditText || '';
+                        if (Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0) {
+                            // live 引擎执行即生效，授权必须在执行前完成（与统一路径同一判定）。
+                            const sqlApplyScope = executionScope.sqlApplyScope;
+                            const lookupData = (sqlApplyScope?.runtimeData || rawBaseSnapshot) as any;
+                            let reboundStatements: string[] | null = null;
+                            try {
+                                reboundStatements = rebindSqlMutationIdentifiers_ACU(
+                                    normalizeSqlStatementsForRuntimeLog_ACU(tableEditSqlText),
+                                    lookupData,
+                                    sqlApplyScope?.templateData,
+                                    {
+                                        requireKnownTables: true,
+                                        targetSheetKeys: sqlApplyScope?.activeSheetKeys ? new Set(sqlApplyScope.activeSheetKeys) : undefined,
+                                        requireKnownInsertColumns: true,
+                                    },
+                                );
+                            } catch {
+                                // 重绑失败交给 provider 原样报错（它内部做同一重绑），此处不改变错误分类。
+                            }
+                            if (reboundStatements) {
+                                const authorization = authorizeSqlStatementsForTargets_ACU(reboundStatements, targetSheetKeys, lookupData);
+                                if (authorization.ok === false) {
+                                    return {
+                                        success: false,
+                                        error: authorization.reason === 'unauthorized'
+                                            ? `填表越权修改了非目标表：${authorization.unauthorizedKeys.join('、')}。允许写入表：${formatAllowedSheetKeys_ACU(targetSheetKeys)}。`
+                                            : `填表 SQL 仅修改非目标表，已全部丢弃。允许写入表：${formatAllowedSheetKeys_ACU(targetSheetKeys)}。`,
+                                        errorCategory: 'model' as const,
+                                    };
+                                }
+                                if (authorization.discardedKeys.length > 0) {
+                                    logWarn_ACU(`[TargetScope] 已丢弃仅影响非目标表的 SQL statement: ${authorization.discardedKeys.join(', ')}`);
+                                }
+                                tableEditSqlText = authorization.statements.join(';\n');
+                            }
+                        }
                         let parseResult: any;
                         try {
                             parseResult = provider.applyEditsWithSystemRowIds(
-                                [collectResult.tableEditText || ''],
+                                [tableEditSqlText],
                                 updateMode,
                                 executionScope.sqlApplyScope,
                             );
@@ -3307,12 +3583,14 @@ export async function executeCardUpdateCore_ACU(
                         }
 
                         const runtimeSqlText = parseResult.materializedSqlTexts[0] || '';
-                        const runtimeData = parseResult.tableData as Record<string, any>;
+                        // provider 返回的是共享 canonical 视图：后续编号/首次初始化会改写它，先克隆。
+                        const runtimeData = JSON.parse(JSON.stringify(parseResult.tableData)) as Record<string, any>;
                         const operationBuild = buildSqlSheetBatchOperationsFromText_ACU(runtimeSqlText, runtimeData, targetSheetKeys);
                         if (operationBuild.success === false) {
-                            return { success: false, error: sanitizeRetryFeedback_ACU(operationBuild.error), errorCategory: 'model' as const };
+                            // SQL 已在 live 引擎提交：失败必须让提交方重载运行时，否则留下未落盘的孤儿行。
+                            return { success: false, error: sanitizeRetryFeedback_ACU(operationBuild.error), errorCategory: 'model' as const, runtimeMutated: true };
                         }
-                        const operations = operationBuild.operations;
+                        const operations = stabilizeNondeterministicSqlOperations_ACU(operationBuild.operations, runtimeData);
 
                         if (isImportMode) {
                             // import 不写聊天帧、无回放操作，编号可全量应用（无漂移风险）。
@@ -3346,11 +3624,13 @@ export async function executeCardUpdateCore_ACU(
                             const fullTemplate = executionScope.sqlApplyScope?.templateDataWithRows || parseTableTemplateJson_ACU({ stripSeedRows: false });
                             if (fullTemplate) {
                                 allSheetKeys.forEach(sheetKey => {
-                                    if (!keysToPersist.includes(sheetKey) && fullTemplate[sheetKey]) {
+                                    // live 运行时已有该表（含 loadFromData 物化的种子行与运行时写入）时以运行时为准，
+                                    // 仅缺表时才用模板补齐，避免运行时已有行进不了首个 full checkpoint。
+                                    if (!keysToPersist.includes(sheetKey) && fullTemplate[sheetKey] && !Array.isArray(runtimeData[sheetKey]?.content)) {
                                         const templateSheet = JSON.parse(JSON.stringify(fullTemplate[sheetKey]));
                                         if (Array.isArray(templateSheet.content)) templateSheet.content = ensureStableRowIdsForSheetContent_ACU(templateSheet.content);
                                         runtimeData[sheetKey] = templateSheet;
-                                        logDebug_ACU(`[Init] Table ${sheetKey} not modified by AI, using template data (may include seed rows).`);
+                                        logDebug_ACU(`[Init] Table ${sheetKey} missing from runtime, using template data (may include seed rows).`);
                                     }
                                 });
                             }
@@ -3400,7 +3680,7 @@ export async function executeCardUpdateCore_ACU(
                     }
                     modifiedKeys = commitResult.value.modifiedKeys;
                     if (!isImportMode && commitResult.tableData) {
-                        await updateReadableLorebookEntry_ACU(true, false, null, commitResult.tableData);
+                        postCommitWarnings.push(...await refreshCommittedWorldbook_ACU(commitResult.tableData));
                     }
                     success = true;
                     break;
@@ -3414,6 +3694,7 @@ export async function executeCardUpdateCore_ACU(
                     reason: 'executeCardUpdateCore:snapshot',
                     chatKey: executionScope.chatKey,
                     isolationKey: executionScope.isolationKey,
+                    targetGuard: isImportMode ? undefined : executionScope.targetGuard,
                     writeSet,
                     baseRevision,
                     initialData: rawBaseSnapshot as any,
@@ -3558,7 +3839,7 @@ export async function executeCardUpdateCore_ACU(
                 }
                 modifiedKeys = updateOutcome.value.modifiedKeys;
                 if (!isImportMode && updateOutcome.tableData) {
-                    await updateReadableLorebookEntry_ACU(true, false, null, updateOutcome.tableData);
+                    postCommitWarnings.push(...await refreshCommittedWorldbook_ACU(updateOutcome.tableData));
                 }
 
                 success = true;
@@ -3568,7 +3849,7 @@ export async function executeCardUpdateCore_ACU(
                 const safeError = sanitizeRetryFeedback_ACU(error?.message || String(error), MAX_WARN_ERROR_LENGTH_ACU);
                 logWarn_ACU(`第 ${attempt} 次尝试失败: ${safeError}`);
 
-                if (error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('aborted') || wasStoppedByUser_ACU) {
+                if (error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('aborted') || isTableFillStopRequested_ACU()) {
                     return { success: false, modifiedKeys: [], aborted: true };
                 }
 
@@ -3578,13 +3859,17 @@ export async function executeCardUpdateCore_ACU(
                 if (errorCategory !== 'model') {
                     return { success: false, modifiedKeys: [], error: safeError, errorCategory };
                 }
-                if (isSqliteMode()) lastSqlError = safeError;
+                retryHistory.push({ response: lastAiResponse, error: sanitizeRetryFeedback_ACU(safeError) });
 
                 if (attempt < maxRetries) {
                     const waitTime = 5000;
                     logDebug_ACU(`等待 ${waitTime}ms 后重试...`);
                     emitProgress({ phase: 'retry', attempt, maxRetries, message: sanitizeRetryFeedback_ACU(safeError, 50) });
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    // 等待可被终止打断：停止后立即收尾，不再发下一次请求
+                    await abortableDelay(waitTime, effectiveAbortController.signal);
+                    if (effectiveAbortController.signal.aborted || isTableFillStopRequested_ACU()) {
+                        return { success: false, modifiedKeys: [], aborted: true };
+                    }
                     continue;
                 } else {
                     return { success: false, modifiedKeys: [], error: `填表在 ${maxRetries} 次尝试后仍失败: ${safeError}`, errorCategory };
@@ -3620,7 +3905,10 @@ export async function executeCardUpdateCore_ACU(
 
             // 填表完成后异步收尾：当前环境无交火向量数据则立刻重建，
             // 已有镜像再入队防抖增量 flush。不阻塞 complete 提示。
-            if (!isImportMode && success) {
+            // G14-09 短期对齐：世界书刷新失败（postCommitWarnings 非空）时跳过向量收尾，
+            // 与统一路径 applyUnifiedGroupFillResponsesCore_ACU 同口径——派生刷新半失败时
+            // 不再继续做派生收尾；镜像陈旧由下次发送的 stale 检测自愈。
+            if (!isImportMode && success && postCommitWarnings.length === 0) {
                 void runSummaryVectorFollowupAfterTableFill_ACU({
                     tableData: currentJsonTableData_ACU as Record<string, any>,
                     modifiedKeys,
@@ -3632,7 +3920,7 @@ export async function executeCardUpdateCore_ACU(
             }
 
         }
-        return { success, modifiedKeys };
+        return { success, modifiedKeys, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
 
     } catch (error: any) {
         if (error.name === 'AbortError') {
@@ -3679,9 +3967,18 @@ export async function processUpdatesBatch_ACU(
     }
     await flushRuntimeOnlyChangesBeforeFill_ACU('processUpdatesBatch');
 
-    _set_wasStoppedByUser_ACU(false);
-    _set_isAutoUpdatingCard_ACU(true);
+    // 外层（调度层并发分组、手动编排）已持有「正在填表」标志时由外层负责复位：
+    // 本批只在自己置位时才复位标志与用户停止信号，否则先结束的组会让其余组失去保护。
+    const ownsAutoUpdatingFlag = !isAutoUpdatingCard_ACU;
+    if (ownsAutoUpdatingFlag) {
+        _set_wasStoppedByUser_ACU(false);
+        _set_isAutoUpdatingCard_ACU(true);
+    }
 
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
+    // 宿主全量存盘合并窗口：本轮各批的普通存盘只记下改动，结束（最外层窗口）时补存一次，
+    // 避免大聊天 N 批 = N 次全量存盘、用户发消息时排在后面等。所有退出路径由 finally 收口。
+    beginChatSaveCoalescing_ACU();
     try {
         const isSummaryMode = (mode && (mode.includes('summary') || mode === 'manual_summary')) || false;
         const batchSize = specificBatchSize || (settings_ACU.updateBatchSize || 2);
@@ -3704,6 +4001,10 @@ export async function processUpdatesBatch_ACU(
         for (let i = 0; i < batches.length; i++) {
             const batchIndices = batches[i];
             const batchNumber = i + 1;
+            // 「终止」作用于本轮当前与后续全部批次：上一批请求已返回、无可中止时点的终止也要拦住下一批
+            if (isTableFillStopRequested_ACU()) {
+                return { success: false, failedBatch: batchNumber, error: '填表任务已由用户终止。' };
+            }
             const firstMessageIndexOfBatch = batchIndices[0];
             const lastMessageIndexOfBatch = batchIndices[batchIndices.length - 1];
             const finalSaveTargetIndex = lastMessageIndexOfBatch;
@@ -3792,10 +4093,12 @@ export async function processUpdatesBatch_ACU(
                 }
             );
 
+            postCommitWarnings.push(...(result.postCommitWarnings || []));
             if (!result.success) {
                 return {
                     success: false,
                     failedBatch: batchNumber,
+                    ...(postCommitWarnings.length ? { postCommitWarnings } : {}),
                     error: result.error || `批处理在第 ${batchNumber} 批时失败或被终止。`,
                     ...(result.diagnosticCode ? { diagnosticCode: result.diagnosticCode } : {}),
                     ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
@@ -3803,10 +4106,13 @@ export async function processUpdatesBatch_ACU(
             }
         }
 
-        return { success: true };
+        return { success: true, ...(postCommitWarnings.length ? { postCommitWarnings } : {}) };
     } finally {
-        _set_isAutoUpdatingCard_ACU(false);
-        _set_wasStoppedByUser_ACU(false);
+        await endChatSaveCoalescing_ACU();
+        if (ownsAutoUpdatingFlag) {
+            _set_isAutoUpdatingCard_ACU(false);
+            _set_wasStoppedByUser_ACU(false);
+        }
     }
 }
 
@@ -3991,7 +4297,8 @@ async function ensureStrictlyReplayableHistoryForCatchUp_ACU(
             return {
                 ok: false,
                 error: `追平前检测到聊天历史（${bound.label}）仅可经兼容宽容回放读出（严格回放失败：${replay.legacyToleranceDiagnosis?.strictError || '未知错误'}），`
-                    + '不能继续写入；请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。',
+                    // G13-02：指引与真实 UI 对齐（后台自动固化 / 历史恢复诊断入口），不再指向不存在的按钮。
+                    + `不能继续写入；${buildCompatReadonlyGuidance_ACU(replay.legacyToleranceDiagnosis)}`,
             };
         }
     }
@@ -4511,6 +4818,8 @@ export async function orchestrateManualCatchUp_ACU(
     // must not silently cross inside a single persisted batch.
     const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), getCurrentIsolationKey_ACU());
 
+    // 手动追平与填表同族（bucket 串行、每个 bucket 一次全量存盘）：同样开存盘合并窗口，finally 收口补存。
+    beginChatSaveCoalescing_ACU();
     try {
         for (let waveIndex = 0; waveIndex < plan.waves.length; waveIndex += 1) {
             activeWaveIndex = waveIndex;
@@ -4841,6 +5150,7 @@ export async function orchestrateManualCatchUp_ACU(
             terminalProgressSaved: !terminalError,
         };
     } finally {
+        await endChatSaveCoalescing_ACU();
         _set_isAutoUpdatingCard_ACU(false);
     }
 }
@@ -4965,14 +5275,12 @@ async function preflightManualRefillResolution_ACU(args: {
  * presentation 层负责：收集 manualSelection、设置 manualExtraHint、刷新 UI、显示 toast、弹出确认框。
  *
  * @param targetKeys 手动选择的目标表格键列表
- * @param processBatch 批处理执行回调
  * @param refreshData 数据刷新回调
  * @param options 可选参数：
  *   - clearBeforeUpdate: 兼容旧调用名；启用事务式手动重填。普通可回放路径按 bucket 原子替换历史增量；仅跨 checkpoint 特例会预清理并等待最终 snapshot。
  */
 export async function orchestrateManualUpdate_ACU(
     targetKeys: string[],
-    processBatch: (indices: number[], mode: string, options: any) => Promise<BatchUpdateResult>,
     refreshData: () => Promise<void>,
     options: {
         clearBeforeUpdate?: boolean;
@@ -4990,8 +5298,11 @@ export async function orchestrateManualUpdate_ACU(
         };
     } = {},
 ): Promise<ManualUpdateResult> {
+    // 从这里起点的「终止」都算本轮：清理阶段「正在填表」还没置位，置位后补锁存
+    const stopSeqAtStart = getTableFillStopSeq_ACU();
     let committedBucketCount = 0;
     // 与 committedBucketCount 分开计数：伪提交（帧只落进度/事件，modifiedKeys 为空）推前者不推后者。
+    const postCommitWarnings: TableUpdatePostCommitWarning_ACU[] = [];
     let committedDataBucketCount = 0;
     // 跨根 staging 作用域（仅 manualRefillEnabled 且跨根时启用；提升到函数级以便
     // chunk 循环内 settle 与收尾共用）。non-null 断言仅在 requiresBoundaryStaging
@@ -5118,6 +5429,8 @@ export async function orchestrateManualUpdate_ACU(
         return { ok: true };
     };
 
+    // 手动填表 / 重填同样逐组逐批全量存盘：开存盘合并窗口，finally 收口补存（破坏性清理与回滚走 strict，照旧直存）。
+    beginChatSaveCoalescing_ACU();
     try {
         if (options.executionSnapshot !== undefined && !executionSnapshotContextStillMatches_ACU(options.executionSnapshot)) {
             return { success: false, error: '聊天已切换，已取消本次手动填表，请重新确认目标。' };
@@ -5475,6 +5788,7 @@ export async function orchestrateManualUpdate_ACU(
                     targetSheetKeys: targetKeys,
                     targetMessageIndices: contextScopeIndices,
                     templateData: frozenManualRefillTemplateData,
+                    rollbackHandle: refillRollbackHandle,
                 });
                 if (!rootEstablish.success) {
                     logError_ACU('[Manual Refill] 清理后建立模板临时根失败:', rootEstablish.error);
@@ -5562,6 +5876,7 @@ export async function orchestrateManualUpdate_ACU(
         }
 
         _set_isAutoUpdatingCard_ACU(true);
+        latchTableFillStopRequestedSince_ACU(stopSeqAtStart);
         const maxConcurrentGroups = Math.max(1, Number(settings_ACU.maxConcurrentGroups) || 1);
         const totalChunks = Math.max(1, Math.ceil(groupKeys.length / maxConcurrentGroups));
         const failedGroups: Array<{ key: string; error?: string }> = [];
@@ -5569,6 +5884,7 @@ export async function orchestrateManualUpdate_ACU(
         logDebug_ACU(`[Manual Update] 分组计划：选中 ${targetKeys.length} 张表，生成 ${groupKeys.length} 个组，最大并发组数 ${maxConcurrentGroups}。`);
 
         for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
+            if (isTableFillStopRequested_ACU()) break;
             const chunkIndex = Math.floor(start / maxConcurrentGroups) + 1;
             const chunkKeys = groupKeys.slice(start, start + maxConcurrentGroups);
             const groupedChunk: GroupedRuntimeUpdateGroup_ACU[] = chunkKeys.map((gKey): GroupedRuntimeUpdateGroup_ACU => {
@@ -5681,6 +5997,7 @@ export async function orchestrateManualUpdate_ACU(
                     });
                     committedBucketCount += chunkResult.committedBucketCount;
                     committedDataBucketCount += chunkResult.committedDataBucketCount;
+                    postCommitWarnings.push(...(chunkResult.postCommitWarnings || []));
                     // 已有提交 ⇒ 本会话不再回滚清理，此时才执行被推迟的外置向量文件删除。
                     await flushDeferredRefillVectorCleanup();
                     if (!chunkResult.success) {
@@ -5720,6 +6037,7 @@ export async function orchestrateManualUpdate_ACU(
                                 syncAfterCommit: false,
                             });
                             committedBucketCount += preResult.committedBucketCount;
+                            postCommitWarnings.push(...(preResult.postCommitWarnings || []));
                             committedDataBucketCount += preResult.committedDataBucketCount;
                             await flushDeferredRefillVectorCleanup();
                             if (!preResult.success) {
@@ -5752,6 +6070,7 @@ export async function orchestrateManualUpdate_ACU(
                                 replaceExistingIncremental: false,
                             });
                             committedBucketCount += postResult.committedBucketCount;
+                            postCommitWarnings.push(...(postResult.postCommitWarnings || []));
                             committedDataBucketCount += postResult.committedDataBucketCount;
                             await flushDeferredRefillVectorCleanup();
                             if (!postResult.success) {
@@ -5813,7 +6132,7 @@ export async function orchestrateManualUpdate_ACU(
             return await failManualRefillSession(failureError);
         }
 
-        if (wasStoppedByUser_ACU) {
+        if (isTableFillStopRequested_ACU()) {
             return await failManualRefillSession('手动更新已终止。');
         }
 
@@ -5864,33 +6183,6 @@ export async function orchestrateManualUpdate_ACU(
             logError_ACU('[Manual Update] 边界 checkpoint 建立异常详情:', error);
         }
 
-        // 手动更新完成后检测自动合并总结
-        let autoMergeTriggered = false;
-        let autoMergeSuccess = false;
-        try {
-            const trigger = checkAutoMergeTrigger_ACU();
-            if (trigger.shouldTrigger) {
-                autoMergeTriggered = true;
-                const prepared = prepareAutoMergeBatches_ACU({
-                    startIndex: 0, endIndex: trigger.mergeCount, targetCount: 1,
-                    batchSize: 5, promptTemplate: '', isAutoMode: true,
-                });
-                let acc: any[] = [];
-                for (let i = 0; i < prepared.batches.length; i++) {
-                    const batchResult = await executeAutoMergeBatch_ACU(prepared, prepared.batches[i], acc);
-                    acc = batchResult.accumulatedSummary;
-                }
-                const mergeResult = await finalizeAutoMerge_ACU(prepared, acc);
-                if (mergeResult?.success !== true) {
-                    logWarn_ACU('[自动合并] 提交失败或返回无效结果，自动合并未成功。', mergeResult?.error);
-                } else {
-                    autoMergeSuccess = true;
-                }
-            }
-        } catch (e) {
-            logWarn_ACU('自动合并总结检测失败:', e);
-        }
-
         // 收尾：本次做过破坏性清理却一条数据批次都没写进去（例如范围内没有可填分组、分组全被模板范围挡掉）。
         // 与失败路径同源处理——回滚清理，避免「旧数据已删、什么都没写」还报成功的净损失。
         const zeroCommitRollback = await rollbackRefillCleanupOnZeroCommit();
@@ -5912,8 +6204,9 @@ export async function orchestrateManualUpdate_ACU(
             }
         }
         return {
-            success: true, autoMergeTriggered, autoMergeSuccess, checkpointWarning, committedBucketCount, committedDataBucketCount,
+            success: true, checkpointWarning, committedBucketCount, committedDataBucketCount,
             ...(zeroCommitRollback.rolledBackCleanup ? { rolledBackCleanup: true } : {}),
+            ...(postCommitWarnings.length ? { postCommitWarnings } : {}),
         };
     } catch (error: any) {
         // 破坏性清理尚未开始：异常原样抛出（可能是普通路径的配置/准入错误，或
@@ -5926,6 +6219,7 @@ export async function orchestrateManualUpdate_ACU(
         // 清理已开始：零提交时由 failManualRefillSession 回滚清理，已提交时按已提交事实对齐运行时。
         return await failManualRefillSession(failureError);
     } finally {
+        await endChatSaveCoalescing_ACU();
         _set_manualExtraHint_ACU('');
         _set_isAutoUpdatingCard_ACU(false);
         // 失败/异常路径 stagingSession 未走 settle 收尾：这里幂等释放（discard 内部

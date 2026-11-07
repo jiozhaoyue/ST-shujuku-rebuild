@@ -1,9 +1,12 @@
 import type { TableDataObject_ACU } from '../../shared/models/table-data';
 import type { SqlMutationResult } from '../../shared/table-storage-provider';
+import type { TableFillTargetGuard_ACU } from './table-fill-target-guard';
 import { logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, isAutoUpdatingCard_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { ensureLegacyStorageMigratedBeforeWrite_ACU, persistTablesToChatMessage_ACU } from './table-service';
-import { ensureStorageProviderReady_ACU, reloadStorageProvider } from './table-storage-strategy';
+import { ensureStorageProviderReady_ACU, getRuntimeLifecycleEpoch_ACU, hydrateStorageProviderFromSnapshot_ACU, reloadStorageProvider } from './table-storage-strategy';
+import { getCurrentStorageMode } from './storage-mode';
+import { createCanonicalSnapshotEnvelope_ACU } from './canonical-snapshot-envelope';
 import { runTableWriteTransaction_ACU, type TableWriteTransactionContext_ACU } from './table-write-transaction';
 import { ensureNoActiveProvisionalBridgeForCurrentScope_ACU } from './manual-catch-up-provisional-bridge';
 import { isAppendedOperationsWriteRejection_ACU, isCompatReadonlyWriteRejection_ACU } from './storage-frame-v2-replay';
@@ -13,6 +16,7 @@ import { buildSqlSheetBatchOperations_ACU, rebindSqlMutationIdentifiers_ACU } fr
 import { probeOversizedWrite_ACU } from './oversized-write-warning';
 import {
   extractPendingSheetKeysFromWriteSet_ACU,
+  hasRuntimeOnlyPendingSheets_ACU,
   markRuntimeOnlyPendingSheets_ACU,
   runRegisteredRuntimeOnlyPendingFlush_ACU,
 } from './runtime-only-pending-state';
@@ -57,6 +61,8 @@ export interface TableUpdateCommitApplyResult_ACU<T> {
   persist?: TableUpdateCommitPersistOverride_ACU;
   error?: string;
   errorCategory?: TableUpdateCommitErrorCategory_ACU;
+  /** apply 失败但已改动 live 运行时（如 SQL 已提交后构建回放操作失败）：提交方须重载收敛。 */
+  runtimeMutated?: boolean;
 }
 
 export interface RunTableUpdateCommitOptions_ACU {
@@ -71,6 +77,8 @@ export interface RunTableUpdateCommitOptions_ACU {
   workingDataMode?: 'clone' | 'none';
   initialData?: TableDataObject_ACU | null;
   targetMessageIndex: number;
+  /** AI 填表专用：填表开始时冻结的目标楼层身份；写回前目标换成另一条回复即拒绝（不重试）。 */
+  targetGuard?: TableFillTargetGuard_ACU;
   targetSheetKeys: string[] | null;
   updateGroupKeys?: string[] | null;
   trackingSheetKeys?: string[] | null;
@@ -91,6 +99,12 @@ export interface RunTableUpdateCommitOptions_ACU {
   skipChatSave?: boolean;
   /** 仅供 runtime-only flush 自身使用：flush 提交不得再触发一次 flush。 */
   skipRuntimeOnlyPendingFlush?: boolean;
+  /**
+   * apply 是否改动 live 运行时（默认 true）。为 true 时，apply 成功后到落盘成功前的任何失败
+   * 都会重载运行时，避免留下未落盘的孤儿行；runtime-only flush 只把运行时写回聊天，
+   * 必须传 false——重载会冲掉它正要写回的行。
+   */
+  applyMutatesRuntime?: boolean;
   /**
    * 提交语义判别联合（计划 5.3）。
    *
@@ -243,6 +257,45 @@ async function flushRuntimeOnlyPendingBeforeCommit_ACU(options: RunTableUpdateCo
   }
 }
 
+/**
+ * 提交失败后的运行时收敛（R2A-04）：整体重载会从聊天重放，把只存在于运行时、尚未写回聊天的
+ * 脚本写入（runtime-only 登记）一起冲掉。有这类登记时改为用本次提交前的快照恢复运行时——
+ * 这份快照恰好是「撤销本次提交、保留未落盘写入」的状态。恢复不了（无快照、换了聊天、重建失败）
+ * 才退回整体重载。
+ */
+async function restoreRuntimeKeepingPendingWrites_ACU(
+  options: RunTableUpdateCommitOptions_ACU,
+  preApplySnapshot: TableDataObject_ACU | null,
+): Promise<boolean> {
+  if (!preApplySnapshot) return false;
+  const scope = resolvePendingScope_ACU(options);
+  if (!hasRuntimeOnlyPendingSheets_ACU(scope)) return false;
+  if (String(currentChatFileIdentifier_ACU ?? '') !== scope.chatKey || String(getCurrentIsolationKey_ACU() ?? '') !== scope.isolationKey) {
+    return false;
+  }
+  try {
+    if (getCurrentStorageMode() === 'sqlite') {
+      const envelope = createCanonicalSnapshotEnvelope_ACU({
+        data: preApplySnapshot,
+        chatIdentity: scope.chatKey,
+        isolationKey: scope.isolationKey,
+        storageMode: 'sqlite',
+        lifecycleEpoch: getRuntimeLifecycleEpoch_ACU(),
+        source: 'failed_commit_rollback',
+      });
+      if (!envelope) return false;
+      const hydrated = await hydrateStorageProviderFromSnapshot_ACU(envelope);
+      if (!hydrated.ok) return false;
+    }
+    _set_currentJsonTableData_ACU(cloneTableData_ACU(preApplySnapshot));
+    logWarn_ACU(`[TableUpdateCommit] ${options.reason}: 提交失败，已把运行时恢复到提交前（保留尚未写回聊天的脚本写入）。`);
+    return true;
+  } catch (error) {
+    logWarn_ACU(`[TableUpdateCommit] ${options.reason}: 按提交前快照恢复运行时失败，改为整体重载。`, error);
+    return false;
+  }
+}
+
 function assertNoActiveFillForExternalMutation_ACU(options: RunTableUpdateCommitOptions_ACU): void {
   if (!EXTERNAL_MUTATION_SOURCES_ACU.has(options.source)) return;
   if (!isAutoUpdatingCard_ACU) return;
@@ -252,7 +305,17 @@ function assertNoActiveFillForExternalMutation_ACU(options: RunTableUpdateCommit
   );
 }
 
-function assertExpectedCommitScope_ACU(options: RunTableUpdateCommitOptions_ACU, phase: string): void {
+function assertExpectedCommitScope_ACU(
+  options: RunTableUpdateCommitOptions_ACU,
+  phase: string,
+  targetMessageIndex: number = options.targetMessageIndex,
+): void {
+  if (options.targetGuard && !options.targetGuard.isCurrent(targetMessageIndex)) {
+    throw new TableUpdateCommitError_ACU(
+      `[TableUpdateCommit] ${options.reason}: ${phase} 检测到目标楼层已换成另一条回复（滑动或重新生成），已放弃本次填表结果。`,
+      'precondition',
+    );
+  }
   if (options.chatKey === undefined && options.isolationKey === undefined) return;
   const currentChatKey = String(currentChatFileIdentifier_ACU || 'current-chat');
   const expectedChatKey = String(options.chatKey ?? currentChatKey);
@@ -303,6 +366,7 @@ export async function runTableUpdateCommit_ACU<T>(
   apply: (context: TableUpdateCommitApplyContext_ACU) => Promise<TableUpdateCommitApplyResult_ACU<T>> | TableUpdateCommitApplyResult_ACU<T>,
 ): Promise<RunTableUpdateCommitResult_ACU<T>> {
   let requiresRuntimeReload = false;
+  let preApplySnapshotForRollback: TableDataObject_ACU | null = null;
   try {
     assertNoActiveFillForExternalMutation_ACU(options);
     assertExpectedCommitScope_ACU(options, '提交前');
@@ -390,10 +454,15 @@ export async function runTableUpdateCommit_ACU<T>(
             : options.initialData
               ? cloneTableData_ACU(options.initialData)
               : null;
+          preApplySnapshotForRollback = preApplyData;
+          const reloadOnFailure = options.applyMutatesRuntime !== false && !options.skipChatSave;
           const applied = await apply({ transactionContext, workingData });
           if (!applied.success || !applied.tableData) {
+            if (applied.runtimeMutated && reloadOnFailure) requiresRuntimeReload = true;
             throw new TableUpdateCommitError_ACU(applied.error || `${options.reason}: update apply failed`, applied.errorCategory || 'infrastructure');
           }
+          // 运行时已变更、尚未落盘：此后任何失败（含抛异常）都要重载收敛。
+          if (reloadOnFailure) requiresRuntimeReload = true;
 
           let saved = true;
           let messageIndex: number | undefined;
@@ -417,10 +486,11 @@ export async function runTableUpdateCommit_ACU<T>(
             rollbackBeforePersist = staged.rollback;
           }
           if (!options.skipChatSave) {
-            assertExpectedCommitScope_ACU(options, '持久化前');
+            const persistTargetIndex = persistOptions.targetMessageIndex ?? options.targetMessageIndex;
+            assertExpectedCommitScope_ACU(options, '持久化前', persistTargetIndex);
             assertPersistableRowIdentities_ACU(applied.tableData, options.reason, targetSheetKeys);
             const saveResult = await persistTablesToChatMessage_ACU({
-              targetMessageIndex: persistOptions.targetMessageIndex ?? options.targetMessageIndex,
+              targetMessageIndex: persistTargetIndex,
               targetSheetKeys,
               updateGroupKeys: persistOptions.updateGroupKeys !== undefined ? persistOptions.updateGroupKeys : (options.updateGroupKeys ?? null),
               trackingSheetKeys: persistOptions.trackingSheetKeys !== undefined ? persistOptions.trackingSheetKeys : (options.trackingSheetKeys ?? []),
@@ -443,8 +513,7 @@ export async function runTableUpdateCommit_ACU<T>(
             saved = saveResult.saved;
             messageIndex = saveResult.messageIndex;
             if (!saveResult.saved) {
-              logWarn_ACU(`[TableUpdateCommit] persist failed after runtime update; reload after releasing transaction locks: ${saveResult.error || 'unknown error'}`);
-              requiresRuntimeReload = true;
+              logWarn_ACU(`[TableUpdateCommit] persist failed after runtime update${reloadOnFailure ? '; reload after releasing transaction locks' : ''}: ${saveResult.error || 'unknown error'}`);
               throw new TableUpdateCommitError_ACU(
                 saveResult.error || `${options.reason}: persist failed`,
                 classifyPersistRejection_ACU(saveResult.error),
@@ -469,6 +538,7 @@ export async function runTableUpdateCommit_ACU<T>(
             });
           }
 
+          requiresRuntimeReload = false;
           _set_currentJsonTableData_ACU(cloneTableData_ACU(applied.tableData));
           return {
             success: true,
@@ -485,7 +555,7 @@ export async function runTableUpdateCommit_ACU<T>(
       }, () => commitRevisionWriteSet);
     });
   } catch (error: any) {
-    if (requiresRuntimeReload) {
+    if (requiresRuntimeReload && !(await restoreRuntimeKeepingPendingWrites_ACU(options, preApplySnapshotForRollback))) {
       try {
         await reloadStorageProvider();
       } catch (reloadError) {
@@ -539,7 +609,9 @@ export async function runSqliteRuntimeMutationCommit_ACU<T>(
     if (mutationResult.errors?.length) {
       return { success: false, error: mutationResult.errors.join(', '), mutationResult };
     }
-    const tableData = provider.getCurrentData();
+    // executeMutation 内部已把本次写入同步到 canonical 视图并把同一份对象带回；
+    // 中间无 mutation，直接复用，省掉紧接着那次全库二次导出。视图未同步成功才回落导出。
+    const tableData = mutationResult.syncedView ?? provider.getCurrentData();
     if (!tableData) {
       return { success: false, error: 'SQLite runtime data export failed', mutationResult };
     }

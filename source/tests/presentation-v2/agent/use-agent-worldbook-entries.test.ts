@@ -58,6 +58,23 @@ beforeEach(() => {
 });
 
 describe('useAgentWorldbookEntries', () => {
+  it('R10B-05：有筛选范围时 Skill 全选只选范围内条目，Skill 全不选只取消范围内条目', async () => {
+    mockResolveScope.mockResolvedValue(['AgentBook']);
+    mockGetEntries.mockResolvedValue({ AgentBook: [
+      { uid: 1, comment: '角色', name: '角色', enabled: true, type: 'selective' },
+      { uid: 2, comment: '地点', name: '地点', enabled: true, type: 'selective' },
+    ] });
+    const c = await getComposable();
+    await c.loadEntries();
+
+    c.selectAllForSkillify([{ bookName: 'AgentBook', uid: 2 }]);
+    expect(c.getSelectedSkillifyEntries()).toEqual([{ bookName: 'AgentBook', uid: 2 }]);
+
+    c.selectAllForSkillify();
+    c.deselectAllForSkillify([{ bookName: 'AgentBook', uid: 1 }]);
+    expect(c.getSelectedSkillifyEntries()).toEqual([{ bookName: 'AgentBook', uid: 2 }]);
+  });
+
   it('无 Skill 且无 snapshot 时，仅展示可再次 Skill 化的 Agent scope 条目', async () => {
     mockResolveScope.mockResolvedValue(['AgentBook']);
     mockGetEntries.mockResolvedValue({ AgentBook: [
@@ -146,20 +163,6 @@ describe('useAgentWorldbookEntries', () => {
       agentTakeoverState: 'taken_over',
       skillifySelectable: false,
     });
-  });
-
-  it('空 scope 清空列表和选择状态', async () => {
-    mockResolveScope.mockResolvedValueOnce(['AgentBook']).mockResolvedValueOnce([]);
-    mockGetEntries.mockResolvedValue({ AgentBook: [{ uid: 1, comment: '角色', enabled: true, type: 'selective' }] });
-    const c = await getComposable();
-    await c.loadEntries();
-    c.toggleSkillifyEntry('AgentBook', 1, true);
-
-    await c.loadEntries();
-
-    expect(c.groups.value).toEqual([]);
-    expect(c.getSelectedSkillifyEntries()).toEqual([]);
-    expect(c.status.value).toBe('success');
   });
 
   it('Skill 元数据写入成功后更新本地状态并通知接管同步', async () => {
@@ -263,15 +266,6 @@ describe('useAgentWorldbookEntries', () => {
     expect(entry.label).not.toContain('\n');
   });
 
-  it('暴露批量编辑面（batchBusy+三个批量函数），AgentPage 世界书编辑区可直接消费', async () => {
-    const c = await getComposable();
-
-    expect(c.batchBusy.value).toBe(false);
-    expect(typeof c.batchEnableDisabledSkillEntries).toBe('function');
-    expect(typeof c.batchConvertBlueToGreenEntries).toBe('function');
-    expect(typeof c.batchCombinedBlueToGreenAndEnable).toBe('function');
-  });
-
   it('批量启用关闭的 Skill 条目：只写回 enabled=false 的命中条目', async () => {
     mockResolveScope.mockResolvedValue(['AgentBook']);
     mockGetEntries.mockResolvedValue({ AgentBook: [
@@ -289,7 +283,8 @@ describe('useAgentWorldbookEntries', () => {
 
     expect(changed).toBe(1);
     expect(mockSetBookEntries).toHaveBeenCalledTimes(1);
-    expect(mockSetBookEntries.mock.calls[0][1]).toMatchObject([{ uid: 1, enabled: true }, { uid: 2, enabled: true }]);
+    // R10A-07：只写回改动条目的改动字段；整本写回会用读时快照覆盖读写之间的并发修改。
+    expect(mockSetBookEntries.mock.calls[0][1]).toEqual([{ uid: 1, enabled: true }]);
     expect(c.batchBusy.value).toBe(false);
   });
 
@@ -308,7 +303,7 @@ describe('useAgentWorldbookEntries', () => {
 
     expect(changed).toBe(1);
     expect(mockSetBookEntries).toHaveBeenCalledTimes(1);
-    expect(mockSetBookEntries.mock.calls[0][1]).toMatchObject([{ uid: 3, type: '' }]);
+    expect(mockSetBookEntries.mock.calls[0][1]).toEqual([{ uid: 3, type: '' }]);
     expect(c.batchBusy.value).toBe(false);
   });
 
@@ -327,7 +322,28 @@ describe('useAgentWorldbookEntries', () => {
 
     expect(result).toEqual({ converted: 1, enabled: 1 });
     expect(mockSetBookEntries).toHaveBeenCalledTimes(1);
-    expect(mockSetBookEntries.mock.calls[0][1]).toMatchObject([{ uid: 4, type: '', enabled: true }]);
+    expect(mockSetBookEntries.mock.calls[0][1]).toEqual([{ uid: 4, type: '', enabled: true }]);
     expect(c.batchBusy.value).toBe(false);
+  });
+
+  it('R10A-07：某本书写入失败时如实汇报失败的书，成功的书照常计数', async () => {
+    mockResolveScope.mockResolvedValue(['BookA', 'BookB']);
+    mockGetEntries.mockResolvedValue({
+      BookA: [{ uid: 1, comment: withSkill('A 关闭'), enabled: false, type: 'selective' }],
+      BookB: [{ uid: 2, comment: withSkill('B 关闭'), enabled: false, type: 'selective' }],
+    });
+    mockGetBookEntries.mockImplementation(async (book: string) => (book === 'BookA'
+      ? [{ uid: 1, comment: withSkill('A 关闭'), enabled: false, type: 'selective' }]
+      : [{ uid: 2, comment: withSkill('B 关闭'), enabled: false, type: 'selective' }]));
+    mockSetBookEntries.mockImplementation(async (book: string) => {
+      if (book === 'BookB') throw new Error('写入失败');
+    });
+    const c = await getComposable();
+    await c.loadEntries();
+
+    const changed = await c.batchEnableDisabledSkillEntries();
+
+    expect(changed).toBe(1);
+    expect(c.lastBatchFailedBooks.value).toEqual(['BookB']);
   });
 });

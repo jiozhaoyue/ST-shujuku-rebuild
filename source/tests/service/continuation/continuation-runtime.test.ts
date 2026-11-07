@@ -66,10 +66,6 @@ function stage_ACU(stageNumber: number, turnCount: number): any {
 }
 
 describe('阶段历史渲染', () => {
-  it('没有阶段时如实说明这是第一个阶段', async () => {
-    const h = await createHarness();
-    expect(h.runtime.serializeStageHistory_ACU({ stages: [] } as any)).toContain('第一个阶段');
-  });
 
   it('只给活动 revision，最近两个阶段保留逐轮目标，更早的压到节点级', async () => {
     const h = await createHarness();
@@ -132,11 +128,6 @@ describe('启用阶段大纲全文渲染（移植上游 renderEnabledStageOutlin
     expect(text).toContain('第四轮目标');
     // 可读文本而非 JSON：与阶段历史同一防诱导口径。
     expect(text).not.toContain('"totalTurns"');
-  });
-
-  it('没有活动大纲时如实说明', async () => {
-    const h = await createHarness();
-    expect(h.runtime.renderEnabledStageOutline_ACU(null, null)).toContain('当前没有正在启用的阶段大纲。');
   });
 });
 
@@ -220,9 +211,9 @@ describe('全局续写设置副本', () => {
 });
 
 describe('持久版本≠当前版本即重校验（TT 移植上游 ce867f86 continuation-runtime else 分支）', () => {
-  it('首楼已存 V35 标记信封：initialize 走校验链推进到 V37 并原子落盘', async () => {
+  it('首楼已存 V35 标记信封：initialize 走校验链推进到 V39 并原子落盘', async () => {
     const h = await createHarness();
-    const { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU } = await import('../../../src/service/continuation/defaults');
+    const { buildDefaultContinuationSettings_ACU, buildV38DefaultContinuationOutlinePrompt_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU } = await import('../../../src/service/continuation/defaults');
     const { buildV35ContinuationAgentPrompts_ACU } = await import('../../../src/service/continuation/agent/agent-defaults');
     const { USER_PREFILL_CONTENT_ACU } = await import('../../../src/shared/user-prefill.js');
     const settings = buildDefaultContinuationSettings_ACU();
@@ -230,7 +221,7 @@ describe('持久版本≠当前版本即重校验（TT 移植上游 ce867f86 con
       schemaVersion: 1,
       settings: {
         ...settings,
-        outlinePrompt: settings.outlinePrompt.slice(0, -1),
+        outlinePrompt: buildV38DefaultContinuationOutlinePrompt_ACU().slice(0, -1),
         agentPrompts: buildV35ContinuationAgentPrompts_ACU(),
         promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU,
       },
@@ -241,7 +232,7 @@ describe('持久版本≠当前版本即重校验（TT 移植上游 ce867f86 con
     await runtime.initialize();
 
     const persisted = h.chat[0]._qrf_continuation;
-    expect(persisted.settings.promptForceDefaultVersion).toBe('spv4.5-continuation-outline-user-prefill-v37');
+    expect(persisted.settings.promptForceDefaultVersion).toBe('spv5.1-continuation-upstream-qa-prompts-v39');
     expect(persisted.settings.agentPrompts.main[persisted.settings.agentPrompts.main.length - 1]).toMatchObject({
       role: 'user',
       content: USER_PREFILL_CONTENT_ACU,

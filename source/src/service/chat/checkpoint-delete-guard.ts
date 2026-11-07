@@ -17,7 +17,8 @@
  * - 恢复点：MESSAGE_DELETED 调度轮开头（冷回放之前）。丢失产物嫁接到其原位置之后
  *   第一个幸存 frame 楼层：帧内 checkpoint 先于 logEntries 回放；过渡根必须从删楼后的
  *   幸存历史重算 data/cutoff 并通过严格回放校验，无法证明安全时拒绝保存。被删楼层自身
- *   的 logEntries 不恢复（删楼 = 撤销该楼编辑）。
+ *   的 logEntries 不恢复（删楼 = 撤销该楼编辑）。例外：被删的是回放根时撤销不了——full checkpoint
+ *   存的是该楼填表之后的状态（没有填表前的副本），挪到前一楼后该楼填进去的行仍在表里。
  *
  * 残余竞态（接受并记录）：删楼后调度防抖窗口（1.2s）内若插件恰好完成一次保存，
  * post-save 同步会先丢弃待恢复产物。生成 / 填表落盘耗时远大于该窗口，实际不可达。
@@ -27,12 +28,14 @@ import {
     registerPostChatSaveListener_ACU,
     saveChatToHostStrict_ACU,
 } from '../../data/gateways/chat-gateway';
-import { readIsolatedDataContainer_ACU, readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
+import { ensureWritableIsolatedDataContainer_ACU, readIsolatedDataContainer_ACU, readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { normalizeCanonicalTableRows_ACU } from '../../shared/canonical-row-normalizer';
-import { reindexSpv79TransitionState_ACU } from '../table/compat-transition-checkpoint';
+import { dedupeCompatTransitionRowIdentities_ACU } from '../table/compat-transition-checkpoint';
+import type { CompatTransitionCheckpointRef_ACU, Spv79TransitionCheckpointRef_ACU } from '../table/compat-transition-checkpoint';
 import { collectScheduleSummaryFromFramesV2_ACU, loadTableStateFromFramesV2Detailed_ACU, replayWithLegacyTolerances_ACU } from '../table/storage-frame-v2-replay';
 import { getTableDataFingerprint_ACU } from '../table/table-data-upgrade-audit';
 import { isV2TagData_ACU } from '../table/storage-strategy-resolver';
+import { isAiFloor_ACU } from '../../shared/ai-floor';
 import { assertSingleActiveFullCheckpointV2_ACU } from '../table/storage-frame-v2-persist';
 import {
   assertMaterialContinuationCheckpoint_ACU,
@@ -45,22 +48,27 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU } from '../runtime/state-manager';
 import { deepClone_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import type {
+    SummaryVectorIndexMirrorCheckpointV2_ACU,
     TableCheckpointV2_ACU,
     TableSheetCheckpointV2_ACU,
     TableStorageFrameV2_ACU,
 } from '../table/storage-frame-v2-types';
 
-interface CheckpointVaultFrameEntry_ACU {
-    /** 幸存判定锚：宿主 splice 不改变幸存消息的对象引用。 */
-    messageRef: any;
+/** 一楼不可替代产物的克隆集合（与信标 messageRef 分离，便于按引用记忆化复用）。 */
+interface CheckpointVaultFrameEntryArtifactSet_ACU {
     fullCheckpoint: TableCheckpointV2_ACU | null;
     perSheetCheckpoints: Record<string, TableSheetCheckpointV2_ACU> | null;
     summaryVectorCheckpoint: {
         sourceTableKey: string;
-        checkpoint: import('../table/storage-frame-v2-types').SummaryVectorIndexMirrorCheckpointV2_ACU;
+        checkpoint: SummaryVectorIndexMirrorCheckpointV2_ACU;
     } | null;
     spv79TransitionCheckpoint: any | null;
     compatTransitionCheckpoint: any | null;
+}
+
+interface CheckpointVaultFrameEntry_ACU extends CheckpointVaultFrameEntryArtifactSet_ACU {
+    /** 幸存判定锚：宿主 splice 不改变幸存消息的对象引用。 */
+    messageRef: any;
 }
 
 interface MaterialCheckpointVaultEntry_ACU {
@@ -74,6 +82,15 @@ interface CheckpointVaultState_ACU {
     entriesByIsolationKey: Map<string, CheckpointVaultFrameEntry_ACU[]>;
     /** 续写基线，按楼层序。与表格产物同一轮嫁接（TT-only）。 */
     materialEntries: MaterialCheckpointVaultEntry_ACU[];
+    /**
+     * 删楼前就在的楼层：捕获时聊天里的全部楼层，加上每次 MESSAGE_DELETED 当刻在场的楼层
+     * （见 noteMessagesPresentAtDeletion_ACU）。嫁接只能落在这些楼上：宿主「重新生成」先删旧回复、
+     * 流式一开始就把新回复 push 进聊天，删楼调度（1.2s 防抖）到期时新回复已在末尾——
+     * 落到它身上会让新回复被当成「已填过表」（自动填表跳过）并带着旧回复的数据（issue #2）。
+     * 删楼当刻补登记是为了覆盖「上次捕获后宿主追加、插件没保存过」的楼（关自动填表、频率跳过、填表失败），
+     * 否则过期保管库会让回放根无处可挪。
+     */
+    knownMessages: WeakSet<object>;
 }
 
 export interface CheckpointDeleteRecoveryResult_ACU {
@@ -100,17 +117,125 @@ function entryHasArtifacts_ACU(entry: CheckpointVaultFrameEntry_ACU): boolean {
 }
 
 /**
+ * 记忆化 head：上一轮（或本轮）克隆所依据的源对象/值集合。
+ * 全部按引用与原值比较，引用未变即认定产物内容未变。
+ */
+interface VaultArtifactHead_ACU {
+    /** 参与冻结的 full 回放根本体。 */
+    full: unknown;
+    /** per-sheet 锚容器（克隆源）。 */
+    perSheetContainer: unknown;
+    /** per-sheet 锚逐 sheetKey 的源对象引用：容器被原地增删也能被识别。 */
+    perSheetRefs: ReadonlyMap<string, unknown>;
+    /** 向量镜像帧（克隆源）。 */
+    vectorFrame: unknown;
+    vectorCheckpoint: unknown;
+    vectorSourceTableKey: string;
+    spv79: unknown;
+    compat: unknown;
+}
+
+const EMPTY_REFS_ACU: ReadonlyMap<string, unknown> = new Map<string, unknown>();
+
+function isSameArtifactHead_ACU(left: VaultArtifactHead_ACU, right: VaultArtifactHead_ACU): boolean {
+    if (left.full !== right.full
+        || left.perSheetContainer !== right.perSheetContainer
+        || left.vectorFrame !== right.vectorFrame
+        || left.vectorCheckpoint !== right.vectorCheckpoint
+        || left.vectorSourceTableKey !== right.vectorSourceTableKey
+        || left.spv79 !== right.spv79
+        || left.compat !== right.compat) return false;
+    if (left.perSheetRefs.size !== right.perSheetRefs.size) return false;
+    for (const [sheetKey, ref] of left.perSheetRefs) {
+        if (right.perSheetRefs.get(sheetKey) !== ref) return false;
+    }
+    return true;
+}
+
+function readPerSheetRefs_ACU(container: unknown): ReadonlyMap<string, unknown> {
+    if (!hasEntries_ACU(container as Record<string, unknown> | null | undefined)) return EMPTY_REFS_ACU;
+    const refs = new Map<string, unknown>();
+    for (const [sheetKey, checkpoint] of Object.entries(container as Record<string, unknown>)) refs.set(sheetKey, checkpoint);
+    return refs;
+}
+
+/**
+ * 产物克隆记忆化：键是「根对象引用」（每楼每隔离键的 tagData，帧与过渡根的共同根），
+ * 值是本轮 head 标识与已克隆产物。同一对象再出现且 head 完全一致时直接复用上轮克隆——
+ * 每次落盘只为真正变化的产物重新深克隆整库 checkpoint，其余只刷新增量信标（messageRef 等）。
+ *
+ * 不变式：产物要么被换新对象（head 变化 → 重新克隆），要么内容不变；
+ * 本模块的嫁接写入也遵循该约定（整体替换对象，不原地改产物字段）。
+ */
+let vaultArtifactMemo_ACU = new WeakMap<object, { head: VaultArtifactHead_ACU; clones: CheckpointVaultFrameEntryArtifactSet_ACU }>();
+
+function resolveVaultArtifacts_ACU(
+    root: object,
+    frame: TableStorageFrameV2_ACU | null,
+    spv79: Spv79TransitionCheckpointRef_ACU | null,
+    compat: CompatTransitionCheckpointRef_ACU | null,
+): CheckpointVaultFrameEntryArtifactSet_ACU {
+    const vectorFrame = frame?.summaryVectorIndexFrame && typeof frame.summaryVectorIndexFrame === 'object'
+        ? frame.summaryVectorIndexFrame
+        : null;
+    const perSheetContainer = frame && hasEntries_ACU(frame.perSheetCheckpoints) ? frame.perSheetCheckpoints : null;
+    const head: VaultArtifactHead_ACU = {
+        full: frame?.checkpoint?.kind === 'full' ? frame.checkpoint : null,
+        perSheetContainer,
+        perSheetRefs: readPerSheetRefs_ACU(perSheetContainer),
+        vectorFrame,
+        vectorCheckpoint: vectorFrame?.checkpoint?.kind === 'vector_full' ? vectorFrame.checkpoint : null,
+        vectorSourceTableKey: vectorFrame ? String(vectorFrame.sourceTableKey || '') : '',
+        spv79: spv79 ?? null,
+        compat: compat ?? null,
+    };
+    const memo = vaultArtifactMemo_ACU.get(root);
+    if (memo && isSameArtifactHead_ACU(memo.head, head)) return memo.clones;
+
+    const clones: CheckpointVaultFrameEntryArtifactSet_ACU = {
+        fullCheckpoint: head.full ? deepClone_ACU(head.full as TableCheckpointV2_ACU) : null,
+        perSheetCheckpoints: perSheetContainer
+            ? deepClone_ACU(perSheetContainer as Record<string, TableSheetCheckpointV2_ACU>)
+            : null,
+        summaryVectorCheckpoint: head.vectorCheckpoint
+            ? {
+                sourceTableKey: head.vectorSourceTableKey,
+                checkpoint: deepClone_ACU(head.vectorCheckpoint as SummaryVectorIndexMirrorCheckpointV2_ACU),
+            }
+            : null,
+        spv79TransitionCheckpoint: head.spv79 ? deepClone_ACU(head.spv79) : null,
+        compatTransitionCheckpoint: head.compat ? deepClone_ACU(head.compat) : null,
+    };
+    vaultArtifactMemo_ACU.set(root, { head, clones });
+    return clones;
+}
+
+/** 测试用：丢弃记忆化（换新 WeakMap；条目本身不持有引用，无泄漏）。 */
+function resetVaultArtifactMemo_ACU(): void {
+    vaultArtifactMemo_ACU = new WeakMap();
+}
+
+/**
  * 以当前聊天为权威重建保管库。
  * 调用时机：聊天加载完成、插件保存成功后、恢复嫁接成功后。
+ *
+ * 单遍全聊天：每楼同时取表格产物条目与续写基线（旧实现两遍全聊天循环）。
+ * 产物克隆按「根对象引用 + head 标识」记忆化，未变化的楼层不再深克隆整库 checkpoint。
  */
 export function captureCheckpointVaultForCurrentChat_ACU(chatArg?: any[]): void {
     const chat = Array.isArray(chatArg) ? chatArg : getChatArray_ACU();
     const chatKey = String(currentChatFileIdentifier_ACU || '');
     const entriesByIsolationKey = new Map<string, CheckpointVaultFrameEntry_ACU[]>();
     const materialEntries: MaterialCheckpointVaultEntry_ACU[] = [];
+    const knownMessages = new WeakSet<object>();
 
     for (const message of chat) {
+        if (message && typeof message === 'object') knownMessages.add(message);
         if (!message || message.is_user) continue;
+        // 续写基线与表格产物同轮捕获：无容器的楼层同样可能有续写资料字段。
+        const continuation = captureMaterialCheckpointRecovery_ACU(message)?.continuation ?? null;
+        if (continuation) materialEntries.push({ messageRef: message, continuation });
+
         const container = readIsolatedDataContainer_ACU(message);
         if (!container) continue;
         for (const [isolationKey, tagData] of Object.entries(container)) {
@@ -122,37 +247,27 @@ export function captureCheckpointVaultForCurrentChat_ACU(chatArg?: any[]): void 
                 ? (tagData as any).compatTransitionCheckpoint : null;
             if (!frame && !spv79 && !compat) continue;
 
-            const fullCheckpoint = frame?.checkpoint?.kind === 'full' ? deepClone_ACU(frame.checkpoint) : null;
-            const perSheetCheckpoints = frame && hasEntries_ACU(frame.perSheetCheckpoints)
-                ? deepClone_ACU(frame.perSheetCheckpoints!) : null;
-            const vectorCheckpoint = frame?.summaryVectorIndexFrame?.checkpoint?.kind === 'vector_full'
-                ? {
-                    sourceTableKey: String(frame.summaryVectorIndexFrame.sourceTableKey || ''),
-                    checkpoint: deepClone_ACU(frame.summaryVectorIndexFrame.checkpoint),
-                }
-                : null;
             const entries = entriesByIsolationKey.get(isolationKey) || [];
-            entries.push({
-                messageRef: message,
-                fullCheckpoint,
-                perSheetCheckpoints,
-                summaryVectorCheckpoint: vectorCheckpoint,
-                spv79TransitionCheckpoint: spv79 ? deepClone_ACU(spv79) : null,
-                compatTransitionCheckpoint: compat ? deepClone_ACU(compat) : null,
-            });
+            entries.push({ messageRef: message, ...resolveVaultArtifacts_ACU(tagData, frame, spv79, compat) });
             entriesByIsolationKey.set(isolationKey, entries);
         }
     }
 
-    for (const message of chat) {
-        if (!message || message.is_user) continue;
-        const captured = captureMaterialCheckpointRecovery_ACU(message);
-        const continuation = captured?.continuation ?? null;
-        if (!continuation) continue;
-        materialEntries.push({ messageRef: message, continuation });
-    }
+    vault_ACU = { chatKey, entriesByIsolationKey, materialEntries, knownMessages };
+}
 
-    vault_ACU = { chatKey, entriesByIsolationKey, materialEntries };
+/**
+ * MESSAGE_DELETED 当刻同步调用：把此刻在场的楼层并入「删楼前就在」的集合。
+ * TT 的重新生成先 await 删楼事件派发完、再开始生成（流式新回复随后才 push），
+ * 所以必须在事件回调的同步段里调用，不能放进防抖调度。
+ */
+export function noteMessagesPresentAtDeletion_ACU(): void {
+    if (!vault_ACU || vault_ACU.chatKey !== String(currentChatFileIdentifier_ACU || '')) return;
+    const chat = getChatArray_ACU();
+    if (!Array.isArray(chat)) return;
+    for (const message of chat) {
+        if (message && typeof message === 'object') vault_ACU.knownMessages.add(message);
+    }
 }
 
 /** 切聊 / 测试清理。 */
@@ -174,12 +289,9 @@ export function installCheckpointDeleteGuard_ACU(): void {
 }
 
 function ensureTargetFrame_ACU(message: any, isolationKey: string): TableStorageFrameV2_ACU {
-    if (!message.TavernDB_ACU_IsolatedData
-        || typeof message.TavernDB_ACU_IsolatedData !== 'object'
-        || Array.isArray(message.TavernDB_ACU_IsolatedData)) {
-        message.TavernDB_ACU_IsolatedData = {};
-    }
-    const container = message.TavernDB_ACU_IsolatedData;
+    // G05-01：嫁接目标楼的容器可能是遗留字符串形态——直接置 {} 会把该楼全部隔离标签槽的
+    // 数据静默清空并随严格保存落盘。统一走 repo 层规范化：先解析保留其他标签槽，按对象形态写回。
+    const container: Record<string, any> = ensureWritableIsolatedDataContainer_ACU(message);
     if (!container[isolationKey] || typeof container[isolationKey] !== 'object') {
         container[isolationKey] = {};
     }
@@ -204,6 +316,7 @@ function findGraftTargetMessage_ACU(
     entries: CheckpointVaultFrameEntry_ACU[],
     lostIndex: number,
     isolationKey: string,
+    knownMessages: WeakSet<object>,
 ): { message: any; absorbedEarlierFrame: boolean } | null {
     // 首选：原位置之后第一个幸存且仍携带 V2 frame 的楼层——帧内 checkpoint 先于
     // logEntries 回放，落在后继帧上顺序与删除前完全一致。
@@ -215,11 +328,13 @@ function findGraftTargetMessage_ACU(
             return { message: candidate.messageRef, absorbedEarlierFrame: false };
         }
     }
-    // 无后继帧：落到聊天最后一个 AI 楼层。若该楼层携带的是更早的 frame，其 logs
-    // 已被丢失 checkpoint 的 data 吸收（checkpoint 写于其后），由调用方清空并警告。
+    // 无后继帧：落到聊天最后一个**非用户**楼层（表格数据可以挂在被 /hide 的楼上，所以这里不按 AI 楼收窄；
+    // 续写基线一侧另行按 isAiFloor_ACU 过滤，见 materialEntries 的嫁接靶楼选择）。若该楼层携带的是更早的
+    // frame，其 logs 已被丢失 checkpoint 的 data 吸收（checkpoint 写于其后），由调用方清空并警告。
+    // 删楼后宿主新追加的楼（重新生成的流式新回复）不算：只落在保管库捕获时就在的楼上。
     for (let i = chat.length - 1; i >= 0; i -= 1) {
         const message = chat[i];
-        if (!message || message.is_user) continue;
+        if (!message || message.is_user || !knownMessages.has(message)) continue;
         const tagData = readIsolatedTagData_ACU(message, isolationKey);
         const hasEarlierFrame = isV2TagData_ACU(tagData) && tagData.storageFrame.logEntries.length > 0;
         return { message, absorbedEarlierFrame: hasEarlierFrame };
@@ -248,7 +363,9 @@ async function rebuildDeletedTransition_ACU(
         throw new Error(`[删楼守卫] isolationKey=[${isolationKey || '无标签'}] 的幸存历史含身份归并，无法安全重建过渡根。`);
     }
 
-    const data = reindexSpv79TransitionState_ACU(tolerant.data);
+    // 重建的是 compat 过渡根：必须保留既有 row_id（去重只修空/冲突），否则根之后
+    // 仍按原 id 引用的严格增量会落空——与回放返回/固化路径用同一去重纯函数。
+    const data = dedupeCompatTransitionRowIdentities_ACU(tolerant.data).data;
     const normalization = normalizeCanonicalTableRows_ACU(data);
     if (normalization.errors.length > 0 || normalization.removedRows.length > 0) {
         throw new Error(`[删楼守卫] isolationKey=[${isolationKey || '无标签'}] 的幸存历史无法通过 canonical 行校验，拒绝重建过渡根。`);
@@ -305,7 +422,12 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
         isolationKey: getCurrentIsolationKey_ACU(),
         writeSet: [{ kind: 'all' }],
         maintenanceMode: 'exclusive',
+        guardChatSwitch: true,
     }, async (): Promise<CheckpointDeleteRecoveryResult_ACU> => {
+        // chat 在锁外取得：等锁期间宿主换了聊天数组就放弃，不得把旧聊天的产物嫁接进新聊天（R3-09）。
+        if (getChatArray_ACU() !== chat || String(currentChatFileIdentifier_ACU || '') !== chatKey) {
+            return { recovered: false, graftedCount: 0 };
+        }
         // 只快照将被改写的消息的 IsolatedData 字段，失败时整体还原。
         const snapshots = new Map<any, string | undefined>();
         const snapshotTarget = (message: any): void => {
@@ -332,12 +454,12 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
             for (const item of [...lostItems].reverse()) {
                 const { entry, isolationKey, vaultIndex } = item;
                 const entries = vault_ACU!.entriesByIsolationKey.get(isolationKey)!;
-                const target = findGraftTargetMessage_ACU(chat, presentMessages, entries, vaultIndex, isolationKey);
+                const target = findGraftTargetMessage_ACU(chat, presentMessages, entries, vaultIndex, isolationKey, vault_ACU!.knownMessages);
                 if (!target) {
                     if (entry.spv79TransitionCheckpoint || entry.compatTransitionCheckpoint) {
                         throw new Error(`[删楼守卫] isolationKey=[${isolationKey || '无标签'}] 的丢失过渡根无处重建，拒绝保存。`);
                     }
-                    logError_ACU(`[删楼守卫] isolationKey=[${isolationKey || '无标签'}] 的丢失 checkpoint 无处嫁接（聊天已无 AI 楼层），保留保管库等待下次机会。`);
+                    logError_ACU(`[删楼守卫] isolationKey=[${isolationKey || '无标签'}] 的丢失 checkpoint 无处嫁接（聊天里没有删楼前就在的非用户楼层），保留保管库等待下次机会。`);
                     continue;
                 }
                 snapshotTarget(target.message);
@@ -369,9 +491,13 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
                         };
                     }
                     if (!frame.summaryVectorIndexFrame.checkpoint) {
-                        frame.summaryVectorIndexFrame.sourceTableKey = entry.summaryVectorCheckpoint.sourceTableKey
-                            || frame.summaryVectorIndexFrame.sourceTableKey;
-                        frame.summaryVectorIndexFrame.checkpoint = deepClone_ACU(entry.summaryVectorCheckpoint.checkpoint);
+                        // 整体换新向量帧对象（不原地改字段）：保管库记忆化以对象引用作 head 标识。
+                        frame.summaryVectorIndexFrame = {
+                            ...frame.summaryVectorIndexFrame,
+                            sourceTableKey: entry.summaryVectorCheckpoint.sourceTableKey
+                                || frame.summaryVectorIndexFrame.sourceTableKey,
+                            checkpoint: deepClone_ACU(entry.summaryVectorCheckpoint.checkpoint),
+                        };
                         graftedCount += 1;
                         logWarn_ACU(`[删楼守卫] 被删楼层携带的向量 checkpoint 已前移嫁接到楼层 #${targetIndex}。`);
                     } else {
@@ -389,8 +515,8 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
                         if (cloned.timeline) {
                             cloned.timeline = { ...cloned.timeline, activateAtMessageIndex: targetIndex, afterSeq: 0 };
                         }
-                        if (!frame.perSheetCheckpoints) frame.perSheetCheckpoints = {};
-                        frame.perSheetCheckpoints[sheetKey] = cloned;
+                        // 整体换新锚容器（不原地增删 key）：保管库记忆化以对象引用作 head 标识。
+                        frame.perSheetCheckpoints = { ...(frame.perSheetCheckpoints || {}), [sheetKey]: cloned };
                         graftedCount += 1;
                         logWarn_ACU(`[删楼守卫] 被删楼层携带的 ${sheetKey} per-sheet checkpoint（timeline=${checkpoint.timeline?.kind || 'legacy'}）已前移嫁接到楼层 #${targetIndex}。`);
                     }
@@ -428,16 +554,22 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
             }
 
             const presentMessagesForMaterial = new Set<any>(chat);
+            // 「无处嫁接」必须与「目标楼已有产物」区分开：前者是真丢基线（聊天里没有可承载的 AI 楼层），
+            // 后者是正常 no-op。此前这条分支完全静默，而调用方 chat-mutation-scheduler 丢弃返回值
+            // ⇒ 真丢数据时用户与日志都看不到。
+            let skippedNoTargetCount = 0;
             for (let lostIndex = vault_ACU!.materialEntries.length - 1; lostIndex >= 0; lostIndex -= 1) {
                 const material = vault_ACU!.materialEntries[lostIndex];
                 if (presentMessagesForMaterial.has(material.messageRef)) continue;
                 if (!material.continuation) continue;
                 const preferred = graftTargetByLostMessage.get(material.messageRef);
-                let targetMessage = preferred;
+                // 续写基线只能落在可见 AI 楼（graftContinuationCheckpoint_ACU 有同款门）：表格侧的靶楼
+                // 兜底只排除用户楼，可能给出工具楼/隐藏楼，直接复用会白嫁接一次并把资料留在会消失的楼上。
+                let targetMessage = preferred && isAiFloor_ACU(preferred) ? preferred : undefined;
                 if (!targetMessage) {
                     for (let index = lostIndex + 1; index < vault_ACU!.materialEntries.length; index += 1) {
                         const candidate = vault_ACU!.materialEntries[index];
-                        if (presentMessagesForMaterial.has(candidate.messageRef)) {
+                        if (presentMessagesForMaterial.has(candidate.messageRef) && isAiFloor_ACU(candidate.messageRef)) {
                             targetMessage = candidate.messageRef;
                             break;
                         }
@@ -445,18 +577,26 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
                 }
                 if (!targetMessage) {
                     for (let index = chat.length - 1; index >= 0; index -= 1) {
-                        if (chat[index] && !chat[index].is_user) {
+                        if (isAiFloor_ACU(chat[index]) && vault_ACU!.knownMessages.has(chat[index])) {
                             targetMessage = chat[index];
                             break;
                         }
                     }
                 }
-                if (!targetMessage) continue;
+                if (!targetMessage) {
+                    skippedNoTargetCount += 1;
+                    continue;
+                }
                 if (graftMaterialContinuationCheckpoint_ACU(targetMessage, material.continuation)) graftedCount += 1;
             }
 
             if (graftedCount === 0) {
                 // 全部被"目标已有"跳过或无处嫁接：无写入即无需保存。
+                if (skippedNoTargetCount > 0) {
+                    // 措辞必须诚实：本分支不重建保管库，但删楼流程随后任何一次经本插件的保存都会触发
+                    // post-save 重建（按现存楼层采集），被删楼层的 materialEntries 随之消失 ⇒ 通常没有「下次机会」。
+                    logWarn_ACU(`[删楼守卫] ${skippedNoTargetCount} 份续写基线无处嫁接（聊天里没有可承载基线的 AI 楼层），本次已丢弃；若随后发生任何一次聊天保存，保管库会按现存楼层重建，该基线不再可恢复。`);
+                }
                 return { recovered: false, graftedCount: 0 };
             }
 
@@ -469,7 +609,7 @@ export async function recoverLostCheckpointsAfterMessageDeletion_ACU(): Promise<
 
             await saveChatToHostStrict_ACU();
             captureCheckpointVaultForCurrentChat_ACU(chat);
-            logWarn_ACU(`[删楼守卫] 删楼 checkpoint 前移恢复完成：共嫁接 ${graftedCount} 个产物。`);
+            logWarn_ACU(`[删楼守卫] 删楼 checkpoint 前移恢复完成：共嫁接 ${graftedCount} 个产物${skippedNoTargetCount > 0 ? `；另有 ${skippedNoTargetCount} 份续写基线因聊天里没有可承载的 AI 楼层而被丢弃` : ''}。`);
             return { recovered: true, graftedCount };
         } catch (error: any) {
             restoreSnapshots();
@@ -493,4 +633,5 @@ export function __getCheckpointVaultForTests_ACU(): { chatKey: string; isolation
 export function __resetCheckpointDeleteGuardForTests_ACU(): void {
     vault_ACU = null;
     installed_ACU = false;
+    resetVaultArtifactMemo_ACU();
 }

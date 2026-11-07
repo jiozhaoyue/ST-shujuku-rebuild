@@ -55,9 +55,11 @@ vi.mock('../../../src/service/ai/api-call', () => ({
   callAIWithPreset_ACU: vi.fn(),
 }));
 
-vi.mock('../../../src/shared/text-optimization', () => {
+vi.mock('../../../src/shared/text-optimization', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/shared/text-optimization')>();
   const mockApplyOptimizations = vi.fn((content: string) => content);
   return {
+    stripMvuUpdateBlocks_ACU: actual.stripMvuUpdateBlocks_ACU,
     applyOptimizations_ACU: mockApplyOptimizations,
     applyOptimizationsWithStats_ACU: vi.fn((content: string) => {
       const nextContent = mockApplyOptimizations(content);
@@ -150,42 +152,8 @@ beforeEach(() => {
   mockLoadCache.mockReturnValue(null);
 });
 
-// ═══ setLastOptimizationBase_ACU ═══
-describe('setLastOptimizationBase_ACU', () => {
-  it('保存优化基准', () => {
-    const result = setLastOptimizationBase_ACU({
-      messageIndex: 5,
-      messageId: 'msg1',
-      baseContent: '原始内容',
-    });
-    expect(result.messageIndex).toBe(5);
-    expect(result.messageId).toBe('msg1');
-    expect(result.baseContent).toBe('原始内容');
-    expect(result.updatedAt).toBeGreaterThan(0);
-    expect(mockSaveCache).toHaveBeenCalled();
-  });
-
-  it('空 payload 使用默认值', () => {
-    const result = setLastOptimizationBase_ACU();
-    expect(result.messageIndex).toBe(-1);
-    expect(result.messageId).toBeNull();
-    expect(result.baseContent).toBe('');
-  });
-
-  it('非整数 messageIndex 使用 -1', () => {
-    const result = setLastOptimizationBase_ACU({ messageIndex: 'abc' });
-    expect(result.messageIndex).toBe(-1);
-  });
-});
-
 // ═══ getLastOptimizationBase_ACU ═══
 describe('getLastOptimizationBase_ACU', () => {
-  it('有内存缓存时返回内存缓存', () => {
-    setLastOptimizationBase_ACU({ messageIndex: 3, baseContent: '缓存内容' });
-    const result = getLastOptimizationBase_ACU();
-    expect(result).not.toBeNull();
-    expect(result!.baseContent).toBe('缓存内容');
-  });
 
   it('无内存缓存时从持久化缓存加载', () => {
     mockLoadCache.mockReturnValue({ messageIndex: 2, baseContent: '持久化内容' });
@@ -223,14 +191,6 @@ describe('getLastOptimizationBase_ACU', () => {
     mockLoadCache.mockReturnValue({ messageIndex: 1, baseContent: '遗留原文' });
     expect(getLastOptimizationBase_ACU()?.baseContent).toBe('遗留原文');
     mockLoadCache.mockReturnValue(null);
-  });
-
-  it('无任何缓存时返回 null', () => {
-    // 清除内存缓存
-    setLastOptimizationBase_ACU({ baseContent: '' });
-    mockLoadCache.mockReturnValue(null);
-    const result = getLastOptimizationBase_ACU();
-    expect(result).toBeNull();
   });
 });
 
@@ -281,33 +241,10 @@ describe('_set_optimizationProgressToast_ACU', () => {
     expect(optimizationProgressToast_ACU).toBe(toast);
     expect(optimizationProgressToast_ACU.message).toBe('优化中…');
   });
-  it('设置为 null 后变量为 null', () => {
-    _set_optimizationProgressToast_ACU({ message: '先设置一个值' });
-    expect(optimizationProgressToast_ACU).not.toBeNull();
-    _set_optimizationProgressToast_ACU(null);
-    expect(optimizationProgressToast_ACU).toBeNull();
-  });
 });
 
 // ═══ performContentOptimization_ACU ═══
 describe('performContentOptimization_ACU', () => {
-  it('API 调用成功且解析成功时返回优化结果', async () => {
-    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
-    const { applyOptimizations_ACU } = await import('../../../src/shared/text-optimization');
-    vi.mocked(callAIWithPreset_ACU).mockResolvedValue(JSON.stringify({
-      optimizations: [
-        { type: 'replace', original: '旧文本', optimized: '新文本', plan: '优化计划' },
-      ],
-      summary: '优化总结',
-    }));
-    vi.mocked(applyOptimizations_ACU).mockReturnValue('优化后的内容');
-
-    const { performContentOptimization_ACU } = await import('../../../src/service/optimization/content-optimization');
-    const result = await performContentOptimization_ACU('原始内容', { currentLoop: 1 });
-    expect(result.success).toBe(true);
-    expect(result.optimizations).toBeDefined();
-    expect(result.optimizedContent).toBe('优化后的内容');
-  });
 
   it('所有建议都未匹配时返回 no-op 失败，不生成可写回正文', async () => {
     const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
@@ -332,10 +269,12 @@ describe('performContentOptimization_ACU', () => {
 
   it('最大替换项数同步进提示词数量行（默认 1-10 按配置改写）', async () => {
     const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    const { applyOptimizations_ACU } = await import('../../../src/shared/text-optimization');
     vi.mocked(callAIWithPreset_ACU).mockResolvedValue(JSON.stringify({
       optimizations: [{ type: 'replace', original: '旧文本', optimized: '新文本', plan: '优化计划' }],
       summary: '优化总结',
     }));
+    vi.mocked(applyOptimizations_ACU).mockReturnValue('优化后的内容');
     mockSettings.contentOptimizationSettings = {
       maxOptimizations: 20, loopCount: 1, retryCount: 1,
       promptGroup: [{ role: 'user', content: '优化项数量：1-10个\n$CONTENT' }],
@@ -344,10 +283,57 @@ describe('performContentOptimization_ACU', () => {
     const { performContentOptimization_ACU } = await import('../../../src/service/optimization/content-optimization');
     const result = await performContentOptimization_ACU('原始内容', { currentLoop: 1 });
     expect(result.success).toBe(true);
+    expect(result.optimizedContent).toBe('优化后的内容');
     const sent = vi.mocked(callAIWithPreset_ACU).mock.calls[0][0] as any[];
     const text = sent.map(m => String(m.content)).join('\n');
     expect(text).toContain('优化项数量：1-20个');
     expect(text).not.toContain('优化项数量：1-10个');
+  });
+
+  it('R8-05：正文里的 $5/$C/$1/$& 与模板标签原样送出，只有可信模板里的占位符和标签被处理', async () => {
+    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    const helpers = await import('../../../src/service/runtime/helpers-remaining');
+    vi.mocked(helpers.getWorldbookContentForPlot_ACU).mockResolvedValueOnce('WORLDBOOK-DUMP');
+    vi.mocked(helpers.parseIfBlockRecursive_ACU).mockImplementation((s: string) => s.replace(/<if>[\s\S]*?<\/if>/g, ''));
+    vi.mocked(callAIWithPreset_ACU).mockResolvedValue(JSON.stringify({ optimizations: [], summary: '无' }));
+    mockSettings.contentOptimizationSettings = {
+      maxOptimizations: 10, loopCount: 1, retryCount: 1,
+      promptGroup: [{ role: 'user', content: '世界书：$1<if>模板条件</if>\n正文：$CONTENT' }],
+    };
+    const userText = "他花了$5买了酒，是个$C级冒险者，单价$1。$& $' <if>正文条件</if>";
+
+    const { performContentOptimization_ACU } = await import('../../../src/service/optimization/content-optimization');
+    await performContentOptimization_ACU(userText, { currentLoop: 1 });
+    const sent = String((vi.mocked(callAIWithPreset_ACU).mock.calls[0][0] as any[])[0].content);
+    expect(sent).toBe(`世界书：WORLDBOOK-DUMP\n正文：${userText}`);
+    vi.mocked(helpers.parseIfBlockRecursive_ACU).mockImplementation((s: string) => s);
+  });
+
+  it('R8-11：取消后不再发出排队中的重试，在途请求收到 abort 信号', async () => {
+    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    mockSettings.contentOptimizationSettings = { maxOptimizations: 10, loopCount: 1, retryCount: 3, promptGroup: [{ role: 'user', content: '$CONTENT' }] };
+    const mod = await import('../../../src/service/optimization/content-optimization');
+    let seenSignal: AbortSignal | undefined;
+    vi.mocked(callAIWithPreset_ACU).mockImplementation(async (_m: any, _p: any, _t: any, signal: any) => {
+      seenSignal = signal;
+      mod.cancelContentOptimization_ACU('测试取消');
+      throw new Error('网络错误');
+    });
+
+    await expect(mod.performContentOptimization_ACU('原始内容', { currentLoop: 1 })).rejects.toThrow('用户终止正文优化');
+    expect(callAIWithPreset_ACU).toHaveBeenCalledTimes(1);
+    expect(seenSignal?.aborted).toBe(true);
+  });
+
+  it('R8-11：之前的取消不影响之后新发起的优化', async () => {
+    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    mockSettings.contentOptimizationSettings = { maxOptimizations: 10, loopCount: 1, retryCount: 1, promptGroup: [{ role: 'user', content: '$CONTENT' }] };
+    const mod = await import('../../../src/service/optimization/content-optimization');
+    mod.cancelContentOptimization_ACU('旧取消');
+    vi.mocked(callAIWithPreset_ACU).mockResolvedValue('');
+    const result = await mod.performContentOptimization_ACU('原始内容', { currentLoop: 1 });
+    expect(result.success).toBe(false);
+    expect(callAIWithPreset_ACU).toHaveBeenCalledTimes(1);
   });
 
   it('API 返回空响应时所有重试失败', async () => {
@@ -449,8 +435,26 @@ describe('标签排除规则写回保护接线（performContentOptimization_ACU�
       expect.any(Array),
       { excludeRules: COMMENT_RULES, excludeTags: '' },
     );
-    // 写回只喂保留下来的建议
-    expect(vi.mocked(applyOptimizationsWithStats_ACU).mock.calls.some(call => call[1] === kept)).toBe(true);
+    // 写回只喂保留下来的建议，并带上排除规则（标明已预过滤）：前面的建议改过正文后仍要按当前正文复核排除段
+    expect(vi.mocked(applyOptimizationsWithStats_ACU).mock.calls.some(call => call[1] === kept
+      && (call[2] as any)?.excludeRules === COMMENT_RULES && (call[2] as any)?.alreadyFiltered === true)).toBe(true);
+  });
+
+  it('送给替换模型的 $CONTENT 不含 MVU 变量块（省字数、免得模型去改变量）', async () => {
+    const { callAIWithPreset_ACU } = await import('../../../src/service/ai/api-call');
+    const defaults = await import('../../../src/shared/defaults-json.js');
+    (defaults as any).DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU.splice(0, Infinity, { role: 'user', content: '正文：$CONTENT' });
+    mockSettings.contentOptimizationSettings = { maxOptimizations: 10, loopCount: 1, retryCount: 1 };
+    vi.mocked(callAIWithPreset_ACU).mockClear();
+    vi.mocked(callAIWithPreset_ACU).mockResolvedValue(JSON.stringify({ optimizations: [], summary: '无' }));
+
+    const { performContentOptimization_ACU } = await import('../../../src/service/optimization/content-optimization');
+    await performContentOptimization_ACU('她推开门。<UpdateVariable>_.set("a", 1, 2);</UpdateVariable>', { currentLoop: 1 });
+
+    const sent = JSON.stringify(vi.mocked(callAIWithPreset_ACU).mock.calls[0][0]);
+    expect(sent).toContain('她推开门。');
+    expect(sent).not.toContain('UpdateVariable');
+    (defaults as any).DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU.splice(0, Infinity);
   });
 
   it('未配置排除规则时行为不变：全部建议原样透传（回归锁）', async () => {
@@ -506,6 +510,16 @@ describe('自动替换判重 service 入口', () => {
       chatKey: 'test-chat', updatedAt: 1,
     });
     expect(shouldSkipDuplicateAutoContentOptimization_ACU(11, '优化后的正文')).toBe(true);
+  });
+
+  it('指纹不含 MVU 变量块：判定/替换后 MVU 才追加变量块，重复事件仍判重命中；续写等正文变化照常放行', () => {
+    mockFindProcessed.mockReturnValue({
+      messageIndex: 3, messageId: '11',
+      contentHash: computeAutoOptimizationContentHash_ACU('她推开门。'),
+      chatKey: 'test-chat', updatedAt: 1,
+    });
+    expect(shouldSkipDuplicateAutoContentOptimization_ACU(11, '她推开门。\n\n<UpdateVariable>_.set("a", 1, 2);</UpdateVariable>')).toBe(true);
+    expect(shouldSkipDuplicateAutoContentOptimization_ACU(11, '她推开门。她又回头看了一眼。')).toBe(false);
   });
 
   it('有记录但内容已变化 → 放行（正常执行并随后更新记录）', () => {

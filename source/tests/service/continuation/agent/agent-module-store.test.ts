@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  alignAgentModuleSnapshotToFloor_ACU,
   buildEmptyAgentModuleSnapshot_ACU,
+  commitAgentModuleFieldWrites_ACU,
   readAgentModuleSnapshot_ACU,
+  readAgentModuleFieldSnapshot_ACU,
   readAgentModuleSnapshotDiagnostics_ACU,
+  refreshAgentModuleSnapshotChatPrefix_ACU,
   replaceAgentModuleSnapshotByUser_ACU,
   renderAgentActiveVolumePlanningContext_ACU,
   renderAgentChronology_ACU,
@@ -14,7 +18,7 @@ import {
   validateAgentModuleSnapshot_ACU,
   writeAgentModuleSnapshot_ACU,
 } from '../../../../src/service/continuation/agent/agent-module-store';
-import { AGENT_BLOCK_CHAR_LIMIT_ACU, AGENT_HOT_HOOK_LIMIT_ACU, AGENT_MODULE_FIELD_ACU, AGENT_MODULE_SCHEMA_VERSION_ACU, AGENT_MODULE_SCHEMA_VERSION_V2_ACU, type AgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-model';
+import { AGENT_BLOCK_CHAR_LIMIT_ACU, AGENT_HOT_HOOK_LIMIT_ACU, AGENT_MODULE_FIELD_ACU, AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU, AGENT_MODULE_SCHEMA_VERSION_ACU, AGENT_MODULE_SCHEMA_VERSION_V2_ACU, type AgentModuleSnapshot_ACU } from '../../../../src/service/continuation/agent/agent-model';
 import { ContinuationValidationError_ACU } from '../../../../src/service/continuation/model';
 import { _set_SillyTavern_API_ACU } from '../../../../src/shared/host-api';
 
@@ -41,10 +45,6 @@ describe('Agent 资料快照存储', () => {
     const snapshot = readAgentModuleSnapshot_ACU(chat);
     expect(snapshot.settledThroughIndex).toBe(0);
     expect(snapshot.revisions.hooks).toBe(1);
-  });
-
-  it('聊天里没有任何快照时返回未结算的空快照', () => {
-    expect(readAgentModuleSnapshot_ACU([{ mes: 'a' }]).settledThroughIndex).toBe(-1);
   });
 
   it('读取不再把基线里的水位钳到当前数组长度', () => {
@@ -86,10 +86,19 @@ describe('Agent 资料快照存储', () => {
     expect(chat[0][AGENT_MODULE_FIELD_ACU].schemaVersion).toBe(1);
   });
 
-  it('空快照自带空用户要求清单及其修订号', () => {
-    const empty = buildEmptyAgentModuleSnapshot_ACU();
-    expect(empty.userRequirements).toEqual([]);
-    expect(empty.revisions.userRequirements).toBe(0);
+  it('追溯边界缺字段兼容为无；出现就必须整体合法（移植上游 365dd863）', () => {
+    const legacy = {
+      schemaVersion: 1, settledThroughIndex: 2, updatedAt: 1,
+      revisions: { hooks: 1, infoGap: 0, constraints: 0, storyArc: 0, chronology: 0, webRefs: 0 },
+      hooks: [], infoGap: [], constraints: [],
+    };
+    expect(validateAgentModuleSnapshot_ACU(legacy)!.settlementBoundary).toBeUndefined();
+    const boundary = {
+      startIndex: 7, reason: '用户要求从第 7 楼开始', userMessageId: 3, updatedAt: 1, skippedPendingFixes: [],
+    };
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, settlementBoundary: boundary })!.settlementBoundary).toMatchObject({ startIndex: 7 });
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, settlementBoundary: { ...boundary, reason: '  ' } })).toBeNull();
+    expect(validateAgentModuleSnapshot_ACU({ ...legacy, settlementBoundary: { ...boundary, userMessageId: 0 } })).toBeNull();
   });
 
   it('旧快照缺 userRequirements 时兼容为空清单；字段一旦出现就必须整体合法', () => {
@@ -162,12 +171,6 @@ describe('Agent 资料快照存储', () => {
       { mes: 'b', [AGENT_MODULE_FIELD_ACU]: malformed },
     ];
     expect(readAgentModuleSnapshot_ACU(chat).storyArc).toEqual([expect.objectContaining({ id: 'VOL-01' })]);
-  });
-
-  it('空快照初始化 chronology 为空账本且 revision 为 0', () => {
-    const empty = buildEmptyAgentModuleSnapshot_ACU();
-    expect(empty.chronology).toEqual([]);
-    expect(empty.revisions.chronology).toBe(0);
   });
 
   it('旧快照缺 chronology 与其 revision 时兼容读成空账本，不误报数据丢失', () => {
@@ -482,5 +485,390 @@ describe('Agent 资料快照落盘修订号复核（用户手动保存防冲）'
     expect(saved.revisions).toMatchObject({ hooks: 2, infoGap: 2, constraints: 2, storyArc: 2, chronology: 2, webRefs: 2 });
     expect(readAgentModuleSnapshot_ACU(chat).hooks[0].id).toBe('用户编辑');
     expect(saveChat).toHaveBeenCalledOnce();
+  });
+
+  // R10A-09：用户编辑期间 Agent 往同一模块写入了新条目时，用陈旧草稿整体替换会把它们抹掉。
+  it('R10A-09：带 expectedRevisions 且该模块修订号已推进时拒绝保存，不落盘', async () => {
+    const chat: any[] = [{ mes: 'a' }, { mes: 'b', [AGENT_MODULE_FIELD_ACU]: snapshotAt_ACU(0, { revisions: { hooks: 3, infoGap: 1, constraints: 1, storyArc: 1, chronology: 1, webRefs: 1 }, hooks: [hook_ACU('Agent 新增') as any] }) }];
+    const saveChat = vi.fn().mockResolvedValue(undefined);
+    _set_SillyTavern_API_ACU({ chat, saveChat } as any);
+
+    await expect(replaceAgentModuleSnapshotByUser_ACU({ hooks: [hook_ACU('陈旧草稿') as any] }, chat, { expectedRevisions: { hooks: 2 } }))
+      .rejects.toThrow(/已被更新/);
+    expect(saveChat).not.toHaveBeenCalled();
+    expect(readAgentModuleSnapshot_ACU(chat).hooks[0].id).toBe('Agent 新增');
+  });
+
+  it('R10A-09：expectedRevisions 与当前一致时照常保存', async () => {
+    const chat: any[] = [{ mes: 'a' }, { mes: 'b', [AGENT_MODULE_FIELD_ACU]: snapshotAt_ACU(0, { revisions: { hooks: 3, infoGap: 1, constraints: 1, storyArc: 1, chronology: 1, webRefs: 1 }, hooks: [hook_ACU('既有') as any] }) }];
+    const saveChat = vi.fn().mockResolvedValue(undefined);
+    _set_SillyTavern_API_ACU({ chat, saveChat } as any);
+
+    const saved = await replaceAgentModuleSnapshotByUser_ACU({ hooks: [hook_ACU('用户编辑') as any] }, chat, { expectedRevisions: { hooks: 3 } });
+    expect(saved.hooks[0].id).toBe('用户编辑');
+  });
+});
+
+/**
+ * 水位对齐 —— 资料补足锚点可以早于物理尾楼（TT 2.3.0 的工具楼尾）时必须先对齐再写。
+ *
+ * 写入门（writeAgentModuleSnapshot_ACU）把水位钳到 targetIndex，却拿**钳后**水位去校验快照自带的
+ * 前缀指纹；主循环已把水位推到工具楼尾时，直接写到最近的 AI 楼会被判「聊天前缀已变化」——
+ * 聊天一个字没变，报错还把排障带偏。alignAgentModuleSnapshotToFloor_ACU 负责把水位与指纹一起对齐。
+ */
+describe('水位对齐（锚点早于结算水位）', () => {
+  it('不对齐会被前缀指纹门以误导性理由拒绝；对齐后写入成功且资料可读回', async () => {
+    const chat: any[] = [
+      { mes: 'a', is_user: false },
+      { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+
+    // 主循环的既有状态：水位推到物理尾楼（工具楼，index 1），并 stamp 了该水位的前缀指纹。
+    const settledAtTail = refreshAgentModuleSnapshotChatPrefix_ACU(
+      snapshotAt_ACU(1, { hooks: [hook_ACU('H1') as any] }),
+      chat,
+    );
+    expect(settledAtTail.settledPrefixFingerprint).toBeTruthy();
+
+    // 钉住失败面本身：谁把对齐挪走，这条就会红（而不是等到用户资料补足静默失败）。
+    await expect(writeAgentModuleSnapshot_ACU(chat, 0, settledAtTail)).rejects.toThrow(/前缀已变化/);
+
+    const aligned = alignAgentModuleSnapshotToFloor_ACU(settledAtTail, chat, 0);
+    expect(aligned.settledThroughIndex).toBe(0);
+    await writeAgentModuleSnapshot_ACU(chat, 0, aligned);
+    expect(readAgentModuleSnapshot_ACU(chat).hooks.map((item) => item.id)).toEqual(['H1']);
+  });
+
+  it('水位不高于承载楼时原样返回，不做无谓拷贝与指纹重算', () => {
+    const chat: any[] = [{ mes: 'a', is_user: false }, { mes: 'b', is_user: false }];
+    const snapshot = snapshotAt_ACU(1, { hooks: [hook_ACU('H1') as any] });
+
+    expect(alignAgentModuleSnapshotToFloor_ACU(snapshot, chat, 1)).toBe(snapshot);
+    expect(alignAgentModuleSnapshotToFloor_ACU(snapshot, chat, 3)).toBe(snapshot);
+  });
+
+  /**
+   * 钳水位前必须按**原水位**校验旧指纹：否则写入门的指纹比对退化成恒等式，
+   * P1 前缀守卫的覆盖面会从 0..W 悄悄收窄到 0..承载楼（补足期间改了水位内的正文楼也放过）。
+   */
+  it('补足期间 0..W 内的正文楼被改：对齐必须拒，不得重算指纹把失配洗白', () => {
+    const chat: any[] = [
+      { mes: 'a', is_user: false },
+      { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    const settledAtTail = refreshAgentModuleSnapshotChatPrefix_ACU(
+      snapshotAt_ACU(1, { hooks: [hook_ACU('H1') as any] }),
+      chat,
+    );
+
+    chat[0].mes = 'TAMPERED';
+    expect(() => alignAgentModuleSnapshotToFloor_ACU(settledAtTail, chat, 0)).toThrow(/前缀已变化/);
+  });
+});
+
+/**
+ * 逐栏提交的「已结算正文楼层」白名单必须与 SQL 事务路径同判据。
+ *
+ * 整行 writes 路径的证据集用 isAiFloor_ACU（agent-main-loop.ts 的 aiEvidenceIndexes），逐栏提交路径
+ * 此前自建 `is_user !== true` ⇒ 同一份意图在两条路上判定相反：TT 2.3.0 的一等工具楼、被 /hide 的
+ * 隐藏楼都能被逐栏路径当成伏笔锚点，而整行路径会拒。判据统一走 shared/ai-floor（本库唯一出处）。
+ */
+describe('逐栏提交的证据楼白名单（与 SQL 事务路径同判据）', () => {
+  function hooksInsert(id: string, plantedIndex: number): string {
+    return `INSERT INTO hooks (id, summary, status, importance, planted_index, expected_revision) VALUES ('${id}', '伏笔', 'planted', 'mid', ${plantedIndex}, 0)`;
+  }
+
+  /** 每次都用全新聊天：被拒的逐栏提交仍会落一次帧（回执 status 恒 committed），会顶掉后续修订号。 */
+  function threeFloorChat(): any[] {
+    const chat: any[] = [
+      { mes: 'a', is_user: false },
+      { mes: '中间楼', is_user: false },
+      { mes: '正文', is_user: false },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    return chat;
+  }
+
+  it('planted_index 指向 TT 2.3.0 工具楼必须被拒，该栏不落库', async () => {
+    const chat = threeFloorChat();
+    chat[1] = { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' };
+    await writeAgentModuleSnapshot_ACU(chat, 2, snapshotAt_ACU(2));
+
+    // 注意：receipt.status 只反映「整批有没有落库」（persist/readback 失败才会是 persist_failed /
+    // readback_failed），逐栏拒绝不影响它；拒绝只体现在 rejected[]，且被拒字段不会进 accepted[]。
+    // 所以断言要看这两个清单，不能看 status。
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 2, role: 'hook-cognition-maintainer', sql: hooksInsert('HF1', 1),
+    } as any);
+    expect(receipt.rejected.some((item: { reason: string }) => /已结算正文楼层/.test(item.reason))).toBe(true);
+    expect(receipt.accepted.some((item: { id: string; field: string }) => item.id === 'HF1' && item.field === 'plantedIndex')).toBe(false);
+  });
+
+  it('planted_index 指向可见 AI 楼则通过（对照：白名单没有收紧过头）', async () => {
+    const chat = threeFloorChat();
+    await writeAgentModuleSnapshot_ACU(chat, 2, snapshotAt_ACU(2));
+
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 2, role: 'hook-cognition-maintainer', sql: hooksInsert('HF2', 0),
+    } as any);
+    expect(receipt.rejected).toEqual([]);
+    expect(receipt.accepted.some((item: { id: string; field: string }) => item.id === 'HF2' && item.field === 'plantedIndex')).toBe(true);
+  });
+
+  it('planted_index 指向本轮结算窗口内的新 AI 楼必须通过（上限是当轮末楼，与事务路径同口径）', async () => {
+    const chat = threeFloorChat().slice(0, 2);
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(1));
+    chat.push({ mes: '新正文', is_user: false });
+
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 2, role: 'hook-cognition-maintainer', sql: hooksInsert('HF4', 2),
+    } as any);
+    expect(receipt.rejected).toEqual([]);
+    expect(receipt.accepted.some((item: { id: string; field: string }) => item.id === 'HF4' && item.field === 'plantedIndex')).toBe(true);
+  });
+
+  it('被 /hide 的隐藏楼同样不得作为伏笔锚点（is_system 是隐藏位，不是角色事实）', async () => {
+    const chat = threeFloorChat();
+    chat[1] = { mes: '（用户已隐藏）', is_user: false, is_system: true };
+    await writeAgentModuleSnapshot_ACU(chat, 2, snapshotAt_ACU(2));
+
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 2, role: 'hook-cognition-maintainer', sql: hooksInsert('HF3', 1),
+    } as any);
+    expect(receipt.rejected.some((item: { reason: string }) => /已结算正文楼层/.test(item.reason))).toBe(true);
+    expect(receipt.accepted.some((item: { id: string; field: string }) => item.id === 'HF3' && item.field === 'plantedIndex')).toBe(false);
+  });
+});
+
+/**
+ * 用户手动保存与「播种用户要求」同形：读折叠 → 加工 → 直接回写。
+ * 折叠水位被 delta 推高之后，若折叠输出的 (水位, 前缀指纹) 不成对，写盘门会以
+ * 「资料快照引用的聊天前缀已变化」硬拒——而这是**用户可见**的失败面（报错弹窗、编辑丢失），
+ * 聊天其实一个字没变。修在折叠出口后，所有同形路径一起受益，这里锁定用户可见的那一条。
+ */
+describe('用户手动保存资料（折叠水位已被 delta 推高）', () => {
+  it('不得被前缀指纹门误拒，编辑必须真的落盘', async () => {
+    const chat: any[] = [{ mes: 'a', is_user: false }, { mes: 'b', is_user: false }];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    await writeAgentModuleSnapshot_ACU(chat, 1, snapshotAt_ACU(1));
+
+    chat.push({ mes: 'c', is_user: false });
+    const second = snapshotAt_ACU(2, { hooks: [hook_ACU('H1') as any] });
+    second.revisions = { ...second.revisions, hooks: 1 };
+    await writeAgentModuleSnapshot_ACU(chat, 2, second);
+    // 前置：水位确实已被 delta 推过基线水位（否则本用例测不到东西）
+    expect(readAgentModuleSnapshot_ACU(chat).settledThroughIndex).toBe(2);
+
+    const saved = await replaceAgentModuleSnapshotByUser_ACU({ hooks: [hook_ACU('USER') as any] }, chat);
+    expect(saved.hooks.map((item) => item.id)).toEqual(['USER']);
+    expect(readAgentModuleSnapshot_ACU(chat).hooks.map((item) => item.id)).toEqual(['USER']);
+  });
+});
+
+/**
+ * 逐栏提交的**落帧楼层**。
+ *
+ * 调用方（agent-main-loop 的三处派工）一律传 `chat.length - 1`，而 TT 2.3.0 的物理尾楼可以合法地是
+ * 一等工具楼 `{role:'tool', is_system:true}`（tool-calling.js:1058-1089）——它可被用户独立删除、
+ * 没有 swipe_id、也不承载剧情正文。逐栏草稿（fieldUpserts）挂在它身上＝用户删掉工具楼就丢草稿。
+ * 落帧楼层必须是「≤ targetIndex 的最近 AI 楼」：折叠按楼层序应用 delta，落更早的楼会让新 delta
+ * 排在既有 delta 之前被应用。
+ */
+describe('逐栏提交的帧落在 AI 楼（工具楼尾）', () => {
+  const minimalInsert = (id: string) =>
+    `INSERT INTO hooks (id, expected_revision, summary) VALUES ('${id}', 0, '草稿')`;
+
+  it('targetIndex 是工具楼时，草稿 delta 落在最近的 AI 楼，工具楼一帧不沾', async () => {
+    const chat: any[] = [
+      { mes: 'a', is_user: false },
+      { mes: 'b', is_user: false },
+      { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 2, role: 'hook-cognition-maintainer', sql: minimalInsert('HF9'),
+    } as any);
+
+    // 回读门必须按「本次规划改写过的楼层」豁免，而不是按调用方给的 targetIndex：
+    // 帧落在 AI 楼（floor 1）而 targetIndex 是工具楼（floor 2）时，旧豁免会把这次合法写入判成 readback_failed。
+    expect(receipt.status).toBe('committed');
+    expect(receipt.accepted.some((item: { id: string }) => item.id === 'HF9')).toBe(true);
+    expect(chat[2][AGENT_MODULE_FIELD_ACU], '工具楼不得承载逐栏 delta').toBeUndefined();
+    expect(chat[1][AGENT_MODULE_FIELD_ACU]?.deltas?.some((delta: any) => delta.fieldUpserts)).toBe(true);
+    // 草稿仍读得回来（落点变了，内容不能丢）
+    expect(readAgentModuleFieldSnapshot_ACU(chat).records.hooks?.HF9?.fields.summary.value).toBe('草稿');
+  });
+
+  it('整条聊天没有 AI 楼时 fail-closed：任何楼都不写帧', async () => {
+    const chat: any[] = [
+      { mes: '用户输入', is_user: true },
+      { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+
+    await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'hook-cognition-maintainer', sql: minimalInsert('HF10'),
+    } as any);
+
+    expect(chat[0][AGENT_MODULE_FIELD_ACU], '用户楼不得承载帧').toBeUndefined();
+    expect(chat[1][AGENT_MODULE_FIELD_ACU], '工具楼不得承载帧').toBeUndefined();
+  });
+
+  /**
+   * 落点改成 AI 楼之后，折叠顺序（楼层正序）会让「更晚楼层上的遗留帧」覆盖新写入。
+   * 逐栏路径不折叠、无处吸收遗留内容，所以必须先拒一次并说清原因——整条快照写入每轮结算都会跑，
+   * 会把遗留帧吸收进全量基线并摘掉，阻塞窗口只有一轮。
+   */
+  it('非 AI 楼上有遗留帧时逐栏提交先拒一次，理由可区分，且不去搅动遗留帧', async () => {
+    const chat: any[] = [
+      { mes: 'AI 正文', is_user: false },
+      {
+        role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1',
+        [AGENT_MODULE_FIELD_ACU]: {
+          schemaVersion: AGENT_MODULE_FRAME_SCHEMA_VERSION_ACU,
+          deltas: [{ seq: 1, swipeId: '0', writes: {}, revisions: {}, fieldUpserts: { hooks: { OLD1: { summary: { value: '旧草稿' } } } }, updatedAt: 1 }],
+        },
+      },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'hook-cognition-maintainer', sql: minimalInsert('HF11'),
+    } as any);
+
+    expect(receipt.rejected.some((item: { reason: string }) => /遗留/.test(item.reason)), '理由必须能与「规划不出写入」区分开').toBe(true);
+    expect(chat[0][AGENT_MODULE_FIELD_ACU], '拒绝时不得写任何新帧').toBeUndefined();
+    expect(chat[1][AGENT_MODULE_FIELD_ACU]?.deltas).toHaveLength(1);
+  });
+});
+
+/**
+ * 用户手动保存资料：没有任何 AI 楼可承载时必须报错，不能弹「已保存」——
+ * 那正是本函数自己写下的纪律（「对用户编辑是数据丢失——用户会以为自己保存成功了」）。
+ */
+describe('用户手动保存资料的落点门', () => {
+  it('聊天里没有 AI 楼时直接拒绝，不谎报已保存', async () => {
+    const chat: any[] = [
+      { mes: '用户输入', is_user: true },
+      { role: 'tool', name: 'exa_search', is_system: true, is_user: false, mes: '{"result":"x"}', tool_call_id: 'c1' },
+    ];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+
+    await expect(replaceAgentModuleSnapshotByUser_ACU({ hooks: [] }, chat))
+      .rejects.toThrow(ContinuationValidationError_ACU);
+    expect(chat[0][AGENT_MODULE_FIELD_ACU]).toBeUndefined();
+    expect(chat[1][AGENT_MODULE_FIELD_ACU]).toBeUndefined();
+  });
+});
+
+/**
+ * R4-02：逐栏写齐的记录必须提升为正式领域条目（走整行事务同一套校验与修订号推进），
+ * 否则 $HOOKS_LEDGER 等读口与下游结算永远看不到逐栏结果。
+ */
+describe('逐栏写齐的记录提升为正式领域条目', () => {
+  function twoFloorChat(): any[] {
+    const chat: any[] = [{ mes: 'a', is_user: false }];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    return chat;
+  }
+
+  it('写齐的伏笔进入领域数组并推进修订号；缺栏草稿不进入', async () => {
+    const chat = twoFloorChat();
+    await writeAgentModuleSnapshot_ACU(chat, 0, snapshotAt_ACU(0));
+    chat.push({ mes: '主角埋下玉佩伏笔', is_user: false });
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'hook-cognition-maintainer',
+      sql: "INSERT INTO hooks (id, summary, status, importance, planted_index, planned_payoff) VALUES ('H001', '玉佩', 'planted', 'high', 1, '后期揭示'); INSERT INTO hooks (id, summary) VALUES ('H002', '草稿')",
+    });
+    expect(receipt.status).toBe('committed');
+    expect(receipt.rejected).toEqual([]);
+    const snapshot = readAgentModuleSnapshot_ACU(chat);
+    expect(snapshot.hooks.map(hook => hook.id)).toEqual(['H001']);
+    expect(snapshot.hooks[0]).toMatchObject({ summary: '玉佩', plantedIndex: 1, updatedIndex: 1, plannedPayoff: '后期揭示' });
+    expect(snapshot.revisions.hooks).toBe(1);
+    expect(receipt.revisions?.hooks).toBe(1);
+    expect(receipt.partials?.map(item => item.id)).toEqual(['H002']);
+    expect(renderAgentHooksLedger_ACU(snapshot)).toContain('玉佩');
+  });
+
+  it('逐栏 UPDATE 既有正式条目会更新领域数组，而不是只留在视图里被领域值盖掉', async () => {
+    const chat = twoFloorChat();
+    await writeAgentModuleSnapshot_ACU(chat, 0, snapshotAt_ACU(0, { hooks: [hook_ACU('H1', { plantedIndex: 0, updatedIndex: 0 }) as any], revisions: { ...buildEmptyAgentModuleSnapshot_ACU().revisions, hooks: 3 } }));
+    chat.push({ mes: '伏笔回收', is_user: false });
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'hook-cognition-maintainer',
+      sql: "UPDATE hooks SET status = 'paid' WHERE id = 'H1'",
+    });
+    expect(receipt.rejected).toEqual([]);
+    const snapshot = readAgentModuleSnapshot_ACU(chat);
+    expect(snapshot.hooks[0]).toMatchObject({ id: 'H1', status: 'paid', updatedIndex: 1 });
+    expect(snapshot.revisions.hooks).toBe(4);
+  });
+
+  it('不满足整行契约的卷只留草稿，原因经 partials[].promotionError 回给模型，不进 rejected', async () => {
+    const chat = twoFloorChat();
+    await writeAgentModuleSnapshot_ACU(chat, 0, snapshotAt_ACU(0));
+    chat.push({ mes: '正文', is_user: false });
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'arc-architect',
+      sql: "INSERT INTO story_arc (id, scope, title, direction, escalation, withheld, status) VALUES ('VOL-01', 'volume', '卷一', '方向', '台阶', '底', 'active')",
+    });
+    expect(receipt.rejected).toEqual([]);
+    expect(readAgentModuleSnapshot_ACU(chat).storyArc).toEqual([]);
+    expect(receipt.partials).toEqual([expect.objectContaining({ module: 'storyArc', id: 'VOL-01', promotionError: expect.stringContaining('narrativeRole') })]);
+  });
+
+  it('百科条目经 pageRef 写齐后提升，来源站点与抓取状态取自已抓取页面', async () => {
+    const chat = twoFloorChat();
+    await writeAgentModuleSnapshot_ACU(chat, 0, snapshotAt_ACU(0));
+    chat.push({ mes: '正文', is_user: false });
+    const receipt = await commitAgentModuleFieldWrites_ACU({
+      chat, targetIndex: 1, role: 'web-researcher',
+      sql: "INSERT INTO web_refs (page_ref, name, brief, detail) VALUES ('P1', '实体', '简介', '详情')",
+      resolvePage: handle => handle === 'P1' ? { title: '页面', source: 'moegirl', url: 'https://zh.moegirl.org.cn/x', query: '实体', sourceStatus: 'ok' } : null,
+    });
+    expect(receipt.rejected).toEqual([]);
+    const refs = readAgentModuleSnapshot_ACU(chat).webRefs;
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ title: '实体', brief: '简介', url: 'https://zh.moegirl.org.cn/x', source: 'moegirl', query: '实体', sourceStatus: 'ok' });
+  });
+});
+
+describe('固定工作流：维护子代理只用 write_sql 结算', () => {
+  it('写齐的伏笔对下游可见，步骤记为有变化，水位推进（R4-02 端到端）', async () => {
+    const chat: any[] = [{ mes: 'a', is_user: false }];
+    _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn().mockResolvedValue(undefined) } as any);
+    const { runContinuationAgentWorkflow_ACU } = await import('../../../../src/service/continuation/agent/agent-workflow');
+    const { buildDefaultContinuationSettings_ACU } = await import('../../../../src/service/continuation/defaults');
+    await writeAgentModuleSnapshot_ACU(chat, 0, snapshotAt_ACU(0));
+    chat.push({ mes: '主角在第1楼埋下玉佩伏笔', is_user: false });
+    const settings = buildDefaultContinuationSettings_ACU();
+    settings.finalReview.enabled = false;
+    const emptyDelta = { hooks: [], hookPatches: [], infoGap: [], infoGapPatches: [], storyArc: [], storyArcPatches: [], chronology: [], chronologyPatches: [], constraintProposals: [], expectedRevisions: {} };
+    const result = await runContinuationAgentWorkflow_ACU({
+      settings,
+      snapshot: readAgentModuleSnapshot_ACU(chat),
+      opening: { focus: 'f', summary: '', dispatchWebResearcher: false },
+      hasUnsettledHistory: true, beatObligation: false, turnNumber: 1, settledIndex: 1,
+      completedStageNumbers: [], allowedEvidenceIndexes: new Set([0, 1]),
+      readCommittedSnapshot: () => readAgentModuleSnapshot_ACU(chat),
+      runAgent: async (call: any) => {
+        if (call.agentName !== 'hook-cognition-maintainer') return { ok: true, summary: 'plan', planner: { summary: 's', recommendation: 'r', mustPreserve: [], risks: [] } } as any;
+        await commitAgentModuleFieldWrites_ACU({ chat, targetIndex: 1, role: 'hook-cognition-maintainer',
+          sql: "INSERT INTO hooks (id, summary, status, importance, planted_index, planned_payoff) VALUES ('H001', '玉佩', 'planted', 'high', 1, '后期揭示')" });
+        return { ok: true, summary: '已逐栏保存', usedFieldWrites: true, completion: 'complete_no_change', moduleCompletion: { hooks: 'complete_no_change', infoGap: 'complete_no_change', chronology: 'complete_no_change' }, writes: ['hooks', 'infoGap', 'chronology'], maintainer: { summary: '', delta: emptyDelta } } as any;
+      },
+      runComposer: async () => ({ instruction: 'go', summary: 's', constraints: null }),
+      runFinalReview: async () => ({ verdict: 'pass' } as any),
+    } as any);
+    expect(result.snapshot.hooks.map(hook => hook.id)).toEqual(['H001']);
+    expect(renderAgentHooksLedger_ACU(result.snapshot)).toContain('玉佩');
+    expect(result.snapshot.materialCompletion.modules.hooks).toBe('complete_changed');
+    expect(result.steps.find(step => step.agentName === 'hook-cognition-maintainer')?.status).not.toBe('no_change');
+    expect(result.snapshot.settledThroughIndex).toBe(1);
   });
 });

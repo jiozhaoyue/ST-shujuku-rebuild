@@ -1,6 +1,6 @@
 # Luker·数据库
 
-Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmyk/shujuku-rebuild`](https://github.com/shuiyue-cmyk/shujuku-rebuild)（TTonly·数据库）v9.1.9 的宿主适配版，积极兼容 Luker 前端，同时保持 TT（TauriTavern）兼容。
+Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmyk/shujuku-rebuild`](https://github.com/shuiyue-cmyk/shujuku-rebuild)（UnbirthDB / TTonly·数据库）的宿主适配版，积极兼容 Luker 前端，同时保持 TT（TauriTavern）兼容。
 
 > **上游关系**：数据面与模板格式与上游完全同构（聊天内 `TavernDB_ACU_*` 存储帧、模板 JSON、剧情推进预设、st-acu-visualizer 契约）。宿主差异集中在 `shared/host-bridge.ts` 适配桥（TT / Luker / 通用 ST 三态 profile，探测失败自动降级 generic，不阻塞启动）。
 
@@ -31,6 +31,19 @@ https://github.com/jiozhaoyue/ST-shujuku-rebuild
 ```
 
 后续更新走扩展面板（`auto_update: true`），开箱即用，无需额外导入脚本。
+
+## 问题反馈
+
+遇到问题欢迎[提交 issue](https://github.com/jiozhaoyue/ST-shujuku-rebuild/issues/new)。不需要懂技术，只要帮我们做到下面两点，问题就能修得快很多：
+
+1. **说说怎么出现的**：你做了什么、本来以为会怎样、实际发生了什么。如果再操作一次还会出现，就更好了。
+2. **附上 Debug 日志**：这一步最重要，有了日志我们才能看到插件当时在做什么。只需要点几个按钮：
+   1. 打开插件「高级工具 → Debug 问题上报」，点「开始 Debug」；
+   2. 把出问题的操作再做一次；
+   3. 点「导出 Debug 数据」，会下载一个文件（里面的密钥已经自动隐藏，可以放心发）；
+   4. 把这个文件拖进 issue。传不上的话，传到你常用的网盘，把分享链接贴进来就行。
+
+没有日志、问题又复现不出来的话，我们很可能查不到原因，只能先挂起，还请理解。
 
 ## 上游同步
 

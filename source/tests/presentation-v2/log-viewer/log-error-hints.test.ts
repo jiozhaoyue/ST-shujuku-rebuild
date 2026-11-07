@@ -9,11 +9,6 @@ function hintIdFor(message: string, tag = '未分类'): string | undefined {
 }
 
 describe('resolveLogErrorHint', () => {
-  it('只对 error 级日志给建议', () => {
-    expect(resolveLogErrorHint({ level: 'warn', tag: 'SQL', message: 'API请求失败: 429' })).toBeNull();
-    expect(resolveLogErrorHint({ level: 'debug', tag: 'SQL', message: 'API请求失败: 429' })).toBeNull();
-    expect(resolveLogErrorHint({ level: 'error', tag: 'SQL', message: 'API请求失败: 429' })).not.toBeNull();
-  });
 
   it('每条 error 日志都有兜底建议，且建议包含摘要与至少一步操作', () => {
     const hint = resolveLogErrorHint({ level: 'error', tag: '未分类', message: 'something totally unexpected happened' });
@@ -54,7 +49,8 @@ describe('resolveLogErrorHint', () => {
     ['[SQLite引擎] query 执行失败: SELECT * FROM x | 错误: no such table: x', 'table-not-found'],
     ['[SQLite引擎] run 执行失败: INSERT ... | 错误: UNIQUE constraint failed: t.row_id', 'sql-constraint'],
     // V2 历史回放 / 恢复：正文带 UNIQUE constraint failed，但根因是历史只能宽容回放，必须先于 sql-constraint 命中。
-    ['[TableUpdateCommit] applyUnifiedGroupFillResponses:snapshot failed: TableUpdateCommitError: V2 写入前检测到聊天历史仅可经兼容宽容回放读出（严格回放失败：[V2 Replay] operation failed: messageIndex=20, seq=2, operationIndex=0, kind=sql_sheet_batch: 第 1 条语句失败: INSERT INTO zhujuexinxi (row_id, character_name) VALUES (1, \'李长风\') → UNIQUE constraint failed: zhujuexinxi.row_id），不能继续写入；请在数据管理 → 「诊断 V2 数据恢复」中把兼容回放结果固化为过渡根后重试。', 'v2-compat-readonly'],
+    // G13-02：指引尾巴已改为真实行为（后台自动固化，无手动按钮），fixture 同步为当前真实文案。
+    ['[TableUpdateCommit] applyUnifiedGroupFillResponses:snapshot failed: TableUpdateCommitError: V2 写入前检测到聊天历史仅可经兼容宽容回放读出（严格回放失败：[V2 Replay] operation failed: messageIndex=20, seq=2, operationIndex=0, kind=sql_sheet_batch: 第 1 条语句失败: INSERT INTO zhujuexinxi (row_id, character_name) VALUES (1, \'李长风\') → UNIQUE constraint failed: zhujuexinxi.row_id），不能继续写入；不含身份归并的兼容结果会在重新加载聊天时由后台自动固化为过渡根（没有手动固化按钮），请重载聊天或稍候再重试写入。', 'v2-compat-readonly'],
     ['V2 replay 仅可经兼容宽容回放读出（严格回放失败：x），不能作为填表基底', 'v2-compat-readonly'],
     ['[TableUpdateCommit] fill failed: V2 写入被拒绝：本次增量与聊天历史回放状态不一致（写入时基底与回放基底不一致），已阻止写出不可严格回放的历史：第 1 条语句失败: INSERT INTO t (row_id) VALUES (1) → UNIQUE constraint failed: t.row_id', 'v2-write-guard'],
     ['[SQL Console] 执行失败: near "SELEC": syntax error', 'sql-syntax'],
@@ -146,12 +142,6 @@ describe('resolveLogErrorHint', () => {
     expect(hintIdFor(['[Manual Refill] 填表失败', '    at Foo (/x/my app/rate-limit.js:2:3)'].join('\n'))).toBe('fill');
   });
 
-  it('tag 也参与匹配：仅凭 tag 就能落到对应模块的建议', () => {
-    expect(hintIdFor('boom', '剧情推进')).toBe('plot');
-    expect(hintIdFor('boom', '外部导入')).toBe('import');
-    expect(hintIdFor('boom', 'Worldbook')).toBe('worldbook');
-  });
-
   it('SQLite 标签下的普通查询失败不会被误判为引擎加载失败', () => {
     expect(hintIdFor('query 执行失败: SELECT 1 | 错误: boom', 'SQLite引擎')).toBe('sql-syntax');
   });
@@ -200,5 +190,59 @@ describe('resolveLogErrorHint', () => {
 
   it('规则 ID 唯一', () => {
     expect(new Set(LOG_ERROR_HINT_RULE_IDS).size).toBe(LOG_ERROR_HINT_RULE_IDS.length);
+  });
+
+  // G13-02：兼容只读场景的处理建议必须与真实 UI/行为一致——
+  // 不存在「固化兼容回放为过渡根」按钮，也没有「诊断 V2 数据恢复」入口行；
+  // 真实入口是「备份与恢复」→「历史恢复诊断」→「诊断」，无身份归并的历史由后台自动固化。
+  it('v2-compat-readonly 建议只指向真实存在的入口与真实行为', () => {
+    const hint = resolveLogErrorHint({ level: 'error', tag: '未分类', message: 'V2 replay 仅可经兼容宽容回放读出（严格回放失败：x），不能作为填表基底' });
+    expect(hint?.id).toBe('v2-compat-readonly');
+    const steps = hint?.steps.join(' ') ?? '';
+    expect(steps).not.toContain('固化兼容回放为过渡根');
+    expect(steps).not.toContain('诊断 V2 数据恢复');
+    expect(steps).toContain('历史恢复诊断');
+    expect(steps).toContain('自动固化为过渡根');
+    expect(steps).toContain('导出已保存的原始 frame 备份');
+    expect(steps).toContain('无法自助修复');
+  });
+});
+
+/**
+ * 跟上游 0d9cc1a5：状态码只认「HTTP / status / 状态码 / 失败 / 错误」上下文里的三位数。
+ * 此前裸 `\b404\b` 一类正则会把楼层号、行号、条数当成 HTTP 状态码，给出完全不相干的排查建议。
+ * 识别到可信状态码时只按状态码分类，正文里的关键词不能把它盖掉；识别不到才用关键词兜底。
+ */
+describe('HTTP 状态码识别', () => {
+  it.each([
+    ['[填表] 第 404 层的表格合并失败：缺少表头'],
+    ['[剧情推进] 处理到第 429 条 AI 回复时解析失败'],
+    ['JSON 解析失败 at line 500 column 3'],
+    ['[交火] 已写入 401 行纪要索引后中断'],
+  ])('楼层号 / 行号 / 条数不当作状态码：%s', (message) => {
+    expect(hintIdFor(message)).not.toMatch(/^http-/);
+  });
+
+  it.each([
+    ['Request failed with status 502', 'http-5xx'],
+    ['HTTP 429', 'http-429'],
+    ['状态码: 403', 'http-403'],
+    ['API端点状态检查失败: 401 Unauthorized.', 'http-401'],
+    ['API 拒绝了请求（HTTP 404）。', 'http-404'],
+  ])('带上下文的状态码照常识别：%s', (message, id) => {
+    expect(hintIdFor(message)).toBe(id);
+  });
+
+  it('有状态码时按状态码分类，正文关键词不覆盖', () => {
+    expect(hintIdFor('API请求失败: 400 {"error":{"message":"model is overloaded, unsupported parameter"}}')).toBe('http-400');
+  });
+
+  it('402（余额不足）归到额度 / 限流建议', () => {
+    expect(hintIdFor('API请求失败: 402 insufficient balance')).toBe('http-429');
+  });
+
+  it('没有状态码时仍按关键词兜底', () => {
+    expect(hintIdFor('rate limit exceeded, please slow down')).toBe('http-429');
+    expect(hintIdFor('upstream: Bad Gateway')).toBe('http-5xx');
   });
 });

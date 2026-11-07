@@ -20,6 +20,16 @@ describe('受限 SQL 写集映射', () => {
     expect(parsed.delta.hooks).toEqual([expect.objectContaining({ action: 'retire', id: 'H2', reason: '已被推翻' })]);
   });
 
+  it('SQL 值里多余的一层 JSON 转义自动还原，正文里的引号、路径、换行保真（移植上游 f4d63ac5）', () => {
+    const knowledge = [{ name: '顾雨涵', knows: '亲眼看到"信件"；路径 C:\\线索\nO\'Brien' }];
+    const escaped = JSON.stringify(JSON.stringify(knowledge)).slice(1, -1).replace(/'/g, "''");
+    const parsed = parseAgentMaintainerOutput_ACU({
+      summary: '结算',
+      sql: `INSERT INTO info_gap (id, topic, objective_fact, reader_known, character_knowledge, expected_revision) VALUES ('E3', '秘密', '信件', '已见信件', '${escaped}', 0)`,
+    });
+    expect(parsed.delta.infoGap[0]).toMatchObject({ characterKnowledge: knowledge });
+  });
+
   it('SQL 拒绝越权、未知字段、额外 WHERE、混用 JSON 写集和非法修订号', () => {
     const parse = (sql: string) => parseAgentMaintainerOutput_ACU({ summary: '测试', sql });
     expect(() => parse("INSERT INTO web_refs (name) VALUES ('越权')")).toThrow(/无权/);
@@ -118,19 +128,22 @@ describe('SQL 写集运行时修订守卫', () => {
 
 describe('SQL 提示词与版本迁移', () => {
   it('默认提示词切换为受限 SQL 写集且版本推进到当前版本组（V33 信息边界纪律与 V34 SQL 对齐保持，V35 只收窄快照资料边界）', async () => {
-    const { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU } = await import('../../../../src/service/continuation/defaults');
-    const { buildDefaultContinuationAgentPrompts_ACU, findAgentPromptSlot_ACU } = await import('../../../../src/service/continuation/agent/agent-defaults');
+    const { buildDefaultContinuationSettings_ACU, CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU } = await import('../../../../src/service/continuation/defaults');
+    const { buildDefaultContinuationAgentPrompts_ACU } = await import('../../../../src/service/continuation/agent/agent-defaults');
     const settings = buildDefaultContinuationSettings_ACU();
-    expect(settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
+    expect(settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
     const prompts = buildDefaultContinuationAgentPrompts_ACU();
+    // V39 问答版的输出契约是「具体格式输出」那一答。
+    const formatAnswer = (segments: Array<{ content: string }>) => segments.find(segment => segment.content.startsWith('【具体格式输出】'))?.content ?? '';
     for (const role of ['arcArchitect', 'maintainer', 'webResearcher'] as const) {
-      const contract = findAgentPromptSlot_ACU((prompts as any)[role], 'outputContract')?.content ?? '';
+      const contract = formatAnswer((prompts as any)[role]);
       expect(contract).toContain('sql');
       expect(contract).toContain('expected_revision');
       expect(contract).toContain('不输出 delta');
     }
     // 终审 JSON 契约不变：finalReviewer 仍用 delta/verdict，不出现 sql 写集。
-    const reviewer = findAgentPromptSlot_ACU((prompts as any).finalReviewer, 'outputContract')?.content ?? '';
+    const reviewer = formatAnswer((prompts as any).finalReviewer);
+    expect(reviewer).toContain('"verdict"');
     expect(reviewer).not.toContain('INSERT INTO');
   });
 });

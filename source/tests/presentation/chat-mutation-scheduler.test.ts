@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
   markDirty: vi.fn(),
   enqueueFlush: vi.fn(),
   recoverDeleted: vi.fn(),
-  latestState: null as any,
+  hasMirror: false,
   timer: { value: null as any },
 }));
 
@@ -42,11 +42,12 @@ vi.mock('../../src/service/vector/summary-vector-index-realign-state', () => ({
 vi.mock('../../src/service/vector/summary-vector-index-flush-queue', () => ({
   enqueueSummaryVectorIndexFlush_ACU: (...args: any[]) => h.enqueueFlush(...args),
 }));
-vi.mock('../../src/service/vector/summary-vector-index-state-service', () => ({
-  getLatestSummaryVectorIndexSnapshotState_ACU: () => h.latestState,
-}));
 vi.mock('../../src/service/vector/summary-vector-mirror-rebuild', () => ({
-  chatHasSummaryVectorMirror_ACU: () => !!h.latestState?.summaryVectorIndexState,
+  // 布尔桩，不复刻生产判据（checkpoint.kind==='vector_full' && rowCount>0，见
+  // summary-vector-mirror-rebuild.ts:400）。谓词自身由两处 owner 边界用例直验：
+  // summary-vector-mirror-rebuild.test.ts 与 summary-vector-mirror-matrix.test.ts。
+  // 本文件只负责一条调度器层契约：入队与否取决于该谓词的布尔结果。
+  chatHasSummaryVectorMirror_ACU: () => h.hasMirror,
 }));
 vi.mock('../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: () => [],
@@ -62,6 +63,7 @@ vi.mock('../../src/shared/utils', () => ({ logDebug_ACU: vi.fn(), logError_ACU: 
 import {
   scheduleChatMutationRefresh_ACU,
   cancelPendingChatMutationRefresh_ACU,
+  flushChatMutationRefreshNow_ACU,
   __resetChatMutationSchedulerForTests_ACU,
 } from '../../src/presentation/bootstrap/chat-mutation-scheduler';
 
@@ -78,7 +80,7 @@ beforeEach(() => {
   h.markDirty.mockResolvedValue(undefined);
   h.enqueueFlush.mockResolvedValue({ queued: true, scopeKey: 'scope-1' });
   h.recoverDeleted.mockResolvedValue({ recovered: false, graftedCount: 0 });
-  h.latestState = null;
+  h.hasMirror = false;
 });
 
 afterEach(() => {
@@ -142,8 +144,8 @@ describe('chat mutation scheduler', () => {
     expect(h.markDirty).toHaveBeenCalledWith('scope-1', 'chat_modified_deleted');
   });
 
-  it('P2：已有索引时 mark dirty 后立即入队重新归档', async () => {
-    h.latestState = { summaryVectorIndexState: { manifest: { indexId: 'idx' } } };
+  it('P2：已有镜像索引时 mark dirty 后立即入队重新归档', async () => {
+    h.hasMirror = true;
     scheduleChatMutationRefresh_ACU('chat_modified_deleted');
     await vi.advanceTimersByTimeAsync(1200);
     await vi.runAllTicks();
@@ -152,7 +154,7 @@ describe('chat mutation scheduler', () => {
   });
 
   it('P2：尚无索引的聊天只标记 dirty，不入队（避免凭空首次建索引扣费）', async () => {
-    h.latestState = null;
+    h.hasMirror = false;
     scheduleChatMutationRefresh_ACU('chat_modified_swiped');
     await vi.advanceTimersByTimeAsync(1200);
     await vi.runAllTicks();
@@ -203,5 +205,99 @@ describe('chat mutation scheduler', () => {
     await vi.runAllTicks();
     expect(h.recoverDeleted).toHaveBeenCalledTimes(1);
     expect(h.refreshUI).toHaveBeenCalledTimes(2);
+  });
+
+  // R9-03：删楼与滑动落在同一防抖窗口时，合并轮仍须先做删楼恢复。
+  it('R9-03：删楼后紧接滑动合并成一轮时仍执行删楼恢复，dirty 按删楼标记', async () => {
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    await vi.advanceTimersByTimeAsync(300);
+    scheduleChatMutationRefresh_ACU('chat_modified_swiped');
+    await vi.advanceTimersByTimeAsync(1200);
+    await vi.runAllTicks();
+
+    expect(h.recoverDeleted).toHaveBeenCalledTimes(1);
+    expect(h.markDirty).toHaveBeenCalledWith('scope-1', 'chat_modified_deleted');
+  });
+
+  it('R9-03：删楼轮执行中到达的删楼请求留给补跑轮恢复', async () => {
+    let release!: () => void;
+    h.refreshUI.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ ok: true }); }));
+
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    await vi.advanceTimersByTimeAsync(1200);
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    scheduleChatMutationRefresh_ACU('chat_modified_swiped');
+    await vi.advanceTimersByTimeAsync(1200);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.runAllTicks();
+
+    expect(h.recoverDeleted).toHaveBeenCalledTimes(2);
+  });
+
+  it('R9-03：聊天切换后旧聊天的删楼标记不带到新聊天', async () => {
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    cancelPendingChatMutationRefresh_ACU();
+    scheduleChatMutationRefresh_ACU('chat_modified_swiped');
+    await vi.advanceTimersByTimeAsync(1200);
+    await vi.runAllTicks();
+
+    expect(h.recoverDeleted).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 上游 #56：重新生成时宿主删掉旧回复后会 await MESSAGE_DELETED，再读世界书组装正文请求。
+ * 防抖调度返回 void，宿主等不到 1.2s 后才跑的回滚 ⇒ 新请求带着旧回复的表格结果。
+ * 立即刷新入口必须：撤掉待执行的防抖、立刻跑完整一轮（含删楼恢复与世界书刷新）后才 resolve，
+ * 并跳过前端回读等待，不把 800ms 加到正文启动时间里。
+ */
+describe('立即刷新（重新生成前的必要数据边界）', () => {
+  it('删楼后立即刷新：跑完删楼恢复与合并刷新才 resolve，跳过回读等待，之后防抖不再重复跑', async () => {
+    let releaseRefresh!: () => void;
+    h.refreshUI.mockImplementationOnce(() => new Promise(res => { releaseRefresh = () => res({ ok: true }); }));
+
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    let settled = false;
+    const done = flushChatMutationRefreshNow_ACU().then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.recoverDeleted).toHaveBeenCalledTimes(1);
+    expect(h.refreshUI).toHaveBeenCalledWith({ skipReadbackWait: true });
+    expect(settled, '合并刷新（含世界书更新）没完成前不能放行宿主').toBe(false);
+
+    releaseRefresh();
+    await done;
+    expect(settled).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.refreshUI, '已立即跑过，原防抖不能再跑一轮').toHaveBeenCalledTimes(1);
+  });
+
+  it('立即刷新时已有一轮在跑：等它结束后再补跑一轮，保证结果含这次删楼', async () => {
+    let releaseFirst!: () => void;
+    h.refreshUI.mockImplementationOnce(() => new Promise(res => { releaseFirst = () => res({ ok: true }); }));
+
+    scheduleChatMutationRefresh_ACU('chat_modified_swiped');
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(h.refreshUI).toHaveBeenCalledTimes(1);
+
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    let settled = false;
+    const done = flushChatMutationRefreshNow_ACU().then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+
+    releaseFirst();
+    await done;
+    expect(h.refreshUI).toHaveBeenCalledTimes(2);
+    expect(h.refreshUI).toHaveBeenLastCalledWith({ skipReadbackWait: true });
+    expect(h.recoverDeleted, '补跑轮负责这次删楼的恢复').toHaveBeenCalledTimes(1);
+  });
+
+  it('刷新出错也会 resolve（宿主照常生成），不把异常抛给宿主事件链', async () => {
+    h.refreshUI.mockRejectedValue(new Error('boom'));
+    scheduleChatMutationRefresh_ACU('chat_modified_deleted');
+    await expect(flushChatMutationRefreshNow_ACU()).resolves.toBeUndefined();
   });
 });

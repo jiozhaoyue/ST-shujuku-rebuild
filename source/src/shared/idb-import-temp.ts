@@ -13,6 +13,15 @@ export function isIndexedDbAvailable_ACU(): boolean {
     return !!(topLevelWindow_ACU && (topLevelWindow_ACU as any).indexedDB);
 }
 
+/** 写事务以 complete 为准：request 成功后事务仍可能中止（配额、版本变更），那时数据并未落盘。 */
+function idbTransactionDone_ACU(tx: any): Promise<void> {
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+        tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
+    });
+}
+
 export function idbRequestToPromise_ACU(req: any): Promise<any> {
     return new Promise((resolve, reject) => {
         req.onsuccess = () => resolve(req.result);
@@ -44,6 +53,8 @@ export function openImportTempDb_ACU(): Promise<any> {
             reject(e);
         }
     });
+    // 打开失败不缓存被拒的 Promise：否则本会话之后每次都直接失败，再也不会重试 IDB。
+    importTempDbPromise_ACU.catch(() => { importTempDbPromise_ACU = null; });
     return importTempDbPromise_ACU;
 }
 
@@ -59,16 +70,25 @@ export async function idbSet_ACU(key: string, value: any): Promise<void> {
     const db = await openImportTempDb_ACU();
     if (!db) return;
     const tx = db.transaction(IMPORT_TEMP_STORE_NAME_ACU, 'readwrite');
+    const done = idbTransactionDone_ACU(tx);
+    // 预挂空 handler：request 自身失败时函数体会提前抛出返回，done 无人再 await；
+    // 随后事务 abort 会让 done 拒绝，若不预挂就成了未处理拒绝（被全局错误捕获误记一条）。G11-01。
+    done.catch(() => {});
     const store = tx.objectStore(IMPORT_TEMP_STORE_NAME_ACU);
     await idbRequestToPromise_ACU(store.put(value, key));
+    await done;
 }
 
 export async function idbDel_ACU(key: string): Promise<void> {
     const db = await openImportTempDb_ACU();
     if (!db) return;
     const tx = db.transaction(IMPORT_TEMP_STORE_NAME_ACU, 'readwrite');
+    const done = idbTransactionDone_ACU(tx);
+    // 预挂空 handler：见 idbSet_ACU，防止 request 失败时 done 成为未处理拒绝。G11-01。
+    done.catch(() => {});
     const store = tx.objectStore(IMPORT_TEMP_STORE_NAME_ACU);
     await idbRequestToPromise_ACU(store.delete(key));
+    await done;
 }
 
 export async function importTempGet_ACU(key: string): Promise<any> {

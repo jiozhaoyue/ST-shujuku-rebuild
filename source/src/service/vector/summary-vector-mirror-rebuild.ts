@@ -57,6 +57,13 @@ import {
 import { runScopedRetentionGcAfterFlush_ACU } from './summary-vector-index-chat-deletion-gc';
 import type { SummaryVectorIndexContentPackChunk_ACU, SummaryVectorIndexExternalFileRef_ACU } from './summary-vector-index-types';
 import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
+import { createSummaryVectorMirrorUndoLog_ACU, type SummaryVectorMirrorUndoLog_ACU } from './summary-vector-mirror-undo';
+
+/**
+ * 重建 / 修复一律直读盘上文件，不走镜像内存缓存：缓存会让外部删掉的文件在本次会话里看起来仍可读，
+ * 修复据此「复用」一个已不存在的 pack，刷新后召回就会缺块。重建是低频操作，正确性优先。
+ */
+const FRESH_READ_ACU = { fresh: true } as const;
 
 export type SummaryVectorMirrorRebuildReason_ACU = 'initial' | 'rebuild_user' | 'rebuild_repair';
 
@@ -180,7 +187,7 @@ export async function snapshotSummaryVectorMirrorExcludingRows_ACU(options: {
         chat,
         isolationKey: getCurrentIsolationKey_ACU(),
         sourceTableKey,
-        loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref),
+        loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref, FRESH_READ_ACU),
     });
     if (head.status !== 'ok' || !head.checkpoint || !isSummaryVectorEmbeddingIdentity_ACU(head.checkpoint.embedding)) {
         return { kind: 'none' };
@@ -319,11 +326,8 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
         packRefs,
     };
 
-    const snapshots = chat.map((message) => ({
-        message,
-        existed: !!message && Object.prototype.hasOwnProperty.call(message, 'TavernDB_ACU_IsolatedData'),
-        value: message && Object.prototype.hasOwnProperty.call(message, 'TavernDB_ACU_IsolatedData') ? JSON.parse(JSON.stringify(message.TavernDB_ACU_IsolatedData)) : undefined,
-    }));
+    // 字段级撤销（R5-01）：只回滚本次写过的镜像字段，不覆盖整段聊天。
+    const undo = createSummaryVectorMirrorUndoLog_ACU();
 
     try {
         await runTableWriteTransaction_ACU({
@@ -347,9 +351,7 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
             }
             await ctx.runCommit(async () => {
                 for (const ref of collectSummaryVectorMirrorFrameRefs_ACU(chat, isolationKey)) {
-                    if (ref.frame.summaryVectorIndexFrame) {
-                        delete ref.frame.summaryVectorIndexFrame;
-                    }
+                    undo.remove(ref.frame as any, 'summaryVectorIndexFrame');
                 }
                 const tagData = chat[base.messageIndex]?.TavernDB_ACU_IsolatedData?.[isolationKey];
                 if (!isV2TagData_ACU(tagData)) throw new Error('发布剩余交火索引失败：C 层不是 V2 frame。');
@@ -360,7 +362,7 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
                     checkpoint,
                     logEntries: [],
                 };
-                frame.summaryVectorIndexFrame = mirror;
+                undo.set(frame as any, 'summaryVectorIndexFrame', mirror);
                 const violation = assertSummaryVectorMirrorFrameInvariantsV2_ACU(
                     chat,
                     isolationKey,
@@ -371,11 +373,7 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
             });
         });
     } catch (error: any) {
-        for (const item of snapshots) {
-            if (!item.message) continue;
-            if (item.existed) item.message.TavernDB_ACU_IsolatedData = item.value;
-            else delete item.message.TavernDB_ACU_IsolatedData;
-        }
+        undo.rollback();
         return emptyResult_ACU({
             reason: 'rebuild_commit_failed',
             errors: [error?.message || String(error || '剩余行镜像落盘失败')],
@@ -404,15 +402,15 @@ function frameHasUsableVectorMirror_ACU(tagData: unknown): boolean {
     return checkpoint?.kind === 'vector_full' && Number(checkpoint.rowCount) > 0;
 }
 
-function clearLegacyVectorFields_ACU(chat: any[]): void {
+function clearLegacyVectorFields_ACU(chat: any[], undo: SummaryVectorMirrorUndoLog_ACU): void {
     for (const message of chat) {
         const isolated = message?.TavernDB_ACU_IsolatedData;
         if (!isolated || typeof isolated !== 'object') continue;
         for (const tagData of Object.values(isolated)) {
             if (!tagData || typeof tagData !== 'object') continue;
-            delete (tagData as any).summaryVectorIndexState;
-            delete (tagData as any).summaryVectorIndexManifest;
-            delete (tagData as any).vectorMemoryState;
+            undo.remove(tagData as any, 'summaryVectorIndexState');
+            undo.remove(tagData as any, 'summaryVectorIndexManifest');
+            undo.remove(tagData as any, 'vectorMemoryState');
         }
     }
 }
@@ -468,13 +466,14 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
     const preparedById = new Map(prepared.rows.map((row) => [row.rowId, row]));
     const reusable = new Map<string, SummaryVectorChunkRef_ACU[]>();
     const reusablePackRefsByHash = new Map<string, SummaryVectorPackRef_ACU>();
+    let reusedVectorDimension = 0;
 
     if (options.reason === 'rebuild_repair') {
         const head = await resolveSummaryVectorMirrorHead_ACU({
             chat,
             isolationKey,
             sourceTableKey: selected.summaryKey,
-            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref),
+            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref, FRESH_READ_ACU),
         });
         if (head.status === 'ok') {
             const headPackRefsByHash = new Map(head.packRefs.map((ref) => [ref.packHash, ref]));
@@ -485,12 +484,13 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
                 const liveSourceHash = String(preparedById.get(rowId)?.vectorSourceHash || '');
                 for (const ref of refs) {
                     const packRef = headPackRefsByHash.get(ref.packHash);
-                    const pack = await loadSummaryVectorMirrorPack_ACU({ packHash: ref.packHash, path: packRef?.path || '', chunkCount: 0, byteLength: 0 });
+                    const pack = await loadSummaryVectorMirrorPack_ACU({ packHash: ref.packHash, path: packRef?.path || '', chunkCount: 0, byteLength: 0 }, FRESH_READ_ACU);
                     const packed = pack?.chunks?.[ref.chunkIndex];
                     if (!packed || (liveSourceHash && String(packed.textHash || '') !== liveSourceHash)) {
                         valid = false;
                         break;
                     }
+                    if (!reusedVectorDimension && Number(pack?.dimension) > 0) reusedVectorDimension = Number(pack!.dimension);
                 }
                 if (valid) {
                     reusable.set(rowId, refs.map((ref) => ({ ...ref })));
@@ -549,9 +549,9 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
                 errors: [error?.message || String(error || 'embedding 失败')],
             });
         }
-    } else if (reusable.size > 0) {
-        const first = [...reusable.values()][0]?.[0];
-        if (first) embedding.dimension = embedding.dimension;
+    } else if (reusable.size > 0 && reusedVectorDimension > 0) {
+        // 全部复用、本轮没有新嵌：维度以复用向量的实际维度为准，不能沿用（可能写错的）配置值（R5-09）。
+        embedding.dimension = reusedVectorDimension;
     }
 
     const scope = normalizeSummaryVectorIndexScope_ACU({
@@ -591,9 +591,11 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
         });
     }
 
+    // 复用行只在 textHash 与实时哈希一致时复用，新嵌行直接取实时哈希：两者都等于实时行的源文本哈希。
     const rows = source.rowIds.map((rowId) => ({
         rowId,
         chunks: newRefsByRow.get(rowId) || [],
+        vectorSourceHash: String(preparedById.get(rowId)?.vectorSourceHash || ''),
     })).filter((row) => row.chunks.length > 0);
 
     const requiredPackHashes = [...new Set(rows.flatMap((row) => row.chunks.map((chunk) => chunk.packHash)))];
@@ -612,7 +614,7 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
             chat,
             isolationKey,
             sourceTableKey: selected.summaryKey,
-            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref),
+            loadManifest: (ref) => loadSummaryVectorMirrorManifest_ACU(ref, FRESH_READ_ACU),
         });
         if (existingHead.status === 'ok' && existingHead.checkpoint && isSummaryVectorEmbeddingIdentity_ACU(existingHead.checkpoint.embedding)) {
             embedding = { ...existingHead.checkpoint.embedding };
@@ -644,7 +646,11 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
                 schema: 'summary_vector_mirror_manifest',
                 version: 1,
                 sourceTableKey: selected.summaryKey,
-                rows: rows.map((row) => ({ rowId: row.rowId, chunks: row.chunks })),
+                rows: rows.map((row) => ({
+                    rowId: row.rowId,
+                    chunks: row.chunks,
+                    ...(row.vectorSourceHash ? { vectorSourceHash: row.vectorSourceHash } : {}),
+                })),
             },
         });
     } catch (error: any) {
@@ -654,7 +660,8 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
             errors: [error?.message || String(error || '重建 manifest 上传失败')],
         });
     }
-    files.push(manifestPersist.file);
+    // 复用的既有 manifest 不进回收/发布列表：失败时不能删，成功时它本来就已发布。
+    if (manifestPersist.createdNew !== false) files.push(manifestPersist.file);
 
     const checkpoint: SummaryVectorIndexMirrorCheckpointV2_ACU = {
         kind: 'vector_full',
@@ -669,11 +676,8 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
         packRefs,
     };
 
-    const snapshots = chat.map((message) => ({
-        message,
-        existed: !!message && Object.prototype.hasOwnProperty.call(message, 'TavernDB_ACU_IsolatedData'),
-        value: message && Object.prototype.hasOwnProperty.call(message, 'TavernDB_ACU_IsolatedData') ? JSON.parse(JSON.stringify(message.TavernDB_ACU_IsolatedData)) : undefined,
-    }));
+    // 字段级撤销（R5-01）：只回滚本次写过的镜像/legacy 向量字段，不覆盖整段聊天与其他隔离槽。
+    const undo = createSummaryVectorMirrorUndoLog_ACU();
 
     try {
         await runTableWriteTransaction_ACU({
@@ -688,11 +692,7 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
             ctx.assertFresh?.('vector_mirror_rebuild:before_write');
             await ctx.runCommit(async () => {
                 for (const ref of collectSummaryVectorMirrorFrameRefs_ACU(chat, isolationKey)) {
-                    if (ref.frame.summaryVectorIndexFrame) {
-                        delete ref.frame.summaryVectorIndexFrame.checkpoint;
-                        ref.frame.summaryVectorIndexFrame.logEntries = [];
-                        delete ref.frame.summaryVectorIndexFrame;
-                    }
+                    undo.remove(ref.frame as any, 'summaryVectorIndexFrame');
                 }
                 const tagData = chat[base.messageIndex]?.TavernDB_ACU_IsolatedData?.[isolationKey];
                 if (!isV2TagData_ACU(tagData)) throw new Error('重建失败：C 层不是 V2 frame。');
@@ -703,8 +703,8 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
                     checkpoint,
                     logEntries: [],
                 };
-                frame.summaryVectorIndexFrame = mirror;
-                clearLegacyVectorFields_ACU(chat);
+                undo.set(frame as any, 'summaryVectorIndexFrame', mirror);
+                clearLegacyVectorFields_ACU(chat, undo);
                 const violation = assertSummaryVectorMirrorFrameInvariantsV2_ACU(
                     chat,
                     isolationKey,
@@ -715,11 +715,7 @@ export async function rebuildSummaryVectorMirror_ACU(options: {
             });
         });
     } catch (error: any) {
-        for (const snapshot of snapshots) {
-            if (!snapshot.message) continue;
-            if (snapshot.existed) snapshot.message.TavernDB_ACU_IsolatedData = snapshot.value;
-            else delete snapshot.message.TavernDB_ACU_IsolatedData;
-        }
+        undo.rollback();
         await discardSummaryVectorMirrorPreparedFiles_ACU(files, '重建落盘失败');
         return emptyResult_ACU({
             reason: 'rebuild_commit_failed',

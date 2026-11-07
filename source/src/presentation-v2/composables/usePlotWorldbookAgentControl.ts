@@ -26,6 +26,7 @@ import {
 } from '../../service/agent/agent-worldbook-takeover';
 import {
   skillifyCurrentPlotWorldbookSelection_ACU,
+  skillifyWorldbookEntries_ACU,
   type AgentSkillifyCursor_ACU,
   type AgentSkillifyProgressEvent_ACU,
   type AgentSkillifyRunResult_ACU,
@@ -476,9 +477,18 @@ export function usePlotWorldbookAgentControl() {
       disableLegacyAgentWorldbookControl_ACU({ clearSnapshot: result.updated && result.skipped === 0 && result.failed === 0 });
       await refresh();
       const message = plotCopy.agentControl.restore.reasons[result.reason || ''] || plotCopy.agentControl.restore.noop;
+      // 返回值语义 = 「世界书是否被改动过」，不是「有没有失败」。调用方
+      // WorldbookAgentControlBar.runRestore 据此 emit current-worldbook-changed，
+      // AgentPage 靠它刷新世界书编辑区的条目与三个计数。
+      //
+      // 判据直接用服务层的 result.updated：它在 agent-worldbook-takeover.ts:1539
+      // 定义为 `changed = restored + failed + stateWriteFailed + cleaned` 是否 > 0，
+      // 即「写入成功但回读校验失败」（restored=0、failed>0，世界书已被改写）与
+      // 「清理掉快照/内部条目」（cleaned>0）都算已改动。自立判据会漏掉这两种形态，
+      // 那正是编辑器滞后的根因。
       if (result.skipped > 0 || result.failed > 0) {
         toast.warning(message, { muteable: false });
-        return false;
+        return result.updated === true;
       }
       if (result.updated) {
         toast.success(plotCopy.agentControl.restore.success(), { muteable: false });
@@ -511,16 +521,34 @@ export function usePlotWorldbookAgentControl() {
     }
   }
 
+  let skillifyConfirmPending = false;
+
   async function skillifyAll(): Promise<boolean> {
     return runSkillifyWithOptions_ACU();
   }
 
-  async function runSkillifyWithOptions_ACU(optionsPatch: { selectedEntries?: AgentSkillifySelectedEntry_ACU[] } = {}): Promise<boolean> {
-    // 入口防重入：busy 置位在 refresh+confirm 之后，若已在飞直接拒绝，避免并发 skillify。
-    if (busy.value) return false;
-    await refresh();
-    const confirmed = await dialog.confirm(plotCopy.agentControl.skillify.confirm);
+  /** bookNames：只处理这几本（常用世界书用），不读当前 Agent 范围，也不沿用整库续跑游标。 */
+  async function runSkillifyWithOptions_ACU(
+    optionsPatch: { selectedEntries?: AgentSkillifySelectedEntry_ACU[] } = {},
+    bookNames?: string[],
+  ): Promise<boolean> {
+    // R10A-17：busy 要到 refresh + 确认之后才置位，确认阶段用独立标志挡住连点；确认后再查一次 busy。
+    if (busy.value || skillifyConfirmPending) return false;
+    skillifyConfirmPending = true;
+    let confirmed = false;
+    try {
+      await refresh();
+      const confirmCopy = plotCopy.agentControl.skillify.confirm;
+      confirmed = await dialog.confirm(bookNames
+        ? { ...confirmCopy, message: plotCopy.agentControl.skillify.booksConfirmMessage(bookNames) }
+        : optionsPatch.selectedEntries
+          ? { ...confirmCopy, message: plotCopy.agentControl.skillify.selectedConfirmMessage(optionsPatch.selectedEntries.length) }
+          : confirmCopy);
+    } finally {
+      skillifyConfirmPending = false;
+    }
     if (!confirmed) return false;
+    if (busy.value) return false;
     busy.value = 'skillify';
     // skillify 批次此前无人可中止（signal 恒 undefined）：面板卸载即作废本批——游标已持久化，重新发起可续跑。
     const skillifyAbort = new AbortController();
@@ -552,8 +580,8 @@ export function usePlotWorldbookAgentControl() {
         if (progressToastId && toast.update(progressToastId, 'info', text, progressOptions)) return;
         progressToastId = toast.info(text, progressOptions);
       };
-      const hasExplicitSelection = Array.isArray(optionsPatch.selectedEntries);
-      const result = await skillifyCurrentPlotWorldbookSelection_ACU({
+      const hasExplicitSelection = Array.isArray(optionsPatch.selectedEntries) || Array.isArray(bookNames);
+      const skillifyOptions = {
         presetName: agentSkillApiPreset.value,
         overwriteManual: false,
         maxAiRetries: contextSettings.value.agentAiMaxRetries,
@@ -563,7 +591,10 @@ export function usePlotWorldbookAgentControl() {
         signal: skillifyAbort.signal,
         ...optionsPatch,
         onProgress: notifyProgress,
-      });
+      };
+      const result = bookNames
+        ? await skillifyWorldbookEntries_ACU(bookNames, skillifyOptions)
+        : await skillifyCurrentPlotWorldbookSelection_ACU(skillifyOptions);
       skillifyBatchStats.value = {
         totalMatched: result.totalMatched,
         selectedForRun: result.selectedForRun,
@@ -612,6 +643,12 @@ export function usePlotWorldbookAgentControl() {
       return false;
     }
     return runSkillifyWithOptions_ACU({ selectedEntries });
+  }
+
+  async function skillifyBooks(bookNames: string[]): Promise<boolean> {
+    const names = Array.isArray(bookNames) ? bookNames.filter(name => typeof name === 'string' && name.trim()) : [];
+    if (names.length === 0) return false;
+    return runSkillifyWithOptions_ACU({}, names);
   }
 
   async function clearSkillMeta(): Promise<boolean> {
@@ -726,6 +763,7 @@ export function usePlotWorldbookAgentControl() {
     restore,
     skillifyAll,
     skillifySelected,
+    skillifyBooks,
     syncAgentWorldbookTakeoverAfterSkillChange,
     clearSkillMeta,
   };

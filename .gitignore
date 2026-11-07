@@ -44,6 +44,7 @@ secrets.*
 # 系统
 .DS_Store
 Thumbs.db
+<<<<<<< HEAD
 desktop.ini
 
 # 救援工具本地输出（含用户会话数据，禁止入库）
@@ -57,3 +58,8 @@ desktop.ini
 
 # E2E 截图巡游产物（留证用，本地不入库；报告只引用路径）
 source/test-results/
+
+# 本地协作协议（只留本地，不进仓库；上游口径，agent.md 不影响已跟踪的 AGENTS.md）
+agent.md
+AGENTS.local.md
+agent.md.bak

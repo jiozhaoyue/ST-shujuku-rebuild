@@ -3,9 +3,8 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
-    installGlobalBuildBadge_ACU,
-    readBuildStamp_ACU,
-    BUILD_BADGE_ELEMENT_ID_ACU,
+  installGlobalBuildBadge_ACU,
+  BUILD_BADGE_ELEMENT_ID_ACU,
 } from '../../../src/presentation/bootstrap/install-build-badge';
 
 describe('installGlobalBuildBadge_ACU', () => {

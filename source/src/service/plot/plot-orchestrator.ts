@@ -14,6 +14,7 @@ import {
   logError_ACU,
   hashUserInput_ACU
 } from '../../shared/utils';
+import { clearPlotMessageProcessed_ACU, clearPlotPendingHash_ACU, isPlotMessageProcessed_ACU, markPlotMessageProcessed_ACU, setPlotPendingHash_ACU } from './plot-message-markers';
 
 // ============================================================
 // 类型定义
@@ -46,7 +47,7 @@ export function prepareStrategy1Context_ACU(lastMessage: any): {
     messageToProcess: string;
     originalInputHash: string;
 } | null {
-    if (!lastMessage || !lastMessage.is_user || lastMessage._plot_processed) {
+    if (!lastMessage || !lastMessage.is_user || isPlotMessageProcessed_ACU(lastMessage)) {
         return null;
     }
 
@@ -55,10 +56,10 @@ export function prepareStrategy1Context_ACU(lastMessage: any): {
         return null;
     }
 
-    lastMessage._plot_processed = true;
+    markPlotMessageProcessed_ACU(lastMessage);
     const originalInputHash = hashUserInput_ACU(messageToProcess);
-    lastMessage._qrf_plot_pending_hash = originalInputHash;
-    logDebug_ACU('[剧情推进] [Plot] 在消息对象上保存原始输入哈希:', originalInputHash);
+    setPlotPendingHash_ACU(lastMessage, originalInputHash);
+    logDebug_ACU('[剧情推进] [Plot] 为消息登记原始输入哈希（运行时标记，不落盘）:', originalInputHash);
 
     return { messageToProcess, originalInputHash };
 }
@@ -71,14 +72,18 @@ export function prepareStrategy1Context_ACU(lastMessage: any): {
  * 规划函数类型：由 presentation 层传入，负责调用 AI 规划并处理 UI 反馈（toast、中止按钮等）
  * 返回值与 runOptimizationLogicWithUI_ACU 兼容
  */
-export type PlanningFn = (userMessage: string, options: any) => Promise<string | null | { skipped?: boolean; aborted?: boolean; manual?: boolean; restoreText?: string }>;
+export type PlanningFn = (userMessage: string, options: any) => Promise<string | null | { skipped?: boolean; aborted?: boolean; manual?: boolean; restoreText?: string; apiRetriesExhausted?: boolean }>;
 
 /**
  * GENERATION_AFTER_COMMANDS 策略1编排结果
  */
 export interface Strategy1Result {
-    /** 'no_match' = 不匹配策略1, 'planned' = 规划成功, 'aborted' = 用户中止, 'skipped' = 跳过 */
-    action: 'no_match' | 'planned' | 'aborted' | 'skipped';
+    /** 'no_match' = 不匹配策略1, 'planned' = 规划成功, 'aborted' = 用户中止, 'skipped' = 跳过, 'failed' = API 重试耗尽 */
+    action: 'no_match' | 'planned' | 'aborted' | 'skipped' | 'failed';
+    /** 规划失败（非重试耗尽），发送层同样中断。 */
+    blocked?: boolean;
+    /** API 重试耗尽标记：发送层据此中断发送，不继续宿主发送 */
+    apiRetriesExhausted?: boolean;
     /** 规划后的最终消息 */
     finalMessage?: string;
     /** 是否是手动中止（需要停止生成、删除消息、恢复输入框） */
@@ -95,8 +100,12 @@ export interface Strategy1Result {
  * GENERATION_AFTER_COMMANDS 策略2编排结果
  */
 export interface Strategy2Result {
-    /** 'skip' = 不处理, 'planned' = 规划成功, 'aborted' = 用户中止 */
-    action: 'skip' | 'planned' | 'aborted';
+    /** 'skip' = 不处理, 'planned' = 规划成功, 'aborted' = 用户中止, 'failed' = API 重试耗尽 */
+    action: 'skip' | 'planned' | 'aborted' | 'failed';
+    /** 规划失败（非重试耗尽），发送层同样中断。 */
+    blocked?: boolean;
+    /** API 重试耗尽标记：发送层据此中断发送，不继续宿主发送 */
+    apiRetriesExhausted?: boolean;
     /** 规划后的最终消息 */
     finalMessage?: string;
     /** 是否是手动中止 */
@@ -136,7 +145,16 @@ export async function orchestrateAfterCommandsStrategy1_ACU(
             hasExistingUserMessage: true,
         });
 
-        // 3. 处理跳过
+        // API 重试耗尽或其它规划失败：透出 failed，由发送层中断发送。
+        if (finalMessage && typeof finalMessage === 'object' && (finalMessage as any).apiRetriesExhausted === true) {
+            return { action: 'failed', apiRetriesExhausted: true, originalMessage: messageToProcess, lastMessageIndex };
+        }
+        if (finalMessage && typeof finalMessage === 'object' && (finalMessage as any).blocked === true) {
+            return { action: 'failed', blocked: true, originalMessage: messageToProcess, lastMessageIndex };
+        }
+
+        // 3. 处理跳过：S1 已匹配直接返回，不再进 S2（S2 框多为空或同文，重跑一次规划是浪费；
+        // 旧 null→no_match→S2 属于失败误兜底，失败转 skipped 后不再触发）。
         if (finalMessage && (finalMessage as any).skipped) {
             logDebug_ACU('[剧情推进] Planning skipped in Strategy 1 (duplicate).');
             return { action: 'skipped' };
@@ -168,7 +186,8 @@ export async function orchestrateAfterCommandsStrategy1_ACU(
         return { action: 'no_match' };
     } catch (error) {
         logError_ACU('[剧情推进] Error processing last chat message:', error);
-        delete lastMessage._plot_processed;
+        clearPlotMessageProcessed_ACU(lastMessage);
+        clearPlotPendingHash_ACU(lastMessage);
         return { action: 'no_match' };
     } finally {
         _set_isProcessing_Plot_ACU(false);
@@ -203,6 +222,14 @@ export async function orchestrateAfterCommandsStrategy2_ACU(
             originalUserInput: originalInputText,
             hasExistingUserMessage: false,
         });
+
+        // API 重试耗尽或其它规划失败：透出 failed，由发送层中断发送。
+        if (finalMessage && typeof finalMessage === 'object' && (finalMessage as any).apiRetriesExhausted === true) {
+            return { action: 'failed', apiRetriesExhausted: true };
+        }
+        if (finalMessage && typeof finalMessage === 'object' && (finalMessage as any).blocked === true) {
+            return { action: 'failed', blocked: true };
+        }
 
         // 处理跳过
         if (finalMessage && (finalMessage as any).skipped) {

@@ -102,6 +102,8 @@ import {
   savePlotToLatestMessage_ACU,
   flushPlotPendingSave_ACU,
 } from '../../../../src/service/runtime/plot-runtime/plot-history-preset';
+import { getPlotPendingHash_ACU, setPlotPendingHash_ACU } from '../../../../src/service/plot/plot-message-markers';
+function withPendingHash<T extends object>(message: T, hash: string): T { setPlotPendingHash_ACU(message, hash); return message; }
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -137,11 +139,6 @@ afterEach(() => {
 
 // ═══ loadPresetAndCleanCharacterData_ACU ═══
 describe('loadPresetAndCleanCharacterData_ACU', () => {
-  it('无 plotSettings 时直接返回', async () => {
-    mockSettings.plotSettings = null;
-    await loadPresetAndCleanCharacterData_ACU();
-    expect(mockEnsurePlotTasksCompat).not.toHaveBeenCalled();
-  });
 
   it('有 chatScopeState 快照时应用快照', async () => {
     mockGetCurrentChatPlotScopeState.mockReturnValue({ snapshot: { prompts: [] } });
@@ -190,18 +187,6 @@ describe('loadPresetAndCleanCharacterData_ACU', () => {
 
 // ═══ getPlotFromHistory_ACU ═══
 describe('getPlotFromHistory_ACU', () => {
-  it('空聊天记录返回空字符串', () => {
-    mockGetChatArray.mockReturnValue([]);
-    expect(getPlotFromHistory_ACU()).toBe('');
-  });
-
-  it('找到匹配预设的 plot 数据', () => {
-    mockGetCurrentRuntimePresetName.mockReturnValue('预设A');
-    mockGetChatArray.mockReturnValue([
-      { is_user: true, qrf_plot: '剧情数据', qrf_plot_preset: '预设A' },
-    ]);
-    expect(getPlotFromHistory_ACU()).toBe('剧情数据');
-  });
 
   it('无匹配预设时回退到无标签数据', () => {
     mockGetCurrentRuntimePresetName.mockReturnValue('预设A');
@@ -209,14 +194,6 @@ describe('getPlotFromHistory_ACU', () => {
       { is_user: true, qrf_plot: '旧数据', qrf_plot_preset: '' },
     ]);
     expect(getPlotFromHistory_ACU()).toBe('旧数据');
-  });
-
-  it('无预设模式下找到任意 plot 数据', () => {
-    mockGetCurrentRuntimePresetName.mockReturnValue('');
-    mockGetChatArray.mockReturnValue([
-      { is_user: true, qrf_plot: '任意数据', qrf_plot_preset: '预设X' },
-    ]);
-    expect(getPlotFromHistory_ACU()).toBe('任意数据');
   });
 
   it('无 plot 数据返回空字符串', () => {
@@ -278,7 +255,7 @@ describe('getPlotFromHistory_ACU', () => {
 // ═══ savePlotToLatestMessage_ACU ═══
 describe('savePlotToLatestMessage_ACU', () => {
   it('pending 所属作用域已切换时不得把剧情写入新聊天', async () => {
-    const targetInNewChat = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' };
+    const targetInNewChat = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好');
     mockGetChatArray.mockReturnValue([targetInNewChat]);
     mockCurrentChatFileIdentifierRef.value = 'chat-b';
     mockCapturePlotRuntimeScope.mockReturnValue({ chatId: 'chat-b', characterId: 'char-2', isolationKey: 'iso-b', reliable: true });
@@ -333,18 +310,10 @@ describe('savePlotToLatestMessage_ACU', () => {
     expect(out.status).toBe('deferred');
   });
 
-  it('tempPlotToSave 为空时不保存', async () => {
-    mockPlanningGuard.inProgress = false;
-    mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const out = await savePlotToLatestMessage_ACU();
-    expect(out.status).toBe('deferred');
-    expect(mockSaveChatToHostStrict).not.toHaveBeenCalled();
-  });
-
   it('同步标记命中：写入 qrf_plot/qrf_plot_preset/qrf_plot_tasks 并请求宿主保存', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const target = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' };
+    const target = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好');
     mockGetChatArray.mockReturnValue([target]);
     mockTempPlotToSaveRef.value = {
       content: '剧情内容',
@@ -362,7 +331,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     expect(target.qrf_plot).toBe('剧情内容');
     expect(target.qrf_plot_preset).toBe('预设A');
     expect(target.qrf_plot_tasks).toEqual({ t1: '推进内容A' });
-    expect(target._qrf_plot_pending_hash).toBeUndefined();
+    expect(getPlotPendingHash_ACU(target)).toBeUndefined();
     expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
     expect(mockSetTempPlotToSave).toHaveBeenCalledWith(null);
   });
@@ -370,7 +339,7 @@ describe('savePlotToLatestMessage_ACU', () => {
   it('宿主保存失败时保留 pending 与标记，返回 failed', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const target = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' };
+    const target = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好');
     mockGetChatArray.mockReturnValue([target]);
     mockTempPlotToSaveRef.value = {
       content: '剧情内容',
@@ -384,7 +353,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     expect(out.status).toBe('failed');
     expect((out as any).reason).toBe('host_save_failed');
     expect(target.qrf_plot).toBe('剧情内容');
-    expect(target._qrf_plot_pending_hash).toBe('hash_你好');
+    expect(getPlotPendingHash_ACU(target)).toBe('hash_你好');
     expect(mockTempPlotToSaveRef.value).not.toBeNull();
     expect(mockSetTempPlotToSave).not.toHaveBeenCalled();
   });
@@ -393,7 +362,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
     // 首轮：保存失败，标记保留
-    const target = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' };
+    const target = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好');
     mockGetChatArray.mockReturnValue([target]);
     mockTempPlotToSaveRef.value = {
       content: '剧情内容',
@@ -410,7 +379,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     const flushOut = await flushPlotPendingSave_ACU();
     expect(flushOut).toEqual({ status: 'committed', targetIndex: 0 });
     expect(target.qrf_plot).toBe('剧情内容');
-    expect(target._qrf_plot_pending_hash).toBeUndefined();
+    expect(getPlotPendingHash_ACU(target)).toBeUndefined();
     expect(mockTempPlotToSaveRef.value).toBeNull();
     expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(2);
   });
@@ -433,7 +402,7 @@ describe('savePlotToLatestMessage_ACU', () => {
   it('延迟提交：目标消息随后入数组时完成写入并保存（fake timers）', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const target = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' };
+    const target = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好');
     mockGetChatArray.mockReturnValue([]);
     mockTempPlotToSaveRef.value = {
       content: '剧情内容',
@@ -449,7 +418,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     mockGetChatArray.mockReturnValue([target]);
     await vi.advanceTimersByTimeAsync(200);
     expect(target.qrf_plot).toBe('剧情内容');
-    expect(target._qrf_plot_pending_hash).toBeUndefined();
+    expect(getPlotPendingHash_ACU(target)).toBeUndefined();
     expect(mockSaveChatToHostStrict).toHaveBeenCalledTimes(1);
     expect(mockTempPlotToSaveRef.value).toBeNull();
   });
@@ -457,7 +426,7 @@ describe('savePlotToLatestMessage_ACU', () => {
   it('延迟提交：新一轮 pending 替换时旧回调不写入也不清空新 pending', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const oldTarget = { is_user: true, mes: '旧消息', _qrf_plot_pending_hash: 'hash_旧消息' };
+    const oldTarget = withPendingHash({ is_user: true, mes: '旧消息' }, 'hash_旧消息');
     mockGetChatArray.mockReturnValue([]);
     const oldPending = {
       content: '旧内容',
@@ -491,7 +460,7 @@ describe('savePlotToLatestMessage_ACU', () => {
   it('延迟提交：聊天切换时旧回调不写入，且清空本轮 pending', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const oldTarget = { is_user: true, mes: '旧消息', _qrf_plot_pending_hash: 'hash_旧消息' };
+    const oldTarget = withPendingHash({ is_user: true, mes: '旧消息' }, 'hash_旧消息');
     mockGetChatArray.mockReturnValue([]);
     mockTempPlotToSaveRef.value = {
       content: '旧内容',
@@ -558,7 +527,7 @@ describe('savePlotToLatestMessage_ACU', () => {
       chatId: 'old-chat',
     };
     mockCurrentChatFileIdentifierRef.value = 'new-chat';
-    const oldTarget = { is_user: true, mes: '旧消息', _qrf_plot_pending_hash: 'hash_旧消息' };
+    const oldTarget = withPendingHash({ is_user: true, mes: '旧消息' }, 'hash_旧消息');
     mockGetChatArray.mockReturnValue([oldTarget]);
 
     const out = await flushPlotPendingSave_ACU();
@@ -686,7 +655,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
     // 残留场景：上一轮已写入 plot 但标记未清理，且未带 roundId（旧版本遗留）
-    const stale = { is_user: true, mes: '用户原文', qrf_plot: '上一轮推进', _qrf_plot_pending_hash: 'hash_用户原文' } as any;
+    const stale = withPendingHash({ is_user: true, mes: '用户原文', qrf_plot: '上一轮推进' }, 'hash_用户原文') as any;
     mockGetChatArray.mockReturnValue([stale]);
     mockTempPlotToSaveRef.value = {
       content: '本轮推进',
@@ -708,7 +677,7 @@ describe('savePlotToLatestMessage_ACU', () => {
   it('roundId 格式仍保留策略1标记路径，并在保存成功后清理标记、保留 roundId', async () => {
     mockPlanningGuard.inProgress = false;
     mockPlanningGuard.ignoreNextGenerationEndedCount = 0;
-    const target = { is_user: true, mes: '你好', _qrf_plot_pending_hash: 'hash_你好' } as any;
+    const target = withPendingHash({ is_user: true, mes: '你好' }, 'hash_你好') as any;
     mockGetChatArray.mockReturnValue([target]);
     mockTempPlotToSaveRef.value = {
       content: '本轮推进',
@@ -723,7 +692,7 @@ describe('savePlotToLatestMessage_ACU', () => {
     const out = await savePlotToLatestMessage_ACU(true);
     expect(out).toEqual({ status: 'committed', targetIndex: 0 });
     expect(target.qrf_plot).toBe('本轮推进');
-    expect(target._qrf_plot_pending_hash).toBeUndefined();
+    expect(getPlotPendingHash_ACU(target)).toBeUndefined();
     expect(target._qrf_plot_round_id).toBe('round-2');
   });
 

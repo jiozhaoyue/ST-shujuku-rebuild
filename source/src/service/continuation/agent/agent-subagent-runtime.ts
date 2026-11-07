@@ -27,7 +27,7 @@ import { USER_PREFILL_CONTENT_ACU } from '../../../shared/user-prefill.js';
 import { findAgentSubagentDefinition_ACU, renderAgentReadCatalog_ACU, renderAgentWebToolCatalog_ACU, type AgentSubagentDefinition_ACU } from './agent-catalog';
 import { hasActiveStoryArc_ACU, readAgentModuleFoldState_ACU, readAgentModuleSnapshot_ACU } from './agent-module-store';
 import { continuationWorkflowContractTouched_ACU } from './agent-workflow';
-import type { AgentFieldPage_ACU, AgentModuleFieldReceipt_ACU } from './agent-module-store';
+import type { AgentFieldPage_ACU, AgentModuleFieldReceipt_ACU, AgentModuleRevisionWindow_ACU } from './agent-module-store';
 import { renderAgentUserRequirements_ACU } from './agent-user-requirements';
 import {
   compactAgentProtocolError_ACU,
@@ -176,7 +176,7 @@ export interface AgentSubagentRunInput_ACU {
   /** 修正轮只允许维护员触碰仍待修复的模块；首轮不传则使用职责固定写集。 */
   targetModules?: readonly AgentWritableModule_ACU[];
   /** 受控逐栏即时保存端口（S11-TT Mode F）；不传时子代理只有只读工具。 */
-  writeSql?: (input: { role: AgentSubagentName_ACU; sql: string; resolvePage: (handle: string) => AgentFieldPage_ACU | null; isCurrent?: () => boolean }) => Promise<AgentModuleFieldReceipt_ACU>;
+  writeSql?: (input: { role: AgentSubagentName_ACU; sql: string; resolvePage: (handle: string) => AgentFieldPage_ACU | null; isCurrent?: () => boolean; revisionWindow?: AgentModuleRevisionWindow_ACU }) => Promise<AgentModuleFieldReceipt_ACU>;
 }
 
 /** 终审由 finalize 前的受控状态机调用，不接受普通 delegation。 */
@@ -320,6 +320,18 @@ interface SubagentMaterial_ACU {
 }
 
 /**
+ * 确保出站消息以 user 预填充收尾。模板尾段被用户删掉时补上，否则续写引导失效、
+ * 模型另起一段回复而不是续写 JSON（移植上游 e1876435：末尾始终追加）。
+ */
+export function ensureTrailingUserPrefill_ACU(
+  messages: ReadonlyArray<{ role: string; content: string }>,
+): Array<{ role: string; content: string }> {
+  const last = messages[messages.length - 1];
+  if (last && last.role === 'user' && last.content === USER_PREFILL_CONTENT_ACU) return messages as Array<{ role: string; content: string }>;
+  return [...messages, { role: 'user', content: USER_PREFILL_CONTENT_ACU }];
+}
+
+/**
  * 把一条运行时消息插到尾部预填充之前。渲染后的消息序列若以尾部预填充收尾——
  * assistant 旧形态（role==='assistant'）或 user + USER_PREFILL 新形态（V36 起）——
  * 追加内容必须放在它前面，否则预填充不再是最后一条消息、失去续写引导作用。
@@ -331,6 +343,20 @@ export function insertBeforeTrailingPrefill_ACU(
   const last = messages[messages.length - 1];
   if (last && (last.role === 'assistant' || (last.role === 'user' && last.content === USER_PREFILL_CONTENT_ACU))) return [...messages.slice(0, -1), extra, last];
   return [...messages, extra];
+}
+
+/**
+ * 把本次派工的对话记录接到骨架之后：骨架以 user 预填充收尾时，记录插在预填充之前，
+ * 预填充始终只出现一次、且是最后一条（对应上游 history 卡片在预填充前的位置）。
+ * assistant 旧形态尾段不在此处理，沿用原有追加行为，由 ensureTrailingUserPrefill_ACU 补尾。
+ */
+export function appendBeforeTrailingPrefill_ACU(
+  messages: ReadonlyArray<{ role: string; content: string }>,
+  appended: ReadonlyArray<{ role: string; content: string }>,
+): Array<{ role: string; content: string }> {
+  const last = messages[messages.length - 1];
+  if (appended.length && last && last.role === 'user' && last.content === USER_PREFILL_CONTENT_ACU) return [...messages.slice(0, -1), ...appended, last];
+  return [...messages, ...appended];
 }
 
 /**
@@ -422,10 +448,14 @@ export function renderWriteSqlRepair_ACU(receipt: AgentModuleFieldReceipt_ACU): 
   const lines: string[] = [];
   const fatal = receipt.rejected.find(item => item.path === 'host' || item.path === 'sql');
   if (fatal?.reason.includes('字段数与值数量不一致')) {
-    lines.push('这条 SQL 没有解析，任何栏目都没写入。不是缺 id。正文里的单引号要写成两个单引号，否则一个值会被拆成好几段。id 和 expected_revision 可以不写。');
+    lines.push('这条 SQL 没有解析，任何栏目都没写入。列名与 VALUES 必须逐项对应；检查是否把正文误放进列名列表或漏写值，不要盲目添加 id / expected_revision。只有失败语句未写入，其他语句按 accepted / alreadySaved 确认，不重发。');
   } else if (fatal?.reason.includes('领域快照')) {
     lines.push('这条 SQL 被整句退回，没有写入。把要改的行放在同一次调用里再交。');
   }
+  if (receipt.rejected.length || receipt.partials?.length) lines.push(receipt.revisions
+    ? `WHERE expected_revision 使用当前模块修订号 revisions：${JSON.stringify(receipt.revisions)}；accepted / alreadySaved 的 revision 是字段修订号，不是模块修订号。`
+    : 'WHERE expected_revision 使用回执 revisions 里该模块的当前值；accepted / alreadySaved 的 revision 是字段修订号，不是模块修订号（本次回执暂无 revisions，先 read 对应 $FIELD:模块:ID 核实）。');
+  if (receipt.alreadySaved?.length) lines.push(`此前已保存且本次未重复写入：${receipt.alreadySaved.map(item => `${item.module}#${item.id}.${item.field}`).join('、')}。不要再次提交这些栏目。`);
   for (const item of receipt.rejected) {
     if (item.path === 'host' || item.path === 'sql') continue;
     if (item.reason.includes('必须是非空字符串数组')) lines.push(`${item.path} 要写成单引号包裹的 JSON 数组，例如 '["经营线"]'，不要用竖线或一整句中文。`);
@@ -437,9 +467,15 @@ export function renderWriteSqlRepair_ACU(receipt: AgentModuleFieldReceipt_ACU): 
     else if (item.reason === 'not_found') lines.push(`${item.path} 还没有记录，用 INSERT，不要 UPDATE。`);
     else if (item.reason === 'id_exists') lines.push(`${item.path} 已有记录，用 UPDATE，不要再 INSERT。`);
     else if (item.reason.includes('SET 不得指定')) lines.push('UPDATE 的 SET 里不要写 id 或 expected_revision，这两项只放在 WHERE。');
+    else if (item.reason.includes('字段数与值数量不一致')) lines.push('列名与 VALUES 必须逐项对应；检查是否把正文误放进列名列表或漏写值，不要盲目添加 id / expected_revision。只有失败语句未写入，其他语句按 accepted / alreadySaved 确认，不重发。');
+    else if (item.reason.includes('字符串字面量未闭合')) lines.push('检查字符串的英文单引号是否成对，正文里的单引号写成两个单引号。');
   }
   if ((receipt.partials ?? []).some(item => item.promotionError?.includes('active') || item.promotionError?.includes('sustainingThreads'))) {
     lines.push('同一时刻只能有一条 volume 的 status 为 active，其余用 planned。scope=story 不要带卷级栏目。');
+  }
+  const unpromoted = (receipt.partials ?? []).filter(item => item.promotionError);
+  if (unpromoted.length) {
+    lines.push(`以下条目栏目已保存，但还不能成为正式条目，用 UPDATE 按原因修正（已保存的栏目不要重发）：${unpromoted.map(item => `${item.module}#${item.id}：${item.promotionError}`).join('；')}`);
   }
   const drafts = (receipt.partials ?? []).filter(item => item.missingFields.length);
   if (drafts.length) {
@@ -590,14 +626,14 @@ export class AgentSubagentRuntime_ACU {
     // 总纲卷数计划是随设置变化的运行时指令，不进提示词模板；但它必须落在尾部预填充之前——
     // 追加在预填充之后会让对话以一条 user 消息收尾，预填充失效，模型会另起一段回复而不是续写 JSON。
     const baseMessagesInitial = definition.promptKey === 'arcArchitect'
-      ? insertBeforeTrailingPrefill_ACU(rendered.messages, { role: 'user', content: renderStoryArcVolumePlanInstruction_ACU(input.settings) })
+      ? insertBeforeTrailingPrefill_ACU(rendered.messages, { role: 'system', content: renderStoryArcVolumePlanInstruction_ACU(input.settings) })
       : rendered.messages;
     // 预算状态同样是运行时信息；首轮先给上限，之后随每个工具批次刷新剩余轮次与遥测。
-    const baseMessages = insertBeforeTrailingPrefill_ACU(baseMessagesInitial, { role: 'user', content: renderReadBudgetNote(0) });
+    const baseMessages = insertBeforeTrailingPrefill_ACU(baseMessagesInitial, { role: 'system', content: renderReadBudgetNote(0) });
     // S11-TT Mode F：可写角色经受控端口逐栏即时提交；只读角色与终审不提示该工具。
     const fieldWritable = !!input.writeSql && writes.length > 0 && !isRequirementsMaintainer;
     const baseMessagesWithFieldHint = fieldWritable
-      ? insertBeforeTrailingPrefill_ACU(baseMessages, { role: 'system', content: '可调用 {"action":"write_sql","sql":"受限 INSERT/UPDATE/DELETE SQL"} 逐栏即时提交。一次调用的 sql 可以包含多条语句，用分号隔开，不要拆成多次调用。id 和 expected_revision 可以不写：新行按 STORY-01、VOL-01、H001、E001、T001 顺序补号，修订号由系统按当前模块补上；显式写 expected_revision 时新行固定写 0，补已有行用回执 revisions 里的模块修订号。volume 没写 status 时第一条补 active、其余补 planned，同一时刻只能有一条 volume status 为 active；scope=story 不要写卷级栏目。sustaining_threads 与 payoff_targets 写成 \'["条目"]\'，target_stage_range 写成 \'{"min":6,"max":10}\'，字符串里的单引号写成两个单引号。只写职责模块，用回执中的实际 revision 与 $FIELD:模块:ID[:栏目] 补缺栏；仅 status=committed 的 accepted 已保存；partials/revisions=null 表示恢复状态不确定，先重新读权威帧，不得按旧 revision 补写。逐栏写入是草稿层，正式总纲条目仍须最终契约整条写入；最终契约不得重复提交已写栏目。' })
+      ? insertBeforeTrailingPrefill_ACU(baseMessages, { role: 'system', content: '可调用 {"action":"write_sql","sql":"受限 INSERT/UPDATE/DELETE SQL"} 逐栏即时提交。一次调用的 sql 可以包含多条语句，用分号隔开，不要拆成多次调用。id 和 expected_revision 可以不写：新行按 STORY-01、VOL-01、H001、E001、T001 顺序补号，修订号由系统按当前模块补上；显式写 expected_revision 时新行固定写 0，补已有行用回执 revisions 里的模块修订号。volume 没写 status 时第一条补 active、其余补 planned，同一时刻只能有一条 volume status 为 active；scope=story 不要写卷级栏目。sustaining_threads 与 payoff_targets 写成 \'["条目"]\'，target_stage_range 写成 \'{"min":6,"max":10}\'，字符串里的单引号写成两个单引号。只写职责模块，用回执中的实际 revision 与 $FIELD:模块:ID[:栏目] 补缺栏；仅 status=committed 的 accepted 已保存；partials/revisions=null 表示恢复状态不确定，先重新读权威帧，不得按旧 revision 补写。写齐全部栏目的条目会在提交时自动提升为正式条目（以回执 revisions 推进为准），不需要也不得在最终契约里整条重写；用过 write_sql 后最终契约必须交空 delta，不得重复提交已写栏目。' })
       : baseMessages;
     const retries = normalizeContinuationInternalAiRetryLimit_ACU(input.settings.internalAiRetryLimit);
     // 小循环的追加消息：子代理自己的输出（assistant）与工具结果/纠正提示（user）。
@@ -613,6 +649,13 @@ export class AgentSubagentRuntime_ACU {
     let writeRoundsUsed = 0;
     const maxWriteRounds = fieldWritable ? Math.max(1, input.budget.maxIterations) : 0;
     let usedFieldWrites = false;
+    // 本派工的修订号窗口：自身提交推进的模块号由提交口接管，外部写入会让提交口把窗口重置到最新版（上游 5c02f861）。
+    const revisionWindow: AgentModuleRevisionWindow_ACU = {};
+    for (const module of writes) {
+      if (module === 'hooks' || module === 'infoGap' || module === 'storyArc' || module === 'chronology' || module === 'webRefs') {
+        revisionWindow[module] = { base: readRevisions[module], head: readRevisions[module] };
+      }
+    }
     let protocolRejections = 0;
     let attempt = 0;
     let lastReason = '';
@@ -750,9 +793,9 @@ export class AgentSubagentRuntime_ACU {
         throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '子代理请求已失效', false));
       }
       // 传输错误（502/网络抖动）按设置延时重试；协议/契约拒绝仍走小循环内的对话级立即重试。
-      const outgoingMessages = pendingResearchEvidence
-        ? insertBeforeTrailingPrefill_ACU([...baseMessagesWithFieldHint, ...transcript], { role: 'user', content: pendingResearchEvidence })
-        : [...baseMessagesWithFieldHint, ...transcript];
+      const outgoingMessages = ensureTrailingUserPrefill_ACU(pendingResearchEvidence
+        ? insertBeforeTrailingPrefill_ACU(appendBeforeTrailingPrefill_ACU(baseMessagesWithFieldHint, transcript), { role: 'system', content: pendingResearchEvidence })
+        : appendBeforeTrailingPrefill_ACU(baseMessagesWithFieldHint, transcript));
       await assertOutgoingWithinBudget_ACU(outgoingMessages);
       const raw = await callContinuationInternalAiWithRetry_ACU(
         () => this.dependencies.callInternalAi(
@@ -824,12 +867,15 @@ export class AgentSubagentRuntime_ACU {
                 throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '写入请求已失效', false));
               }
               try {
-                const receipt = await input.writeSql!({ role: definition.name, sql: call.sql,
+                const receipt = await input.writeSql!({ role: definition.name, sql: call.sql, revisionWindow,
                   isCurrent: () => input.isCurrent(identity) && !input.signal?.aborted, resolvePage: handle => {
                   const page = pageCache.pages.get(handle.trim().toUpperCase());
                   return page?.status === 'ok' && page.text ? { title: page.title, source: page.source, url: page.url, query: page.query, sourceStatus: page.status } : null;
                 } });
                 if (!input.isCurrent(identity) || input.signal?.aborted) throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '写入回执已失效', false));
+                // 聊天或目标楼层已变：这不是字段错误，旧任务不再读写，按失效终止（上游 37948da1）。
+                const staleChat = receipt.rejected.find(item => item.path === 'chat');
+                if (staleChat) throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', staleChat.reason, false));
                 if (receipt.status === 'committed') {
                   usedFieldWrites = true;
                   // 弹回后的成功写轮视为模型合规（余量已移入逐栏）：清除弃置拦截。
@@ -851,6 +897,8 @@ export class AgentSubagentRuntime_ACU {
                 const receiptText = JSON.stringify({ action: 'write_sql', ...receipt, readAddresses });
                 sections.push(repair ? `${receiptText}\n${repair}` : receiptText);
               } catch (error) {
+                // 失效不能被折成一条普通拒绝回执，否则模型会在作废的任务里继续重试写入。
+                if (error instanceof ContinuationValidationError_ACU && error.error.code === 'CONTINUATION_INTERNAL_REQUEST_STALE') throw error;
                 sections.push(JSON.stringify({ action: 'write_sql', status: 'rejected', accepted: [],
                   reason: error instanceof Error ? error.message : String(error) }));
               }
@@ -1079,6 +1127,8 @@ export class AgentSubagentRuntime_ACU {
       $STORY_ARC: () => resolveAgentReadToken_ACU('$STORY_ARC', input.resolveContext).text,
       $CHRONOLOGY: () => resolveAgentReadToken_ACU('$CHRONOLOGY', input.resolveContext).text,
       $STORY_TAIL: () => renderAgentStoryTail_ACU(input.resolveContext),
+      $HOOKS_LEDGER: () => evidence.hooksLedger,
+      $INFO_GAP: () => evidence.infoGap,
       $WORLDBOOK_HITS: () => evidence.worldbookEvidence,
       $AGENT_READ_MATERIALS: () => evidence.supplementalMaterials,
       $AGENT_TASK: () => input.candidateInstruction,
@@ -1098,7 +1148,7 @@ export class AgentSubagentRuntime_ACU {
       grantedTokens: gate.state.grantedTokens,
     });
     // 终审与普通派工同一预算语义：首轮给出上限，每个工具批次后刷新剩余轮次与遥测；注入点必须在尾部预填充之前。
-    const baseMessages = insertBeforeTrailingPrefill_ACU(rendered.messages, { role: 'user', content: renderReadBudgetNote(0) });
+    const baseMessages = insertBeforeTrailingPrefill_ACU(rendered.messages, { role: 'system', content: renderReadBudgetNote(0) });
     const transcript: Array<{ role: string; content: string }> = [];
     const expandedReads: string[] = [];
     let toolRoundsUsed = 0;
@@ -1144,7 +1194,7 @@ export class AgentSubagentRuntime_ACU {
       if (!input.isCurrent(identity)) {
         throw new ContinuationValidationError_ACU(createContinuationError_ACU('CONTINUATION_INTERNAL_REQUEST_STALE', 'agent_delegate', '终审请求已失效', false));
       }
-      const outgoingMessages = [...baseMessages, ...transcript];
+      const outgoingMessages = ensureTrailingUserPrefill_ACU(appendBeforeTrailingPrefill_ACU(baseMessages, transcript));
       await assertFinalOutgoingWithinBudget_ACU(outgoingMessages);
       const raw = await callContinuationInternalAiWithRetry_ACU(
         () => this.dependencies.callInternalAi(outgoingMessages, preset, identity, input.signal, callOptions),

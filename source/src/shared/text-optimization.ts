@@ -9,6 +9,7 @@ import { logDebug_ACU, normalizeExcludeRules_ACU } from './utils';
 import {
   collectExcludeRanges_ACU,
   findOverlappingBoundaryRange_ACU,
+  mergeBoundaryRanges_ACU,
   type BoundaryRange_ACU,
 } from './boundary-ranges';
 
@@ -184,37 +185,6 @@ export function trimPunctuation_ACU(text: string): { trimmed: string; prefix: st
 }
 
 /**
- * 处理单引号
- */
-export function processSingleQuotes_ACU(text: string): string {
-  if (!text) return text;
-
-  let result = text;
-
-  result = result.replace(/\u2018([^\u2019]*)\u2019/g, (match: string, content: string, offset: number, string: string) => {
-    const endPos = offset + match.length;
-    const afterMatch = string.substring(endPos).trim();
-    if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
-      return `\u201C${content}`;
-    } else {
-      return `\u201C${content}\u201D`;
-    }
-  });
-
-  result = result.replace(/'([^']*)'/g, (match: string, content: string, offset: number, string: string) => {
-    const endPos = offset + match.length;
-    const afterMatch = string.substring(endPos).trim();
-    if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
-      return `\u201C${content}`;
-    } else {
-      return `\u201C${content}\u201D`;
-    }
-  });
-
-  return result;
-}
-
-/**
  * 正文替换页「标签排除规则」在写回阶段的选项。
  * 语义（用户拍板 B 方案）= 写回保护：建议命中的原文区间与排除区间重叠时整条丢弃，
  * 不参与写回、不计入替换统计；发送链仍按原文发送，不做发送前剥离。
@@ -223,6 +193,8 @@ export function processSingleQuotes_ACU(text: string): string {
 export interface OptimizationExcludeOptions_ACU {
   excludeRules?: any[];
   excludeTags?: string;
+  /** 调用方已用同一规则对原文预过滤过：写回时跳过重复的预过滤，只做按当前正文的复核。 */
+  alreadyFiltered?: boolean;
 }
 
 export interface DroppedOptimization_ACU {
@@ -249,20 +221,54 @@ function hasExcludeRuleInput_ACU(options?: OptimizationExcludeOptions_ACU | null
 }
 
 /**
+ * MVU 变量更新块（标签名与 MVU 解析器一致，大小写不敏感）。未闭合的块保护到正文末尾。
+ * MVU 把块留在正文里，手动重试还会按标签裁掉旧块重解析；块内被改写，变量就和正文对不上。
+ */
+const MVU_UPDATE_BLOCK_PATTERN_ACU = /<(updatevariable|variableupdate|jsonpatch)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi;
+
+/** 正文里 MVU 变量更新块的区间（已合并）；没有块时返回空数组。 */
+export function collectMvuUpdateBlockRanges_ACU(text: string): BoundaryRange_ACU[] {
+  const source = String(text ?? '');
+  if (!/<(?:updatevariable|variableupdate|jsonpatch)\b/i.test(source)) return [];
+  const ranges: BoundaryRange_ACU[] = [];
+  for (const match of source.matchAll(MVU_UPDATE_BLOCK_PATTERN_ACU)) {
+    ranges.push({ start: match.index!, end: match.index! + match[0].length });
+  }
+  return mergeBoundaryRanges_ACU(ranges);
+}
+
+/**
+ * 去掉 MVU 变量更新块后的剧情正文（替换前判定、送给替换模型的 $CONTENT）。
+ * 夹在正文中间的块换成换行，免得前后两段粘成一句；没有块时原样返回。
+ */
+export function stripMvuUpdateBlocks_ACU(text: string): string {
+  const source = String(text ?? '');
+  const ranges = collectMvuUpdateBlockRanges_ACU(source);
+  if (ranges.length === 0) return source;
+  let result = source;
+  for (let index = ranges.length - 1; index >= 0; index--) {
+    result = result.slice(0, ranges[index].start) + '\n' + result.slice(ranges[index].end);
+  }
+  return result.trim();
+}
+
+/**
  * 计算原文中的排除区间集合（复用上下文标签的边界匹配器语义）。
- * 未配置规则或规则在本段文本里没有命中时返回空数组。
+ * MVU 变量更新块无论是否配置规则都算排除区间；两者都没有时返回空数组。
  */
 export function collectOptimizationExcludeRanges_ACU(
   originalContent: string,
   options?: OptimizationExcludeOptions_ACU | null,
 ): BoundaryRange_ACU[] {
-  if (!hasExcludeRuleInput_ACU(options)) return [];
   const source = String(originalContent ?? '');
   if (!source) return [];
 
+  const mvuRanges = collectMvuUpdateBlockRanges_ACU(source);
+  if (!hasExcludeRuleInput_ACU(options)) return mvuRanges;
   const rules = normalizeExcludeRules_ACU(options!.excludeRules ?? [], options!.excludeTags ?? '');
-  if (!Array.isArray(rules) || rules.length === 0) return [];
-  return collectExcludeRanges_ACU(source, rules);
+  if (!Array.isArray(rules) || rules.length === 0) return mvuRanges;
+  const userRanges = collectExcludeRanges_ACU(source, rules);
+  return mvuRanges.length === 0 ? userRanges : mergeBoundaryRanges_ACU([...userRanges, ...mvuRanges]);
 }
 
 /**
@@ -345,7 +351,7 @@ export function applyOptimizationsWithStats_ACU(
   const failedItems: any[] = [];
 
   let effectiveOptimizations = Array.isArray(optimizations) ? optimizations : [];
-  if (hasExcludeRuleInput_ACU(options)) {
+  if (hasExcludeRuleInput_ACU(options) && !options?.alreadyFiltered) {
     effectiveOptimizations = filterOptimizationsByExcludeRules_ACU(
       originalContent,
       effectiveOptimizations,
@@ -353,22 +359,33 @@ export function applyOptimizationsWithStats_ACU(
     ).kept;
   }
 
+  // 受保护区（MVU 变量块 / 排除段）按当前正文计算，只在正文真的被改写后才重算
+  let protectedRanges = collectOptimizationExcludeRanges_ACU(result, options);
   for (let i = 0; i < effectiveOptimizations.length; i++) {
     const opt = effectiveOptimizations[i];
     if (opt.type === 'replace' && opt.original && opt.optimized) {
       let replaced = false;
 
       const match = findParagraphMatch_ACU(opt.original, result);
+      // 前面的建议改过正文后，同一段原文可能改为命中受保护区里的同名文字：
+      // 按当前正文重新核对，落进去就不写（预过滤只核对了原文里的第一处命中）。
+      const hitProtected = match.start !== -1
+        && !!findOverlappingBoundaryRange_ACU(protectedRanges, match.start, match.end);
+      if (hitProtected) {
+        logDebug_ACU(`[正文优化] 优化项 ${i + 1} 在当前正文中命中受保护区（写回保护），跳过`);
+      }
 
-      if (match.start !== -1) {
+      if (match.start !== -1 && !hitProtected) {
         const matchedText = result.substring(match.start, match.end);
         const originalPunct = trimPunctuation_ACU(matchedText);
         const optimizedPunct = trimPunctuation_ACU(opt.optimized);
 
-        let finalContent = originalPunct.prefix + optimizedPunct.trimmed + originalPunct.suffix;
-        finalContent = processSingleQuotes_ACU(finalContent);
+        // 优化后的正文原样写回（R7-01）：过去这里会把单引号对改成双引号，段末嵌套引用会丢闭合引号、
+        // 英文撇号会被改成弯引号，直接改坏用户正文。引号风格交给提示词约束。
+        const finalContent = originalPunct.prefix + optimizedPunct.trimmed + originalPunct.suffix;
 
         result = result.substring(0, match.start) + finalContent + result.substring(match.end);
+        protectedRanges = collectOptimizationExcludeRanges_ACU(result, options);
         replaced = true;
         logDebug_ACU(`[正文优化] 优化项 ${i + 1} 使用${match.method}成功，位置: ${match.start}-${match.end}`);
       }

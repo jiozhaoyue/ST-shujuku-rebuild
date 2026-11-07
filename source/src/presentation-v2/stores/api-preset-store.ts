@@ -14,10 +14,9 @@ import {
 import {
   ensureApiSettingsShape_ACU,
   findPresetByName_ACU,
-  getBoundPresetNameForChat_ACU,
   getCurrentChatKey_ACU,
-  normalizeApiMode_ACU,
   normalizeApiConfig_ACU,
+  resolveDisplayedActiveApiPresetName_ACU,
   saveApiPreset_ACU,
   saveCurrentConfigAsPreset_ACU,
   deleteApiPreset_ACU,
@@ -30,7 +29,9 @@ import {
   type ApiPresetWriteResult_ACU,
 } from '../../service/settings/api-preset-service';
 import {
-  fetchAvailableModels_ACU
+  fetchAvailableModels_ACU,
+  testApiConnection_ACU,
+  type ApiConnectionTestResult_ACU,
 } from '../../service/ai/ai-service';
 
 export type AcuV2ApiMode = ApiPresetApiMode_ACU;
@@ -51,38 +52,12 @@ interface ApiPresetState {
   modelOptions: string[];
   modelLoadStatus: 'idle' | 'loading' | 'success' | 'error';
   modelLoadError: string;
+  /** G02-03：模型列表所属表单的代数：切预设/新建/放弃修改时 +1，迟到的加载结果代数不符即丢弃（与测试连接的代数守卫同口径） */
+  modelListGeneration: number;
 }
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null));
-}
-
-function getCurrentConfigAsPreset(name: string): AcuV2ApiPreset {
-  ensureApiSettingsShape_ACU();
-  return {
-    name,
-    apiMode: normalizeApiMode_ACU(settings_ACU.apiMode),
-    apiConfig: normalizeApiConfig_ACU(settings_ACU.apiConfig),
-  };
-}
-
-function findPresetMatchingCurrentConfig(presets: AcuV2ApiPreset[]): AcuV2ApiPreset | null {
-  const current = getCurrentConfigAsPreset('');
-  return presets.find(preset => {
-    return (
-      preset.apiConfig.url === current.apiConfig.url &&
-      preset.apiConfig.apiKey === current.apiConfig.apiKey &&
-      preset.apiConfig.model === current.apiConfig.model &&
-      preset.apiConfig.max_tokens === current.apiConfig.max_tokens &&
-      preset.apiConfig.temperature === current.apiConfig.temperature &&
-      preset.apiConfig.bodyParams === current.apiConfig.bodyParams &&
-      preset.apiConfig.excludeBodyParams === current.apiConfig.excludeBodyParams &&
-      preset.apiConfig.requestHeaders === current.apiConfig.requestHeaders &&
-      // 同名异协议/异后处理预设不得误判为同一：两字段都参与匹配（缺失由归一化补为默认值后比较）。
-      preset.apiConfig.promptPostProcessing === current.apiConfig.promptPostProcessing &&
-      preset.apiConfig.customApiFormat === current.apiConfig.customApiFormat
-    );
-  }) ?? null;
 }
 
 function resolveCurrentConfigStatus(): { ready: boolean; label: string } {
@@ -107,6 +82,7 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
     modelOptions: [],
     modelLoadStatus: 'idle',
     modelLoadError: '',
+    modelListGeneration: 0,
   }),
   getters: {
     defaultPreset(state): AcuV2ApiPreset | null {
@@ -133,9 +109,7 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
         : '';
       this.defaultApiPresetName = defaultName;
 
-      const boundName = getBoundPresetNameForChat_ACU(this.currentChatKey);
-      const matchedCurrentName = findPresetMatchingCurrentConfig(this.presets)?.name ?? '';
-      this.activePresetName = boundName || defaultName || matchedCurrentName;
+      this.activePresetName = resolveDisplayedActiveApiPresetName_ACU(this.currentChatKey);
       const currentConfig = resolveCurrentConfigStatus();
       this.currentConfigReady = currentConfig.ready;
       this.currentConfigLabel = currentConfig.label;
@@ -164,18 +138,39 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
      * 模型探活（status）：customApiFormat 允许未归一化的草稿值，
      * service 侧按五值白名单校验、非法降级 ''（等价 TT 默认 openai_compat）。
      */
+    /** 测试连接：用填写中的配置（可未保存）发一条最短请求；结果由调用方展示，不改 store 状态。 */
+    testConnectionForConfig(
+      apiConfig: Partial<AcuV2ApiConfig>,
+      options?: { nonPrefillSupport?: boolean },
+    ): Promise<ApiConnectionTestResult_ACU> {
+      return testApiConnection_ACU(apiConfig, options);
+    },
+    /**
+     * G02-03：模型列表只属于加载它时的那份草稿。切换预设 / 新建草稿 / 放弃修改 / 表单重载时
+     * 整份清空并换代，避免 alpha 端点的模型下拉与报错文案挂在 beta 表单下、误选写错模型名。
+     */
+    resetModelListState(): void {
+      this.modelListGeneration += 1;
+      this.modelOptions = [];
+      this.modelLoadStatus = 'idle';
+      this.modelLoadError = '';
+    },
     async loadModelsForConfig(
       apiConfig: Partial<Omit<AcuV2ApiConfig, 'customApiFormat'>> & { customApiFormat?: string },
     ): Promise<boolean> {
+      const generation = this.modelListGeneration;
       this.modelLoadStatus = 'loading';
       this.modelLoadError = '';
       const result = await fetchAvailableModels_ACU(
         String(apiConfig.url || ''),
         String(apiConfig.apiKey || ''),
         String(apiConfig.customApiFormat || ''),
-        // 「拉取模型列表」是用户的显式刷新动作：跳过探活缓存读，避免 5 分钟 TTL 吞掉新配置
-        { force: true },
+        // 「拉取模型列表」是用户的显式刷新动作：跳过探活缓存读，避免 5 分钟 TTL 吞掉新配置。
+        // 数据库直接发送的预设同样直接向端点要模型列表。
+        { force: true, ...(apiConfig.sendChannel === 'direct' ? { sendChannel: 'direct' as const } : {}) },
       );
+      // G02-03：加载期间切了预设/新建/放弃修改：迟到的结果已不属于当前表单，整份丢弃
+      if (generation !== this.modelListGeneration) return false;
       if (!result.success) {
         this.modelOptions = [];
         this.modelLoadStatus = 'error';

@@ -93,6 +93,106 @@ describe('loadTableStateFromFramesV2_ACU', () => {
     mockLogWarn.mockClear();
   });
 
+  it('批量读取：无帧的用户楼按此前最后一个帧并入同一次前向回放，结果按原楼层返回（上游 #63）', async () => {
+    const chat: any[] = [
+      { is_user: false, TavernDB_ACU_IsolatedData: { '': { _acu_storage_version: 2, storageFrame: {
+        version: 2, checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData() }, logEntries: [] } } } },
+      { is_user: true, mes: '用户 1' },
+      { is_user: false, TavernDB_ACU_IsolatedData: { '': { _acu_storage_version: 2, storageFrame: {
+        version: 2, logEntries: [{
+          seq: 1, entryId: 'later', createdAt: 2, source: 'auto_fill', targetMessageIndex: 2, aiFloor: 2,
+          filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+          operations: [{ kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+            statements: ["UPDATE inventory SET name = '钢剑' WHERE row_id = 1"] }],
+        }] } } } },
+      { is_user: true, mes: '用户 2' },
+    ];
+    const options = { updateRuntimeState: false, compatibilityMode: 'disabled' as const };
+
+    const inherited = await loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(chat, '', [3, 1], options, { inheritFramelessBoundaries: true });
+    const cold = await loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(chat, '', [3, 1], options);
+
+    expect([...inherited.keys()]).toEqual([1, 3]);
+    expect(inherited.get(1)!.capturedBoundary).toBe(1);
+    expect(inherited.get(3)!.capturedBoundary).toBe(3);
+    expect(inherited.get(1)!.data.sheet_0.content).toEqual(cold.get(1)!.data.sheet_0.content);
+    expect(inherited.get(3)!.data.sheet_0.content).toEqual(cold.get(3)!.data.sheet_0.content);
+    expect(inherited.get(3)!.data.sheet_0.content[1]).toContain('钢剑');
+    expect(inherited.get(1)!.data.sheet_0.content[1]).not.toContain('钢剑');
+  });
+
+  it('休眠表（非首列空业务表头）的历史 sql_sheet_batch 写入被跳过，不再撞 no such table', async () => {
+    const data = makeCheckpointData();
+    data.sheet_dormant = {
+      uid: 'dazongjie',
+      name: '大总结',
+      content: [['row_id', 'summary_text', ''], ['1', '旧摘要', '']],
+      sourceData: { ddl: 'CREATE TABLE dazongjie (row_id INTEGER PRIMARY KEY, summary_text TEXT, extra TEXT);' },
+      updateConfig: {}, exportConfig: {}, orderNo: 1,
+    };
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data },
+            logEntries: [{
+              seq: 1, entryId: 'dormant-write', createdAt: 2, source: 'auto_fill', targetMessageIndex: 0, aiFloor: 1,
+              filledSheetKeys: ['sheet_dormant'], changedSheetKeys: ['sheet_dormant'], groupKeys: [],
+              operations: [
+                {
+                  kind: 'sql_sheet_batch', sheetKey: 'sheet_dormant', tableName: 'dazongjie', reason: 'system',
+                  statements: ["INSERT INTO dazongjie (row_id, summary_text) VALUES (2, '机密剧情')"],
+                },
+                {
+                  kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+                  statements: ["UPDATE inventory SET name = '钢剑' WHERE row_id = 1"],
+                },
+              ],
+            }],
+          },
+        },
+      },
+    }];
+
+    const result = await loadTableStateFromFramesV2_ACU(chat, '');
+
+    expect(result?.sheet_0.content).toEqual([['row_id', 'name'], ['1', '钢剑']]);
+    expect(mockLogWarn.mock.calls.some(call => String(call[0]).includes('跳过休眠表的历史 SQL 写入：sheetKey=sheet_dormant'))).toBe(true);
+  });
+
+  it('回放 SQL 失败的错误信息保留语句摘要与 SQLite 错误，但不包含 VALUES 业务数据', async () => {
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData() },
+            logEntries: [{
+              seq: 1, entryId: 'redact', createdAt: 2, source: 'auto_fill', targetMessageIndex: 0, aiFloor: 1,
+              filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+              operations: [{
+                kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+                statements: ["INSERT INTO inventory (row_id, missing_col) VALUES (2, '机密剧情')"],
+              }],
+            }],
+          },
+        },
+      },
+    }];
+
+    const error = await loadTableStateFromFramesV2_ACU(chat, '').then(() => null, (reason: unknown) => reason as Error);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error!.message).toMatch(/kind=sql_sheet_batch: 第 1 条语句失败: INSERT INTO inventory → .*missing_col/);
+    expect(error!.message).not.toContain('机密剧情');
+  });
+
+
   it('从最后 checkpoint 开始，在同一个恢复 runtime 上顺序回放 sql_batch', async () => {
     const chat = [
       {
@@ -279,6 +379,54 @@ describe('loadTableStateFromFramesV2_ACU', () => {
       ['1', '钢剑'],
       ['2', '药水'],
     ]);
+  });
+
+  // R2B-10：回放对已存储语句再分句；带参数的语句若被（注释里的分号）切成多条，后续参数全部错位。
+  function chatWithSqlSheetBatch(statements: string[], params: any[][]) {
+    return [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData(), event: { filledSheetKeys: [], changedSheetKeys: [], groupKeys: [] } },
+            logEntries: [{
+              seq: 1, entryId: 'v2_sql_params_align', createdAt: 2, source: 'manual_crud', targetMessageIndex: 0, aiFloor: 1,
+              filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+              operations: [{ kind: 'sql_sheet_batch', sheetKey: 'sheet_0', statements, params, tableName: 'inventory', reason: 'system' }],
+            }],
+          },
+        },
+      },
+    }];
+  }
+
+  it('R2B-10：带参数语句里的注释分号不再把语句切断，参数按存储语句一一对齐', async () => {
+    const chat = chatWithSqlSheetBatch(
+      ['UPDATE inventory SET name = ? WHERE row_id = ? -- 改名; 备注', 'INSERT INTO inventory VALUES (?, ?)'],
+      [['钢剑', 1], [2, '药水']],
+    );
+
+    const result = await loadTableStateFromFramesV2_ACU(chat, '');
+
+    expect(result?.sheet_0.content).toEqual([
+      ['row_id', 'name'],
+      ['1', '钢剑'],
+      ['2', '药水'],
+    ]);
+  });
+
+  it('R2B-10：带参数的单条存储语句切出多条时 fail-closed，不错位绑定', async () => {
+    const chat = chatWithSqlSheetBatch(
+      ['UPDATE inventory SET name = ? WHERE row_id = ?; INSERT INTO inventory VALUES (?, ?)'],
+      [['钢剑', 1]],
+    );
+
+    const result = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false, compatibilityMode: 'disabled' })
+      .catch((error: any) => ({ error: String(error?.message || error) }));
+
+    expect(JSON.stringify(result)).toContain('参数无法对齐');
   });
 
   it('已物化的 SQL INSERT 回放与实时快照一致，删除中间 ID 后仍保留 max + 1 身份', async () => {
@@ -3366,6 +3514,153 @@ describe('loadTableStateFromFramesV2_ACU', () => {
     expect(result?.sheet_new).toEqual(introducedSheet);
     expect(summary.sheet_new).toEqual({ lastFilledAiFloor: 1, lastChangedAiFloor: 1 });
   });
+  it('导入恢复帧的 filled 事件烘焙前沿时不得超过声明覆盖楼层（P2a）', () => {
+    // 快照覆盖楼层 1，恢复帧落在楼层 2：烘焙出的 lastFilledAiFloor 必须是 1。
+    // 否则后续 checkpoint 把 2 存进 scheduleSummary，声明丢失后 history 永久误报前沿，
+    // 追平跳过从未填过的楼层（上游 c0237dae 同类问题；本仓用 restoreUpToAiFloor 做同一载体）。
+    const rootData = makeCheckpointData();
+    const chat = [
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: rootData, event: { filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [] } },
+              logEntries: [],
+            },
+          },
+        },
+      },
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: {
+                kind: 'full', createdAt: 2, reason: 'import', data: rootData,
+                event: { filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [] },
+                restoreUpToAiFloor: 1,
+              },
+              logEntries: [],
+            },
+          },
+        },
+      },
+    ];
+
+    const summary = collectScheduleSummaryFromFramesV2_ACU(chat, '');
+
+    expect(summary.sheet_0?.lastFilledAiFloor, '导入帧烘焙前沿必须钳制到声明值 1').toBe(1);
+  });
+  it('同帧真实 entry 与降级 entry 共存时顺序不得影响前沿（P2d，取 max 与 history 同口径）', () => {
+    // history 侧是跨证据 max()（table-history），烘焙侧若用覆盖+钳制，
+    // 「真实在先、降级在后」会把刚写的前沿拉下来，与 history 读数分叉。
+    // 两种顺序都必须得 2。
+    const rootData = makeCheckpointData();
+    const realEntry = {
+      seq: 1, entryId: 'real-fill', createdAt: 1, source: 'system',
+      targetMessageIndex: 2, aiFloor: 2,
+      filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+      operations: [{ kind: 'row_upsert', sheetKey: 'sheet_0', rowId: '1', cells: ['1', 'x'] }],
+    };
+    const downgradeEntry = {
+      seq: 2, entryId: 'downgraded-checkpoint-2-1', createdAt: 2, source: 'system',
+      targetMessageIndex: 2, aiFloor: 2, restoreUpToAiFloor: 1,
+      filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+      operations: [{ kind: 'data_replace', data: rootData, reason: 'checkpoint_fallback' }],
+    };
+    const buildChat = (entries: any[]) => [
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: rootData, event: { filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [] } },
+              logEntries: [],
+            },
+          },
+        },
+      },
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 2, reason: 'compact', data: rootData, event: { filledSheetKeys: [], changedSheetKeys: [], groupKeys: [] } },
+              logEntries: entries,
+            },
+          },
+        },
+      },
+    ];
+
+    expect(
+      collectScheduleSummaryFromFramesV2_ACU(buildChat([realEntry, downgradeEntry]), '').sheet_0?.lastFilledAiFloor,
+      '真实在先、降级在后：不得拉下前沿',
+    ).toBe(2);
+    expect(
+      collectScheduleSummaryFromFramesV2_ACU(buildChat([downgradeEntry, realEntry]), '').sheet_0?.lastFilledAiFloor,
+      '降级在先、真实在后：同样得 2',
+    ).toBe(2);
+  });
+  it('降级 entry 自带的覆盖声明同样钳制烘焙前沿（P2c）', () => {
+    // 边界轮转时降级 entry 会带着原 full checkpoint 的覆盖声明（chat-service 保留），
+    // 烘焙时同样不得超过它。
+    const rootData = makeCheckpointData();
+    const chat = [
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: rootData, event: { filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [] } },
+              logEntries: [],
+            },
+          },
+        },
+      },
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 2, reason: 'compact', data: rootData, event: { filledSheetKeys: [], changedSheetKeys: [], groupKeys: [] } },
+              logEntries: [
+                {
+                  seq: 1, entryId: 'downgraded-checkpoint-2-1', createdAt: 2, source: 'system',
+                  targetMessageIndex: 2, aiFloor: 2, restoreUpToAiFloor: 1,
+                  filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                  operations: [{ kind: 'data_replace', data: rootData, reason: 'checkpoint_fallback' }],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    const summary = collectScheduleSummaryFromFramesV2_ACU(chat, '');
+
+    expect(summary.sheet_0?.lastFilledAiFloor, '降级 entry 烘焙前沿必须钳制到声明值 1').toBe(1);
+  });
   it('rebase 分片在 afterSeq 之后整表替换既有表结构（E3：前置日志先应用）', async () => {
     const rootData = makeCheckpointData();
     // 边界楼层已有 AI 填表日志（seq=1 追加一行），随后 rebase 在 afterSeq=1 之后整表替换为新结构。
@@ -4926,6 +5221,55 @@ describe('SPv7.9 duplicate row_id transition checkpoint', () => {
     }
   });
 
+  it('块 2B 复审 R2B-06：固化等锁期间聊天楼层被删改时放弃固化，不写错位的 cutoff', async () => {
+    const { runTableWriteTransaction_ACU, _resetTableWriteTransactionLocksForTest_ACU } = await import('../../../src/service/table/table-write-transaction');
+    _resetTableWriteTransactionLocksForTest_ACU();
+    const checkpointData = makeCheckpointData();
+    checkpointData.sheet_0.content = [['row_id', 'name'], ['1', '原始行']];
+    const duplicateSheet = structuredClone(checkpointData.sheet_0);
+    duplicateSheet.content.push([' 1 ', '重复行']);
+    const chat: any[] = [
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: checkpointData },
+              logEntries: [{
+                seq: 1, entryId: 'legacy-duplicate-replace', createdAt: 2, source: 'system', targetMessageIndex: 0, aiFloor: 1,
+                filledSheetKeys: [], changedSheetKeys: [], groupKeys: [],
+                operations: [{ kind: 'sheet_replace', sheetKey: 'sheet_0', sheet: duplicateSheet, reason: 'system' }],
+              }],
+            },
+          },
+        },
+      },
+      { is_user: false, mes: '后一层 AI' },
+    ];
+    const saveChat = vi.fn(async () => undefined);
+    const previousHostApi = SillyTavern_API_ACU;
+    try {
+      _set_SillyTavern_API_ACU({ chat, saveChat } as any);
+      let releaseHolder!: () => void;
+      const holderGate = new Promise<void>((resolve) => { releaseHolder = resolve; });
+      const holder = runTableWriteTransaction_ACU({
+        source: 'manual_crud' as any, reason: 'holder', isolationKey: '', writeSet: [{ kind: 'all' }], workingDataMode: 'none',
+      }, async () => { await holderGate; });
+      const fixation = createCompatTransitionCheckpointFromTolerantReplay_ACU(chat, '');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      chat.splice(0, 0, { is_user: false, mes: '插入的楼层' }); // 等锁期间在前面插了一层，楼层号整体后移
+      releaseHolder();
+      await holder;
+      expect(await fixation).toBe(false);
+      expect(chat.some((m) => m.TavernDB_ACU_IsolatedData?.['']?.compatTransitionCheckpoint)).toBe(false);
+      expect(saveChat).not.toHaveBeenCalled();
+    } finally {
+      _set_SillyTavern_API_ACU(previousHostApi);
+    }
+  });
+
   it('旧重复行 SQL 回放保留 SQL INSERT/DELETE/params 语义，固化后通用过渡根 cutoff 覆盖全部 operation', async () => {
     const checkpointData = makeCheckpointData();
     const duplicateSheet = structuredClone(checkpointData.sheet_0);
@@ -4960,9 +5304,11 @@ describe('SPv7.9 duplicate row_id transition checkpoint', () => {
       const replay = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
 
       expect(replay?.baseKind).toBe('compat_tolerant_replay');
+      // 两个 1 在 DELETE WHERE row_id = 1 里被删，幸存者是 INSERT 的 2；
+      // 去重保留既有 id（上游同断言），重编号会把它错写成 1。
       expect(replay?.data.sheet_0.content).toEqual([
         ['row_id', 'name'],
-        ['1', '非 SQL 后缀'],
+        ['2', '非 SQL 后缀'],
       ]);
 
       await flushPendingCompatTransitionFixations_ACU();
@@ -4970,6 +5316,93 @@ describe('SPv7.9 duplicate row_id transition checkpoint', () => {
       expect(chat[0].TavernDB_ACU_IsolatedData[''].compatTransitionCheckpoint?.cutoff).toEqual({
         messageIndex: 0, seq: 1, operationIndex: 4,
       });
+    } finally {
+      _set_SillyTavern_API_ACU(previousHostApi);
+    }
+  });
+});
+
+describe('compat 过渡根行身份保持（判别复现，只写测试、不改生产）', () => {
+  /**
+   * 判别目标：`reindexSpv79TransitionState_ACU` 无条件全表重编号（1..N），
+   * 而兼容过渡根可能落在聊天中段、其后仍有严格增量按原 row_id 引用行
+   * （`UPDATE ... WHERE row_id = 7`）。上游终态 `dedupeCompatTransitionRowIdentities_ACU`
+   * 只修空/冲突 id、保留既有 row_id；我方两处复用（回放返回 :2780、固化 :3322）
+   * 若把 5/7 改成 1/2，后续增量会落空或落到别的行。
+   *
+   * 构造：full 基底稀疏 id [5,7] + 一条严格必抛、宽容跳过的未知 kind，
+   * 强制走 Tier-1 兼容路径。本用例按需求断言（修好才绿），当前应取红。
+   */
+  it('稀疏 row_id 经兼容固化后必须保留，根之后的增量按原 id 落到同一行', async () => {
+    const checkpointData = makeCheckpointData();
+    checkpointData.sheet_0.content = [
+      ['row_id', 'name'],
+      ['5', '旧剑'],
+      ['7', '旧盾'],
+    ];
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: checkpointData },
+            logEntries: [{
+              seq: 1, entryId: 'legacy-unknown-op', createdAt: 2, source: 'system', targetMessageIndex: 0, aiFloor: 1,
+              filledSheetKeys: [], changedSheetKeys: [], groupKeys: [],
+              operations: [{ kind: 'legacy_unknown_op_for_repro', reason: 'system' }],
+            }],
+          },
+        },
+      },
+    }];
+    const previousHostApi = SillyTavern_API_ACU;
+    try {
+      _set_SillyTavern_API_ACU({ chat, saveChat: vi.fn(async () => undefined) } as any);
+
+      const replay = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+      // 先确认确实走了兼容路径，否则判别前提不成立。
+      expect(replay?.baseKind).toBe('compat_tolerant_replay');
+
+      await flushPendingCompatTransitionFixations_ACU();
+      const root = (chat[0] as any).TavernDB_ACU_IsolatedData[''].compatTransitionCheckpoint;
+      expect(root, '兼容过渡根应已固化').toBeDefined();
+      // 判别点：无冲突的稀疏 id 必须原样保留；当前 reindex 会写成 1/2。
+      expect(root.data.sheet_0.content).toEqual([
+        ['row_id', 'name'],
+        ['5', '旧剑'],
+        ['7', '旧盾'],
+      ]);
+
+      // 影响面：根之后的新增量按原 row_id 引用，必须落到同一行。
+      (chat as any[]).push({
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              logEntries: [{
+                seq: 1, entryId: 'strict-update-after-root', createdAt: 3, source: 'user', targetMessageIndex: 1, aiFloor: 2,
+                filledSheetKeys: [], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                operations: [{
+                  kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+                  statements: ['UPDATE inventory SET name = \'精制盾\' WHERE row_id = 7'],
+                }],
+              }],
+            },
+          },
+        },
+      });
+      const second = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+      // 根之后的新增量走根起算的严格快路径（非宽容），否则「落到同一行」无从谈起。
+      expect(second?.baseKind).toBe('compat_transition_checkpoint');
+      expect(second?.data.sheet_0.content).toEqual([
+        ['row_id', 'name'],
+        ['5', '旧剑'],
+        ['7', '精制盾'],
+      ]);
     } finally {
       _set_SillyTavern_API_ACU(previousHostApi);
     }
@@ -5683,6 +6116,17 @@ describe('deriveSheetLifecycleFromFramesV2_ACU', () => {
     expect(yielded?.metrics?.yieldCount).toBeGreaterThan(0);
     // 基线不传预算：yieldCount 恒为 0（零开销，不产生额外宏任务）。
     expect(baseline?.metrics?.yieldCount).toBe(0);
+    // 保存链启用让步仍须保留同轮 evidence 复用，不能增加重复冷回放（上游 3cd3824b）。
+    const evidence = {} as import('../../../src/service/table/v2-replay-session').V2ReplayEvidence_ACU;
+    await loadTableStateFromFramesV2Detailed_ACU(chat, '', {
+      updateRuntimeState: false, enableAliasContext: false, yieldBudgetMs: 8, replayEvidence: evidence,
+    });
+    const reused = await loadTableStateFromFramesV2Detailed_ACU(chat, '', {
+      updateRuntimeState: false, enableAliasContext: false, yieldBudgetMs: 8, replayEvidence: evidence,
+    });
+    expect(reused?.data).toEqual(baseline?.data);
+    expect(reused?.metrics?.replayReuseCount).toBe(1);
+    expect(reused?.metrics?.sqliteHydrateCount).toBe(0);
   });
 
   it('阶段 I：updateRuntimeState:true（副作用路径）即使传 yieldBudgetMs 也不让出', async () => {
@@ -5860,6 +6304,58 @@ describe('deriveSheetLifecycleFromFramesV2_ACU', () => {
     expect(latest?.metrics?.frameCount).toBe(62);
   });
 
+  it('阶段 G2：in-flight 等待方拿到与启动方相同的兼容诊断字段（不得被写门闸当成干净回放）', async () => {
+    // 曾只返回 {data, baseKind, metrics}：等待方丢失 requiresCheckpointConvergence 等字段。
+    const data: any = {
+      mate: { type: 'acu', version: 1 },
+      sheet_0: {
+        uid: 'inventory', name: 'inventory', content: [['row_id', 'name'], ['1', '铁剑']],
+        sourceData: { ddl: 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, name TEXT);' },
+        updateConfig: {}, exportConfig: {}, orderNo: 0,
+      },
+    };
+    const duplicateSheet = structuredClone(data.sheet_0);
+    duplicateSheet.content.push([' 1 ', '重复行']);
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: { '': { _acu_storage_version: 2, storageFrame: {
+        version: 2,
+        checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data },
+        logEntries: [{
+          seq: 1, entryId: 'e1', createdAt: 2, source: 'auto_fill', targetMessageIndex: 0, aiFloor: 1,
+          filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+          operations: [
+            { kind: 'sheet_replace', sheetKey: 'sheet_0', sheet: duplicateSheet, reason: 'system' },
+            { kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system', statements: ["UPDATE inventory SET name = 'x' WHERE row_id = 1"] },
+          ],
+        }],
+      } } },
+    }];
+
+    const [starter, waiter] = await Promise.all([
+      loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false }),
+      loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false }),
+    ]);
+
+    expect(waiter?.metrics?.replayShareCount).toBe(1);
+    expect(starter?.requiresCheckpointConvergence).toBe(true);
+    expect(waiter?.requiresCheckpointConvergence).toBe(starter?.requiresCheckpointConvergence);
+    expect(waiter?.compatibilityRepairs).toEqual(starter?.compatibilityRepairs);
+    expect(!!waiter?.legacyToleranceDiagnosis).toBe(!!starter?.legacyToleranceDiagnosis);
+  });
+
+  it('阶段 G2：未显式声明 updateRuntimeState（默认有副作用）不参与 in-flight 去重', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+
+    const [a, b] = await Promise.all([
+      loadTableStateFromFramesV2Detailed_ACU(chat, '', {}),
+      loadTableStateFromFramesV2Detailed_ACU(chat, '', {}),
+    ]);
+
+    expect(a?.metrics?.replayShareCount).toBe(0);
+    expect(b?.metrics?.replayShareCount).toBe(0);
+  });
+
   it('阶段 G2：副作用路径（updateRuntimeState:true）不参与 in-flight 去重', async () => {
     const { chat } = buildLongHistoryFixture_ACU();
 
@@ -6017,5 +6513,82 @@ describe('onEntryApplied', () => {
     });
     expect(result?.data.sheet_0.content.map((row: any[]) => row[1])).toEqual(['name', '铁剑', '木盾']);
     expect(observed).toEqual([{ entryId: 'add-row', names: ['铁剑', '木盾'] }]);
+  });
+
+  /**
+   * 回放必须复现写入时的 runtime schema 加载口径，否则写入基底与回放基底分叉。
+   *
+   * 写入端（sql-table-service.ts 的 loadFromTableData）一律带 allowRuntimeDdlFallback：
+   * 显式 DDL 无法在 SQLite 执行时（典型是尾逗号 `..., )`）首条 CREATE TABLE 回退为
+   * runtime fallback schema 并继续写入。而回放 hydrate 曾只传 { strict: true }，
+   * 于是同一个聊天：写入成功、回放抛 `CREATE TABLE near )` → 基底分叉 → 写入守卫拒绝，
+   * 该聊天永久无法填表（不可自愈）。
+   *
+   * 回退边界不放宽：行数据 / 约束 / 映射错误仍必须 fail-closed，见本用例末尾的反向断言。
+   */
+  it('显式 DDL 无法执行时严格回放沿用 runtime fallback 基底，不与写入端分叉', async () => {
+    const brokenDdl = 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, name TEXT,)';
+    const chatWithBrokenDdl_ACU = (statement: string) => [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: {
+              kind: 'full',
+              createdAt: 1,
+              reason: 'init',
+              data: {
+                ...makeCheckpointData(),
+                sheet_0: {
+                  ...makeCheckpointData().sheet_0,
+                  sourceData: { ddl: brokenDdl },
+                },
+              },
+              event: { filledSheetKeys: [], changedSheetKeys: [], groupKeys: [] },
+            },
+            logEntries: [{
+              seq: 1,
+              entryId: 'v2_sql_broken_ddl',
+              createdAt: 2,
+              source: 'auto_fill',
+              targetMessageIndex: 0,
+              aiFloor: 1,
+              filledSheetKeys: ['sheet_0'],
+              changedSheetKeys: ['sheet_0'],
+              groupKeys: [],
+              operations: [{ kind: 'sql_batch', statements: [statement] }],
+            }],
+          },
+        },
+      },
+    }];
+
+    // 判别点用 compatibilityMode:'disabled' —— 这正是写入路径校验探针的口径
+    // （storage-frame-v2-persist.ts:645 的候选校验、追平锚点预检等）。
+    // 读路径有 Tier-1 兼容回放兜底（见 :2742「读永远宽容，写才严格」），所以只断言
+    // 读路径无法暴露此缺陷；写门闸依赖「严格回放成功」作为可写信号。
+    //
+    // 写入端（sql-table-service.ts:1681/1708/2489）一律带 allowRuntimeDdlFallback：
+    // 首条 CREATE TABLE 失败时回退 runtime fallback schema 并继续写入。回放若拒绝同一
+    // 回退 → 写入基底与回放基底分叉 → 该聊天的写入探针恒失败 → 永久无法继续填表。
+    const strictResult = await loadTableStateFromFramesV2_ACU(
+      chatWithBrokenDdl_ACU("UPDATE inventory SET name = '钢剑' WHERE row_id = 1"),
+      '',
+      { compatibilityMode: 'disabled' },
+    );
+    // 不仅要不抛，还要断言 fallback 基底上 SQL 真正生效（否则只是绕过了建表失败）。
+    expect(strictResult?.sheet_0.content, '坏 DDL 的聊天必须能通过写入路径的严格回放探针，否则永久无法继续填表').toEqual([
+      ['row_id', 'name'],
+      ['1', '钢剑'],
+    ]);
+
+    // 回退只覆盖建表失败：同一份坏 DDL 下，列级错误仍必须 fail-closed 抛出。
+    await expect(loadTableStateFromFramesV2_ACU(
+      chatWithBrokenDdl_ACU("UPDATE inventory SET no_such_column = 'x' WHERE row_id = 1"),
+      '',
+      { compatibilityMode: 'disabled' },
+    )).rejects.toThrow(/no such column: no_such_column/);
   });
 });

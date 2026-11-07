@@ -5,12 +5,12 @@ import { parse as parseYaml_ACU } from 'yaml';
 import { handleApiResponse_ACU, extractAiUsageMetadata_ACU, type AiUsageMetadata_ACU } from './prompt-builder';
 export type { AiUsageMetadata_ACU };
 import { settings_ACU } from '../runtime/state-manager';
-import { getHostRequestHeaders_ACU } from '../../data/gateways/ai-gateway';
 import { assertSafeHttpEndpoint_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
-import { resolveApiConfigByPreset_ACU, normalizePromptPostProcessing_ACU } from '../settings/api-preset-service';
+import { resolveApiConfigByPreset_ACU, normalizePromptPostProcessing_ACU, normalizeApiSendChannel_ACU } from '../settings/api-preset-service';
 import { allowUnsafeApiEndpointsEnabled_ACU } from '../settings/settings-readers';
 import { acquirePresetRateLimitSlot_ACU } from './preset-rate-limiter';
-import { isDebugLogEnabled } from '../../shared/log-buffer';
+import { isDebugLogEnabled, maskSensitiveText_ACU } from '../../shared/log-buffer';
+import { markDirectSendBody_ACU, sendChatCompletionBody_ACU } from './direct-send';
 import {
     beginPromptStreamObservation_ACU,
     isPromptObservationEnabled_ACU,
@@ -21,7 +21,8 @@ import {
 /**
  * OpenCode Go 会话头（x-opencode-session）：Go 官方要求所有请求携带该头做提示缓存优化，
  * 缺失的请求会被拒（2026-09-03 官方公告，09/06 起生效）。仅当目标端点是 Go 专属路径
- * （opencode.ai 主机 + /zen/go/ 路径前缀，见官方 Endpoints 表）时附加，其他端点
+ * （opencode.ai 主机 + /zen/go/ 或 /inference/go/ 路径前缀，见官方 Endpoints 表；2026-10 起官方表
+ * 改列 /inference/go/，Gemini 4 Argon 只在这条路径上）时附加，其他端点
  * （含 Zen 余额直连等非 Go 路径、其他服务商）一律不受影响；用户已在附加请求头里
  * 显式写了该头则尊重用户值。
  * 会话 id 按「端点 + 调用方命名空间 + 模型」稳定（进程内备忘，同端点同命名空间同会话
@@ -36,7 +37,7 @@ export function isOpencodeGoEndpoint_ACU(url: unknown): boolean {
         const parsed = new URL(String(url || ''));
         const host = parsed.hostname.toLowerCase();
         if (host !== 'opencode.ai' && !host.endsWith('.opencode.ai')) return false;
-        return /\/zen\/go(\/|$)/.test(parsed.pathname);
+        return /\/(?:zen|inference)\/go(\/|$)/.test(parsed.pathname);
     } catch {
         return false;
     }
@@ -103,21 +104,36 @@ export class AgentApiHttpError_ACU extends Error {
   }
 }
 
+/** 连接层瞬时故障的错误码（Node / undici / 宿主转发会带出）。 */
+const RETRYABLE_NETWORK_CODES_ACU = /^(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|EHOSTUNREACH|ENETUNREACH|ENETDOWN|UND_ERR_[A-Z_]+)$/;
+/**
+ * 报错文本里的瞬时网络失败特征；浏览器 fetch 失败只给 TypeError + 这类文本。
+ * 含 WebKit / iOS 的说法（Load failed、The network connection was lost 等）与 TT 原生层转发的说法（error sending request 等）。
+ */
+const RETRYABLE_NETWORK_TEXT_ACU = /failed to fetch|fetch failed|load failed|networkerror|network ?error|net::err_|\btimeout\b|timed out|connection reset|socket hang up|other side closed|\bterminated\b|econnrefused|econnreset|econnaborted|enotfound|eai_again|etimedout|epipe|ehostunreach|enetunreach|network connection was lost|internet connection appears to be offline|could not connect to the server|hostname could not be found|error sending request|connection closed before|connection refused|dns error|tcp connect error/i;
+
+function readErrorCode_ACU(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const code = (value as { code?: unknown }).code;
+  return typeof code === 'string' ? code.toUpperCase() : '';
+}
+
 /**
  * 只有瞬时的传输层失败值得重试；响应内容校验失败（JSON 不合法等）由调用方自己决定，不在这里放行。
  * AbortError 一律判 false：那是用户按了停止，重试等于把刚掐断的请求再发一遍。
+ * TypeError 只在带网络失败特征时才算瞬时故障（跟上游 0d9cc1a5）——`x is not a function` 这类程序错误重试也不会好。
  */
 export function isRetryableAiRequestError_ACU(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
-  const candidate = error as { name?: unknown; message?: unknown; status?: unknown };
+  const candidate = error as { name?: unknown; message?: unknown; status?: unknown; cause?: unknown };
   const name = String(candidate.name || '');
-  const message = String(candidate.message || '');
   const status = Number(candidate.status);
   if (name === 'AbortError') return false;
   if (Number.isFinite(status)) return status === 408 || status === 429 || (status >= 500 && status <= 599);
   if (name === 'TimeoutError') return true;
-  if (error instanceof TypeError) return true;
-  return /(?:timeout|timed out|network(?:\s+error)?|connection reset|socket hang up)/i.test(message);
+  if (RETRYABLE_NETWORK_CODES_ACU.test(readErrorCode_ACU(error)) || RETRYABLE_NETWORK_CODES_ACU.test(readErrorCode_ACU(candidate.cause))) return true;
+  const cause = candidate.cause && typeof candidate.cause === 'object' ? String((candidate.cause as { message?: unknown }).message || '') : '';
+  return RETRYABLE_NETWORK_TEXT_ACU.test(`${String(candidate.message || '')} ${cause}`);
 }
 
 function isRecord_ACU(value: unknown): value is Record<string, unknown> {
@@ -261,10 +277,16 @@ const MAX_UPSTREAM_ERROR_BODY_LENGTH_ACU = 2048;
 /**
  * 上游错误体可能回显请求头、Cookie 或 API key；它在错误消息里会继续进入日志/UI，
  * 因而必须先脱敏再限长。无敏感信息的短错误体保持逐字不变。
+ * G02-02 收敛：密钥形态基底（Authorization 头、Bearer/Basic 长令牌、裸 key=value、
+ * ?key=/api_key= 等 URL 查询参数、裸 sk-/AIza 前缀）统一复用 shared 的
+ * maskSensitiveText_ACU——此前本函数自带一份清单，漏掉了 Gemini 转接的 ?key=
+ * 查询参数与裸密钥回显形态。这里只补展示侧专用规则：短 Basic/Bearer 令牌
+ * （无 16 位阈值，展示口径更严）、引号包裹的头名键值（shared 只认双引号 JSON
+ * 形态，单引号 'api-key': 'x' 由此补齐）与 Cookie/Set-Cookie（含整行抹掉）。
  */
 function sanitizeUpstreamErrorBodyForDisplay_ACU(raw: unknown): string {
-  let text = String(raw ?? '')
-    .replace(/((?:proxy-)?authorization\s*:\s*)(?:bearer|basic)\s+[^\s"',}\r\n]+/gi, '$1***')
+  let text = maskSensitiveText_ACU(String(raw ?? ''))
+    .replace(/((?:proxy-)?authorization\s*:\s*)basic\s+[^\s"',}\r\n]+/gi, '$1***')
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/=-]+/gi, '$1 ***')
     .replace(/((?:"|')?(?:proxy-authorization|authorization|(?:x[-_])?api[-_]?key|set-cookie|cookie)(?:"|')?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/gi, '$1***')
     .replace(/^(\s*(?:set-cookie|cookie)\s*:\s*).+$/gim, '$1***');
@@ -326,10 +348,103 @@ export const JSON_OBJECT_RESPONSE_FORMAT_ACU = Object.freeze({ type: 'json_objec
 /**
  * 构建 Chat Completions 自定义 API 请求体（支持 bodyParams / excludeBodyParams / requestHeaders）
  */
+/** 原生工具定义形态校验：非空数组 + 每项带 function.name 非空串，否则调用方省略 tools 键。 */
+function isValidNativeTools_ACU(tools: unknown): tools is unknown[] {
+    if (!Array.isArray(tools) || tools.length === 0) return false;
+    return tools.every(item => !!item && typeof item === 'object' && !Array.isArray(item)
+      && typeof (item as Record<string, any>).function === 'object'
+      && !!(item as Record<string, any>).function
+      && typeof (item as Record<string, any>).function.name === 'string'
+      && ((item as Record<string, any>).function.name as string).length > 0);
+}
+
+/**
+ * 请求模型名里的 Gemini 版本，与 TT 同口径：取第一个 `gemini-<数字>` 之后的 `主[.次]-名称`，
+ * 中转前缀别名（如 relay/gemini-4-argon、gemini-4-argon-contributor）同样识别。
+ */
+function parseGeminiModel_ACU(model: unknown): { version: [number, number]; name: string } | null {
+  const text = String(model || '').trim().toLowerCase();
+  const match = text.match(/gemini-(\d+)(?:\.(\d+))?-([^/\s]+)/);
+  if (!match) return null;
+  return { version: [Number(match[1]), Number(match[2] || 0)], name: match[3] };
+}
+
+function isGeminiFamily_ACU(gemini: { name: string }, family: string): boolean {
+  return gemini.name === family || gemini.name.startsWith(`${family}-`);
+}
+
+/**
+ * Gemini 3.6+、3.5 Flash-Lite 及之后的模型拒收以模型消息结尾的请求（实测 Gemini 4 Argon 回
+ * 400「Requests ending with a model turn are not supported」）。TT 只在它自带的 Google 通道里
+ * 把结尾预填改成 user，「自定义」通道（本库唯一通道）main/dev 都不改，所以在这里改。
+ */
+function geminiRejectsTrailingModelTurn_ACU(gemini: { version: [number, number]; name: string }): boolean {
+  const [major, minor] = gemini.version;
+  return major > 3 || (major === 3 && minor >= 6) || (major === 3 && minor === 5 && isGeminiFamily_ACU(gemini, 'flash-lite'));
+}
+
+/**
+ * Gemini 协议下的思考强度：Argon 只收 low/medium/high（实测 minimal、xhigh、max 均 400），
+ * TT main 认不出 Argon 会原样透传，按 TT dev 的同一映射先收敛；ultra 不是 Gemini 档位，
+ * TT 对已识别的 Gemini 模型直接报错，按 max 发。
+ */
+function adaptGeminiReasoningEffort_ACU(effort: string, gemini: { version: [number, number]; name: string } | null): string {
+  if (gemini && gemini.version[0] === 4 && isGeminiFamily_ACU(gemini, 'argon')) {
+    if (effort === 'minimal') return 'low';
+    if (effort === 'xhigh' || effort === 'max' || effort === 'ultra') return 'high';
+    return effort;
+  }
+  return effort === 'ultra' ? 'max' : effort;
+}
+
+/**
+ * 思考强度按接口协议落到上游真正认的字段：effort 为 undefined 时请求体省略 reasoning_effort，
+ * thinking 经 custom_include_body 补进上游请求体。
+ * - Claude 协议：TT（main/dev）只把 reasoning_effort 转成 output_config.effort，该字段只认
+ *   low/medium/high/xhigh/max；关闭思考时 effort:false 各家都拒（实测 Claude、MiniMax、Qwen 均 400），
+ *   改发 thinking: disabled。OpenCode Go 上的非 Claude 模型（MiniMax M3）不带 thinking 就完全不思考、
+ *   effort 被忽略，补 thinking: adaptive 后按 effort 思考（Qwen、MiniMax M2.7 同样接受）。
+ * - 关闭思考的布尔 false：OpenAI Responses 规范只认 'none'；Go 的兼容接口多数模型同样只认 'none'
+ *   （实测 Kimi、MiMo、Hy 收 false 回 400）。其他 OpenAI 兼容端点保持 false 不变。
+ */
+function resolveReasoningControl_ACU(
+  raw: string,
+  format: string,
+  model: unknown,
+  url: unknown,
+  gemini: { version: [number, number]; name: string } | null,
+): { effort?: string | false; thinking?: Record<string, string> } {
+  if (raw === 'auto') return {};
+  if (raw === 'false') {
+    if (format === 'claude_messages') return { thinking: { type: 'disabled' } };
+    if (format === 'openai_responses' || (format === 'openai_compat' && isOpencodeGoEndpoint_ACU(url))) return { effort: 'none' };
+    return { effort: false };
+  }
+  const effort = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(raw) ? raw : 'medium';
+  if (format === 'gemini_generate_content') return { effort: adaptGeminiReasoningEffort_ACU(effort, gemini) };
+  if (format === 'claude_messages') {
+    const claudeEffort = effort === 'minimal' ? 'low' : effort === 'ultra' ? 'max' : effort;
+    const needsThinking = isOpencodeGoEndpoint_ACU(url) && !/claude/i.test(String(model || ''));
+    return { effort: claudeEffort, ...(needsThinking ? { thinking: { type: 'adaptive' } } : {}) };
+  }
+  return { effort };
+}
+
+/** 用户自定义请求体（YAML 映射或序列）顶层是否写了某个键；解析失败按已写处理（插件字段反正会被跳过）。 */
+function userBodyDefinesKey_ACU(userBodyParams: string, key: string): boolean {
+  if (!userBodyParams.trim()) return false;
+  try {
+    const parsed = parseYaml_ACU(userBodyParams);
+    return (Array.isArray(parsed) ? parsed : [parsed]).some(item => isRecord_ACU(item) && Object.prototype.hasOwnProperty.call(item, key));
+  } catch {
+    return true;
+  }
+}
+
 export function buildCustomApiRequestBody_ACU(
   messages: any[],
   effectiveApiConfig: any,
-  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; sessionNamespace?: string; promptSegments?: PromptSegmentStat_ACU[] }
+  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean; nonPrefillSupport?: boolean; promptCacheKey?: string; includeStreamUsage?: boolean; responseFormat?: Record<string, any>; sessionNamespace?: string; promptSegments?: PromptSegmentStat_ACU[]; tools?: unknown; toolChoice?: unknown }
 ): Record<string, any> {
   // 提示词观测（R7 零开销）：一次布尔读取 + 末尾一个分支；关闭时后面的记录调用根本不进，
   // 不分配、不复制字符串、不算 token。放最前是为了让「本次调用是否被观测」在函数入口定死。
@@ -386,6 +501,18 @@ export function buildCustomApiRequestBody_ACU(
   if (opts.responseFormat && typeof opts.responseFormat === 'object') {
     pluginFields.response_format = opts.responseFormat;
   }
+  const customApiFormat_ACU = (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'] as const).includes(effectiveApiConfig.customApiFormat as any)
+    ? effectiveApiConfig.customApiFormat
+    : 'openai_compat';
+  const geminiModel_ACU = customApiFormat_ACU === 'gemini_generate_content' ? parseGeminiModel_ACU(model) : null;
+  // 思考强度（预设级优先）：'auto' 省略；非法值回退 medium；各协议的落地字段见 resolveReasoningControl_ACU
+  const reasoningControl_ACU = resolveReasoningControl_ACU(
+    String(effectiveApiConfig.reasoningEffort || settings_ACU.reasoningEffort || 'medium').trim().toLowerCase(),
+    customApiFormat_ACU, model, effectiveApiConfig.url, geminiModel_ACU,
+  );
+  if (reasoningControl_ACU.thinking && !userBodyDefinesKey_ACU(userBodyParams, 'thinking')) {
+    pluginFields.thinking = reasoningControl_ACU.thinking;
+  }
   const composedIncludeBody = composeCustomIncludeBody_ACU(userBodyParams, pluginFields);
   if (composedIncludeBody.diagnostic.reason === 'parse_error' || composedIncludeBody.diagnostic.reason === 'unsupported_root') {
     logWarn_ACU('[buildCustomApiRequestBody] 跳过插件请求体字段', composedIncludeBody.diagnostic);
@@ -407,7 +534,7 @@ export function buildCustomApiRequestBody_ACU(
     // 只接受小写 role。此前 messages 被原样透传，导致后端报
     // `unknown variant SYSTEM`，改表助手 AI 调用失败。
     //
-    // 本项目既有约定（merge-logic.ts / content-optimization.ts）
+    // 本项目既有约定（content-optimization.ts 等）
     // 均在发送前对 role 做 toLowerCase；此处是自定义 chat-completions 的统一出口，
     // 对已是小写的输入（merge / plot / 存量路径）为无操作，不破坏既有行为。
     // tavern / 主 API（generateRaw）路径不经过本函数，不受影响。
@@ -425,7 +552,13 @@ export function buildCustomApiRequestBody_ACU(
                 content = `助手：\n${typeof content === 'string' ? content : String(content ?? '')}`;
               }
               return { ...m, role, ...(content !== undefined ? { content } : {}) };
-          })
+          }).map((m, index, all) => (
+              // 只改结尾的纯文本预填；工具调用等带结构的消息保留原角色（与 TT 同口径）
+              geminiModel_ACU && geminiRejectsTrailingModelTurn_ACU(geminiModel_ACU)
+                && index === all.length - 1 && m?.role === 'assistant' && typeof m.content === 'string' && !m.tool_calls
+                ? { ...m, role: 'user' }
+                : m
+          ))
         : effectiveMessages_ACU,
     model,
     max_tokens: maxTokens,
@@ -436,37 +569,53 @@ export function buildCustomApiRequestBody_ACU(
       ? effectiveApiConfig.streamingEnabled === true
       : settings_ACU.streamingEnabled === true,
     chat_completion_source: 'custom',
+    // 后台请求：TT 对非后台请求会把上游错误（鉴权失败、协议不符等）包成 200 的「助手回复」，
+    // 插件会把「[API Error] …」当成模型输出去解析；标为 quiet 后宿主改回 502 + 错误原因，
+    // 走调用方既有的失败与重试路径。也不再触发宿主的「生成完成」通知。只给宿主看，不转发上游。
+    type: 'quiet',
     // 接口协议（预设级）：对齐 TT「自定义」选项（custom_api_format 契约，TT 现有五档）。
     // TT 后端按该值分流上游端点与请求/响应变形：openai_compat→/chat/completions、
     // openai_responses→/responses、claude_messages→/messages、gemini_interactions→/interactions；
     // 非流式响应由 TT 归一化为 OpenAI 形态，流式 Claude 为原样 Anthropic SSE（解析见 prompt-api-call）。
     // 白名单兜底：调用点可能传未归一化的 config，非法值回退 openai_compat。
-    custom_api_format: (['openai_compat', 'openai_responses', 'claude_messages', 'gemini_interactions', 'gemini_generate_content'] as const).includes(effectiveApiConfig.customApiFormat as any)
-      ? effectiveApiConfig.customApiFormat
-      : 'openai_compat',
+    custom_api_format: customApiFormat_ACU,
     group_names: [],
     include_reasoning: false,
-    // 思考强度（预设级优先）：minimal/low/medium/high/xhigh/max/ultra 原样透传；'false' 传布尔 false 关闭思考；
-    // 'auto' 则省略该参数由服务端自定；非法值回退 medium
-    ...(((): Record<string, unknown> => {
-      const raw = String(effectiveApiConfig.reasoningEffort || settings_ACU.reasoningEffort || 'medium').trim().toLowerCase();
-      if (raw === 'auto') return {};
-      if (raw === 'false') return { reasoning_effort: false };
-      return { reasoning_effort: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(raw) ? raw : 'medium' };
-    })()),
+    ...(reasoningControl_ACU.effort !== undefined ? { reasoning_effort: reasoningControl_ACU.effort } : {}),
     enable_web_search: false,
     request_images: false,
     // 提示词后处理：'strict' 等合法值透传；显式 '' 时省略该键（后端按 none 原样透传）。
     ...(promptPostProcessing_ACU ? { custom_prompt_post_processing: promptPostProcessing_ACU } : {}),
+    // 保留多个 system：默认开启；严格/半严格后处理也不把中部 system 降级为 user。
+    // 后端不识别该键时忽略之，行为与旧 strict 一致，不改变现状。
+    preserve_multiple_system: effectiveApiConfig.preserveMultipleSystem !== false,
+    // 系统提示词：TT 转接 Claude Messages / Gemini generateContent 时，只有带 use_sysprompt 才把开头连续的 system
+    // 放进协议的系统提示字段，不带就降成 user 并与相邻 user 合并（TT 2.4.0 payload/claude/messages.rs、makersuite.rs）。
+    // 与直接发送同口径；其余协议 TT 自己保留 system，不带该键。TT 只读不转发，直接发送的协议改写也不取它。
+    ...(customApiFormat_ACU === 'claude_messages' || customApiFormat_ACU === 'gemini_generate_content' ? { use_sysprompt: true } : {}),
+    // 端点与密钥走「反向代理 + 代理密码」：填了 custom_url 时 TT 改用自己「自定义」连接里存的密钥，
+    // Claude 协议以 x-api-key、Gemini 以 x-goog-api-key 与 ?key= 发出，预设密钥只在 Authorization 里，
+    // 上游认错密钥（同一把密钥换协议就报未订阅）。custom_url 留空后 TT 一律取代理密码。
+    // 预设没填密钥时照旧填 custom_url，保留 TT 回退到它自己存的密钥的老行为。
     reverse_proxy: effectiveApiConfig.url,
-    proxy_password: '',
-    custom_url: effectiveApiConfig.url,
+    proxy_password: apiKey,
+    custom_url: apiKey ? '' : effectiveApiConfig.url,
     custom_include_headers: headers,
     custom_include_body: composedIncludeBody.value,
     custom_exclude_body: sanitizeExcludeBodyForPresetFields_ACU(effectiveApiConfig.excludeBodyParams, effectiveApiConfig),
+    // 原生工具调用（可选项，如填表 table_sql）：顶层 tools / tool_choice 字段，
+    // 由 TT 后端透传给上游 provider。形态非法一律省略，绝不发送残缺工具定义。
+    ...(isValidNativeTools_ACU(opts.tools) ? { tools: opts.tools } : {}),
+    ...(opts.toolChoice !== undefined && opts.toolChoice !== null && (typeof opts.toolChoice === 'string' || typeof opts.toolChoice === 'object')
+      ? { tool_choice: opts.toolChoice }
+      : {}),
   };
 
-  logDebug_ACU(`[API] 构建请求体: model=${model}, reasoning_effort=${'reasoning_effort' in body ? String(body.reasoning_effort) : '(auto 省略)'}, stream=${body.stream}, temperature=${body.temperature}, max_tokens=${body.max_tokens}, exclude=${body.custom_exclude_body ? '有' : '无'}`);
+  // 发送方式（预设级）：数据库直接发送时登记请求体，发送口据此直连端点；转接时请求体逐字不变。
+  const sendChannel_ACU = normalizeApiSendChannel_ACU(effectiveApiConfig.sendChannel);
+  if (sendChannel_ACU === 'direct') markDirectSendBody_ACU(body);
+
+  logDebug_ACU(`[API] 构建请求体: channel=${sendChannel_ACU}, model=${model}, reasoning_effort=${'reasoning_effort' in body ? String(body.reasoning_effort) : '(auto 省略)'}, stream=${body.stream}, temperature=${body.temperature}, max_tokens=${body.max_tokens}, exclude=${body.custom_exclude_body ? '有' : '无'}`);
   if (isDebugLogEnabled()) {
     try {
       const toStore: any = JSON.parse(JSON.stringify(body));
@@ -507,11 +656,11 @@ export function buildCustomApiRequestBody_ACU(
 }
 
 /**
+/**
  * 判定一次响应的**取回方式**（供观测记录）。
  *
- * 与 `parseStreamResponse_ACU` 的能力检测（`response.body` 是否有 `getReader`）**同一判据**。
- * 刻意不靠「onDelta 是否被调用」来分辨：SSE 的整读回退分支同样逐行触发 onDelta，
- * 二者在回调层面不可区分（见 `prompt-builder/prompt-api-call.ts` 的 parseStreamResponse_ACU）。
+ * 与 `parseStreamResponse_ACU` 的读取形态**同一判据**：`readStreamBodyText_ACU` 在
+ * 「需要进度/增量回调且 body 有 getReader」时走增量读取，否则整读。
  */
 function resolveStreamTransport_ACU(requestWantsStream: boolean, response: unknown): 'incremental' | 'buffered' | 'json' {
     if (!requestWantsStream) return 'json';
@@ -520,7 +669,8 @@ function resolveStreamTransport_ACU(requestWantsStream: boolean, response: unkno
 }
 
 /**
- * 自定义 API 统一出口：调用宿主 /api/backends/chat-completions/generate。
+ * 自定义 API 统一出口：经酒馆转接时调用宿主 /api/backends/chat-completions/generate，
+ * 数据库直接发送时直连预设端点（见 direct-send.ts）。
  * stream 参数由 streamingEnabled 开关决定（见 buildCustomApiRequestBody_ACU）；
  * 响应解析按请求实际携带的 stream 值分流（预设级开关可能与全局不同）。
  * 返回 AI 响应文本（原始，未 trim），失败抛错。
@@ -532,13 +682,7 @@ function resolveStreamTransport_ACU(requestWantsStream: boolean, response: unkno
 export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal | null): Promise<string | null> {
     let res: Response;
     try {
-        res = await fetch('/api/backends/chat-completions/generate', {
-            method: 'POST',
-            redirect: 'error', // 307/308 会把 POST 原样重放到重定向目标：SSRF 守卫只校发起前 URL，禁止重定向
-            headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: signal || undefined,
-        });
+        res = await sendChatCompletionBody_ACU(body, signal);
     } catch (e: any) {
         // 网络层失败（Failed to fetch / NetworkError）：调用方（剧情推进任务循环等）会决定是否重试，
         // 这里显式记录便于从日志区分「网络失败」与「后端返回错误状态」。
@@ -559,7 +703,7 @@ export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal
             res,
             requestWantsStream,
             undefined,
-            streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined,
+            { onDelta: streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined },
         );
         streamHandle?.finish({ ...(typeof text === 'string' ? { text } : {}), transport });
         return text;
@@ -570,12 +714,71 @@ export async function postChatCompletion_ACU(body: unknown, signal?: AbortSignal
     }
 }
 
+/** 非流式回合：正文 + 归一化后的原生工具调用（arguments 恒为字符串）。 */
+export interface ChatCompletionTurn_ACU {
+    content: string;
+    toolCalls: Array<{ name: string; arguments: string }>;
+}
+
+/**
+ * 非流式 OpenAI 形态响应的回合提取（正文 + 原生工具调用）。
+ * 只要 content 与 tool_calls 两处能取到的都取；两处皆无返回 null（调用方按可重试处理）。
+ * tool_calls 只收录 function.name 为非空串的项；arguments 非字符串时 JSON 序列化保留，
+ * 下游 resolve 阶段再按缺字段判失败（此处不丢信息）。
+ */
+export function parseNonStreamChatTurn_ACU(data: unknown): ChatCompletionTurn_ACU | null {
+    const message = (data as any)?.choices?.[0]?.message;
+    const fallbackContent = typeof (data as any)?.content === 'string'
+      ? (data as any).content
+      : (typeof data === 'string' ? data : '');
+    const content = typeof message?.content === 'string' ? message.content : fallbackContent;
+    const rawCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+    const toolCalls: Array<{ name: string; arguments: string }> = [];
+    for (const call of rawCalls) {
+        const fn = (call as any)?.function;
+        if (!fn || typeof fn.name !== 'string' || !fn.name) continue;
+        const args = typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+        toolCalls.push({ name: fn.name, arguments: args });
+    }
+    if (!content && toolCalls.length === 0) return null;
+    return { content, toolCalls };
+}
+
+/** 非流式回合出口（填表工具调用可选项）：与 postChatCompletion_ACU 同一错误语义，另取 tool_calls。 */
+export async function postChatCompletionTurn_ACU(body: unknown, signal?: AbortSignal | null, onUsage?: (usage: AiUsageMetadata_ACU) => void): Promise<ChatCompletionTurn_ACU | null> {
+    let res: Response;
+    try {
+        res = await sendChatCompletionBody_ACU(body, signal);
+    } catch (e: any) {
+        logWarn_ACU(`[postChatCompletionTurn] 网络请求失败: ${String(e?.message || e?.name || 'unknown')}`, { aborted: e?.name === 'AbortError' || String(e?.message || '').toLowerCase().includes('aborted') });
+        throw e;
+    }
+    if (!res.ok) {
+        const errTxt = sanitizeUpstreamErrorBodyForDisplay_ACU(await res.text());
+        throw new AgentApiHttpError_ACU(res.status, `API请求失败: ${res.status} ${errTxt}`);
+    }
+    let data: unknown;
+    try {
+        data = await res.json();
+    } catch (e: any) {
+        if (e?.name === 'AbortError') throw e;
+        logWarn_ACU('[postChatCompletionTurn] Failed to parse response:', e);
+        return null;
+    }
+    const turnUsage = extractAiUsageMetadata_ACU((data as any)?.usage);
+    if (turnUsage && onUsage) {
+        try { onUsage(turnUsage); } catch { /* 用量回调异常不允许影响响应主流程。 */ }
+    }
+    return parseNonStreamChatTurn_ACU(data);
+}
+
 /**
  * 剧情推进任务级 API 调用 — 接受显式预设名称
  * 调用优先级：presetName 参数 > 全局 plotApiPreset > 当前 API 配置
  */
-export async function callApiWithPlotPreset_ACU(messages: any[], presetName: string, abortSignal: AbortSignal | null = null) {
-    const effectivePresetName = presetName || settings_ACU.plotApiPreset || '';
+export async function callApiWithPlotPreset_ACU(messages: any[], presetName?: string, abortSignal: AbortSignal | null = null) {
+    // undefined 继承功能选择；显式空名跟随当前配置，不再被固定预设覆盖。
+    const effectivePresetName = String(presetName !== undefined ? presetName : (settings_ACU.plotApiPreset || '')).trim();
     const apiPresetConfig = getApiConfigByPreset_ACU(effectivePresetName);
     const effectiveApiMode = apiPresetConfig.apiMode ?? settings_ACU.apiMode;
     const effectiveApiConfig = apiPresetConfig.apiConfig || settings_ACU.apiConfig || {};
@@ -660,6 +863,67 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
     return content ? content.trim() : null;
 }
 
+export interface ApiConnectionTestResult_ACU {
+    ok: boolean;
+    elapsedMs: number;
+    /** 接通时模型的回复（已去首尾空白，可能为空串） */
+    reply?: string;
+    /** 接通但有需要说明的情况（如没有返回正文） */
+    note?: string;
+    /** HTTP 失败时的状态码 */
+    status?: number;
+    error?: string;
+}
+
+const API_CONNECTION_TEST_TIMEOUT_MS_ACU = 60_000;
+const API_CONNECTION_TEST_MAX_TOKENS_ACU = 1024;
+
+/**
+ * API 页「测试连接」：按填写中的配置（含发送方式、接口协议、附加参数，尚未保存也可）发一条最短请求。
+ * 走与正式调用相同的请求组装与发送口；回复长度压到 1024 以内，不经公益站限速。从不抛错，结果结构化返回。
+ */
+export async function testApiConnection_ACU(
+    apiConfig: any,
+    options?: { nonPrefillSupport?: boolean; timeoutMs?: number },
+): Promise<ApiConnectionTestResult_ACU> {
+    const startedAt = Date.now();
+    const elapsed = () => Date.now() - startedAt;
+    if (!apiConfig?.url || !String(apiConfig.url).trim()) return { ok: false, elapsedMs: 0, error: '请先填写端点（基础 URL）。' };
+    if (!apiConfig?.model || !String(apiConfig.model).trim()) return { ok: false, elapsedMs: 0, error: '请先填写模型名。' };
+    const timeoutMs = options?.timeoutMs ?? API_CONNECTION_TEST_TIMEOUT_MS_ACU;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const presetMaxTokens = Number(apiConfig.max_tokens ?? apiConfig.maxTokens);
+        const maxTokens = Number.isFinite(presetMaxTokens) && presetMaxTokens > 0
+            ? Math.min(presetMaxTokens, API_CONNECTION_TEST_MAX_TOKENS_ACU)
+            : API_CONNECTION_TEST_MAX_TOKENS_ACU;
+        const body = buildCustomApiRequestBody_ACU(
+            [{ role: 'user', content: '这是一条连接测试，请只回复「连接成功」。' }],
+            apiConfig,
+            { maxTokens, stripModelPrefix: false, nonPrefillSupport: options?.nonPrefillSupport === true },
+        );
+        const content = await postChatCompletion_ACU(body, controller.signal);
+        const reply = typeof content === 'string' ? content.trim() : '';
+        return reply
+            ? { ok: true, elapsedMs: elapsed(), reply }
+            : { ok: true, elapsedMs: elapsed(), reply: '', note: '已接通，但模型没有返回正文（思考可能占满了回复长度，或模型只返回了思考内容）。' };
+    } catch (error: any) {
+        if (controller.signal.aborted) {
+            return { ok: false, elapsedMs: elapsed(), error: `测试请求超时：${Math.round(timeoutMs / 1000)} 秒内没有完成，请检查端点与网络。` };
+        }
+        const status = Number(error?.status);
+        return {
+            ok: false,
+            elapsedMs: elapsed(),
+            ...(Number.isFinite(status) ? { status } : {}),
+            error: String(error?.message || error || '未知错误'),
+        };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
  * 已解析预设的调用生命周期回调。
  */
@@ -703,10 +967,19 @@ function assertNotAborted_ACU(signal?: AbortSignal | null): void {
  * 内部 AI（续写规划 / 主 Agent / 子代理）单次请求的传输超时兜底。
  * 背景：本入口跑在续写租约内，transport hang（后端代理挂起、半开连接）时 fetch 永不返回
  * → 租约被无限占用 → 一切续写操作以 CONTINUATION_OPERATION_BUSY 死锁，只能手动 stop。
- * 取值宽松（120s）：续写正文是全链路最长的一次生成，短超时会误杀正常的慢响应；
- * 它只兜「永远等不到结果」的挂死，不兜「慢但有结果」。对照 vector-rerank-gateway 的 30s 兜底。
+ * 它只兜「永远等不到结果」的挂死，不兜「慢但有结果」（R8-02）：
+ * - 流式：120s 是空闲超时——等响应头、以及响应体相邻两块数据之间各最多 120s，持续出字就一直续期；
+ * - 非流式：没有进度信号，整段生成完才返回，上限按输出 token 上限放宽（按 20 tok/s 估），不低于 120s。
  */
 const INTERNAL_AI_FETCH_TIMEOUT_MS_ACU = 120_000;
+const INTERNAL_AI_NON_STREAM_MIN_TOKENS_PER_SECOND_ACU = 20;
+
+function resolveNonStreamTimeoutMs_ACU(maxTokens: number): number {
+  const budget = Number.isFinite(maxTokens) && maxTokens > 0
+    ? Math.ceil(maxTokens / INTERNAL_AI_NON_STREAM_MIN_TOKENS_PER_SECOND_ACU) * 1000
+    : 0;
+  return Math.max(INTERNAL_AI_FETCH_TIMEOUT_MS_ACU, budget);
+}
 
 /**
  * 把外部取消信号并入超时控制器：外部 abort 或超时到期都会中断 fetch。
@@ -777,19 +1050,22 @@ export async function callAIWithResolvedPreset_ACU(
     }
     // 超时可中断：本调用在续写租约内，挂起的 transport 不允许无限占用租约（见常量注释）。
     // 计时器覆盖到响应体读完为止——流式路径的悬挂发生在 body 读取阶段，只包 fetch 兜不住。
+    const requestWantsStream = (body as any)?.stream === true;
     const timeoutController = new AbortController();
-    const timeoutTimer = setTimeout(() => timeoutController.abort(), INTERNAL_AI_FETCH_TIMEOUT_MS_ACU);
+    let timeoutMs = 0;
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    const armTimeout = (ms: number) => {
+      if (timeoutController.signal.aborted) return;
+      clearTimeout(timeoutTimer);
+      timeoutMs = ms;
+      timeoutTimer = setTimeout(() => timeoutController.abort(), ms);
+    };
+    armTimeout(requestWantsStream ? INTERNAL_AI_FETCH_TIMEOUT_MS_ACU : resolveNonStreamTimeoutMs_ACU(maxTokens));
     const detachExternalAbort = attachTimeoutAndExternalAbort_ACU(timeoutController, signal);
     try {
       let response: Response;
       try {
-        response = await fetch('/api/backends/chat-completions/generate', {
-            method: 'POST',
-            redirect: 'error', // 307/308 会把 POST 原样重放到重定向目标：SSRF 守卫只校发起前 URL，禁止重定向
-            headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: timeoutController.signal,
-        });
+        response = await sendChatCompletionBody_ACU(body, timeoutController.signal);
       } catch (error: any) {
         if (signal?.aborted) {
             const cancelled = new Error('请求已取消');
@@ -799,7 +1075,7 @@ export async function callAIWithResolvedPreset_ACU(
         if (error?.name === 'AbortError') {
             // 超时计时器掐断的 fetch：挂 TimeoutError 名，使 isRetryable 按名判为可重试。
             // 不依赖中文文案正则；外部取消已在上方按 AbortError 先行返回，走不到这里。
-            const timeout = new Error(`内部 AI 请求超时（${INTERNAL_AI_FETCH_TIMEOUT_MS_ACU / 1000}s 无响应），已中断。`);
+            const timeout = new Error(`内部 AI 请求超时（${timeoutMs / 1000}s 无响应），已中断。`);
             timeout.name = 'TimeoutError';
             throw timeout;
         }
@@ -808,10 +1084,13 @@ export async function callAIWithResolvedPreset_ACU(
       try {
         if (!response.ok) {
             const errTxt = sanitizeUpstreamErrorBodyForDisplay_ACU(await response.text());
-            throw new Error(`API 请求失败: ${response.status} ${errTxt}`);
+            // 带 status 抛出（R8-08）：重试方据此区分 401/403/404 这类必然失败的配置错误。
+            throw new AgentApiHttpError_ACU(response.status, `API 请求失败: ${response.status} ${errTxt}`);
         }
         assertNotAborted_ACU(signal);
         const requestWantsStream = (body as any)?.stream === true;
+        // 响应头已到：转入空闲计时，流式每收到一块数据续期一次（R8-02：长生成不被 120s 掐断）。
+        armTimeout(INTERNAL_AI_FETCH_TIMEOUT_MS_ACU);
         // 响应观测（第二段）：与请求组装时登记的记录凭 body 引用配对；关闭时为 null。
         const streamHandle = beginPromptStreamObservation_ACU(body);
         const transport = resolveStreamTransport_ACU(requestWantsStream, response);
@@ -821,7 +1100,10 @@ export async function callAIWithResolvedPreset_ACU(
               response,
               requestWantsStream,
               lifecycle?.onUsage,
-              streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined,
+              {
+                onProgress: () => armTimeout(INTERNAL_AI_FETCH_TIMEOUT_MS_ACU),
+                onDelta: streamHandle ? (delta: string) => streamHandle.onDelta(delta) : undefined,
+              },
           );
         } catch (error) {
           // 有界收尾：观测句柄必须 settle，且异常按原样上抛给外层 catch（不改既有取消/超时语义）。
@@ -840,7 +1122,7 @@ export async function callAIWithResolvedPreset_ACU(
         // 响应体读取阶段被超时计时器掐断：报超时而不是底层网络错文。
         // 挂 TimeoutError 名，走 isRetryable 的按名放行分支。
         if (error?.name === 'AbortError' && timeoutController.signal.aborted) {
-            const timeout = new Error(`内部 AI 请求超时（${INTERNAL_AI_FETCH_TIMEOUT_MS_ACU / 1000}s），已中断。`);
+            const timeout = new Error(`内部 AI 请求超时（${timeoutMs / 1000}s 未收到新数据），已中断。`);
             timeout.name = 'TimeoutError';
             throw timeout;
         }

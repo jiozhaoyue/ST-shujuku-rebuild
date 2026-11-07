@@ -7,13 +7,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU,
   CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU,
-  CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU,
+  CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V38_ACU,
+  CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU,
   buildDefaultContinuationOutlinePrompt_ACU,
   buildDefaultContinuationSettings_ACU,
+  buildV38DefaultContinuationOutlinePrompt_ACU,
 } from '../../../src/service/continuation/defaults';
 import {
   buildV35ContinuationAgentPrompts_ACU,
   buildV36ContinuationAgentPrompts_ACU,
+  buildV37ContinuationAgentPrompts_ACU,
+  buildDefaultContinuationAgentPrompts_ACU,
 } from '../../../src/service/continuation/agent/agent-defaults';
 import { FirstFloorContinuationStore_ACU } from '../../../src/service/continuation/continuation-store';
 import { _set_SillyTavern_API_ACU } from '../../../src/shared/host-api';
@@ -26,7 +30,7 @@ function buildV35ShapedEnvelope_ACU(): any {
     settings: {
       ...settings,
       // V36 之前的默认收尾恰是 V31 上下文注入段：去掉当前默认的 user 预填充尾段即旧形状。
-      outlinePrompt: settings.outlinePrompt.slice(0, -1),
+      outlinePrompt: buildV38DefaultContinuationOutlinePrompt_ACU().slice(0, -1),
       agentPrompts: buildV35ContinuationAgentPrompts_ACU(),
       promptForceDefaultVersion: CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V35_ACU,
     },
@@ -38,19 +42,19 @@ function seed_ACU(envelope: any) {
   _set_SillyTavern_API_ACU({ chat: [{ _qrf_continuation: envelope }], chatId: 'chat-a', getCurrentChatId: () => 'chat-a', saveChat: vi.fn() } as any);
 }
 
-describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
+describe('续写迁移链 V35→V36→V37→V38-agent（user-prefill 切换批＋进度校准批）', () => {
   beforeEach(() => {
     _set_SillyTavern_API_ACU(undefined);
   });
 
-  it('V35 默认信封读入后逐段到达 V36 默认组与带预填充的 outlinePrompt，标记推进到 V37', async () => {
+  it('V35 默认信封读入后逐段到达 V37 默认组与带预填充的 outlinePrompt，标记推进到 V38', async () => {
     seed_ACU(buildV35ShapedEnvelope_ACU());
     const loaded = new FirstFloorContinuationStore_ACU().read()!;
 
-    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
-    expect(loaded.settings.agentPrompts).toEqual(buildV36ContinuationAgentPrompts_ACU());
-    expect(loaded.settings.outlinePrompt[loaded.settings.outlinePrompt.length - 1])
-      .toMatchObject({ role: 'user', content: USER_PREFILL_CONTENT_ACU });
+    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
+    // 旧链必须逐字落到 V38 冻结默认，整组才会被 V39 升级为当前默认。
+    expect(loaded.settings.agentPrompts).toEqual(buildDefaultContinuationAgentPrompts_ACU());
+    expect(loaded.settings.outlinePrompt).toEqual(buildDefaultContinuationOutlinePrompt_ACU());
   });
 
   it('用户定制段不被强刷：改写过的尾段与非尾段原样保留，仅命中谱系的默认段被替换', async () => {
@@ -65,14 +69,13 @@ describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
 
     const loaded = new FirstFloorContinuationStore_ACU().read()!;
     const v36 = buildV36ContinuationAgentPrompts_ACU();
-    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
+    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
     expect(loaded.settings.agentPrompts.main[mainIndex(loaded, customTail)]).toEqual(customTail);
     expect(loaded.settings.agentPrompts.main.some(segment => segment.content === customProtocol.content)).toBe(true);
-    // 未改写的其余组（如 beatPlanner）按谱系命中被切换到 V36 形态。
-    expect(loaded.settings.agentPrompts.beatPlanner[loaded.settings.agentPrompts.beatPlanner.length - 1])
-      .toMatchObject({ role: 'user', content: USER_PREFILL_CONTENT_ACU });
-    expect(loaded.settings.agentPrompts.beatPlanner.find(segment => segment.role === 'system')!.content)
-      .toBe(v36.beatPlanner.find(segment => segment.role === 'system')!.content);
+    // 定制过的主组不会被 V39 整组替换：仍是 V36→V37 逐段迁移后的形态。
+    expect(loaded.settings.agentPrompts.main.some(segment => segment.content.includes('action = adjust_progress'))).toBe(true);
+    // 未改写的其余组（如 beatPlanner）先按谱系到 V38 冻结默认，再整组升级为当前默认。
+    expect(loaded.settings.agentPrompts.beatPlanner).toEqual(buildDefaultContinuationAgentPrompts_ACU().beatPlanner);
   });
 
   it('迁移幂等：迁移后的信封再读一遍不再变化', async () => {
@@ -84,15 +87,15 @@ describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
     expect(second.settings).toEqual(first.settings);
   });
 
-  it('V36 档位信封只补 outlinePrompt 预填充尾段，agentPrompts 原样', async () => {
+  it('V36 档位信封补 outlinePrompt 预填充尾段，agentPrompts 按谱系到 V37（移植上游 e35f758d）', async () => {
     const envelope = buildV35ShapedEnvelope_ACU();
     envelope.settings.agentPrompts = buildV36ContinuationAgentPrompts_ACU();
     envelope.settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V36_ACU;
     seed_ACU(envelope);
 
     const loaded = new FirstFloorContinuationStore_ACU().read()!;
-    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
-    expect(loaded.settings.agentPrompts).toEqual(buildV36ContinuationAgentPrompts_ACU());
+    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
+    expect(loaded.settings.agentPrompts).toEqual(buildDefaultContinuationAgentPrompts_ACU());
     expect(loaded.settings.outlinePrompt).toEqual(buildDefaultContinuationOutlinePrompt_ACU());
   });
 
@@ -104,7 +107,7 @@ describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
     seed_ACU(envelope);
 
     const loaded = new FirstFloorContinuationStore_ACU().read()!;
-    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
+    expect(loaded.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
     expect(loaded.settings.outlinePrompt).toEqual([{ role: 'user', content: '用户定制的收尾段', enabled: true, deletable: true }]);
   });
 
@@ -113,7 +116,7 @@ describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
     const goodEnvelope = buildV35ShapedEnvelope_ACU();
     goodEnvelope.settings.agentPrompts = { ...buildV36ContinuationAgentPrompts_ACU(), main: [custom] };
     goodEnvelope.settings.outlinePrompt = [custom];
-    goodEnvelope.settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU;
+    goodEnvelope.settings.promptForceDefaultVersion = CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V38_ACU;
     seed_ACU(goodEnvelope);
     const kept = new FirstFloorContinuationStore_ACU().read()!;
     expect(kept.settings.agentPrompts.main).toEqual([custom]);
@@ -125,9 +128,9 @@ describe('续写迁移链 V35→V36→V37（user-prefill 切换批）', () => {
     unknownEnvelope.settings.promptForceDefaultVersion = 'spv0.0-unknown-marker';
     seed_ACU(unknownEnvelope);
     const reset = new FirstFloorContinuationStore_ACU().read()!;
-    expect(reset.settings.agentPrompts).toEqual(buildV36ContinuationAgentPrompts_ACU());
+    expect(reset.settings.agentPrompts).toEqual(buildDefaultContinuationAgentPrompts_ACU());
     expect(reset.settings.outlinePrompt).toEqual(buildDefaultContinuationOutlinePrompt_ACU());
-    expect(reset.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V37_ACU);
+    expect(reset.settings.promptForceDefaultVersion).toBe(CONTINUATION_PROMPT_FORCE_DEFAULT_VERSION_V39_ACU);
   });
 });
 

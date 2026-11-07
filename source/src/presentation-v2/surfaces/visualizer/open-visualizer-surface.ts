@@ -4,12 +4,14 @@ import {
   openAcuV2App,
 } from '../../bootstrap/mount';
 import { getAcuHostWindow } from '../../bootstrap/host-document';
+import { canLeaveCurrentPage } from '../../composables/useUiCloseGuard';
 import { useRootShellStore } from '../../stores/root-shell-store';
 import { useRouterStore } from '../../stores/router-store';
 import {
   useVisualizerStore,
   type VisualizerOpenSource,
 } from '../../stores/visualizer-store';
+import { readVisualizerSourceRevision_ACU } from '../../../service/visualizer/visualizer-source-revision';
 
 interface OpenVisualizerSurfaceOptions {
   source?: VisualizerOpenSource;
@@ -45,6 +47,17 @@ export async function openVisualizerSurface_ACU(
     const previousPageId = existingPinia
       ? useRouterStore(existingPinia).activePageId
       : null;
+    // R10B-06：面板开着时进入编辑器会卸载当前页，页内未保存修改要先过守卫。
+    // 新版界面内的入口（v2-shell）在切预设等前置动作之前自行检查，这里只拦外部调用。
+    const visualizerAlreadyActive = existingPinia ? useVisualizerStore(existingPinia).isActive : false;
+    if (
+      (options.source ?? 'external-api') === 'external-api'
+      && wasShellOpen
+      && !visualizerAlreadyActive
+      && !(await canLeaveCurrentPage())
+    ) {
+      return false;
+    }
 
     await openAcuV2App();
 
@@ -68,7 +81,9 @@ export async function openVisualizerSurface_ACU(
 export async function requestVisualizerExternalRefresh_ACU(): Promise<void> {
   const pinia = getAcuV2PiniaForBridge();
   if (!pinia) return;
-  useVisualizerStore(pinia).requestExternalRefresh();
+  // 带上当前数据源 revision：store 据此把同一轮的重复请求合并成一次重载，
+  // 并在数据源没变时直接跳过（省掉整表重载与两次全库克隆）。
+  useVisualizerStore(pinia).requestExternalRefresh(readVisualizerSourceRevision_ACU());
 }
 
 /**

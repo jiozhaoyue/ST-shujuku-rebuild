@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
+  markChatChangedForEndedGate: vi.fn(),
+  markStoppedSendForRetry: vi.fn(),
+  isRetryOfStoppedSend: vi.fn(() => false),
   chatChanged: undefined as undefined | ((name: string) => Promise<void>),
   chatMutationHandler: undefined as undefined | ((data: any) => Promise<void>),
+  messageDeletedHandler: undefined as undefined | ((data: any) => Promise<void>),
   chatDeletedHandler: undefined as undefined | (() => void),
   messageSentHandler: undefined as undefined | ((messageId: any) => void),
   generationStartedHandler: undefined as undefined | ((type: any, params: any, dryRun: any) => void),
@@ -34,9 +38,9 @@ const m = vi.hoisted(() => ({
     eventSource: { on: vi.fn(), makeFirst: vi.fn(), makeLast: vi.fn(), emit: vi.fn() },
   } as any,
   gate: { lastUserMessageId: 7 as any, lastUserMessageText: 'stale', lastUserMessageAt: 1, lastUserSendIntentAt: 2, lastGeneration: { stale: true } as any, generationSeq: 0, activeGenerations: [] as any[] },
-  resetTakeover: vi.fn(), dispose: vi.fn(), setData: vi.fn(), setTables: vi.fn(), setMessages: vi.fn(), setTotal: vi.fn(), setChat: vi.fn(),
+  resetTakeover: vi.fn(), releaseGreenlights: vi.fn(), dispose: vi.fn(), setData: vi.fn(), setTables: vi.fn(), setMessages: vi.fn(), setTotal: vi.fn(), setChat: vi.fn(),
   setChatMutationTimer: vi.fn(),
-  notify: vi.fn(), resetScript: vi.fn(), loadPreset: vi.fn(), loadMessages: vi.fn(), refresh: vi.fn(),
+  notify: vi.fn(), resetScript: vi.fn(), loadPreset: vi.fn(), loadAgentControl: vi.fn(async () => undefined), loadMessages: vi.fn(), refresh: vi.fn(),
   preload: vi.fn(), shouldRebuild: vi.fn(), rebuild: vi.fn(), restoreFlush: vi.fn(),
   processBeforeGen: vi.fn(),
   orchestrate: vi.fn(),
@@ -44,6 +48,8 @@ const m = vi.hoisted(() => ({
   captureVault: vi.fn(),
   dormantAudit: vi.fn(),
   clearAutoFillDebounce: vi.fn(),
+  cancelPendingAutoTasks: vi.fn(),
+  abortStaleFill: vi.fn(() => 0),
   runtimeOnlyFlush: vi.fn(async () => ({ flushed: false, sheetKeys: [] })),
   ensureSeedCheckpoint: vi.fn(async () => false),
   recordGenerationContext: vi.fn(() => ({ seq: 1 })),
@@ -55,16 +61,23 @@ const m = vi.hoisted(() => ({
   setWasStoppedByUser: vi.fn((value: boolean) => { m.wasStoppedByUser = value; }),
   capturePlotScope: vi.fn(),
   isSamePlotScope: vi.fn(),
+  // AI 楼判定的实际执行次数（GENERATION_ENDED 单次扫描的判别计数）。
+  aiFloorReads: 0,
+  logAutoFillSkip: vi.fn(),
+  // 发送意图标记（IME 过滤用例要断言它没被上屏回车触发）
+  markSendIntent: vi.fn(),
 }));
 
 vi.mock('../../../src/shared/host-api', () => ({ SillyTavern_API_ACU: m.api }));
 vi.mock('../../../src/shared/env', () => ({ topLevelWindow_ACU: { AutoCardUpdaterAPI: { _notifyTableUpdate: m.notify } } }));
 vi.mock('../../../src/presentation/theme/toast', () => ({ showToastr_ACU: vi.fn() }));
-vi.mock('../../../src/presentation/triggers/settings-ui-sync/settings-ui-connect', () => ({ attemptToLoadCoreApis_ACU: vi.fn(() => true), handleNewMessageDebounced_ACU: (...args: any[]) => m.handleNewMessage(...args) }));
+vi.mock('../../../src/presentation/triggers/settings-ui-sync/settings-ui-connect', () => ({ attemptToLoadCoreApis_ACU: vi.fn(() => true), handleNewMessageDebounced_ACU: (...args: any[]) => m.handleNewMessage(...args), cancelPendingAutoTasks_ACU: (...args: any[]) => m.cancelPendingAutoTasks(...args) }));
 vi.mock('../../../src/service/runtime/helpers-remaining', () => ({ ensureInitialSeedCheckpoint_ACU: (...args: any[]) => m.ensureSeedCheckpoint(...args), handleChatCompletionReady_ACU: vi.fn(), loadPresetAndCleanCharacterData_ACU: m.loadPreset }));
 vi.mock('../../../src/service/table/runtime-only-pending-flush', () => ({ flushRuntimeOnlyPendingChanges_ACU: (...args: any[]) => m.runtimeOnlyFlush(...args) }));
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   chatMutationDebounceTimer_ACU: null, _set_chatMutationDebounceTimer_ACU: m.setChatMutationTimer, generationGate_ACU: m.gate,
+  markChatChangedForEndedGate_ACU: m.markChatChangedForEndedGate,
+  markStoppedSendForRetry_ACU: m.markStoppedSendForRetry, clearStoppedSendRetry_ACU: vi.fn(), isRetryOfStoppedSend_ACU: (...args: any[]) => m.isRetryOfStoppedSend(...args),
   get currentChatFileIdentifier_ACU() { return m.currentChatKey; }, currentJsonTableData_ACU: null,
   resolveGenerationContextForEnded_ACU: (...args: any[]) => {
     const context = m.consumeGenerationContext(...args);
@@ -73,7 +86,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
       context: m.generationEndMatchStatus === 'ambiguous' ? null : context,
     };
   },
-  consumeGenerationContextForEnded_ACU: (...args: any[]) => m.consumeGenerationContext(...args), discardLatestGenerationContext_ACU: vi.fn(), getCurrentIsolationKey_ACU: vi.fn(() => ''), markUserSendIntent_ACU: vi.fn(), isProcessing_Plot_ACU: false, isQuietLikeGeneration_ACU: vi.fn(), isRecentUserSendIntent_ACU: vi.fn(), recordGenerationContext_ACU: m.recordGenerationContext, recordLastUserSend_ACU: vi.fn(), settings_ACU: { plotSettings: {} }, shouldProcessAutoTableUpdateForGenerationEnded_ACU: vi.fn(), shouldProcessPlotForGeneration_ACU: vi.fn(), shouldProcessSummaryVectorIndexForGeneration_ACU: (...args: any[]) => m.shouldProcessSummary(...args),
+  consumeGenerationContextForEnded_ACU: (...args: any[]) => m.consumeGenerationContext(...args), discardLatestGenerationContext_ACU: vi.fn(), getCurrentIsolationKey_ACU: vi.fn(() => ''), markUserSendIntent_ACU: (...args: any[]) => m.markSendIntent(...args), isProcessing_Plot_ACU: false, isQuietLikeGeneration_ACU: vi.fn(), isRecentUserSendIntent_ACU: vi.fn(), recordGenerationContext_ACU: m.recordGenerationContext, recordLastUserSend_ACU: vi.fn(), settings_ACU: { plotSettings: {} }, shouldProcessAutoTableUpdateForGenerationEnded_ACU: vi.fn(), shouldProcessDecisionRecallForGeneration_ACU: vi.fn(() => false), shouldProcessPlotForGeneration_ACU: vi.fn(), shouldProcessSummaryVectorIndexForGeneration_ACU: (...args: any[]) => m.shouldProcessSummary(...args),
   _set_allChatMessages_ACU: m.setMessages, _set_currentChatFileIdentifier_ACU: (value: string) => { m.currentChatKey = value; m.setChat(value); }, _set_currentJsonTableData_ACU: m.setData, _set_independentTableStates_ACU: m.setTables, _set_isProcessing_Plot_ACU: vi.fn(), _set_lastTotalAiMessages_ACU: m.setTotal, _set_wasStoppedByUser_ACU: m.setWasStoppedByUser, abortOnChatMutation_ACU: vi.fn(), clearAutoFillDebounce_ACU: (...args: any[]) => m.clearAutoFillDebounce(...args), getChatMutationAbortSignal_ACU: () => null,
 }));
 vi.mock('../../../src/service/runtime/plot-runtime/plot-runtime-scope', () => ({
@@ -82,7 +95,7 @@ vi.mock('../../../src/service/runtime/plot-runtime/plot-runtime-scope', () => ({
 }));
 
 vi.mock('../../../src/service/settings/settings-service', () => ({ applyTemplateScopeForCurrentChat_ACU: vi.fn(), loadSettings_ACU: vi.fn(), isSettingsStorageReadyForSave_ACU: vi.fn(() => true) }));
-vi.mock('../../../src/service/worldbook/injection-engine', () => ({ resetScriptStateForNewChat_ACU: m.resetScript }));
+vi.mock('../../../src/service/worldbook/injection-engine', () => ({ resetScriptStateForNewChat_ACU: m.resetScript, releaseAgentGreenlightsOfPreviousChat_ACU: m.releaseGreenlights }));
 // 续写宿主生成桥注册表：默认无注册实例（get 返回 undefined，init.ts 的 ?. 全部短路），
 // 需要观测事件分类的用例把 m.continuationBridge 换成带 spy 的对象即可。
 // register 必须返回可用的注销闭包——continuation-runtime 创建真实桥时会拿它做 dispose。
@@ -93,12 +106,28 @@ vi.mock('../../../src/service/continuation/host-generation-bridge-registry', () 
 }));
 vi.mock('../../../src/service/continuation/internal-ai-events', () => ({ bindContinuationInternalAiGenerationStarted_ACU: vi.fn(), consumeContinuationInternalAiGenerationEnded_ACU: vi.fn(() => null) }));
 vi.mock('../../../src/service/agent/agent-worldbook-takeover', () => ({ resetPlotAgentWorldbookSessionSnapshot_ACU: m.resetTakeover }));
+vi.mock('../../../src/service/agent/agent-worldbook-config-meta', () => ({ loadAgentWorldbookRuntimeControl_ACU: m.loadAgentControl }));
 vi.mock('../../../src/service/table/table-storage-strategy', () => ({ reloadStorageProvider: vi.fn(), disposeStorageProvider: m.dispose }));
 vi.mock('../../../src/service/table/storage-mode', () => ({ isSqliteMode: vi.fn(() => false) }));
 vi.mock('../../../src/service/worldbook/pipeline', () => ({ loadAllChatMessages_ACU: m.loadMessages }));
 vi.mock('../../../src/presentation/components/pipeline-ui-helpers', () => ({ refreshMergedDataAndNotifyWithUI_ACU: m.refresh }));
 
 vi.mock('../../../src/shared/defaults-json.js', () => ({ DEFAULT_PLOT_SETTINGS_ACU: { loopSettings: {} } }));
+// AI 楼判定是 GENERATION_ENDED 里唯一的全量扫描成本：包一层计数，其他导出原样透出。
+vi.mock('../../../src/shared/ai-floor', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../src/shared/ai-floor')>();
+  return {
+    ...actual,
+    isAiFloor_ACU: (message: any) => {
+      m.aiFloorReads += 1;
+      return actual.isAiFloor_ACU(message);
+    },
+  };
+});
+vi.mock('../../../src/shared/trigger-diagnostics', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../src/shared/trigger-diagnostics')>();
+  return { ...actual, logAutoFillSkip_ACU: (...args: any[]) => m.logAutoFillSkip(...args) };
+});
 vi.mock('../../../src/shared/utils', () => ({ cleanChatName_ACU: vi.fn((name: string) => name), logDebug_ACU: vi.fn(), logError_ACU: vi.fn(), logWarn_ACU: vi.fn() }));
 vi.mock('../../../src/service/plot/plot-orchestrator', () => ({
   orchestrateAfterCommandsStrategy1_ACU: (...args: any[]) => m.orchestrate(...args),
@@ -106,10 +135,15 @@ vi.mock('../../../src/service/plot/plot-orchestrator', () => ({
 }));
 vi.mock('../../../src/shared/host-input', () => ({ getSendTextareaValue_ACU: vi.fn(), setSendTextareaValue_ACU: vi.fn() }));
 vi.mock('../../../src/presentation/components/plot-planning-ui', () => ({ runOptimizationLogicWithUI_ACU: vi.fn() }));
-vi.mock('../../../src/presentation/components/summary-vector-index-ui', () => ({ processSummaryVectorIndexBeforeGenerationWithUI_ACU: (...args: any[]) => m.processBeforeGen(...args), shouldRebuildSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.shouldRebuild(...args), rebuildCurrentSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.rebuild(...args) }));
+vi.mock('../../../src/presentation/components/decision-recall-ui', () => ({
+  runDecisionRecallWithUI_ACU: vi.fn(),
+  DECISION_RECALL_PENDING_NOTICE_ACU: { message: '决策召回中', title: '决策召回' },
+}));
+vi.mock('../../../src/presentation/components/summary-vector-index-ui', () => ({ processSummaryVectorIndexBeforeGenerationWithUI_ACU: (...args: any[]) => m.processBeforeGen(...args), isSummaryVectorRecallFailure_ACU: (r: any) => !!r && r.success !== true && r.skipped !== true, SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU: '召回失败已停止', shouldRebuildSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.shouldRebuild(...args), rebuildCurrentSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.rebuild(...args) }));
 vi.mock('../../../src/service/vector/summary-vector-index-cache-service', () => ({ preloadSummaryVectorIndexCacheForCurrentChat_ACU: (...args: any[]) => m.preload(...args) }));
 vi.mock('../../../src/service/vector/summary-vector-index-flush-queue', () => ({ restoreSummaryVectorIndexFlushQueueForCurrentChat_ACU: (...args: any[]) => m.restoreFlush(...args) }));
 vi.mock('../../../src/service/vector/summary-vector-index-realign-state', () => ({ markSummaryVectorIndexDirtyForRealign_ACU: vi.fn() }));
+vi.mock('../../../src/service/table/table-fill-target-watch', () => ({ abortTableFillRequestsWithStaleTarget_ACU: (...args: any[]) => m.abortStaleFill(...args) }));
 vi.mock('../../../src/service/chat/checkpoint-delete-guard', () => ({ captureCheckpointVaultForCurrentChat_ACU: (...args: any[]) => m.captureVault(...args), installCheckpointDeleteGuard_ACU: vi.fn() }));
 vi.mock('../../../src/service/template/dormant-data-service', () => ({ auditDormantDataIntegrity_ACU: (...args: any[]) => m.dormantAudit(...args) }));
 
@@ -119,6 +153,7 @@ beforeAll(async () => {
   m.api.eventSource.on.mockImplementation((event: string, callback: any) => {
     if (event === 'chat') m.chatChanged = callback;
     if (event === 'deleted' || event === 'swiped') m.chatMutationHandler = callback;
+    if (event === 'deleted') m.messageDeletedHandler = callback;
     if (event === 'chatdeleted') m.chatDeletedHandler = callback;
     if (event === 'messagesent') m.messageSentHandler = callback;
     if (event === 'genstarted') m.generationStartedHandler = callback;
@@ -156,6 +191,7 @@ beforeEach(() => {
   m.orchestrate.mockResolvedValue({ action: 'passthrough' });
   m.shouldProcessSummary.mockReturnValue(false);
   m.wasStoppedByUser = false;
+  m.aiFloorReads = 0;
   m.capturePlotScope.mockImplementation(() => ({
     chatId: m.currentChatKey || 'chat-a',
     characterId: m.currentChatKey === 'chat-b' ? 'char-b' : 'char-a',
@@ -184,6 +220,9 @@ describe('mainInitialize_ACU CHAT_CHANGED 无活动聊天早退', () => {
     await m.chatChanged!('');
 
     expect(m.resetTakeover).toHaveBeenCalledOnce();
+    // 删聊天后没有活动聊天：先按切换前的快照收回上一聊天的正文绿灯，再丢弃内存快照
+    expect(m.releaseGreenlights).toHaveBeenCalledWith(false);
+    expect(m.releaseGreenlights.mock.invocationCallOrder[0]).toBeLessThan(m.resetTakeover.mock.invocationCallOrder[0]);
     expect(m.dispose).toHaveBeenCalledOnce();
     expect(m.setData).toHaveBeenCalledWith(null);
     expect(m.setTables).toHaveBeenCalledWith({});
@@ -198,6 +237,12 @@ describe('mainInitialize_ACU CHAT_CHANGED 无活动聊天早退', () => {
     expect(m.gate).toEqual({ lastUserMessageId: null, lastUserMessageText: '', lastUserMessageAt: 0, lastUserSendIntentAt: 0, lastGeneration: null, generationSeq: 0, activeGenerations: [] });
   });
 
+  it('CHAT_CHANGED 同步标记「等新聊天基线」，载入时宿主派发的无配对 ENDED 不误开自动链', async () => {
+    m.markChatChangedForEndedGate.mockClear();
+    void m.chatChanged!('');
+    expect(m.markChatChangedForEndedGate).toHaveBeenCalledOnce();
+  });
+
   it('无效聊天名但仍有消息时不误清理运行时', async () => {
     m.api.chat = [{ mes: 'still active' }];
     await m.chatChanged!('');
@@ -206,6 +251,9 @@ describe('mainInitialize_ACU CHAT_CHANGED 无活动聊天早退', () => {
     expect(m.dispose).not.toHaveBeenCalled();
     expect(m.resetScript).toHaveBeenCalledWith('', { reason: 'chat_changed' });
     expect(m.loadPreset).toHaveBeenCalledOnce();
+    // 上游 1.3.6：切换聊天后预加载本会话的 Agent 世界书开关（带 reset 之后的 revision）
+    await vi.waitFor(() => expect(m.loadAgentControl).toHaveBeenCalledOnce());
+    expect(m.loadAgentControl).toHaveBeenCalledWith(expect.any(Number));
   });
 });
 
@@ -284,6 +332,32 @@ describe('mainInitialize_ACU 聊天变更防抖', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(m.refresh).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+});
+
+describe('mainInitialize_ACU 大聊天存盘合并的页面隐藏补存', () => {
+  it('填表运行中暂缓的存盘，在页面转入后台时立即补存', async () => {
+    const gateway = await import('../../../src/data/gateways/chat-gateway');
+    gateway.resetChatSaveCoalescerForTests_ACU();
+    const hostSave = vi.fn().mockResolvedValue(undefined);
+    const previousSave = m.api.saveChat;
+    m.api.saveChat = hostSave;
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      gateway.beginChatSaveCoalescing_ACU();
+      await gateway.saveChatToHostCoalesced_ACU();
+      expect(hostSave).not.toHaveBeenCalled();
+      document.dispatchEvent(new Event('visibilitychange'));
+      // 监听里是 fire-and-forget：等真存盘被调用且其完成后覆盖掉待存改动
+      await vi.waitFor(() => {
+        expect(hostSave).toHaveBeenCalledTimes(1);
+        expect(gateway.hasPendingCoalescedChatSave_ACU()).toBe(false);
+      });
+    } finally {
+      visibility.mockRestore();
+      m.api.saveChat = previousSave;
+      gateway.resetChatSaveCoalescerForTests_ACU();
+    }
   });
 });
 
@@ -383,6 +457,299 @@ describe('mainInitialize_ACU 剧情最终写回作用域复检', () => {
   });
 });
 
+describe('mainInitialize_ACU 剧情 API 重试耗尽中断发送', () => {
+  it('策略1耗尽：停生成、删刚建用户楼、恢复输入框原文', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    const hostInput = await import('../../../src/shared/host-input');
+    m.api.chat = [{ is_user: true, mes: 'A 输入' }];
+    m.currentChatKey = 'chat-a';
+    const stopGeneration = vi.fn();
+    const deleteLastMessage = vi.fn();
+    const prevSillyTavern = (window as any).SillyTavern;
+    (window as any).SillyTavern = { stopGeneration, deleteLastMessage };
+    try {
+      m.orchestrate.mockResolvedValueOnce({ action: 'failed', apiRetriesExhausted: true, originalMessage: 'A 输入' });
+
+      await m.afterCommandsHandler!('normal', {}, false);
+
+      expect(stopGeneration).toHaveBeenCalledTimes(1);
+      expect(deleteLastMessage).toHaveBeenCalledTimes(1);
+      expect(hostInput.setSendTextareaValue_ACU).toHaveBeenCalledWith('A 输入');
+    } finally {
+      (window as any).SillyTavern = prevSillyTavern;
+    }
+  });
+
+  it('策略1跳过后不再进策略2（失败转 skipped，不二次规划）', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    m.api.chat = [{ is_user: true, mes: 'A 输入' }];
+    m.currentChatKey = 'chat-a';
+    m.orchestrate.mockResolvedValueOnce({ action: 'skipped' });
+
+    await m.afterCommandsHandler!('normal', {}, false);
+
+    // S1 已匹配 skipped：直接返回，S2 编排不得再被调用。
+    expect(m.orchestrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('策略2耗尽：停生成，输入框原文保留供重试', async () => {    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    const hostInput = await import('../../../src/shared/host-input');
+    vi.mocked(hostInput.getSendTextareaValue_ACU).mockReturnValue('A 输入');
+    m.api.chat = [{ is_user: false, mes: 'A AI' }];
+    m.currentChatKey = 'chat-a';
+    const stopGeneration = vi.fn();
+    const prevSillyTavern = (window as any).SillyTavern;
+    (window as any).SillyTavern = { stopGeneration };
+    try {
+      m.orchestrate
+        .mockResolvedValueOnce({ action: 'no_match' })
+        .mockResolvedValueOnce({ action: 'failed', apiRetriesExhausted: true });
+
+      await m.afterCommandsHandler!('normal', {}, false);
+
+      expect(stopGeneration).toHaveBeenCalledTimes(1);
+      expect(hostInput.setSendTextareaValue_ACU).not.toHaveBeenCalled();
+    } finally {
+      (window as any).SillyTavern = prevSillyTavern;
+    }
+  });
+});
+
+describe('mainInitialize_ACU 单独开启的决策召回占用剧情推进的规划位', () => {
+  // mockReturnValue 不会被 clearAllMocks 清掉：用完恢复成关闭，免得串到后面的用例
+  afterEach(async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessDecisionRecallForGeneration_ACU).mockReturnValue(false);
+  });
+
+  it('决策召回开着时：剧情推进关着也照样进规划，交给决策召回，结果照常写回本轮输入', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    const decisionUi = await import('../../../src/presentation/components/decision-recall-ui');
+    const plotUi = await import('../../../src/presentation/components/plot-planning-ui');
+    vi.mocked(sm.shouldProcessDecisionRecallForGeneration_ACU).mockReturnValue(true);
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(false);
+    const lastMessage: any = { is_user: true, mes: 'A 输入' };
+    m.api.chat = [lastMessage];
+    m.currentChatKey = 'chat-a';
+    m.orchestrate.mockResolvedValueOnce({ action: 'planned', finalMessage: 'A 输入 + 召回', originalMessage: 'A 输入' });
+
+    const params: any = {};
+    await m.afterCommandsHandler!('normal', params, false);
+
+    expect(m.orchestrate).toHaveBeenCalledTimes(1);
+    expect(m.orchestrate.mock.calls[0][2]).toBe(decisionUi.runDecisionRecallWithUI_ACU);
+    expect(m.orchestrate.mock.calls[0][2]).not.toBe(plotUi.runOptimizationLogicWithUI_ACU);
+    expect(lastMessage.mes).toBe('A 输入 + 召回');
+    expect(params.prompt).toBe('A 输入 + 召回');
+  });
+
+  it('决策召回关着时：照旧交给剧情推进规划', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    const plotUi = await import('../../../src/presentation/components/plot-planning-ui');
+    vi.mocked(sm.shouldProcessDecisionRecallForGeneration_ACU).mockReturnValue(false);
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    m.api.chat = [{ is_user: true, mes: 'A 输入' }];
+    m.currentChatKey = 'chat-a';
+    m.orchestrate.mockResolvedValueOnce({ action: 'skipped' });
+
+    await m.afterCommandsHandler!('normal', {}, false);
+
+    expect(m.orchestrate.mock.calls[0][2]).toBe(plotUi.runOptimizationLogicWithUI_ACU);
+  });
+
+  it('两个都关着时不进规划', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessDecisionRecallForGeneration_ACU).mockReturnValue(false);
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(false);
+    m.api.chat = [{ is_user: true, mes: 'A 输入' }];
+    m.currentChatKey = 'chat-a';
+
+    await m.afterCommandsHandler!('normal', {}, false);
+
+    expect(m.orchestrate).not.toHaveBeenCalled();
+  });
+});
+
+describe('mainInitialize_ACU 交火召回失败停发与发送租约（移植上游 2adf068b）', () => {
+  async function runWithStop(setup: () => void) {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    m.shouldProcessSummary.mockReturnValue(true);
+    m.api.chat = [{ is_user: true, mes: '问' }];
+    m.currentChatKey = 'chat-a';
+    const stopGeneration = vi.fn();
+    const prevSillyTavern = (window as any).SillyTavern;
+    (window as any).SillyTavern = { stopGeneration };
+    try {
+      setup();
+      await m.afterCommandsHandler!('normal', {}, false);
+      return stopGeneration;
+    } finally {
+      (window as any).SillyTavern = prevSillyTavern;
+      m.shouldProcessSummary.mockReturnValue(false);
+    }
+  }
+
+  it('召回真失败：停止本次生成并提示，不再跑剧情推进', async () => {
+    const stop = await runWithStop(() => m.processBeforeGen.mockResolvedValueOnce({ success: false, reason: 'query_embedding_failed' }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(m.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it('召回抛异常同样停发', async () => {
+    const stop = await runWithStop(() => m.processBeforeGen.mockRejectedValueOnce(new Error('boom')));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(m.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it('召回跳过（关闭 / 无可召回内容）不停发，剧情推进照常', async () => {
+    m.orchestrate.mockResolvedValueOnce({ action: 'skipped' });
+    const stop = await runWithStop(() => m.processBeforeGen.mockResolvedValueOnce({ success: false, skipped: true, reason: 'no_candidates' }));
+    expect(stop).not.toHaveBeenCalled();
+    expect(m.orchestrate).toHaveBeenCalled();
+  });
+
+  it('召回途中用户停止了生成：租约失效，迟到结果不写回、也不再跑剧情推进', async () => {
+    let leaseActiveAfterStop: boolean | undefined;
+    const stop = await runWithStop(() => m.processBeforeGen.mockImplementationOnce(async (options: any) => {
+      m.generationStoppedHandler!();
+      leaseActiveAfterStop = options.isActive();
+      return { success: true, injectedCount: 1 };
+    }));
+    expect(leaseActiveAfterStop).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
+    expect(m.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it('召回失败停发后标记「重新生成」补跑；本库自己停宿主触发的 GENERATION_STOPPED 不记成用户终止（不掐在跑的填表）', async () => {
+    m.markStoppedSendForRetry.mockClear();
+    m.setWasStoppedByUser.mockClear();
+    const stop = await runWithStop(() => m.processBeforeGen.mockResolvedValueOnce({ success: false, reason: 'query_embedding_failed' }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(m.markStoppedSendForRetry).toHaveBeenCalledTimes(1);
+    m.generationStoppedHandler!();
+    expect(m.setWasStoppedByUser).not.toHaveBeenCalledWith(true);
+    // 用户自己按停止仍记为终止
+    m.generationStoppedHandler!();
+    expect(m.setWasStoppedByUser).toHaveBeenCalledWith(true);
+  });
+
+  it('召回期间聊天被切换或重载（不是用户停止）：停掉宿主生成，不再跑剧情推进', async () => {
+    const stop = await runWithStop(() => m.processBeforeGen.mockImplementationOnce(async () => {
+      void m.chatChanged!('chat-a');
+      return { success: false, skipped: true, reason: 'send_cancelled' };
+    }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(m.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it('租约在建 seed 的等待之前捕获：等待期间用户停止生成，召回拿到的租约已失效', async () => {
+    let leaseActive: boolean | undefined;
+    m.ensureSeedCheckpoint.mockImplementationOnce(async () => { m.generationStoppedHandler!(); return { success: true }; });
+    await runWithStop(() => {
+      m.isRecentUserSendIntent?.mockReturnValue?.(true);
+      m.processBeforeGen.mockImplementationOnce(async (options: any) => {
+        leaseActive = options.isActive();
+        return { success: true, injectedCount: 1 };
+      });
+    });
+    expect(leaseActive).toBe(false);
+  });
+
+  it('「重新生成」重试被本库停掉的那次发送：剧情推进照常补跑', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(true);
+    m.isRetryOfStoppedSend.mockReturnValue(true);
+    m.api.chat = [{ is_user: true, mes: '问' }];
+    m.currentChatKey = 'chat-a';
+    m.orchestrate.mockResolvedValueOnce({ action: 'skipped' });
+    try {
+      await m.afterCommandsHandler!('regenerate', {}, false);
+    } finally {
+      m.isRetryOfStoppedSend.mockReturnValue(false);
+    }
+    expect(m.orchestrate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mainInitialize_ACU 交火召回 userInput 兜底（G14-10）', () => {
+  /** 「继续」类发送：末楼是 AI 楼、发送框为空，userInput 只能兜底取 params.prompt。 */
+  async function runContinueWithPrompt(prompt: unknown, boxText = '') {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessPlotForGeneration_ACU).mockReturnValue(false);
+    m.shouldProcessSummary.mockReturnValue(true);
+    m.api.chat = [{ is_user: false, mes: 'AI 上一楼正文' }];
+    m.currentChatKey = 'chat-a';
+    const hostInput = await import('../../../src/shared/host-input');
+    vi.mocked(hostInput.getSendTextareaValue_ACU).mockReturnValue(boxText);
+    try {
+      await m.afterCommandsHandler!('continue', { prompt }, false);
+    } finally {
+      m.shouldProcessSummary.mockReturnValue(false);
+    }
+    return m.processBeforeGen.mock.calls.at(-1)?.[0]?.userInput;
+  }
+
+  it('params.prompt 是对象：不当用户输入向量化，按空串走既有跳过路径', async () => {
+    const userInput = await runContinueWithPrompt({ messages: [{ role: 'user', content: 'x' }] });
+    expect(userInput).toBe('');
+  });
+
+  it('params.prompt 是超长格式化提示词：只截尾 500 字符，不整段进关键词与 embedding', async () => {
+    const long = 'S'.repeat(3000) + 'END_尾部真实输入';
+    const userInput = String(await runContinueWithPrompt(long));
+    expect(userInput).toHaveLength(500);
+    expect(userInput.endsWith('END_尾部真实输入')).toBe(true);
+    expect(userInput).not.toContain('S'.repeat(500));
+  });
+
+  it('params.prompt 是普通短字符串：照旧整段作为用户输入', async () => {
+    expect(await runContinueWithPrompt('接下来发生了什么')).toBe('接下来发生了什么');
+  });
+
+  it('发送框有文本时优先于 params.prompt（对象形态也不再兜底）', async () => {
+    expect(await runContinueWithPrompt({ weird: true }, '手打文本')).toBe('手打文本');
+  });
+});
+
+describe('mainInitialize_ACU 重新生成 / 删楼 / 切换版本作废排队中的自动任务（移植上游 2657754a + f874c888）', () => {
+  it('新一轮正文生成开始时作废；quiet、dryRun、插件自动触发的生成不作废', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValue(false);
+    m.cancelPendingAutoTasks.mockClear();
+
+    m.generationStartedHandler!('regenerate', {}, false);
+    expect(m.cancelPendingAutoTasks).toHaveBeenCalledTimes(1);
+
+    m.generationStartedHandler!('normal', {}, true);
+    m.generationStartedHandler!('normal', { automatic_trigger: true }, false);
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValueOnce(true);
+    m.generationStartedHandler!('quiet', { quiet_prompt: 'x' }, false);
+    expect(m.cancelPendingAutoTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it('删楼或切换回复版本时作废', async () => {
+    m.cancelPendingAutoTasks.mockClear();
+    vi.useFakeTimers();
+    await m.chatMutationHandler!({});
+    expect(m.cancelPendingAutoTasks).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('删楼、切换回复版本时当场中止目标楼层已失效的在途填表请求', async () => {
+    m.abortStaleFill.mockClear();
+    vi.useFakeTimers();
+    await m.messageDeletedHandler!(1);
+    expect(m.abortStaleFill).toHaveBeenCalledTimes(1);
+    await m.chatMutationHandler!({});
+    expect(m.abortStaleFill).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+});
+
 describe('mainInitialize_ACU GENERATION_STARTED 复位终止残留', () => {
   it('宿主开始生成时把残留 true 复位为 false', () => {
     m.wasStoppedByUser = true;
@@ -476,26 +843,6 @@ describe('mainInitialize_ACU GENERATION_ENDED 无配对假事件收紧', () => {
     expect(m.handleNewMessage).not.toHaveBeenCalled();
   });
 
-  it('签名按每次事件实时读取：新 AI 楼落地后交给门控的签名随之变化', async () => {
-    const sm = await import('../../../src/service/runtime/state-manager');
-    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
-    m.consumeGenerationContext.mockReturnValue(null);
-    m.api.chat = [{ is_user: false, message_id: 5 }];
-    m.generationEndedHandler!(6);
-    m.api.chat = [
-      { is_user: false, message_id: 5 },
-      { is_user: true, message_id: 6 },
-      { is_user: false, message_id: 7 },
-    ];
-    m.generationEndedHandler!(8);
-
-    const forwarded = vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mock.calls.map((call: any) => call[1]);
-    expect(forwarded).toEqual([
-      { aiFloorCount: 1, latestAiMessageId: 5 },
-      { aiFloorCount: 2, latestAiMessageId: 7 },
-    ]);
-  });
-
   it('推演②：续写内部生成的 ended 仍在门控之前被专吞（不读签名、不派发）', async () => {
     const sm = await import('../../../src/service/runtime/state-manager');
     const internal = await import('../../../src/service/continuation/internal-ai-events');
@@ -564,20 +911,6 @@ describe('mainInitialize_ACU 续写宿主生成事件上下文', () => {
     // 常规管线照常收到一次完整意图快照（门控不再被桥读两次）。
     expect(m.handleNewMessage).toHaveBeenCalledTimes(1);
     expect(m.handleNewMessage).toHaveBeenCalledWith('GENERATION_ENDED', expect.objectContaining({ eventMessageId: 42 }));
-  });
-
-  it('桥未认领本次生成结束时只走常规填表，不把正文交给桥', async () => {
-    const sm = await import('../../../src/service/runtime/state-manager');
-    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValue(false);
-    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
-    m.consumeGenerationContext.mockReturnValue({ seq: 3, type: 'normal', params: {}, dryRun: false, at: 1 });
-    const bridge = bridge_ACU(false);
-
-    m.generationEndedHandler!(42);
-
-    expect(bridge.claimsGenerationEnded).toHaveBeenCalledWith(3, { allowOrdinaryLooseClaim: true, automaticTrigger: false, quietLike: false, dryRun: false });
-    expect(bridge.onGenerationEnded).not.toHaveBeenCalled();
-    expect(m.handleNewMessage).toHaveBeenCalledTimes(1);
   });
 
   it('quiet、dryRun 与自动触发的生成不开放普通宽松认领，但分类标记如实上报', async () => {
@@ -789,20 +1122,6 @@ describe('mainInitialize_ACU 配对零产出证据传递', () => {
       expect.objectContaining({ eventMessageId: 6, preSignature }),
     );
   });
-
-  it('无配对时 intent 的 preSignature 为 undefined（下游直接放行）', async () => {
-    const sm = await import('../../../src/service/runtime/state-manager');
-    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
-    m.consumeGenerationContext.mockReturnValue(null);
-    m.api.chat = [{ is_user: false, message_id: 5, mes: 'hello' }];
-
-    m.generationEndedHandler!(6);
-
-    expect(m.handleNewMessage).toHaveBeenCalledWith(
-      'GENERATION_ENDED',
-      expect.objectContaining({ eventMessageId: 6, preSignature: undefined }),
-    );
-  });
 });
 
 // TT 帧架构：续写基线调度必须挂在生产 bootstrap 链上（与删楼守卫并列），
@@ -847,3 +1166,317 @@ describe('mainInitialize_ACU 续写资料基线调度接线（TT-only）', () =>
   });
 });
 
+
+/**
+ * [P2-2] GENERATION_ENDED 的判定量改为开头单次扫描。
+ *
+ * 判别点：一次事件对同一条 chat 只允许扫一遍（旧实现 3~4 遍：宽档签名正序 + 两次逆扫、
+ * 窄档计数两次 filter 拷贝），并且放行 / 跳过 / 早退三个分支的对外载荷逐字不变。
+ */
+describe('mainInitialize_ACU GENERATION_ENDED 单次扫描', () => {
+  const longChat = () => Array.from({ length: 40 }, (_, index) => (
+    index % 4 === 0
+      ? { is_user: true, message_id: index, mes: `用户 ${index}` }
+      : index % 9 === 0
+        ? { is_user: false, extra: { type: 'narrator' }, message_id: index, mes: '旁白' }
+        : { is_user: false, message_id: index, mes: `正文 ${index}` }
+  ));
+
+  afterEach(async () => {
+    m.aiFloorReads = 0;
+    const internal = await import('../../../src/service/continuation/internal-ai-events');
+    vi.mocked(internal.consumeContinuationInternalAiGenerationEnded_ACU).mockReturnValue(null);
+  });
+
+  it('放行分支：40 楼聊天只扫一遍，且派发载荷逐字不变', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
+    m.consumeGenerationContext.mockReturnValue(undefined);
+    m.api.chat = longChat();
+    const before = m.aiFloorReads;
+
+    m.generationEndedHandler!(39);
+
+    // 一遍扫描 = 每条消息各判一次 AI 楼（逆扫取末楼的那几趟已消失）。
+    expect(m.aiFloorReads - before).toBe(m.api.chat.length);
+    expect(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).toHaveBeenCalledWith(undefined, {
+      aiFloorCount: 30,
+      latestAiMessageId: 39,
+    });
+    expect(m.handleNewMessage).toHaveBeenCalledTimes(1);
+    const [eventType, intent] = m.handleNewMessage.mock.calls[0];
+    expect(eventType).toBe('GENERATION_ENDED');
+    expect(intent).toEqual({
+      eventMessageId: 39,
+      chatKey: '',
+      isolationKey: '',
+      capturedAt: expect.any(Number),
+      capturedChatLength: 40,
+      capturedAiFloorCount: 27,
+      generationSeq: 3,
+      preSignature: undefined,
+    });
+  });
+
+  it('跳过分支：门控判否后不派发，诊断载荷里的窄档计数与放行分支同源', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(false);
+    m.consumeGenerationContext.mockReturnValue({ seq: 3, type: 'quiet', params: { quiet_prompt: '后台' }, dryRun: false, at: 1 });
+    m.api.chat = longChat();
+    const before = m.aiFloorReads;
+
+    m.generationEndedHandler!(39);
+
+    expect(m.aiFloorReads - before).toBe(m.api.chat.length);
+    expect(m.handleNewMessage).not.toHaveBeenCalled();
+    expect(m.logAutoFillSkip).toHaveBeenCalledTimes(1);
+    expect(m.logAutoFillSkip.mock.calls[0][0]).toBe('quiet_or_background_generation');
+    expect(m.logAutoFillSkip.mock.calls[0][1]).toEqual({
+      eventType: 'GENERATION_ENDED',
+      messageId: 39,
+      eventMessageId: 39,
+      chatKey: '',
+      isolationKey: '',
+      capturedChatLength: 40,
+      capturedAiFloorCount: 27,
+      lastGenerationType: undefined,
+    });
+  });
+
+  it('早退分支：配对歧义时既不读第二遍签名也不派发', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
+    m.generationEndMatchStatus = 'ambiguous';
+    m.consumeGenerationContext.mockReturnValue({ seq: 9, type: 'quiet', params: {}, dryRun: false, at: 1 });
+    m.api.chat = longChat();
+    const before = m.aiFloorReads;
+
+    m.generationEndedHandler!(39);
+
+    // 歧义早退只需要配对用的扩展签名：一次正序扫描（不再额外逆扫取末楼）。
+    expect(m.aiFloorReads - before).toBe(m.api.chat.length);
+    expect(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).not.toHaveBeenCalled();
+    expect(m.handleNewMessage).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 发送意图钩子必须过滤输入法上屏的回车。
+ *
+ * TT 2.3.0 已在宿主侧修掉 WebKit 的中文输入法回车（PR #208「中文输入法上屏的回车不再触发发送」），
+ * 但我们自己的 keydown 钩子仍会把上屏回车记成一次「用户发送意图」，而该意图是自动填表/剧情的
+ * **真实门控**（isRecentUserSendIntent_ACU 被 init.ts:873,960 与 state-manager.ts:210 消费）
+ * ⇒ 窄口误触发。判据按 W3C：isComposing，外加 keyCode 229（旧 WebKit/Safari 不填 isComposing）。
+ */
+describe('发送意图钩子的 IME 过滤', () => {
+  it('输入法上屏的回车不记发送意图，真实回车才记', async () => {
+    const init = await import('../../../src/presentation/bootstrap/init');
+    document.body.innerHTML = '<button id="send_but"></button><textarea id="send_textarea"></textarea>';
+    // 复位「已绑定元素实例」记忆，让钩子按当前新元素重绑。
+    (window as any).__ACU_sendIntentHooksInstalled = null;
+    m.markSendIntent.mockClear();
+    init.__installSendIntentCaptureHooksForTests_ACU();
+
+    const ta = document.getElementById('send_textarea') as HTMLTextAreaElement;
+
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true }));
+    expect(m.markSendIntent, 'isComposing 的上屏回车不是发送').not.toHaveBeenCalled();
+
+    const legacyIme = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    Object.defineProperty(legacyIme, 'keyCode', { value: 229 });
+    ta.dispatchEvent(legacyIme);
+    expect(m.markSendIntent, 'keyCode 229（旧 WebKit IME 处理中）不是发送').not.toHaveBeenCalled();
+
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(m.markSendIntent).toHaveBeenCalledTimes(1);
+
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(m.markSendIntent, 'shift+Enter 是换行，既有行为不得回退').toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * 上游 #59（关联 #55）：宿主或其他脚本重建发送按钮 / 输入框后，挂在旧节点上的监听随旧节点失效，
+ * 发送意图再也记不上 ⇒ 剧情推进每轮被判「非用户发送」跳过；要等切换聊天的重装路径才恢复。
+ * 监听必须挂在文档上按目标委托，不依赖控件节点身份；重复安装不能重复计数。
+ */
+describe('发送意图钩子在发送控件重建后仍然有效', () => {
+  it('按钮与输入框被替换成新节点后，点击 / 回车仍记发送意图，且重复安装不重复计数', async () => {
+    const init = await import('../../../src/presentation/bootstrap/init');
+    document.body.innerHTML = '<div id="form"><button id="send_but"><span class="icon"></span></button><textarea id="send_textarea"></textarea></div>';
+    (window as any).__ACU_sendIntentHooksInstalled = null;
+    init.__installSendIntentCaptureHooksForTests_ACU();
+    init.__installSendIntentCaptureHooksForTests_ACU();
+
+    // 宿主重建控件：旧节点整体换掉，不再调用安装函数
+    document.getElementById('form')!.innerHTML = '<button id="send_but"><span class="icon"></span></button><textarea id="send_textarea"></textarea>';
+    m.markSendIntent.mockClear();
+
+    (document.querySelector('#send_but .icon') as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(m.markSendIntent, '点到按钮内部图标也算点发送').toHaveBeenCalledTimes(1);
+
+    (document.getElementById('send_textarea') as HTMLTextAreaElement)
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(m.markSendIntent).toHaveBeenCalledTimes(2);
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(m.markSendIntent, '发送控件之外的点击 / 回车不算').toHaveBeenCalledTimes(2);
+  });
+});
+
+// R9-10：启动链与 CHAT_CHANGED 链一样，在每个 await 之后复核聊天身份；
+// 启动链运行期间切了聊天就停下，交给随后补跑的 CHAT_CHANGED 链，不把旧聊天的表发布成新聊天的 runtime。
+describe('R9-10 启动链中途切聊天', () => {
+  it('merged refresh 期间切到另一个聊天时停在原地，不再捕获保管库或自检', async () => {
+    const { runStartupChatInit_ACU } = await import('../../../src/presentation/bootstrap/init');
+    m.resetScript.mockImplementation(async (chatId: string) => { m.currentChatKey = chatId; });
+    m.refresh.mockImplementation(async () => { m.currentChatKey = 'chat-b'; return { mergedData: { sheet_a: {} }, degraded: false }; });
+
+    await runStartupChatInit_ACU('chat-a');
+
+    expect(m.refresh).toHaveBeenCalledOnce();
+    expect(m.captureVault).not.toHaveBeenCalled();
+    expect(m.dormantAudit).not.toHaveBeenCalled();
+  });
+
+  it('加载聊天消息期间切聊天时不再做 merged refresh', async () => {
+    const { runStartupChatInit_ACU } = await import('../../../src/presentation/bootstrap/init');
+    m.resetScript.mockImplementation(async (chatId: string) => { m.currentChatKey = chatId; });
+    m.loadMessages.mockImplementation(async () => { m.currentChatKey = 'chat-b'; });
+
+    await runStartupChatInit_ACU('chat-a');
+
+    expect(m.refresh).not.toHaveBeenCalled();
+  });
+
+  it('聊天未切换时照常走完（捕获保管库）', async () => {
+    const { runStartupChatInit_ACU } = await import('../../../src/presentation/bootstrap/init');
+    m.resetScript.mockImplementation(async (chatId: string) => { m.currentChatKey = chatId; });
+    m.loadMessages.mockImplementation(async () => undefined);
+    m.refresh.mockImplementation(async () => ({ mergedData: { sheet_a: {} }, degraded: false }));
+
+    await runStartupChatInit_ACU('chat-a');
+
+    expect(m.captureVault).toHaveBeenCalledOnce();
+  });
+});
+
+// 上游 issue #51：用户停止正文生成后，本轮的半截回复不自动填表 / 替换。
+// 宿主停止时的事件顺序是 GENERATION_ENDED → GENERATION_STOPPED（→ MESSAGE_RECEIVED），
+// 停止前已排队的任务要作废；停止后才到的同轮结束事件也不能再唤起自动链。
+describe('mainInitialize_ACU 用户停止正文生成后不对本轮回复自动填表', () => {
+  async function arm(): Promise<typeof import('../../../src/service/runtime/state-manager')> {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    vi.mocked(sm.shouldProcessAutoTableUpdateForGenerationEnded_ACU).mockReturnValue(true);
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValue(false);
+    m.consumeGenerationContext.mockReturnValue(null);
+    m.api.chat = [{ is_user: true, message_id: 0 }, { is_user: false, message_id: 1, mes: '半截' }];
+    return sm;
+  }
+
+  afterEach(() => {
+    // 下一轮正常生成恢复资格，避免停止状态泄漏到其它用例
+    m.generationStartedHandler!('normal', {}, false);
+  });
+
+  it('停止时作废本轮已排队的自动任务', async () => {
+    await arm();
+    m.generationStoppedHandler!();
+    expect(m.cancelPendingAutoTasks).toHaveBeenCalledWith('generation_stopped');
+  });
+
+  it('停止后晚到的同轮结束事件不再唤起自动链；下一轮正常生成恢复', async () => {
+    await arm();
+    m.generationStoppedHandler!();
+    m.generationEndedHandler!(1);
+    expect(m.handleNewMessage).not.toHaveBeenCalled();
+    expect(m.logAutoFillSkip).toHaveBeenCalledWith('generation_stopped', expect.anything());
+
+    m.generationStartedHandler!('normal', {}, false);
+    m.generationEndedHandler!(1);
+    expect(m.handleNewMessage).toHaveBeenCalledWith('GENERATION_ENDED', expect.objectContaining({ eventMessageId: 1 }));
+  });
+
+  it('停止后的 quiet / dryRun / 插件自动触发生成不恢复资格', async () => {
+    const sm = await arm();
+    m.generationStoppedHandler!();
+    m.generationStartedHandler!('normal', {}, true);
+    m.generationStartedHandler!('normal', { automatic_trigger: true }, false);
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValueOnce(true);
+    m.generationStartedHandler!('quiet', { quiet_prompt: 'x' }, false);
+    m.generationEndedHandler!(1);
+    expect(m.handleNewMessage).not.toHaveBeenCalled();
+  });
+
+  it('停掉的是后台 quiet 生成：不影响正文轮次的自动任务', async () => {
+    const sm = await arm();
+    vi.mocked(sm.discardLatestGenerationContext_ACU).mockReturnValueOnce({ seq: 5, type: 'quiet', params: { quiet_prompt: 'x' }, dryRun: false, at: 1 } as any);
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValueOnce(true);
+    m.generationStoppedHandler!();
+    expect(m.cancelPendingAutoTasks).not.toHaveBeenCalled();
+    m.generationEndedHandler!(1);
+    expect(m.handleNewMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 上游 #56：重新生成时宿主删掉旧回复后 await MESSAGE_DELETED，随后立即读世界书组装正文请求。
+// 防抖调度宿主等不到 ⇒ 新请求带着被替换回复的表格结果。重新生成路径上的这次删楼必须当场跑完
+// 回滚与世界书刷新再放行；其它删楼（用户手动删、普通生成期间）照旧走防抖。
+describe('mainInitialize_ACU 重新生成删旧回复时先刷新数据再放行宿主', () => {
+  beforeEach(async () => {
+    const scheduler = await import('../../../src/presentation/bootstrap/chat-mutation-scheduler');
+    scheduler.__resetChatMutationSchedulerForTests_ACU();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    m.generationEndedHandler!(1);
+    vi.useRealTimers();
+  });
+
+  it('regenerate 删旧回复：处理函数等到合并刷新（含世界书）完成才返回，且不等前端回读', async () => {
+    let release!: () => void;
+    m.refresh.mockImplementationOnce(() => new Promise(res => { release = () => res({ mergedData: {} }); }));
+    m.generationStartedHandler!('regenerate', {}, false);
+
+    let returned = false;
+    const pending = m.messageDeletedHandler!(1).then(() => { returned = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(m.refresh).toHaveBeenCalledWith({ skipReadbackWait: true });
+    expect(returned, '刷新没完成前宿主不能继续读世界书').toBe(false);
+
+    release();
+    await pending;
+    expect(returned).toBe(true);
+  });
+
+  it('普通删楼、或 regenerate 已被停止后的删楼：只走防抖，不阻塞宿主', async () => {
+    m.generationStartedHandler!('normal', {}, false);
+    await m.messageDeletedHandler!(1);
+    expect(m.refresh).not.toHaveBeenCalled();
+
+    m.generationStartedHandler!('regenerate', {}, false);
+    m.generationStoppedHandler!();
+    await m.messageDeletedHandler!(1);
+    expect(m.refresh).not.toHaveBeenCalled();
+  });
+
+  it('同一次 regenerate 只对第一次删楼立即刷新；之后用户再删楼照旧防抖', async () => {
+    m.generationStartedHandler!('regenerate', {}, false);
+    await m.messageDeletedHandler!(1);
+    expect(m.refresh).toHaveBeenCalledTimes(1);
+
+    await m.messageDeletedHandler!(0);
+    expect(m.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('dryRun / quiet 的 regenerate 不算', async () => {
+    const sm = await import('../../../src/service/runtime/state-manager');
+    m.generationStartedHandler!('regenerate', {}, true);
+    await m.messageDeletedHandler!(1);
+    vi.mocked(sm.isQuietLikeGeneration_ACU).mockReturnValueOnce(true);
+    m.generationStartedHandler!('regenerate', { quiet_prompt: 'x' }, false);
+    await m.messageDeletedHandler!(1);
+    expect(m.refresh).not.toHaveBeenCalled();
+  });
+});

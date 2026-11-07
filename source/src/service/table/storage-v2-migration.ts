@@ -17,6 +17,7 @@ import { auditTableDataForUpgrade_ACU, getTableDataFingerprint_ACU, type Upgrade
 import { repairTableDataFromAudit_ACU, type RepairResult_ACU } from './table-data-repair';
 import { loadTableStateFromFramesV2Detailed_ACU } from './storage-frame-v2-replay';
 import { isAiFloor_ACU, isDataBearingMessage_ACU } from '../../shared/ai-floor';
+import { applyCandidateTableFieldsToLiveChat_ACU } from './chat-table-field-swap';
 
 export interface LegacyToV2MigrationOptions_ACU {
   data: Record<string, any> | null;
@@ -507,6 +508,8 @@ function buildMigrationRevision_ACU(): string {
 
 interface LegacyMigrationScopeSnapshot_ACU {
   chat: any[];
+  /** 开始时各楼的消息对象：判定期间删楼 / 插楼会让迁移目标与证据下标整体错位。 */
+  messages: any[];
   chatKey: string;
   activeIsolationKey: string;
 }
@@ -514,6 +517,7 @@ interface LegacyMigrationScopeSnapshot_ACU {
 function captureLegacyMigrationScope_ACU(chat: any[]): LegacyMigrationScopeSnapshot_ACU {
   return {
     chat,
+    messages: chat.slice(),
     chatKey: String(currentChatFileIdentifier_ACU || '').trim(),
     activeIsolationKey: getCurrentIsolationKey_ACU(),
   };
@@ -522,6 +526,9 @@ function captureLegacyMigrationScope_ACU(chat: any[]): LegacyMigrationScopeSnaps
 function getLegacyMigrationScopeChangeError_ACU(snapshot: LegacyMigrationScopeSnapshot_ACU): string | null {
   if (getChatArray_ACU() !== snapshot.chat) {
     return 'legacy migration aborted: active chat changed before commit';
+  }
+  if (snapshot.chat.length !== snapshot.messages.length || snapshot.messages.some((message, index) => snapshot.chat[index] !== message)) {
+    return 'legacy migration aborted: chat messages changed before commit';
   }
   if (String(currentChatFileIdentifier_ACU || '').trim() !== snapshot.chatKey) {
     return 'legacy migration aborted: active chat identifier changed before commit';
@@ -678,12 +685,12 @@ export async function migrateLegacyStorageToV2OnLoad_ACU(
           cleanupLegacyFieldsAfterV2Write_ACU(keepV2Chat, options.isolationKey, options.isolationConfig);
           const keepV2ScopeError = getLegacyMigrationScopeChangeError_ACU(scopeSnapshot);
           if (keepV2ScopeError) return { migrated: false, mixedDecision, error: keepV2ScopeError };
-          const chatBeforeKeepV2 = deepClone_ACU(chat);
-          chat.splice(0, chat.length, ...keepV2Chat);
+          // R2B-08：只写回表格字段，保持消息对象身份；失败时还原原字段引用。
+          const rollbackKeepV2 = applyCandidateTableFieldsToLiveChat_ACU(chat, keepV2Chat);
           try {
             await saveChatToHostStrict_ACU();
           } catch (error) {
-            chat.splice(0, chat.length, ...chatBeforeKeepV2);
+            rollbackKeepV2();
             return { migrated: false, mixedDecision, error: `mixed self-heal (keep_v2) save failed: ${error instanceof Error ? error.message : String(error)}` };
           }
           logWarn_ACU(
@@ -842,12 +849,12 @@ export async function migrateLegacyStorageToV2OnLoad_ACU(
     return { migrated: false, error: scopeChangeError };
   }
 
-  const originalChat = deepClone_ACU(chat);
-  chat.splice(0, chat.length, ...candidateChat);
+  // R2B-08：只写回表格字段，保持消息对象身份；失败时还原原字段引用。
+  const rollbackMigration = applyCandidateTableFieldsToLiveChat_ACU(chat, candidateChat);
   try {
     await saveChatToHostStrict_ACU();
   } catch (error) {
-    chat.splice(0, chat.length, ...originalChat);
+    rollbackMigration();
     return { migrated: false, error: `legacy migration save failed: ${error instanceof Error ? error.message : String(error)}` };
   }
   logDebug_ACU(`[V2 Migration] legacy-v1 migrated to V2 checkpoint: messageIndex=${target.index}, skipUpdateFloors=${skipUpdateFloors}, isolationKey=[${options.isolationKey || '无标签'}], sheets=${sheetKeys.length}`);
