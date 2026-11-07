@@ -17,6 +17,9 @@ Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmy
 - **可视化前端**：表格查看、剧情推进、世界书管理均在 V2 面板内完成（兼容 [st-acu-visualizer](https://github.com/shuiyue-cmyk/st-acu-visualizer)）
 - **API 预设**：每个预设独立保存 `stream` / `reasoning_effort`（含 `xhigh`）/ 温度等，填表/剧情/追踪可分别指定预设
 - **高级工具**：SQL 控制台、运行日志查看与导出、Debug 一键采集（默认关闭，停止时自动导出）
+  - SQL 控制台：结果一键导出 CSV（带 BOM，Excel 直开）/ JSON / 复制为 Markdown 表格（贴进聊天）、
+    大结果只渲染前 200 行（「显示更多」逐窗追加，复制/导出仍取全量）、单元格点击复制为 SQL 字面量、
+    列头点击排序、编辑器草稿与常用语句跨重开持久化（常用语句点击仅填入、绝不自动执行）
 - **宿主适配**：TT / Luker / 通用 ST 三态宿主 profile（`shared/host-bridge.ts`），探测失败自动降级 generic，不阻塞启动
 
 ## 安装
