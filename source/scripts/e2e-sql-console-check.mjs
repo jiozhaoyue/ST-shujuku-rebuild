@@ -86,6 +86,19 @@ try {
   // 上游公告弹窗点掉（幂等）
   await page.locator('button:has-text("我知道了")').first().click({ timeout: 3000 }).catch(() => {});
 
+  // 邻接扩展噪声清理（2026-11-07：Dev ST 同装的 st-acu-visualizer 会弹 EOL 浮层 +
+  // 一个含 splash loader 的 ST popup，二者都拦截指针事件，让 fill/click 永远落空）。
+  // 只清「挡交互的浮层」，不动其它扩展的数据与逻辑。
+  await page.evaluate(() => {
+    document.querySelectorAll('.acu-eol-overlay').forEach(el => el.remove());
+    document.querySelectorAll('dialog[open]').forEach(d => {
+      if (d.querySelector('#loader, .splash-screen')) {
+        try { d.close(); } catch { /* 已关闭 */ }
+        d.remove();
+      }
+    });
+  });
+
   const textarea = page.locator('textarea.acu-v2-advanced-tools-page__sql-textarea');
   await textarea.waitFor({ state: 'visible', timeout: 60_000 });
 
@@ -120,7 +133,16 @@ try {
     console.error('[sql-console-e2e] FAIL：SELECT 执行后结果表无数据行');
     process.exit(1);
   }
-  console.log('[sql-console-e2e] PASS：只读 SELECT → SQLite runtime → 结果渲染 全链路 OK');
+
+  // 结果导出动作随查询结果出现（复制 CSV / 导出 CSV / 导出 JSON）
+  for (const label of ['复制 CSV', '导出 CSV', '导出 JSON']) {
+    await page
+      .locator(`.acu-v2-advanced-tools-page__sql-export-actions button:has-text("${label}")`)
+      .waitFor({ state: 'visible', timeout: 10_000 });
+  }
+  console.log('[sql-console-e2e] 导出动作行：复制 CSV / 导出 CSV / 导出 JSON 全部可见');
+
+  console.log('[sql-console-e2e] PASS：只读 SELECT → SQLite runtime → 结果渲染 → 导出动作 全链路 OK');
   process.exit(0);
 } catch (error) {
   console.error('[sql-console-e2e] FAIL：', String(error?.message || error).slice(0, 400));

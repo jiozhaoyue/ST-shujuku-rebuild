@@ -14,6 +14,13 @@ import { runSqliteRuntimeMutationCommit_ACU } from '../../service/table/table-up
 import { isReadOnlySqlStatement_ACU } from '../../service/runtime/template-vars/read-only-sql-validation';
 import { resolveCurrentRuntimeReadSql_ACU } from '../../service/runtime/read-query-resolver';
 import { useToastStore } from '../stores/toast-store';
+import {
+  buildSqlResultFilename,
+  copySqlResultCsv,
+  downloadSqlResultFile,
+  sqlResultToCsv,
+  sqlResultToJson,
+} from './sql-result-export';
 
 export type SqlConsoleMessageKind = 'info' | 'success' | 'warning' | 'error';
 export type SqlResultKind = 'idle' | 'query' | 'mutation' | 'error';
@@ -150,6 +157,40 @@ export function useSqlConsole() {
     toast.info('已把历史 SQL 填入编辑器。');
   }
 
+  /**
+   * 结果导出只针对查询结果：mutation/error 结果没有行列数据可导，
+   * 且行数据属于执行时的聊天 —— 换聊天后 clearResult 已兜底清空。
+   */
+  function requireQueryResult(): { columns: string[]; values: SqlResultState['values'] } | null {
+    if (result.value.kind !== 'query') {
+      toast.warning('当前没有可导出的查询结果。');
+      return null;
+    }
+    return { columns: result.value.columns, values: result.value.values };
+  }
+
+  async function copyResultCsv(): Promise<void> {
+    const queryResult = requireQueryResult();
+    if (!queryResult) return;
+    const ok = await copySqlResultCsv(queryResult.columns, queryResult.values);
+    if (ok) toast.success(`已复制 ${queryResult.values.length} 行为 CSV。`);
+    else toast.error('复制失败，请改用「导出 CSV」。');
+  }
+
+  function exportResultCsv(): void {
+    const queryResult = requireQueryResult();
+    if (!queryResult) return;
+    downloadSqlResultFile(buildSqlResultFilename('csv'), sqlResultToCsv(queryResult.columns, queryResult.values), 'text/csv');
+    toast.success('已导出 CSV 文件。');
+  }
+
+  function exportResultJson(): void {
+    const queryResult = requireQueryResult();
+    if (!queryResult) return;
+    downloadSqlResultFile(buildSqlResultFilename('json'), sqlResultToJson(queryResult.columns, queryResult.values), 'application/json');
+    toast.success('已导出 JSON 文件。');
+  }
+
   async function executeCurrent(): Promise<void> {
     const sql = sqlText.value.trim();
     if (!sql) {
@@ -260,6 +301,9 @@ export function useSqlConsole() {
     showTables,
     showSchema,
     useHistoryItem,
+    copyResultCsv,
+    exportResultCsv,
+    exportResultJson,
     executeCurrent,
   };
 }

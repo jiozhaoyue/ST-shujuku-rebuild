@@ -58,7 +58,28 @@
         </div>
 
         <section class="acu-v2-advanced-tools-page__sql-result-section" aria-label="SQL 执行结果">
-          <h4 class="acu-v2-advanced-tools-page__section-title">结果</h4>
+          <div class="acu-v2-advanced-tools-page__section-head">
+            <h4 class="acu-v2-advanced-tools-page__section-title">结果</h4>
+            <div
+              v-if="sqlFlow.result.value.kind === 'query'"
+              class="acu-v2-advanced-tools-page__sql-export-actions"
+              role="group"
+              aria-label="导出查询结果"
+            >
+              <AcuButton size="sm" title="把结果表格复制为 CSV 文本" @click="sqlFlow.copyResultCsv">
+                <i class="fa-solid fa-clipboard"></i>
+                复制 CSV
+              </AcuButton>
+              <AcuButton size="sm" title="下载 UTF-8 CSV 文件（Excel 可直接打开）" @click="sqlFlow.exportResultCsv">
+                <i class="fa-solid fa-file-csv"></i>
+                导出 CSV
+              </AcuButton>
+              <AcuButton size="sm" title="下载 JSON 文件（每行一个对象）" @click="sqlFlow.exportResultJson">
+                <i class="fa-solid fa-file-code"></i>
+                导出 JSON
+              </AcuButton>
+            </div>
+          </div>
           <div v-if="sqlFlow.result.value.kind === 'idle'" class="acu-v2-advanced-tools-page__empty">
             执行 SQL 后结果会显示在这里
           </div>
@@ -432,6 +453,22 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.acu-v2-advanced-tools-page__section-head {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.acu-v2-advanced-tools-page__sql-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .acu-v2-advanced-tools-page__sql-history-section {
