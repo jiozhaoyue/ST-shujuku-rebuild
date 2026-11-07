@@ -55,6 +55,7 @@ async function mountAdvancedToolsSqlPanel(opts: {
 
   const sqlConsole = await import('../../../src/presentation-v2/composables/useSqlConsole');
   sqlConsole.__resetSqlConsoleHistoryForTests();
+  sqlConsole.__resetSqlConsoleSnippetsForTests();
 
   const mount = await import('../../../src/presentation-v2/bootstrap/mount');
   await mount.openAcuV2App();
@@ -229,6 +230,56 @@ describe('AdvancedToolsPage SQL panel', () => {
     expect(secondTextarea!.value).toBe('SELECT id, name FROM item WHERE id = 7;');
 
     second.mount.__resetAcuV2MountForTests();
+  });
+
+  it('常用语句收藏：收藏去重置顶、点击仅填入编辑器、可删除、持久化入 ui-state', async () => {
+    const { mount } = await mountAdvancedToolsSqlPanel();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.acu-v2-advanced-tools-page textarea[aria-label="SQL 语句"]');
+    expect(textarea).not.toBeNull();
+
+    const findButton = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-v2-advanced-tools-page button'))
+        .find(button => button.textContent?.includes(label));
+
+    // 输入并收藏
+    textarea!.value = 'SELECT name FROM beiwanglu;';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+    findButton('收藏')!.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    // chip 渲染且持久化
+    const chipText = () => document.querySelector('.acu-v2-advanced-tools-page__snippet-chip code')?.textContent;
+    expect(chipText()).toBe('SELECT name FROM beiwanglu;');
+    let persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] };
+    expect(persisted.sqlConsoleSnippets).toEqual(['SELECT name FROM beiwanglu;']);
+
+    // 再次收藏同语句 → 去重（不重复出现）
+    textarea!.value = 'SELECT name FROM beiwanglu;';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+    findButton('收藏')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(document.querySelectorAll('.acu-v2-advanced-tools-page__snippet-chip')).toHaveLength(1);
+    expect((JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] }).sqlConsoleSnippets)
+      .toEqual(['SELECT name FROM beiwanglu;']);
+
+    // 清空编辑器 → 点击 chip 只填入、不执行（executeQuery 不会被调用）
+    findButton('清空')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(textarea!.value).toBe('');
+    (document.querySelector('.acu-v2-advanced-tools-page__snippet-chip') as HTMLElement).click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(textarea!.value).toBe('SELECT name FROM beiwanglu;');
+
+    // 删除：chip 消失且持久化同步
+    (document.querySelector('.acu-v2-advanced-tools-page__snippet-remove') as HTMLElement).click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(document.querySelectorAll('.acu-v2-advanced-tools-page__snippet-chip')).toHaveLength(0);
+    persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { sqlConsoleSnippets?: string[] };
+    expect(persisted.sqlConsoleSnippets).toEqual([]);
+
+    mount.__resetAcuV2MountForTests();
   });
 
   it('快捷查看所有表会填入 SQL 并立即执行', async () => {

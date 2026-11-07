@@ -52,6 +52,14 @@
             <i class="fa-solid fa-eraser"></i>
             清空
           </AcuButton>
+          <AcuButton
+            :disabled="!sqlFlow.hasSqlText.value"
+            title="把当前语句收藏为常用片段（跨聊天可用，点击仅填入编辑器）"
+            @click="sqlFlow.saveSnippetFromEditor"
+          >
+            <i class="fa-solid fa-star"></i>
+            收藏
+          </AcuButton>
           <span class="acu-v2-advanced-tools-page__sql-status" :class="`acu-v2-advanced-tools-page__sql-status--${sqlFlow.statusKind.value}`">
             {{ sqlFlow.statusLabel.value }}
           </span>
@@ -134,6 +142,32 @@
 
         <section class="acu-v2-advanced-tools-page__sql-history-section" aria-label="SQL 执行历史">
           <h4 class="acu-v2-advanced-tools-page__section-title">执行历史</h4>
+
+          <div v-if="sqlFlow.snippets.value.length" class="acu-v2-advanced-tools-page__snippet-list" aria-label="常用语句">
+            <span class="acu-v2-advanced-tools-page__snippet-label">
+              <i class="fa-solid fa-star"></i>
+              常用
+            </span>
+            <span
+              v-for="(snippet, snippetIndex) in sqlFlow.snippets.value"
+              :key="`${snippetIndex}-${snippet.slice(0, 24)}`"
+              class="acu-v2-advanced-tools-page__snippet-chip"
+              role="button"
+              tabindex="0"
+              :title="snippet"
+              @click="sqlFlow.insertSnippet(snippet)"
+              @keydown.enter.prevent="sqlFlow.insertSnippet(snippet)"
+            >
+              <code class="acu-v2-advanced-tools-page__snippet-text">{{ snippet }}</code>
+              <i
+                class="fa-solid fa-xmark acu-v2-advanced-tools-page__snippet-remove"
+                role="button"
+                aria-label="删除该常用语句"
+                @click.stop="sqlFlow.removeSnippet(snippetIndex)"
+              ></i>
+            </span>
+          </div>
+
           <div v-if="!sqlFlow.history.value.length" class="acu-v2-advanced-tools-page__empty acu-v2-advanced-tools-page__empty--compact">
             暂无执行历史
           </div>
@@ -671,6 +705,61 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
 
 .acu-v2-advanced-tools-page__sql-history-list {
   max-height: 230px;
+}
+
+.acu-v2-advanced-tools-page__snippet-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.acu-v2-advanced-tools-page__snippet-label {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--acu-text-3);
+  font-size: var(--acu-font-size-caption, 11px);
+}
+
+.acu-v2-advanced-tools-page__snippet-chip {
+  max-width: 320px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--acu-text-2);
+  font-size: var(--acu-font-size-caption, 11px);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.acu-v2-advanced-tools-page__snippet-chip:hover,
+.acu-v2-advanced-tools-page__snippet-chip:focus-visible {
+  background: var(--acu-hover-overlay);
+  border-color: color-mix(in srgb, var(--acu-accent) 40%, transparent);
+  outline: none;
+}
+
+.acu-v2-advanced-tools-page__snippet-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--acu-font-mono);
+}
+
+.acu-v2-advanced-tools-page__snippet-remove {
+  flex: 0 0 auto;
+  color: var(--acu-text-3);
+}
+
+.acu-v2-advanced-tools-page__snippet-remove:hover {
+  color: var(--acu-danger);
 }
 
 .acu-v2-advanced-tools-page__log-list {

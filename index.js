@@ -187240,10 +187240,10 @@ const _hoisted_36$2 = {
 };
 const _hoisted_37$2 = { class: "acu-v2-continuation-materials__outline-heading" };
 const _hoisted_38$2 = { class: "acu-v2-continuation-materials__badge" };
-const _hoisted_39$1 = { class: "acu-v2-continuation-materials__badge" };
-const _hoisted_40$1 = { class: "acu-v2-continuation-materials__badge" };
-const _hoisted_41 = { class: "acu-v2-continuation-materials__card-body" };
-const _hoisted_42 = { class: "acu-v2-continuation-materials__list" };
+const _hoisted_39$2 = { class: "acu-v2-continuation-materials__badge" };
+const _hoisted_40$2 = { class: "acu-v2-continuation-materials__badge" };
+const _hoisted_41$1 = { class: "acu-v2-continuation-materials__card-body" };
+const _hoisted_42$1 = { class: "acu-v2-continuation-materials__list" };
 const _hoisted_43 = {
 	key: 1,
 	class: "acu-v2-continuation-materials__empty"
@@ -187851,14 +187851,14 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 												),
 												createBaseVNode(
 													"span",
-													_hoisted_39$1,
+													_hoisted_39$2,
 													toDisplayString(revision.frozen ? "已冻结" : "待确认"),
 													1
 													/* TEXT */
 												),
 												createBaseVNode(
 													"span",
-													_hoisted_40$1,
+													_hoisted_40$2,
 													"职责：" + toDisplayString($setup.ROLE_LABELS[revision.outline.role ?? ""] ?? revision.outline.role ?? "未标注"),
 													1
 													/* TEXT */
@@ -187866,12 +187866,12 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 											]),
 											createBaseVNode(
 												"p",
-												_hoisted_41,
+												_hoisted_41$1,
 												"阶段目标：" + toDisplayString(revision.outline.goal),
 												1
 												/* TEXT */
 											),
-											createBaseVNode("ol", _hoisted_42, [(openBlock(true), createElementBlock(
+											createBaseVNode("ol", _hoisted_42$1, [(openBlock(true), createElementBlock(
 												Fragment,
 												null,
 												renderList(revision.outline.nodes, (node) => {
@@ -195506,8 +195506,8 @@ const _hoisted_35$1 = {
 const _hoisted_36$1 = { class: "acu-v2-data-mgmt-page__sheet-filter-head" };
 const _hoisted_37$1 = ["disabled"];
 const _hoisted_38$1 = { class: "acu-v2-data-mgmt-page__sheet-filter-list" };
-const _hoisted_39 = { class: "acu-v2-data-mgmt-page__meta" };
-const _hoisted_40 = { class: "acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup" };
+const _hoisted_39$1 = { class: "acu-v2-data-mgmt-page__meta" };
+const _hoisted_40$1 = { class: "acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup" };
 function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$l, [$setup.flow.message.value ? (openBlock(), createBlock($setup["AcuMessage"], {
 		key: 0,
@@ -196241,12 +196241,12 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 					]),
 					createBaseVNode(
 						"p",
-						_hoisted_39,
+						_hoisted_39$1,
 						toDisplayString($setup.flow.hasDeleteSheetSelection.value ? `当前已限定 ${$setup.flow.deleteSheetKeys.value.length} 张表：${$setup.flow.selectedDeleteSheetNames.value.join("、")}。按表删除不会硬清空，即便范围覆盖全部楼层。` : "楼层范围同时作用于两个删除按钮。「删除所有本地数据」在范围覆盖全部 AI 楼层时执行硬清空，范围为局部时只删除对应楼层的填表数据。"),
 						1
 						/* TEXT */
 					),
-					createBaseVNode("div", _hoisted_40, [
+					createBaseVNode("div", _hoisted_40$1, [
 						$setup.SHOW_LEGACY_DATA_MGMT_UI ? (openBlock(), createBlock($setup["AcuButton"], {
 							key: 0,
 							block: "",
@@ -197889,7 +197889,17 @@ const SQL_CONSOLE_VIEW_WINDOW = 200;
 const SQL_CONSOLE_DRAFT_SECTION = 'sqlConsoleDraft';
 const SQL_CONSOLE_DRAFT_MAX_CHARS = 100000;
 const SQL_CONSOLE_DRAFT_DEBOUNCE_MS = 300;
+/**
+ * 常用语句片段库（跨聊天）：修数据场景总有一批反复用的 SELECT/UPDATE 模板。
+ * 收藏只存文本；点击仅填入编辑器、**绝不自动执行** —— 跨聊天执行有专门守卫拒绝，
+ * 填入则等价于用户手敲，落到哪个聊天由用户自己在执行时决定。
+ */
+const SQL_CONSOLE_SNIPPETS_SECTION = 'sqlConsoleSnippets';
+const SQL_CONSOLE_MAX_SNIPPETS = 20;
+const SQL_CONSOLE_SNIPPET_MAX_CHARS = 5000;
 const sqlHistory = ref([]);
+/** 常用语句片段库（持久化在 ui-state；跨聊天可插入、不自动执行）。 */
+const snippets = ref([]);
 function currentSqlConsoleContext() {
     const chatIdentity = String(currentChatFileIdentifier_ACU || '');
     const isolationKey = String(getCurrentIsolationKey_ACU() || '');
@@ -197917,6 +197927,9 @@ function addHistory(sql, success, context = currentSqlConsoleContext()) {
 }
 function __resetSqlConsoleHistoryForTests() {
     sqlHistory.value = [];
+}
+function __resetSqlConsoleSnippetsForTests() {
+    snippets.value = [];
 }
 function useSqlConsole() {
     const toast = useToastStore();
@@ -197985,8 +197998,46 @@ function useSqlConsole() {
     function clearHistory() {
         sqlHistory.value = [];
     }
+    // ── 常用语句片段库 ──
+    function loadSnippets() {
+        const stored = readSection(SQL_CONSOLE_SNIPPETS_SECTION);
+        snippets.value = Array.isArray(stored) ? stored.filter(item => typeof item === 'string') : [];
+    }
+    function persistSnippets() {
+        writeSection(SQL_CONSOLE_SNIPPETS_SECTION, snippets.value);
+    }
+    /** 收藏当前编辑器语句：去重（已存在则置顶）、条数/长度封顶。 */
+    function saveSnippetFromEditor() {
+        const sql = sqlText.value.trim();
+        if (!sql) {
+            toast.warning('编辑器为空，没有可收藏的语句。');
+            return;
+        }
+        if (sql.length > SQL_CONSOLE_SNIPPET_MAX_CHARS) {
+            toast.warning(`语句超过 ${SQL_CONSOLE_SNIPPET_MAX_CHARS} 字符，不适合收藏为常用片段。`);
+            return;
+        }
+        loadSnippets();
+        snippets.value = [sql, ...snippets.value.filter(item => item !== sql)].slice(0, SQL_CONSOLE_MAX_SNIPPETS);
+        persistSnippets();
+        toast.success('已收藏为常用语句。');
+    }
+    function removeSnippet(index) {
+        loadSnippets();
+        if (index < 0 || index >= snippets.value.length)
+            return;
+        snippets.value = snippets.value.filter((_, i) => i !== index);
+        persistSnippets();
+        toast.info('已删除该常用语句。');
+    }
+    /** 把片段填入编辑器（不执行；执行由用户决定，落哪个聊天由执行时校验兜底）。 */
+    function insertSnippet(sql) {
+        sqlText.value = sql;
+        toast.info('已把常用语句填入编辑器。');
+    }
     function refresh() {
         isSqliteAvailable.value = isSqliteMode();
+        loadSnippets();
     }
     function setSql(sql) {
         sqlText.value = sql;
@@ -198157,6 +198208,7 @@ function useSqlConsole() {
         isSqliteAvailable,
         result,
         history,
+        snippets,
         hasSqlText,
         statusLabel,
         statusKind,
@@ -198171,6 +198223,9 @@ function useSqlConsole() {
         showTables,
         showSchema,
         useHistoryItem,
+        saveSnippetFromEditor,
+        removeSnippet,
+        insertSnippet,
         copyResultCsv,
         exportResultCsv,
         exportResultJson,
@@ -199508,8 +199563,8 @@ var _sfc_main$h = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-2cd3c90c] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-2cd3c90c] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-2cd3c90c] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-2cd3c90c] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-2cd3c90c] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-2cd3c90c] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-2cd3c90c] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__section-head[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px 12px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__sql-export-actions[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-2cd3c90c] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-2cd3c90c] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-2cd3c90c] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-2cd3c90c] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-2cd3c90c] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-2cd3c90c] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-2cd3c90c] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-2cd3c90c] {\r\n  cursor: copy;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-2cd3c90c] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-2cd3c90c]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-2cd3c90c] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-result-note[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 4px 8px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-2cd3c90c] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-2cd3c90c] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2cd3c90c] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2cd3c90c] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2cd3c90c] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-2cd3c90c] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-list[data-v-2cd3c90c] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-2cd3c90c] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__log-list[data-v-2cd3c90c] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-row[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-2cd3c90c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-2cd3c90c] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2cd3c90c]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-2cd3c90c]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-2cd3c90c] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-2cd3c90c] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2cd3c90c]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-2cd3c90c]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-2cd3c90c],\r\n.acu-v2-advanced-tools-page__log-message[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-2cd3c90c] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-2cd3c90c] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-2cd3c90c] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-2cd3c90c] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2cd3c90c] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2cd3c90c]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2cd3c90c]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-2cd3c90c]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-2cd3c90c] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-2cd3c90c] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-2cd3c90c] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-2cd3c90c]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-2cd3c90c]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-2cd3c90c] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-2cd3c90c] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-2cd3c90c] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-2cd3c90c] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-2cd3c90c] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-2cd3c90c] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-2cd3c90c] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-2cd3c90c] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-2cd3c90c],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-2cd3c90c] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-2cd3c90c");
-var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_2cd3c90c_lang = null;
+injectSfcStyle("\n.acu-v2-advanced-tools-page[data-v-efe8931b] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-advanced-tools-page__sql-panel[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-panel[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__debug-panel[data-v-efe8931b] {\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__debug-actions[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__quick-actions[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-actions[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-textarea[data-v-efe8931b] {\r\n  font-family: var(--acu-font-mono);\r\n  min-height: 210px;\r\n  white-space: pre;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  padding-top: 12px;\r\n  margin-top: 4px;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-efe8931b] {\r\n  margin-left: auto;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.5;\n}\n.acu-v2-advanced-tools-page__sql-status--success[data-v-efe8931b] {\r\n  color: var(--acu-success);\n}\n.acu-v2-advanced-tools-page__sql-status--warning[data-v-efe8931b] {\r\n  color: var(--acu-warning);\n}\n.acu-v2-advanced-tools-page__sql-status--error[data-v-efe8931b] {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__sql-result-section[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__sql-history-section[data-v-efe8931b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 10px;\n}\n.acu-v2-advanced-tools-page__section-head[data-v-efe8931b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 8px 12px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__sql-export-actions[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-section[data-v-efe8931b] {\r\n  padding-top: 12px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-v2-advanced-tools-page__section-title[data-v-efe8931b] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.acu-v2-advanced-tools-page__empty[data-v-efe8931b] {\r\n  min-height: 96px;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: center;\r\n  border: 0;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__empty--compact[data-v-efe8931b] {\r\n  min-height: 72px;\n}\n.acu-v2-advanced-tools-page__empty--log[data-v-efe8931b] {\r\n  min-height: 180px;\r\n  border: 0;\n}\n.acu-v2-advanced-tools-page__sql-table-wrap[data-v-efe8931b] {\r\n  max-height: 330px;\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-result-table[data-v-efe8931b] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-efe8931b] {\r\n  max-width: 300px;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  text-align: left;\r\n  white-space: nowrap;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\n.acu-v2-advanced-tools-page__sql-result-table td[data-v-efe8931b] {\r\n  cursor: copy;\n}\n.acu-v2-advanced-tools-page__sql-result-table th[data-v-efe8931b] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 1;\r\n  background: var(--acu-bg-1);\r\n  color: var(--acu-text-1);\r\n  font-weight: 600;\n}\n.acu-v2-advanced-tools-page__sql-result-table tbody tr[data-v-efe8931b]:nth-child(even) {\r\n  background: color-mix(in srgb, var(--acu-text-3) 5%, transparent);\n}\n.acu-v2-advanced-tools-page__cell-null[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__empty-cell[data-v-efe8931b] {\r\n  color: var(--acu-text-3);\r\n  font-style: italic;\n}\n.acu-v2-advanced-tools-page__sql-result-meta[data-v-efe8931b] {\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  text-align: right;\n}\n.acu-v2-advanced-tools-page__sql-result-note[data-v-efe8931b] {\r\n  margin: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 4px 8px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-error[data-v-efe8931b] {\r\n  margin: 0;\r\n  min-height: 96px;\r\n  padding: 12px;\r\n  border: 0;\r\n  border-radius: var(--acu-radius-sm);\r\n  background: color-mix(in srgb, var(--acu-danger) 8%, transparent);\r\n  color: var(--acu-danger);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-efe8931b] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: 12px;\r\n  align-items: stretch;\n}\n.acu-v2-advanced-tools-page__keyword-row[data-v-efe8931b] {\r\n  grid-column: 1 / -1;\n}\n.acu-v2-advanced-tools-page__log-control-row[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 8px;\r\n  min-width: 0;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-efe8931b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 10px 14px;\r\n  align-items: center;\r\n  justify-content: space-between;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-efe8931b] {\r\n  width: max-content;\r\n  max-width: 100%;\r\n  display: grid;\r\n  grid-template-columns: max-content max-content;\r\n  gap: 10px 18px;\r\n  align-items: center;\r\n  justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-efe8931b] .acu-toggle {\r\n  width: max-content;\r\n  max-width: none;\r\n  min-width: max-content;\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-efe8931b] .acu-toggle__label {\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__hint[data-v-efe8931b] {\r\n  max-width: 100%;\r\n  margin: 0;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-list[data-v-efe8931b] {\r\n  overflow: auto;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\r\n  border-radius: var(--acu-radius-sm);\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-list[data-v-efe8931b] {\r\n  max-height: 230px;\n}\n.acu-v2-advanced-tools-page__snippet-list[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__snippet-label[data-v-efe8931b] {\r\n  flex: 0 0 auto;\r\n  display: inline-flex;\r\n  gap: 5px;\r\n  align-items: center;\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-efe8931b] {\r\n  max-width: 320px;\r\n  display: inline-flex;\r\n  gap: 6px;\r\n  align-items: center;\r\n  padding: 3px 8px;\r\n  border: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  border-radius: 999px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  cursor: pointer;\r\n  transition: background 0.15s ease, border-color 0.15s ease;\n}\n.acu-v2-advanced-tools-page__snippet-chip[data-v-efe8931b]:hover,\r\n.acu-v2-advanced-tools-page__snippet-chip[data-v-efe8931b]:focus-visible {\r\n  background: var(--acu-hover-overlay);\r\n  border-color: color-mix(in srgb, var(--acu-accent) 40%, transparent);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__snippet-text[data-v-efe8931b] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-efe8931b] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-text-3);\n}\n.acu-v2-advanced-tools-page__snippet-remove[data-v-efe8931b]:hover {\r\n  color: var(--acu-danger);\n}\n.acu-v2-advanced-tools-page__log-list[data-v-efe8931b] {\r\n  min-height: 360px;\r\n  max-height: 58vh;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-row[data-v-efe8931b] {\r\n  min-width: 0;\r\n  display: grid;\r\n  gap: 8px;\r\n  align-items: baseline;\r\n  padding: 7px 10px;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\r\n  border: 0;\r\n  border-bottom: 1px solid var(--acu-border-2);\r\n  background: transparent;\r\n  color: inherit;\r\n  cursor: pointer;\r\n  font: inherit;\r\n  text-align: left;\r\n  transition: background 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-v2-advanced-tools-page__log-row[data-v-efe8931b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: 6px;\r\n  padding-block: 9px;\n}\n.acu-v2-advanced-tools-page__log-meta[data-v-efe8931b] {\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: 6px 8px;\r\n  align-items: center;\n}\n.acu-v2-advanced-tools-page__sql-history-meta[data-v-efe8931b] {\r\n  flex-wrap: nowrap;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-efe8931b]:last-child,\r\n.acu-v2-advanced-tools-page__log-row[data-v-efe8931b]:last-child {\r\n  border-bottom: 0;\n}\n.acu-v2-advanced-tools-page__sql-history-item--failure[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-row--error[data-v-efe8931b] {\r\n  background: color-mix(in srgb, var(--acu-danger) 7%, transparent);\n}\n.acu-v2-advanced-tools-page__log-row--warn[data-v-efe8931b] {\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, transparent);\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-efe8931b]:hover {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-advanced-tools-page__sql-history-item.acu-btn[data-v-efe8931b]:focus-visible {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\r\n  outline: none;\n}\n.acu-v2-advanced-tools-page__log-time[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-tag[data-v-efe8931b],\r\n.acu-v2-advanced-tools-page__log-message[data-v-efe8931b] {\r\n  min-width: 0;\r\n  font-family: var(--acu-font-mono);\n}\n.acu-v2-advanced-tools-page__log-time[data-v-efe8931b] {\r\n  color: var(--acu-text-3);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-tag[data-v-efe8931b] {\r\n  flex: 1 1 180px;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-message[data-v-efe8931b] {\r\n  margin: 0;\r\n  color: var(--acu-text-1);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\r\n  background: transparent;\n}\n.acu-v2-advanced-tools-page__log-body[data-v-efe8931b] {\r\n  display: block;\r\n  width: 100%;\n}\n.acu-v2-advanced-tools-page__log-hint[data-v-efe8931b] {\r\n  min-width: 0;\r\n  margin-top: 2px;\r\n  border-left: 2px solid color-mix(in srgb, var(--acu-warning) 70%, transparent);\r\n  border-radius: 0 var(--acu-radius-sm) var(--acu-radius-sm) 0;\r\n  background: color-mix(in srgb, var(--acu-warning) 6%, var(--acu-bg-1));\r\n  font-family: var(--acu-font-sans, inherit);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.55;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-efe8931b] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  gap: 6px;\r\n  padding: 6px 10px;\r\n  color: var(--acu-text-2);\r\n  cursor: pointer;\r\n  list-style: none;\r\n  user-select: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-efe8931b]::-webkit-details-marker {\r\n  display: none;\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-efe8931b]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-v2-advanced-tools-page__log-hint-summary[data-v-efe8931b]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-v2-advanced-tools-page__log-hint-icon[data-v-efe8931b] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-warning);\r\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-advanced-tools-page__log-hint-text[data-v-efe8931b] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-efe8931b] {\r\n  flex: 0 0 auto;\r\n  color: var(--acu-accent);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  white-space: nowrap;\n}\n.acu-v2-advanced-tools-page__log-hint-toggle[data-v-efe8931b]::after {\r\n  content: ' ▾';\n}\n.acu-v2-advanced-tools-page__log-hint[open] .acu-v2-advanced-tools-page__log-hint-toggle[data-v-efe8931b]::after {\r\n  content: ' ▴';\n}\n.acu-v2-advanced-tools-page__log-hint-steps[data-v-efe8931b] {\r\n  margin: 0;\r\n  padding: 2px 10px 8px 30px;\r\n  color: var(--acu-text-2);\n}\n.acu-v2-advanced-tools-page__log-hint-steps li[data-v-efe8931b] {\r\n  margin: 2px 0;\r\n  overflow-wrap: anywhere;\n}\n@media (max-width: 1080px) {\n.acu-v2-advanced-tools-page[data-v-efe8931b] {\r\n    padding: 14px;\n}\n.acu-v2-advanced-tools-page__sql-actions[data-v-efe8931b] {\r\n    justify-content: stretch;\n}\n.acu-v2-advanced-tools-page__sql-status[data-v-efe8931b] {\r\n    width: 100%;\r\n    margin-left: 0;\r\n    text-align: right;\n}\n.acu-v2-advanced-tools-page__filter-grid[data-v-efe8931b] {\r\n    grid-template-columns: 1fr;\n}\n.acu-v2-advanced-tools-page__log-control-main[data-v-efe8931b] {\r\n    align-items: stretch;\r\n    flex-direction: column;\r\n    justify-content: flex-start;\n}\n.acu-v2-advanced-tools-page__toggles[data-v-efe8931b] {\r\n    align-self: flex-start;\n}\n.acu-v2-advanced-tools-page__sql-history-item[data-v-efe8931b],\r\n  .acu-v2-advanced-tools-page__log-row[data-v-efe8931b] {\r\n    padding-inline: 9px;\n}\n}\r\n", "src/presentation-v2/pages/AdvancedToolsPage.vue#style-0-efe8931b");
+var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_efe8931b_lang = null;
 
 const _hoisted_1$h = { class: "acu-v2-advanced-tools-page" };
 const _hoisted_2$f = {
@@ -199552,40 +199607,52 @@ const _hoisted_16$6 = {
 };
 const _hoisted_17$5 = {
 	key: 0,
+	class: "acu-v2-advanced-tools-page__snippet-list",
+	"aria-label": "常用语句"
+};
+const _hoisted_18$5 = [
+	"title",
+	"onClick",
+	"onKeydown"
+];
+const _hoisted_19$5 = { class: "acu-v2-advanced-tools-page__snippet-text" };
+const _hoisted_20$4 = ["onClick"];
+const _hoisted_21$3 = {
+	key: 1,
 	class: "acu-v2-advanced-tools-page__empty acu-v2-advanced-tools-page__empty--compact"
 };
-const _hoisted_18$5 = {
-	key: 1,
+const _hoisted_22$2 = {
+	key: 2,
 	class: "acu-v2-advanced-tools-page__sql-history-list"
 };
-const _hoisted_19$5 = { class: "acu-v2-advanced-tools-page__log-meta acu-v2-advanced-tools-page__sql-history-meta" };
-const _hoisted_20$4 = { class: "acu-v2-advanced-tools-page__log-time" };
-const _hoisted_21$3 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
-const _hoisted_22$2 = { class: "acu-v2-advanced-tools-page__filter-grid" };
-const _hoisted_23$2 = { class: "acu-v2-advanced-tools-page__log-control-row" };
-const _hoisted_24$2 = { class: "acu-v2-advanced-tools-page__log-control-main" };
-const _hoisted_25$2 = { class: "acu-v2-advanced-tools-page__log-actions" };
-const _hoisted_26$1 = { class: "acu-v2-advanced-tools-page__toggles" };
-const _hoisted_27$1 = { class: "acu-v2-advanced-tools-page__hint" };
-const _hoisted_28 = {
+const _hoisted_23$2 = { class: "acu-v2-advanced-tools-page__log-meta acu-v2-advanced-tools-page__sql-history-meta" };
+const _hoisted_24$2 = { class: "acu-v2-advanced-tools-page__log-time" };
+const _hoisted_25$2 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
+const _hoisted_26$1 = { class: "acu-v2-advanced-tools-page__filter-grid" };
+const _hoisted_27$1 = { class: "acu-v2-advanced-tools-page__log-control-row" };
+const _hoisted_28 = { class: "acu-v2-advanced-tools-page__log-control-main" };
+const _hoisted_29 = { class: "acu-v2-advanced-tools-page__log-actions" };
+const _hoisted_30 = { class: "acu-v2-advanced-tools-page__toggles" };
+const _hoisted_31 = { class: "acu-v2-advanced-tools-page__hint" };
+const _hoisted_32 = {
 	ref: "logListRef",
 	class: "acu-v2-advanced-tools-page__log-list",
 	role: "log",
 	"aria-live": "polite"
 };
-const _hoisted_29 = {
+const _hoisted_33 = {
 	key: 0,
 	class: "acu-v2-advanced-tools-page__empty acu-v2-advanced-tools-page__empty--log"
 };
-const _hoisted_30 = { class: "acu-v2-advanced-tools-page__log-meta" };
-const _hoisted_31 = { class: "acu-v2-advanced-tools-page__log-time" };
-const _hoisted_32 = { class: "acu-v2-advanced-tools-page__log-tag" };
-const _hoisted_33 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
-const _hoisted_34 = ["data-hint-id"];
-const _hoisted_35 = { class: "acu-v2-advanced-tools-page__log-hint-summary" };
-const _hoisted_36 = { class: "acu-v2-advanced-tools-page__log-hint-text" };
-const _hoisted_37 = { class: "acu-v2-advanced-tools-page__log-hint-steps" };
-const _hoisted_38 = { class: "acu-v2-advanced-tools-page__debug-actions" };
+const _hoisted_34 = { class: "acu-v2-advanced-tools-page__log-meta" };
+const _hoisted_35 = { class: "acu-v2-advanced-tools-page__log-time" };
+const _hoisted_36 = { class: "acu-v2-advanced-tools-page__log-tag" };
+const _hoisted_37 = { class: "acu-v2-advanced-tools-page__log-message acu-v2-advanced-tools-page__log-body" };
+const _hoisted_38 = ["data-hint-id"];
+const _hoisted_39 = { class: "acu-v2-advanced-tools-page__log-hint-summary" };
+const _hoisted_40 = { class: "acu-v2-advanced-tools-page__log-hint-text" };
+const _hoisted_41 = { class: "acu-v2-advanced-tools-page__log-hint-steps" };
+const _hoisted_42 = { class: "acu-v2-advanced-tools-page__debug-actions" };
 function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$h, [createVNode($setup["AcuMobilePanelNav"], { items: $setup.panelNavItems }), createVNode($setup["AcuPanelGrid"], {
 		class: "acu-v2-advanced-tools-page__tools-grid",
@@ -199698,6 +199765,24 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							)])]),
 							_: 1
 						}, 8, ["disabled", "onClick"]),
+						createVNode($setup["AcuButton"], {
+							disabled: !$setup.sqlFlow.hasSqlText.value,
+							title: "把当前语句收藏为常用片段（跨聊天可用，点击仅填入编辑器）",
+							onClick: $setup.sqlFlow.saveSnippetFromEditor
+						}, {
+							default: withCtx(() => [..._cache[9] || (_cache[9] = [createBaseVNode(
+								"i",
+								{ class: "fa-solid fa-star" },
+								null,
+								-1
+								/* CACHED */
+							), createTextVNode(
+								" 收藏 ",
+								-1
+								/* CACHED */
+							)])]),
+							_: 1
+						}, 8, ["disabled", "onClick"]),
 						createBaseVNode(
 							"span",
 							{ class: normalizeClass(["acu-v2-advanced-tools-page__sql-status", `acu-v2-advanced-tools-page__sql-status--${$setup.sqlFlow.statusKind.value}`]) },
@@ -199706,7 +199791,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							/* TEXT, CLASS */
 						)
 					]),
-					createBaseVNode("section", _hoisted_4$c, [createBaseVNode("div", _hoisted_5$c, [_cache[12] || (_cache[12] = createBaseVNode(
+					createBaseVNode("section", _hoisted_4$c, [createBaseVNode("div", _hoisted_5$c, [_cache[13] || (_cache[13] = createBaseVNode(
 						"h4",
 						{ class: "acu-v2-advanced-tools-page__section-title" },
 						"结果",
@@ -199718,7 +199803,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							title: "把结果表格复制为 CSV 文本",
 							onClick: $setup.sqlFlow.copyResultCsv
 						}, {
-							default: withCtx(() => [..._cache[9] || (_cache[9] = [createBaseVNode(
+							default: withCtx(() => [..._cache[10] || (_cache[10] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-clipboard" },
 								null,
@@ -199736,7 +199821,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							title: "下载 UTF-8 CSV 文件（Excel 可直接打开）",
 							onClick: $setup.sqlFlow.exportResultCsv
 						}, {
-							default: withCtx(() => [..._cache[10] || (_cache[10] = [createBaseVNode(
+							default: withCtx(() => [..._cache[11] || (_cache[11] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-file-csv" },
 								null,
@@ -199754,7 +199839,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							title: "下载 JSON 文件（每行一个对象）",
 							onClick: $setup.sqlFlow.exportResultJson
 						}, {
-							default: withCtx(() => [..._cache[11] || (_cache[11] = [createBaseVNode(
+							default: withCtx(() => [..._cache[12] || (_cache[12] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-file-code" },
 								null,
@@ -199834,7 +199919,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 								size: "sm",
 								onClick: $setup.sqlFlow.showMoreRows
 							}, {
-								default: withCtx(() => [..._cache[13] || (_cache[13] = [createBaseVNode(
+								default: withCtx(() => [..._cache[14] || (_cache[14] = [createBaseVNode(
 									"i",
 									{ class: "fa-solid fa-chevron-down" },
 									null,
@@ -199858,48 +199943,85 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 						64
 						/* STABLE_FRAGMENT */
 					))]),
-					createBaseVNode("section", _hoisted_16$6, [_cache[14] || (_cache[14] = createBaseVNode(
-						"h4",
-						{ class: "acu-v2-advanced-tools-page__section-title" },
-						"执行历史",
-						-1
-						/* CACHED */
-					)), !$setup.sqlFlow.history.value.length ? (openBlock(), createElementBlock("div", _hoisted_17$5, " 暂无执行历史 ")) : (openBlock(), createElementBlock("div", _hoisted_18$5, [(openBlock(true), createElementBlock(
-						Fragment,
-						null,
-						renderList($setup.sqlFlow.history.value, (item, index) => {
-							return openBlock(), createBlock($setup["AcuButton"], {
-								key: `${item.timestamp}-${index}`,
-								class: normalizeClass(["acu-v2-advanced-tools-page__sql-history-item", item.success ? "acu-v2-advanced-tools-page__sql-history-item--success" : "acu-v2-advanced-tools-page__sql-history-item--failure"]),
-								title: "填入编辑器",
-								onClick: ($event) => $setup.sqlFlow.useHistoryItem(item)
-							}, {
-								default: withCtx(() => [createBaseVNode("div", _hoisted_19$5, [createBaseVNode(
-									"span",
-									_hoisted_20$4,
-									toDisplayString($setup.formatTime(item.timestamp)),
+					createBaseVNode("section", _hoisted_16$6, [
+						_cache[16] || (_cache[16] = createBaseVNode(
+							"h4",
+							{ class: "acu-v2-advanced-tools-page__section-title" },
+							"执行历史",
+							-1
+							/* CACHED */
+						)),
+						$setup.sqlFlow.snippets.value.length ? (openBlock(), createElementBlock("div", _hoisted_17$5, [_cache[15] || (_cache[15] = createBaseVNode(
+							"span",
+							{ class: "acu-v2-advanced-tools-page__snippet-label" },
+							[createBaseVNode("i", { class: "fa-solid fa-star" }), createTextVNode(" 常用 ")],
+							-1
+							/* CACHED */
+						)), (openBlock(true), createElementBlock(
+							Fragment,
+							null,
+							renderList($setup.sqlFlow.snippets.value, (snippet, snippetIndex) => {
+								return openBlock(), createElementBlock("span", {
+									key: `${snippetIndex}-${snippet.slice(0, 24)}`,
+									class: "acu-v2-advanced-tools-page__snippet-chip",
+									role: "button",
+									tabindex: "0",
+									title: snippet,
+									onClick: ($event) => $setup.sqlFlow.insertSnippet(snippet),
+									onKeydown: withKeys(withModifiers(($event) => $setup.sqlFlow.insertSnippet(snippet), ["prevent"]), ["enter"])
+								}, [createBaseVNode(
+									"code",
+									_hoisted_19$5,
+									toDisplayString(snippet),
 									1
 									/* TEXT */
-								), createVNode($setup["AcuBadge"], { variant: item.success ? "success" : "danger" }, {
-									default: withCtx(() => [createTextVNode(
-										toDisplayString(item.success ? "成功" : "失败"),
+								), createBaseVNode("i", {
+									class: "fa-solid fa-xmark acu-v2-advanced-tools-page__snippet-remove",
+									role: "button",
+									"aria-label": "删除该常用语句",
+									onClick: withModifiers(($event) => $setup.sqlFlow.removeSnippet(snippetIndex), ["stop"])
+								}, null, 8, _hoisted_20$4)], 40, _hoisted_18$5);
+							}),
+							128
+							/* KEYED_FRAGMENT */
+						))])) : createCommentVNode("v-if", true),
+						!$setup.sqlFlow.history.value.length ? (openBlock(), createElementBlock("div", _hoisted_21$3, " 暂无执行历史 ")) : (openBlock(), createElementBlock("div", _hoisted_22$2, [(openBlock(true), createElementBlock(
+							Fragment,
+							null,
+							renderList($setup.sqlFlow.history.value, (item, index) => {
+								return openBlock(), createBlock($setup["AcuButton"], {
+									key: `${item.timestamp}-${index}`,
+									class: normalizeClass(["acu-v2-advanced-tools-page__sql-history-item", item.success ? "acu-v2-advanced-tools-page__sql-history-item--success" : "acu-v2-advanced-tools-page__sql-history-item--failure"]),
+									title: "填入编辑器",
+									onClick: ($event) => $setup.sqlFlow.useHistoryItem(item)
+								}, {
+									default: withCtx(() => [createBaseVNode("div", _hoisted_23$2, [createBaseVNode(
+										"span",
+										_hoisted_24$2,
+										toDisplayString($setup.formatTime(item.timestamp)),
+										1
+										/* TEXT */
+									), createVNode($setup["AcuBadge"], { variant: item.success ? "success" : "danger" }, {
+										default: withCtx(() => [createTextVNode(
+											toDisplayString(item.success ? "成功" : "失败"),
+											1
+											/* TEXT */
+										)]),
+										_: 2
+									}, 1032, ["variant"])]), createBaseVNode(
+										"code",
+										_hoisted_25$2,
+										toDisplayString(item.sql),
 										1
 										/* TEXT */
 									)]),
 									_: 2
-								}, 1032, ["variant"])]), createBaseVNode(
-									"code",
-									_hoisted_21$3,
-									toDisplayString(item.sql),
-									1
-									/* TEXT */
-								)]),
-								_: 2
-							}, 1032, ["class", "onClick"]);
-						}),
-						128
-						/* KEYED_FRAGMENT */
-					))]))])
+								}, 1032, ["class", "onClick"]);
+							}),
+							128
+							/* KEYED_FRAGMENT */
+						))]))
+					])
 				]),
 				_: 1
 			}, 8, ["title", "description"]),
@@ -199925,7 +200047,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 					_: 1
 				}, 8, ["variant"])]),
 				default: withCtx(() => [
-					createBaseVNode("div", _hoisted_22$2, [
+					createBaseVNode("div", _hoisted_26$1, [
 						createVNode($setup["AcuFormRow"], null, {
 							default: withCtx(() => [createVNode($setup["AcuSelect"], {
 								options: $setup.logFlow.levelOptions,
@@ -199952,7 +200074,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							_: 1
 						})
 					]),
-					createBaseVNode("div", _hoisted_23$2, [createBaseVNode("div", _hoisted_24$2, [createBaseVNode("div", _hoisted_25$2, [
+					createBaseVNode("div", _hoisted_27$1, [createBaseVNode("div", _hoisted_28, [createBaseVNode("div", _hoisted_29, [
 						createVNode($setup["AcuButton"], {
 							variant: $setup.logFlow.paused.value ? "primary" : "default",
 							onClick: _cache[3] || (_cache[3] = ($event) => $setup.logFlow.setPaused(!$setup.logFlow.paused.value))
@@ -199963,7 +200085,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 								null,
 								2
 								/* CLASS */
-							), _cache[15] || (_cache[15] = createTextVNode(
+							), _cache[17] || (_cache[17] = createTextVNode(
 								" 暂停 ",
 								-1
 								/* CACHED */
@@ -199974,7 +200096,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							disabled: !$setup.logFlow.totalCount.value,
 							onClick: $setup.logFlow.exportFiltered
 						}, {
-							default: withCtx(() => [..._cache[16] || (_cache[16] = [createBaseVNode(
+							default: withCtx(() => [..._cache[18] || (_cache[18] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-upload" },
 								null,
@@ -199992,7 +200114,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							disabled: !$setup.logFlow.totalCount.value,
 							onClick: $setup.logFlow.clearAll
 						}, {
-							default: withCtx(() => [..._cache[17] || (_cache[17] = [createBaseVNode(
+							default: withCtx(() => [..._cache[19] || (_cache[19] = [createBaseVNode(
 								"i",
 								{ class: "fa-solid fa-trash" },
 								null,
@@ -200005,21 +200127,21 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 							)])]),
 							_: 1
 						}, 8, ["disabled", "onClick"])
-					]), createBaseVNode("div", _hoisted_26$1, [createVNode($setup["AcuToggle"], {
+					]), createBaseVNode("div", _hoisted_30, [createVNode($setup["AcuToggle"], {
 						"model-value": $setup.logFlow.autoScroll.value,
 						label: "自动滚动",
 						"onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => $setup.logFlow.autoScroll.value = $event)
 					}, null, 8, ["model-value"])])]), createBaseVNode(
 						"p",
-						_hoisted_27$1,
+						_hoisted_31,
 						" 最多保留最近 50000 条；列表只渲染最近 " + toDisplayString($setup.logFlow.windowSizeLimit) + " 条（" + toDisplayString($setup.logFlow.hiddenByWindow.value ? `已折叠较早的 ${$setup.logFlow.hiddenByWindow.value} 条，` : "") + "当前显示 " + toDisplayString($setup.logFlow.filteredCount.value) + " / " + toDisplayString($setup.logFlow.totalCount.value) + " 条，导出仍取全部）。" + toDisplayString($setup.logFlow.pendingCount.value ? `${$setup.logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : "没有暂停期间积压的日志。"),
 						1
 						/* TEXT */
 					)]),
 					createBaseVNode(
 						"div",
-						_hoisted_28,
-						[!$setup.logFlow.visibleLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_29, " 暂无匹配日志 ")) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
+						_hoisted_32,
+						[!$setup.logFlow.visibleLogs.value.length ? (openBlock(), createElementBlock("div", _hoisted_33, " 暂无匹配日志 ")) : createCommentVNode("v-if", true), (openBlock(true), createElementBlock(
 							Fragment,
 							null,
 							renderList($setup.logFlow.visibleLogs.value, (entry) => {
@@ -200030,10 +200152,10 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 										class: normalizeClass(["acu-v2-advanced-tools-page__log-row", `acu-v2-advanced-tools-page__log-row--${entry.level}`])
 									},
 									[
-										createBaseVNode("div", _hoisted_30, [
+										createBaseVNode("div", _hoisted_34, [
 											createBaseVNode(
 												"span",
-												_hoisted_31,
+												_hoisted_35,
 												toDisplayString($setup.formatTime(entry.timestamp)),
 												1
 												/* TEXT */
@@ -200048,7 +200170,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											}, 1032, ["variant"]),
 											createBaseVNode(
 												"span",
-												_hoisted_32,
+												_hoisted_36,
 												toDisplayString(entry.tag),
 												1
 												/* TEXT */
@@ -200056,7 +200178,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 										]),
 										createBaseVNode(
 											"code",
-											_hoisted_33,
+											_hoisted_37,
 											toDisplayString(entry.message),
 											1
 											/* TEXT */
@@ -200065,8 +200187,8 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											key: 0,
 											class: "acu-v2-advanced-tools-page__log-hint",
 											"data-hint-id": $setup.hintFor(entry).id
-										}, [createBaseVNode("summary", _hoisted_35, [
-											_cache[18] || (_cache[18] = createBaseVNode(
+										}, [createBaseVNode("summary", _hoisted_39, [
+											_cache[20] || (_cache[20] = createBaseVNode(
 												"i",
 												{
 													class: "fa-solid fa-lightbulb acu-v2-advanced-tools-page__log-hint-icon",
@@ -200078,19 +200200,19 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											)),
 											createBaseVNode(
 												"span",
-												_hoisted_36,
+												_hoisted_40,
 												toDisplayString($setup.hintFor(entry).summary),
 												1
 												/* TEXT */
 											),
-											_cache[19] || (_cache[19] = createBaseVNode(
+											_cache[21] || (_cache[21] = createBaseVNode(
 												"span",
 												{ class: "acu-v2-advanced-tools-page__log-hint-toggle" },
 												"怎么处理",
 												-1
 												/* CACHED */
 											))
-										]), createBaseVNode("ol", _hoisted_37, [(openBlock(true), createElementBlock(
+										]), createBaseVNode("ol", _hoisted_41, [(openBlock(true), createElementBlock(
 											Fragment,
 											null,
 											renderList($setup.hintFor(entry).steps, (step, stepIndex) => {
@@ -200104,7 +200226,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 											}),
 											128
 											/* KEYED_FRAGMENT */
-										))])], 8, _hoisted_34)) : createCommentVNode("v-if", true)
+										))])], 8, _hoisted_38)) : createCommentVNode("v-if", true)
 									],
 									2
 									/* CLASS */
@@ -200143,7 +200265,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 					)]),
 					_: 1
 				})) : createCommentVNode("v-if", true)]),
-				default: withCtx(() => [createBaseVNode("div", _hoisted_38, [createVNode($setup["AcuButton"], {
+				default: withCtx(() => [createBaseVNode("div", _hoisted_42, [createVNode($setup["AcuButton"], {
 					variant: $setup.debugFlow.active.value ? "danger" : "primary",
 					onClick: $setup.debugFlow.toggleDebug
 				}, {
@@ -200163,7 +200285,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 					disabled: !$setup.debugFlow.active.value,
 					onClick: $setup.debugFlow.exportDebugData
 				}, {
-					default: withCtx(() => [..._cache[20] || (_cache[20] = [createBaseVNode(
+					default: withCtx(() => [..._cache[22] || (_cache[22] = [createBaseVNode(
 						"i",
 						{ class: "fa-solid fa-download" },
 						null,
@@ -200175,7 +200297,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 						/* CACHED */
 					)])]),
 					_: 1
-				}, 8, ["disabled", "onClick"])]), _cache[21] || (_cache[21] = createBaseVNode(
+				}, 8, ["disabled", "onClick"])]), _cache[23] || (_cache[23] = createBaseVNode(
 					"p",
 					{ class: "acu-v2-advanced-tools-page__hint" },
 					" 使用步骤：① 点「开始 Debug」（自动开启全部采集并清空旧日志）→ ② 复现问题 → ③ 点「导出 Debug 数据」生成 .json 文件 → ④ 把文件交给开发者即可定位问题。 排查完成后记得「停止 Debug」。 ",
@@ -200188,7 +200310,7 @@ function _sfc_render$h(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-2cd3c90c"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["render", _sfc_render$h], ["__scopeId", "data-v-efe8931b"]]);
 
 /**
  * useCapabilityOverview — Developer 页「环境与能力总览」的数据接缝

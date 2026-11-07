@@ -70,7 +70,19 @@ const SQL_CONSOLE_DRAFT_SECTION = 'sqlConsoleDraft';
 const SQL_CONSOLE_DRAFT_MAX_CHARS = 100_000;
 const SQL_CONSOLE_DRAFT_DEBOUNCE_MS = 300;
 
+/**
+ * 常用语句片段库（跨聊天）：修数据场景总有一批反复用的 SELECT/UPDATE 模板。
+ * 收藏只存文本；点击仅填入编辑器、**绝不自动执行** —— 跨聊天执行有专门守卫拒绝，
+ * 填入则等价于用户手敲，落到哪个聊天由用户自己在执行时决定。
+ */
+const SQL_CONSOLE_SNIPPETS_SECTION = 'sqlConsoleSnippets';
+export const SQL_CONSOLE_MAX_SNIPPETS = 20;
+export const SQL_CONSOLE_SNIPPET_MAX_CHARS = 5000;
+
 const sqlHistory = ref<SqlHistoryItem[]>([]);
+
+/** 常用语句片段库（持久化在 ui-state；跨聊天可插入、不自动执行）。 */
+const snippets = ref<string[]>([]);
 
 type SqlConsoleContext = { chatIdentity: string; isolationKey: string; key: string };
 
@@ -105,6 +117,10 @@ function addHistory(sql: string, success: boolean, context = currentSqlConsoleCo
 
 export function __resetSqlConsoleHistoryForTests(): void {
   sqlHistory.value = [];
+}
+
+export function __resetSqlConsoleSnippetsForTests(): void {
+  snippets.value = [];
 }
 
 export function useSqlConsole() {
@@ -173,8 +189,50 @@ export function useSqlConsole() {
     sqlHistory.value = [];
   }
 
+  // ── 常用语句片段库 ──
+  function loadSnippets(): void {
+    const stored = readSection<string[]>(SQL_CONSOLE_SNIPPETS_SECTION);
+    snippets.value = Array.isArray(stored) ? stored.filter(item => typeof item === 'string') : [];
+  }
+
+  function persistSnippets(): void {
+    writeSection(SQL_CONSOLE_SNIPPETS_SECTION, snippets.value);
+  }
+
+  /** 收藏当前编辑器语句：去重（已存在则置顶）、条数/长度封顶。 */
+  function saveSnippetFromEditor(): void {
+    const sql = sqlText.value.trim();
+    if (!sql) {
+      toast.warning('编辑器为空，没有可收藏的语句。');
+      return;
+    }
+    if (sql.length > SQL_CONSOLE_SNIPPET_MAX_CHARS) {
+      toast.warning(`语句超过 ${SQL_CONSOLE_SNIPPET_MAX_CHARS} 字符，不适合收藏为常用片段。`);
+      return;
+    }
+    loadSnippets();
+    snippets.value = [sql, ...snippets.value.filter(item => item !== sql)].slice(0, SQL_CONSOLE_MAX_SNIPPETS);
+    persistSnippets();
+    toast.success('已收藏为常用语句。');
+  }
+
+  function removeSnippet(index: number): void {
+    loadSnippets();
+    if (index < 0 || index >= snippets.value.length) return;
+    snippets.value = snippets.value.filter((_, i) => i !== index);
+    persistSnippets();
+    toast.info('已删除该常用语句。');
+  }
+
+  /** 把片段填入编辑器（不执行；执行由用户决定，落哪个聊天由执行时校验兜底）。 */
+  function insertSnippet(sql: string): void {
+    sqlText.value = sql;
+    toast.info('已把常用语句填入编辑器。');
+  }
+
   function refresh(): void {
     isSqliteAvailable.value = isSqliteMode();
+    loadSnippets();
   }
 
   function setSql(sql: string): void {
@@ -352,6 +410,7 @@ export function useSqlConsole() {
     isSqliteAvailable,
     result,
     history,
+    snippets,
     hasSqlText,
     statusLabel,
     statusKind,
@@ -366,6 +425,9 @@ export function useSqlConsole() {
     showTables,
     showSchema,
     useHistoryItem,
+    saveSnippetFromEditor,
+    removeSnippet,
+    insertSnippet,
     copyResultCsv,
     exportResultCsv,
     exportResultJson,
