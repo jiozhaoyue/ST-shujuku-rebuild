@@ -210,6 +210,18 @@ async function shootPage(chromium, target, tourPage, result) {
     await page.waitForSelector('#acu-app-v2', { timeout: API_WAIT_TIMEOUT_MS }).catch(() => {});
     // 上游「停止维护公告」弹窗：每次新会话都会弹且挡住面板 —— 截图前点掉（幂等：不在就忽略）。
     await page.locator('button:has-text("我知道了")').first().click({ timeout: 3000 }).catch(() => {});
+    // 邻接扩展噪声清理（口径同 e2e-sql-console-check，2026-11-07 定位）：Dev 实例同装的
+    // st-acu-visualizer 会弹 EOL 浮层 + 一个含 splash loader 的 ST popup，拦截指针事件
+    // 并可能入镜。只清「挡交互/入镜的浮层」，不动其它扩展的数据与逻辑。
+    await page.evaluate(() => {
+      document.querySelectorAll('.acu-eol-overlay').forEach(el => el.remove());
+      document.querySelectorAll('dialog[open]').forEach(d => {
+        if (d.querySelector('#loader, .splash-screen')) {
+          try { d.close(); } catch { /* 已关闭 */ }
+          d.remove();
+        }
+      });
+    }).catch(() => {});
     await page.waitForTimeout(1200); // 等首屏渲染与懒加载稳定
 
     const v2Mounted = await page.evaluate(() => !!document.querySelector('#acu-app-v2'));

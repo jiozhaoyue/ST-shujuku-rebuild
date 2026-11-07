@@ -119,6 +119,18 @@ try {
 
   // 3.5) 打开 V2 面板：触发数据上下文初始化（实测缺此步 CRUD/导出水合不完整）
   await page.evaluate(async () => { try { await window.AutoCardUpdaterAPI.openSettings(); } catch { /* 已开 */ } });
+  // 邻接扩展噪声清理（口径同 e2e-sql-console-check，2026-11-07 定位）：Dev 实例同装的
+  // st-acu-visualizer 会弹 EOL 浮层 + 一个含 splash loader 的 ST popup，拦截指针事件，
+  // 本脚本后续大量原生 click 会被吞。只清「挡交互的浮层」，不动其它扩展的数据与逻辑。
+  await page.evaluate(() => {
+    document.querySelectorAll('.acu-eol-overlay').forEach(el => el.remove());
+    document.querySelectorAll('dialog[open]').forEach(d => {
+      if (d.querySelector('#loader, .splash-screen')) {
+        try { d.close(); } catch { /* 已关闭 */ }
+        d.remove();
+      }
+    });
+  });
   await page.waitForTimeout(8000);
   const hydrated = await page.evaluate(() => Object.keys(window.AutoCardUpdaterAPI.exportTableAsJson() || {}).length);
   step('data-hydrated', { sheetCount: hydrated });

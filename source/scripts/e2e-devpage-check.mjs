@@ -67,6 +67,18 @@ try {
     await page.waitForTimeout(4000); // V2 首屏渲染稳定
     await page.locator('button:has-text("我知道了")').first().click({ timeout: 3000 }).catch(() => {});
     await page.locator('button:has-text("开始使用")').first().click({ timeout: 3000 }).catch(() => {});
+    // 邻接扩展噪声清理（口径同 e2e-sql-console-check，2026-11-07 定位）：Dev 实例同装的
+    // st-acu-visualizer 会弹 EOL 浮层 + 一个含 splash loader 的 ST popup，拦截指针事件。
+    // 只清「挡交互的浮层」，不动其它扩展的数据与逻辑。
+    await page.evaluate(() => {
+        document.querySelectorAll('.acu-eol-overlay').forEach(el => el.remove());
+        document.querySelectorAll('dialog[open]').forEach(d => {
+            if (d.querySelector('#loader, .splash-screen')) {
+                try { d.close(); } catch { /* 已关闭 */ }
+                d.remove();
+            }
+        });
+    }).catch(() => {});
     await page.waitForTimeout(1200);
 
     // 新会话默认「基础模式」：先切高手模式才有完整侧边栏（开发者入口）
