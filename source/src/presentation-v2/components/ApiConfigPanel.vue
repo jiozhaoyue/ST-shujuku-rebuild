@@ -215,7 +215,8 @@
       </div>
     </form>
 
-    <AcuMessage v-else kind="warning">
+    <!-- 无预设时顶部横幅已说明，编辑区不再重复渲染同一句（v-else-if 链在 form 的 v-if 上） -->
+    <AcuMessage v-else-if="store.hasPresets" kind="warning">
       暂无可用 API 预设，请新建并设为当前或全局默认。
     </AcuMessage>
   </AcuPanel>

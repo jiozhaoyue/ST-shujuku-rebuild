@@ -855,6 +855,12 @@ watchChatChanged_ACU(refreshAll);
   gap: 16px;
 }
 
+/* 栈是网格项，会被拉到与对面栈等高；.acu-panel 自带 height:100% 会跟着灌满栈高，
+   把内容少的卡（如备份与恢复）撑出一大截空腔。改自然高度，空隙留在栈内、不进卡内。 */
+.acu-v2-data-mgmt-page__panel-stack > .acu-panel {
+  height: auto;
+}
+
 .acu-v2-data-mgmt-page__form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
