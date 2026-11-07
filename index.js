@@ -178683,8 +178683,8 @@ var _sfc_main$L = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.acu-v2-basic-config-page[data-v-f7cbbc38] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-basic-config-page__grid[data-v-f7cbbc38] {\r\n  grid-template-areas:\r\n    \"api update\"\r\n    \"api table\"\r\n    \"api plot\";\n}\n.acu-v2-basic-config-page__api[data-v-f7cbbc38] {\r\n  grid-area: api;\n}\n.acu-v2-basic-config-page__update[data-v-f7cbbc38] {\r\n  grid-area: update;\n}\n.acu-v2-basic-config-page__table[data-v-f7cbbc38] {\r\n  grid-area: table;\n}\n.acu-v2-basic-config-page__plot[data-v-f7cbbc38] {\r\n  grid-area: plot;\n}\n@media (max-width: 860px) {\n.acu-v2-basic-config-page[data-v-f7cbbc38] {\r\n    padding: 14px;\n}\n.acu-v2-basic-config-page__grid[data-v-f7cbbc38] {\r\n    grid-template-areas:\r\n      \"api\"\r\n      \"update\"\r\n      \"table\"\r\n      \"plot\";\n}\n}\r\n", "src/presentation-v2/pages/BasicConfigPage.vue#style-0-f7cbbc38");
-var BasicConfigPage_vue_vue_type_style_index_0_scoped_f7cbbc38_lang = null;
+injectSfcStyle("\n.acu-v2-basic-config-page[data-v-3ce25122] {\r\n  min-height: 100%;\r\n  min-width: 0;\r\n  padding: 20px;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 18px;\n}\n.acu-v2-basic-config-page__grid[data-v-3ce25122] {\r\n  grid-template-areas:\r\n    \"api update\"\r\n    \"api table\"\r\n    \"api plot\";\n}\r\n\r\n/* api 区有意跨三行，但面板不必灌满整列：空态时卡身 800px 只有 200px 内容。\r\n   改自然高度（覆盖 .acu-panel 的 height:100%），空隙留给页面背景。 */\n.acu-v2-basic-config-page__grid[data-v-3ce25122] {\r\n  align-items: start;\n}\n.acu-v2-basic-config-page__grid > .acu-panel[data-v-3ce25122] {\r\n  height: auto;\n}\n.acu-v2-basic-config-page__api[data-v-3ce25122] {\r\n  grid-area: api;\n}\n.acu-v2-basic-config-page__update[data-v-3ce25122] {\r\n  grid-area: update;\n}\n.acu-v2-basic-config-page__table[data-v-3ce25122] {\r\n  grid-area: table;\n}\n.acu-v2-basic-config-page__plot[data-v-3ce25122] {\r\n  grid-area: plot;\n}\n@media (max-width: 860px) {\n.acu-v2-basic-config-page[data-v-3ce25122] {\r\n    padding: 14px;\n}\n.acu-v2-basic-config-page__grid[data-v-3ce25122] {\r\n    grid-template-areas:\r\n      \"api\"\r\n      \"update\"\r\n      \"table\"\r\n      \"plot\";\n}\n}\r\n", "src/presentation-v2/pages/BasicConfigPage.vue#style-0-3ce25122");
+var BasicConfigPage_vue_vue_type_style_index_0_scoped_3ce25122_lang = null;
 
 const _hoisted_1$L = { class: "acu-v2-basic-config-page" };
 function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
@@ -178711,7 +178711,7 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$L], ["__scopeId", "data-v-f7cbbc38"]]);
+var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$L], ["__scopeId", "data-v-3ce25122"]]);
 
 var _sfc_main$K = /*@__PURE__*/ defineComponent({
     __name: 'DashboardToggleRow',

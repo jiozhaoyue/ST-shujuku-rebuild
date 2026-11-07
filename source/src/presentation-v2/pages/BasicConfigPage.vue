@@ -58,6 +58,16 @@ const panelNavItems = [
     "api plot";
 }
 
+/* api 区有意跨三行，但面板不必灌满整列：空态时卡身 800px 只有 200px 内容。
+   改自然高度（覆盖 .acu-panel 的 height:100%），空隙留给页面背景。 */
+.acu-v2-basic-config-page__grid {
+  align-items: start;
+}
+
+.acu-v2-basic-config-page__grid > .acu-panel {
+  height: auto;
+}
+
 .acu-v2-basic-config-page__api {
   grid-area: api;
 }
