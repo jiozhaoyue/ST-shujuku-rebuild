@@ -1,22 +1,14 @@
 /**
- * download — 「下载 JSON 文件」的共享出口（presentation 层 DOM 助手）
+ * download — 「下载文本文件」的共享出口（presentation 层助手的兼容薄壳）
  *
- * 之前这份实现逐字复制在 usePromptInspection / useWritePipeline / useDiagnosticBundle
- * 三处（2026-10-26 抽取）。行为契约：
- * - 用宿主文档（getAcuHostDocument）而非裸 document，兼容 TT/嵌入 iframe 场景；
- * - **延迟 revoke**（1s）：WebView2/部分内核在 click 后立即 revoke 会取消下载 —— 别「优化」掉。
+ * 历史包袱：2026-10-26 从 usePromptInspection / useWritePipeline / useDiagnosticBundle
+ * 三处逐字副本抽出时建了独立实现；R10A-13 / R10B-18 约定全界面只保留
+ * bootstrap/host-download.ts 一份 createObjectURL 实现，2026-11-07 追平后本文件
+ * 降级为对统一入口的委托（保留旧导出名，调用方无需改）。
+ * 行为契约不变：宿主文档挂载、延迟 revoke（委托实现内 1s）。
  */
-import { getAcuHostDocument } from '../bootstrap/host-document';
+import { downloadTextToHost_ACU } from '../bootstrap/host-download';
 
 export function downloadTextFile_ACU(filename: string, text: string, mime = 'application/json'): void {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const doc = getAcuHostDocument();
-  const anchor = doc.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  doc.body.appendChild(anchor);
-  anchor.click();
-  doc.body.removeChild(anchor);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadTextToHost_ACU(filename, text, mime);
 }

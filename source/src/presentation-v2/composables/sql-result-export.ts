@@ -11,8 +11,8 @@
  * - JSON：按行对象数组输出；同名列后者覆盖前者（SQL `SELECT a, a` 的极端场景，CSV 不受影响）。
  * - BLOB → base64：控制台表格里展示为 BLOB(n)，导出给的是可再消费的数据而不是占位文本。
  */
-import { getAcuHostDocument } from '../bootstrap/host-document';
 import { copyTextToClipboard_ACU } from './clipboard';
+import { downloadTextFile_ACU } from './download';
 
 export type SqlCellValue = string | number | null | Uint8Array;
 
@@ -88,17 +88,8 @@ export function downloadSqlResultFile(
 ): void {
   // CSV 追加 UTF-8 BOM：不带 BOM 的 UTF-8 会被 Excel 按 ANSI 解码，中文变乱码。
   const payload = mime === 'text/csv' ? `\uFEFF${content}` : content;
-  const blob = new Blob([payload], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const doc = getAcuHostDocument();
-  const a = doc.createElement('a');
-  a.href = url;
-  a.download = filename;
-  doc.body.appendChild(a);
-  a.click();
-  doc.body.removeChild(a);
-  // 延迟 revoke：WebView2/部分内核在 click 后立即 revoke 会取消下载（与 useLogViewer 同口径）
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // R10B-18 下载约定：统一走 downloadTextFile_ACU（宿主文档 + 延迟 revoke），不再裸建 anchor。
+  downloadTextFile_ACU(filename, payload, `${mime};charset=utf-8`);
 }
 
 export async function copySqlResultCsv(columns: readonly string[], values: readonly SqlCellValue[][]): Promise<boolean> {

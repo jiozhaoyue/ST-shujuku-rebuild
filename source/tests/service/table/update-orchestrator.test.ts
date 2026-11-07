@@ -3252,7 +3252,9 @@ describe('orchestrateManualUpdate_ACU', () => {
       sheet_0: { name: '测试表A', updateConfig: {}, content: [['row_id', '值A', null, '值C'], ['1', 'a', 'b', 'c']] },
     };
 
-    const result = await orchestrateManualUpdate_ACU(['sheet_0'], vi.fn().mockResolvedValue({ success: true }), mockRefreshData, { clearBeforeUpdate: true });
+    // 2026-11-07 上游追平：orchestrateManualUpdate_ACU 签名改为 (targetKeys, refreshData, options)，
+    // 注入式 AI 回调已移除（填充走内部服务）；预演会在任何 AI 调用之前中止，无需 AI 桩。
+    const result = await orchestrateManualUpdate_ACU(['sheet_0'], mockRefreshData, { clearBeforeUpdate: true });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('已在删除任何旧数据之前中止');

@@ -49,10 +49,9 @@ https://github.com/jiozhaoyue/ST-shujuku-rebuild
 
 ## 上游同步
 
-- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建，CI 每日定时拉取上游 master 自动合并
-- 干净合并且质量门（类型检查 / 全量测试 / 构建 / 产物冒烟）通过 → 自动合入 master 并重建分发产物
-- 冲突或门禁失败 → 自动开 issue 列出待甄别提交与冲突文件，人工处置
-- 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild
+- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 已追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3）
+- **自动同步已停用（2026-11-07 裁定）**：每日定时拉取与自动开 issue 的 CI 已关闭，同步改为手动触发（`Upstream Sync` workflow 仅 `workflow_dispatch`），追平前按差量台账（`docs/superpowers/specs/2026-09-27-fork-delta-ledger.md`）人工评估
+- 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild（更上游的 AlbusKen/shujuku 由上游自行移植，本仓数据面与两者保持同构）
 
 ## 开发
 

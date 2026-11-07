@@ -228,7 +228,9 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 | B/C/D/E/F（服务层 13 文件 + 测试 10 文件） | 逐 hunk union：上游修复取上游 + 我方差量保我方。要点：Debug 导出取上游 `buildDebugExportPayload_ACU` 单一事实源并补回我方 `selfCheck` 段；流式解析取上游单遍多协议实现 + 叠加我方 onDelta（按行尾 result 增量触发）与停滞诊断（移入 `readStreamBodyText_ACU`）；`handleApiResponse_ACU` 第 4 参改为 `options{onProgress,onDelta}`；vector 三文件 import 并集（我方 SSRF 守卫 + 上游 undo-log/generation）；`settings-service` import/defaults 并集 |
 | 上游删 v2 页面 × 我方页面差量 | 按上游删除，功能移植进 v3（`f6b1c6ec`）：品牌、SQL 控制台全增强（导出四件套/排序/窗口化/字面量复制/片段库/多语句提示）、开发者四面板、差量注入（仪表盘开关经 `useDashboardPage` 自动生效 + 填表高级参数三项）、数据管理写入体积提示三阈值。v2 `_lib` 组件套件（26 文件）与 `host-env` 两个宿主封装因仍被我方面板依赖而恢复（C 类口径） |
 
-**质量门状态（追平当日，`b45442fd`）**：`tsc --noEmit` ✅ 0；构建 ✅；冒烟 ✅（jsdom 宿主挂载/菜单注入/0 错误）；全量 vitest **8348 绿 / 41 红（12 文件）**——红的全部定性为「旧 v2 页面测试文件的 DOM 断言待迁移到 v3」+ 2 个向量镜像语义用例（`summary-vector-mirror-review-block5`/`manifest-reuse`）。**这是过渡态测试债，不是行为回归**：同域断言已由上游重写进 `tests/presentation-v3/`（全绿），我方 SQL 控制台测试已自行迁移完（6/6 绿）。**下一任务**：迁移剩余 v2 页面测试到 v3 选择器（口径照 `sql-console-page.test.ts` 的迁移），并核对两个向量镜像用例的新语义期望。
+**质量门状态（追平当日，`b45442fd`）**：`tsc --noEmit` ✅ 0；构建 ✅；冒烟 ✅（jsdom 宿主挂载/菜单注入/0 错误）；全量 vitest 初测 **8348 绿 / 41 红（12 文件）**。当日已修 4 文件（four-host-matrix 基线 2.4.0 / host-download 约定统一 / capture-scope 品牌锚点 / update-orchestrator 新签名 `(targetKeys, refreshData, options)`——上游删除了注入式 AI 回调参数，`sql-result-export` 改走统一下载入口、`download.ts` 降级为委托薄壳），修复后均为全绿。**剩余 37 红**：developer-page 23（我方四面板测试挂 v3 DOM，选择器待迁移）+ 向量镜像 8（`review-block5` 7 / `manifest-reuse` 1，上游 FRESH_READ 直读语义）+ v2 页面零散 6——全部定性为「旧 v2 页面测试文件的 DOM 断言待迁移到 v3」与上游语义变化，**不是行为回归**：同域断言已由上游重写进 `tests/presentation-v3/`（全绿），我方 SQL 控制台测试已自行迁移完（6/6 绿）。**下一任务**：迁移剩余 v2 页面测试到 v3 选择器（口径照 `sql-console-page.test.ts` 的迁移），并核对两个向量镜像用例的新语义期望。
+
+**自动同步停用（2026-11-07 用户裁定）**：`upstream-sync.yml` 移除 `schedule` 触发器，仅保留 `workflow_dispatch` 手动档——过渡期内自动合并会把半成品状态合入 master 或反复开冲突 issue。README「上游同步」段同步改写。
 
 **静态前端验证（真浏览器，零酒馆运行时）**：以冒烟宿主的同一套最小 ST 桩搭静态页（仓库外临时目录，不入库），加载构建产物——v3 界面挂载成功（品牌 `Luker·数据库`、`#acu-app-v2`、菜单项注入、0 启动错误），SQL 控制台真执行 `SELECT name FROM sqlite_master`（5 行 · 22.3ms），开发者四面板、差量注入开关、写入体积提示全部渲染正常，已截图留证（会话内）。
 

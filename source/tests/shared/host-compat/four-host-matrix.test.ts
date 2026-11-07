@@ -197,11 +197,12 @@ describe('四宿主 · TT 版本读取的宿主边界', () => {
     expect(isAcuTauriVersionOutdated('not-a-version')).toBe(false);
   });
 
-  it('版本比较：低于最低要求判过旧，等于/高于判可用', () => {
-    expect(isAcuTauriVersionOutdated('2.2.9')).toBe(true);
+  it('版本比较：低于最低要求判过旧，等于/高于判可用（基线 2.4.0：2.3.0 系统确认框会被跳过 + 证书安全漏洞，2fa42f6 提基线）', () => {
+    expect(isAcuTauriVersionOutdated('2.3.1')).toBe(true);
+    expect(isAcuTauriVersionOutdated('2.3.0')).toBe(true);
     expect(isAcuTauriVersionOutdated('1.9.9')).toBe(true);
     expect(isAcuTauriVersionOutdated(ACU_REQUIRED_TAURITAVERN_VERSION)).toBe(false);
-    expect(isAcuTauriVersionOutdated('2.3.1')).toBe(false);
-    expect(isAcuTauriVersionOutdated('v2.3.0')).toBe(false);
+    expect(isAcuTauriVersionOutdated('2.4.1')).toBe(false);
+    expect(isAcuTauriVersionOutdated('v2.4.0')).toBe(false);
   });
 });

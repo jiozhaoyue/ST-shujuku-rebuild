@@ -1,13 +1,11 @@
-# 上游定时同步：每日拉取 shuiyue-cmyk/shujuku-rebuild master 并尝试合并。
-# 本仓库与上游共享 git 历史（fork 点 v9.1.9 = 760ba68），可直接 git merge。
-# 干净合并 + 质量门通过 → 自动合入 master 并重建分发产物；
-# 冲突（构建产物/品牌文件除外）或门禁失败 → 开/更新 issue 人工甄别，保留移植评审纪律。
-# 注：更上游的 AlbusKen/shujuku（与本项目历史不同源）由 rebuild 自行移植，本项目只跟踪 rebuild。
+# 上游同步：**已停用自动档（2026-11-07 用户裁定）**——历史行为是每日拉取
+# shuiyue-cmyk/shujuku-rebuild master 并尝试合并；干净合并自动进 master、冲突/门禁失败开 issue。
+# 停用原因：Unbirth A.D. 6386 大追平后测试面处于 v2→v3 迁移过渡态，自动合并会在过渡期
+# 把半成品状态合入 master 或反复开冲突 issue。同步改为纯手动（workflow_dispatch），
+# 触发前先按 docs/superpowers/specs/2026-09-27-fork-delta-ledger.md §5 纪律人工评估。
 name: Upstream Sync
 
 on:
-  schedule:
-    - cron: "17 21 * * *" # 每日 05:17（北京时间），错开整点高峰
   workflow_dispatch: {}
 
 permissions:
