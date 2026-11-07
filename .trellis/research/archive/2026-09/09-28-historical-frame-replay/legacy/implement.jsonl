@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "T3.3：data(仓储/gateway) → service(纯逻辑) → presentation(composable/组件) 的数据流与边界"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "T3.3：复用 replay-chat.mjs 的帧模型口径与 T3.2 的语句富化，不另造一套"}
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "T3.3：新内核落 service/table，与 T3.2 同层"}

@@ -198,6 +198,8 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 ## 4. 本次追平实况（`85d9405`）
 
+> **2026-11-07 第二次追平（`4622f960`，上游 `26e453e` = Unbirth A.D. 6386，落后 145 提交）见本节末尾追加记录。**
+
 上游落后 36 提交（v9.4.10 → v9.7.2）。**冲突仅 4 个文件**：
 
 | 文件 | 解决 |
@@ -212,6 +214,25 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **顺带修正的既有不一致**：追平前 `manifest.json` 为 `9.4.0` 而 `source/package.json` 为 `9.4.10`，
 违反 AGENTS.md「两者 version 需一致」。本次统一为 `9.7.2`，并确立口径：**追平后 version 跟随上游**。
+
+## 4b. 第二次追平实况（2026-11-07，`4622f960`，上游 `26e453e` = Unbirth A.D. 6386）
+
+落后 145 提交（9.7.5 → Unbirth A.D. 6386；上游版本号体系已切换为叙事版本，我方 manifest `version` 跟随为 `Unbirth A.D. 6386`，身份字段仍按我方）。**冲突 68 个文件**，其中 25 个是「上游删 v2 页面层（新版界面转正 presentation-v3）× 我方在旧页面上做过的差量」的 delete/modify 冲突。
+
+**按台账口径的解决**：
+
+| 类别 | 处置 |
+|---|---|
+| A 身份（manifest/README/品牌串/toast/defaults/runtime-env/menu-button/badge） | 按我方；`version` 跟随上游；badge 样式取上游改进（安全区 + 默认隐藏）；v3 壳层的 `UnbirthDB` 品牌串（App/关闭标题/ApiPresetEditor/ContentReplace/Table/VectorIndex）批量替换为 `Luker·数据库` |
+| G 产物（index.js） | 按我方后重建（`b45442fd`） |
+| B/C/D/E/F（服务层 13 文件 + 测试 10 文件） | 逐 hunk union：上游修复取上游 + 我方差量保我方。要点：Debug 导出取上游 `buildDebugExportPayload_ACU` 单一事实源并补回我方 `selfCheck` 段；流式解析取上游单遍多协议实现 + 叠加我方 onDelta（按行尾 result 增量触发）与停滞诊断（移入 `readStreamBodyText_ACU`）；`handleApiResponse_ACU` 第 4 参改为 `options{onProgress,onDelta}`；vector 三文件 import 并集（我方 SSRF 守卫 + 上游 undo-log/generation）；`settings-service` import/defaults 并集 |
+| 上游删 v2 页面 × 我方页面差量 | 按上游删除，功能移植进 v3（`f6b1c6ec`）：品牌、SQL 控制台全增强（导出四件套/排序/窗口化/字面量复制/片段库/多语句提示）、开发者四面板、差量注入（仪表盘开关经 `useDashboardPage` 自动生效 + 填表高级参数三项）、数据管理写入体积提示三阈值。v2 `_lib` 组件套件（26 文件）与 `host-env` 两个宿主封装因仍被我方面板依赖而恢复（C 类口径） |
+
+**质量门状态（追平当日，`b45442fd`）**：`tsc --noEmit` ✅ 0；构建 ✅；冒烟 ✅（jsdom 宿主挂载/菜单注入/0 错误）；全量 vitest **8348 绿 / 41 红（12 文件）**——红的全部定性为「旧 v2 页面测试文件的 DOM 断言待迁移到 v3」+ 2 个向量镜像语义用例（`summary-vector-mirror-review-block5`/`manifest-reuse`）。**这是过渡态测试债，不是行为回归**：同域断言已由上游重写进 `tests/presentation-v3/`（全绿），我方 SQL 控制台测试已自行迁移完（6/6 绿）。**下一任务**：迁移剩余 v2 页面测试到 v3 选择器（口径照 `sql-console-page.test.ts` 的迁移），并核对两个向量镜像用例的新语义期望。
+
+**静态前端验证（真浏览器，零酒馆运行时）**：以冒烟宿主的同一套最小 ST 桩搭静态页（仓库外临时目录，不入库），加载构建产物——v3 界面挂载成功（品牌 `Luker·数据库`、`#acu-app-v2`、菜单项注入、0 启动错误），SQL 控制台真执行 `SELECT name FROM sqlite_master`（5 行 · 22.3ms），开发者四面板、差量注入开关、写入体积提示全部渲染正常，已截图留证（会话内）。
+
+**AlbusKen/shujuku（龙血玄黄 1.3.6）核对**：shuiyue 已在其 145 提交内跟进 1.3.6（19438d7/26e453e 等）；三仓（shujuku / shujuku-rebuild / newshujuku=SP·数据库 V）共用 `shujuku_v120` / `TavernDB_ACU_*` 命名空间，数据面天然同构。未跟的差异只有 AlbusKen PR #66/#67 两个公开 API 便利项（只读历史来源身份 / 写入可选前端回读等待）——属「不重要的不兼容」，无数据面影响。AlbusKen/newshujuku 经查是同血统的 messy 开发仓（SP·数据库 V v2.0.0，非模板仓），参考价值主要在其外部 API 文档形态。
 
 ## 5. 同步纪律（每次追平照此执行）
 

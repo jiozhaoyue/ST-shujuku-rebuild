@@ -1,2 +1,0 @@
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "父任务：核对三个子任务的改动面没有越界（T3.2 不进 data/sqlite、T3.1 不出 service/ai）"}
-{"file": ".trellis/spec/tavern/host-compat.md", "reason": "父任务：四宿主行为不得退化（阶段 3 三项均触及 AI 调用/写库主链）"}

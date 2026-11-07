@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "本次是「警告不阻塞」：按本仓三种错误形态选型——探针失败必须吞掉、不得用异常做控制流，接入点返回结构不变"}
-{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "警告出口走 logWarn_ACU + 用户可照做的处理建议那一层，需遵守既有日志字段与脱敏约定"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "测量点位于存储帧写入边界：必须先理解「运行时 SQLite → 存储帧 → 聊天字段」链路，确认只读探测不改变持久化格式"}
-{"file": ".trellis/spec/backend/safety-and-isolation.md", "reason": "体积探测是安全防护的一部分；同时确认不新增攻击面、不把单元格原文带进日志或诊断包"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "发版前零回退；本任务触及写库主链，需按该页的门槛命令与判定口径执行"}

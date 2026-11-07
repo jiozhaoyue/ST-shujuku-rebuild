@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "T3.2：发版门槛（零回退、tsc、build、smoke、真机只连 Dev 8001）"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "T3.2：面板组件不得 import 副作用模块；类型经 composable 再导出"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "T3.2：有界等待（finally 兜底 settle）与响应体读取纪律"}
-{"file": ".trellis/spec/tavern/host-compat.md", "reason": "T3.2：接线触及 AI 调用主链，四宿主行为不得退化"}

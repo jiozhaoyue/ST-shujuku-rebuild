@@ -1,2 +1,0 @@
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "父任务：评审各子任务是否复用既有实现（阶段 2 观察器、replay-chat.mjs、SQL 控制台/日志查看器），而非各造一套"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "父任务：集成层验收口径（零回退、门槛命令、四宿主探测、真机只连 Dev 8001）"}

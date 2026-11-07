@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "本任务主战场：DDL/表身份/持久化帧契约，含「只读读取历史帧」节"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "fail-closed 与错误消息契约（空列名诊断要可操作）"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "data(引擎/schema-mapper) → service(orchestrator) → presentation 的边界"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用既有身份解析与别名注册，不另造一套"}

@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核对改动面：测量与警告应止于 service 层提交边界，不得越界修改 data/sqlite 引擎或存储格式"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用既有字节测量（safeJsonByteLength_ACU）、既有 toast/日志通道与既有诊断包结构，不另造一套"}
-{"file": ".trellis/spec/tavern/host-compat.md", "reason": "写库主链在四宿主上共用；警告不得引入宿主差异，也不得影响 generic 降级路径"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "验收时核对：不 bump 存储帧版本、不改变 TavernDB_ACU_* 结构、回放路径不受影响"}

@@ -1,6 +1,0 @@
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "落点确认：改的是 service/ai/prompt-builder 下的既有导出函数；导入一律相对路径（rollup 未注册 @ 别名），不得新增跨层依赖"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "AbortError 必须原样上抛（不得降级为 null，否则取消/超时被误报成可重试的模型错误）；绝不产生永久 pending 的 promise；不新增错误类"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "门槛命令与零回退；断言纪律（禁止恒真断言、新增用例必须真的会在回归时变红）；四宿主探测入口"}
-{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "停滞诊断只能走 logDebug/logWarn；敏感值不进日志；观测异常只降级不抛"}
-{"file": ".trellis/spec/tavern/host-compat.md", "reason": "四宿主（ST/Luker/PureTavern/TT）行为不得退化；用能力检测而非宿主判断，宿主体差异不入业务层"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "两条路径共用同一个行消费者（而非写两遍解析）是本任务的复用纪律；动手前先确认既有实现可否复用"}

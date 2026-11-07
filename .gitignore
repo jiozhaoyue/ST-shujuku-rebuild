@@ -59,6 +59,10 @@ desktop.ini
 # E2E 截图巡游产物（留证用，本地不入库；报告只引用路径）
 source/test-results/
 
+# Trellis research 内的截图证据（2026-11-07 起截图一律不入库，只留文字档）
+.trellis/research/**/*.png
+.trellis/research/**/*.jpg
+
 # 本地协作协议（只留本地，不进仓库；上游口径，agent.md 不影响已跟踪的 AGENTS.md）
 agent.md
 AGENTS.local.md
