@@ -126,10 +126,14 @@
 
 ## 0.9 公开 API 移植 + 总览面板补移植（2026-11-08 追平批；静态验证已证，真机留白）
 
-- [ ] **`getTableHistoryContext()`**：在控制台执行 `AutoCardUpdaterAPI.getTableHistoryContext()`，
+- [x] **`getTableHistoryContext()`**：在控制台执行 `AutoCardUpdaterAPI.getTableHistoryContext()`，
       返回 `{version:1, chatId, characterId, groupId, isolationKey}` 与当前聊天一致；换聊天后 chatId/isolationKey 跟随变化。
+      （✅ 2026-11-09 Dev Luker 8003 真机实证：「原始人？Branch #1」与「孤独摇滚 Branch #8」两聊天
+      chatId/characterId 与宿主完全一致且换聊天即跟随；两聊天 isolationKey 均为空串（无隔离标记，属预期）。）
 - [ ] **`awaitFrontendReadback: false`**：经酒馆助手或控制台调 `updateCell(…, { awaitFrontendReadback: false })`，
       数据落库且 UI 照常刷新（默认行为不变）；外部脚本侧应感知"返回时渲染可能未完成"。
+      （2026-11-09 进展：真机确认 `updateCell` 实现中 `args.awaitFrontendReadback` 已正确传入
+      `finalizeTableEditAfterCommit_ACU`，接线在位；真机执行写入验证未完成，待续。）
 - [ ] **环境与能力总览面板**（v3 开发者页新补移植）：开发者选项页出现「环境与能力总览」节，
       环境事实 / 可调用 API 分组 / 持久化通道四类齐全，「复制总览给 AI」产出脱敏文本。
 - [ ] **模板切换去冗余（上游 8f1fb759 行为变化）**：模板切换确认弹窗每类风险只出现一道关卡；
