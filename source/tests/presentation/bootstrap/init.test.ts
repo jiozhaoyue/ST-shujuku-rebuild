@@ -1442,7 +1442,7 @@ describe('mainInitialize_ACU 重新生成删旧回复时先刷新数据再放行
     let returned = false;
     const pending = m.messageDeletedHandler!(1).then(() => { returned = true; });
     await vi.advanceTimersByTimeAsync(0);
-    expect(m.refresh).toHaveBeenCalledWith({ skipReadbackWait: true });
+    expect(m.refresh).toHaveBeenCalledWith({ awaitFrontendReadback: false });
     expect(returned, '刷新没完成前宿主不能继续读世界书').toBe(false);
 
     release();

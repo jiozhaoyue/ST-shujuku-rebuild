@@ -139,7 +139,7 @@ async function executeMutationRound_ACU(urgent: boolean): Promise<void> {
 
     // UI 刷新失败不允许吞掉向量索引 dirty 标记（否则索引永远不对齐）
     try {
-      await (urgent ? refreshMergedDataAndNotifyWithUI_ACU({ skipReadbackWait: true }) : refreshMergedDataAndNotifyWithUI_ACU());
+      await (urgent ? refreshMergedDataAndNotifyWithUI_ACU({ awaitFrontendReadback: false }) : refreshMergedDataAndNotifyWithUI_ACU());
     } catch (e: any) {
       logError_ACU(`[聊天变更] 合并数据与 UI 刷新失败: ${e?.message}`);
     }

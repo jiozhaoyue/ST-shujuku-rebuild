@@ -263,7 +263,7 @@ describe('立即刷新（重新生成前的必要数据边界）', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(h.recoverDeleted).toHaveBeenCalledTimes(1);
-    expect(h.refreshUI).toHaveBeenCalledWith({ skipReadbackWait: true });
+    expect(h.refreshUI).toHaveBeenCalledWith({ awaitFrontendReadback: false });
     expect(settled, '合并刷新（含世界书更新）没完成前不能放行宿主').toBe(false);
 
     releaseRefresh();
@@ -291,7 +291,7 @@ describe('立即刷新（重新生成前的必要数据边界）', () => {
     releaseFirst();
     await done;
     expect(h.refreshUI).toHaveBeenCalledTimes(2);
-    expect(h.refreshUI).toHaveBeenLastCalledWith({ skipReadbackWait: true });
+    expect(h.refreshUI).toHaveBeenLastCalledWith({ awaitFrontendReadback: false });
     expect(h.recoverDeleted, '补跑轮负责这次删楼的恢复').toHaveBeenCalledTimes(1);
   });
 

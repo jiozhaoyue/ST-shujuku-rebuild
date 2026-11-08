@@ -23,6 +23,9 @@ type SqlParam_ACU = string | number | null;
 type SqlMutationOptions_ACU = {
     skipChatSave: boolean;
     skipNotify: boolean;
+    // 前端回读等待（移植 AlbusKen/shujuku PR #67）：默认保留通知后 800ms 回读窗口，
+    // 仅显式 false 跳过等待——持久化、通知与失败结果均不变。非 skipNotify 的替代品。
+    awaitFrontendReadback?: boolean;
     targetSheetKeys: string[] | null;
     updateGroupKeys: string[] | null;
     trackingSheetKeys: string[] | null | undefined;
@@ -168,6 +171,7 @@ function parseSqlArgs_ACU(sqlOrOptions: any, params?: any, options?: any, method
             optionSource?.suppressNotify,
             optionSource?.suppressNotification,
         )),
+        ...(optionSource?.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}),
         targetSheetKeys: normalizeSheetKeys_ACU(firstDefined_ACU(
             optionSource?.targetSheetKeys,
             optionSource?.sheetKeys,
@@ -576,7 +580,7 @@ export function createSqlApi(ctx: ApiGroupContext): Record<string, Function> {
                     return { changes: 0, errors: [commitResult.error || 'executeSqlMutation failed'] };
                 }
                 if (!args.skipNotify) {
-                    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: false });
+                    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: false, ...(args.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}) });
                     logDebug_ACU('executeSqlMutation: refreshed merged data after raw SQL mutation.');
                 }
                 // 公开面只投影 changes/errors：mutationResult 上的内部复用通道（syncedView）
@@ -663,7 +667,7 @@ export function createSqlApi(ctx: ApiGroupContext): Record<string, Function> {
                     return { success: false, modifiedKeys: [], appliedEdits: 0, changes: 0, errors: [commitResult.error || 'executeSqlBatch failed'] };
                 }
                 if (!args.skipNotify) {
-                    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: false });
+                    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: false, ...(args.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}) });
                     logDebug_ACU('executeSqlBatch: refreshed merged data after raw SQL transaction.');
                 }
                 return { ...commitResult.value, saved: commitResult.saved, messageIndex: commitResult.messageIndex };

@@ -12,12 +12,42 @@ import { computeReplayHeadRevisionDigest_ACU } from '../../../service/table/v2-r
 /** 公共历史读取的主线程让步预算（毫秒），与保存链回放同口径。 */
 const PUBLIC_HISTORY_REPLAY_YIELD_BUDGET_MS_ACU = 8;
 
+/** 稳定的历史来源身份，不是存储修订号——调用者仍须自行跟踪存储帧变化（移植 AlbusKen/shujuku PR #66）。 */
+export type PublicTableHistoryContext_ACU = {
+    version: 1;
+    chatId: string | number;
+    characterId: string | number | null;
+    groupId: string | number | null;
+    isolationKey: string;
+};
+
 export type PublicTableHistoryResult_ACU =
     | { success: true; snapshots: Array<{ messageIndex: number; data: TableDataObject_ACU }> }
     | { success: false; code: 'invalid_message_indices' | 'host_unavailable' | 'context_changed' | 'replay_failed'; error: string };
 
 export function createTableHistoryApi(): Record<string, Function> {
     return {
+        /**
+         * 同步读取当前历史数据来源身份（不回放、不复制表格、不保存聊天、不发布运行时）。
+         * 聊天尚未就绪时返回 null。isolationKey 为数据库实际使用的当前隔离标识，
+         * 空字符串是合法的默认槽。来源身份不是内容修订——调用者仍须检查存储帧变化、
+         * swipe 与自身布局/会话生命周期；历史读取以导出接口结果为准。
+         *
+         * @example
+         * const context = AutoCardUpdaterAPI.getTableHistoryContext();
+         * // { version: 1, chatId: 'chat-a', characterId: 0, groupId: null, isolationKey: '' }
+         */
+        getTableHistoryContext: function(): PublicTableHistoryContext_ACU | null {
+            const host = SillyTavern_API_ACU;
+            if (!host || !Array.isArray(host.chat) || host.chatId == null || host.chatId === '') return null;
+            return {
+                version: 1,
+                chatId: host.chatId,
+                characterId: (host as any).characterId ?? null,
+                groupId: (host as any).groupId ?? null,
+                isolationKey: getCurrentIsolationKey_ACU(),
+            };
+        },
         /**
          * 只读导出当前聊天、当前隔离槽在指定消息处的 V2 完整表格状态。
          * 索引为从 0 开始的绝对消息索引，包含该消息自身的操作；没有帧的消息
