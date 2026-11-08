@@ -130,7 +130,7 @@
           >
             {{
               manualUpdate.manualUpdateBusy.value
-                ? '填表中...'
+                ? '填表中…'
                 : manualUpdate.vectorIndexWarning.value
                   ? '交火索引已启用'
                   : formFillCopy.panels.manual.runLabel

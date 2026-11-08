@@ -97005,7 +97005,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * shared/build-info.ts — 构建期注入信息的唯一读取口
  *
  * rollup 打包时把版本写进 `"Unbirth A.D. 6386"`（与 manifest.json / source/package.json
- * 同值），构建时间戳写进 `"20261108-1353"`。源码直跑、测试环境或注入失败时读不到，
+ * 同值），构建时间戳写进 `"20261108-1633"`。源码直跑、测试环境或注入失败时读不到，
  * 一律回退到固定字面量（不猜、不抛）。
  *
  * 之所以单独一个模块：此前 useDebugPanel 与 plot-entry 各写了一份同样的 try/catch 读取，
@@ -97024,7 +97024,7 @@ function readAcuBuildVersion_ACU() {
 /** 构建时间戳；读不到返回 'dev'（与构建徽章的既有回退一致）。 */
 function readAcuBuildStamp_ACU() {
     try {
-        const stamp = "20261108-1353";
+        const stamp = "20261108-1633";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -133875,7 +133875,7 @@ function buildAcuTauriVersionWarningHtml_ACU(currentVersion, requiredVersion = A
     const extension = escapeHtml_ACU(String(extensionVersion || '未知'));
     return [
         '<h3>建议升级 TauriTavern</h3>',
-        `<p>宿主版本（TauriTavern）：<b>${current}</b>；扩展版本（UnbirthDB）：<b>${extension}</b>；本插件适配与验证的要求基线：<b>${required}</b>。</p>`,
+        `<p>宿主版本（TauriTavern）：<b>${current}</b>；扩展版本（Luker·数据库）：<b>${extension}</b>；本插件适配与验证的要求基线：<b>${required}</b>。</p>`,
         `<p>检测到宿主版本低于要求基线。TauriTavern 2.4.0 修复了两个会影响你的问题：一是扩展的确认框不弹出、被直接当作「确定」执行；二是 Android 上的证书安全漏洞（RUSTSEC-2026-0381，可能让连接 API 时的加密被冒充）。更早的版本还可能出现楼层识别偏差、填表或追平异常。</p>`,
         `<p>请把宿主升级到 <b>${required}</b> 或更高版本后重新加载页面（扩展不用动）。可在 TauriTavern 内检查更新，或从官方 Releases 下载：<br>github.com/Darkatse/TauriTavern/releases</p>`,
     ].join('');
@@ -159500,7 +159500,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261108-1353";
+        const stamp = "20261108-1633";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -181571,7 +181571,7 @@ function useVisualizerSave(interactions = {}) {
     };
 }
 
-var _sfc_main$1e = /*@__PURE__*/ defineComponent({
+var _sfc_main$1f = /*@__PURE__*/ defineComponent({
     __name: 'UbBadge',
     props: {
         variant: { default: 'neutral' }
@@ -181595,7 +181595,7 @@ var _export_sfc = (sfc, props) => {
   return target;
 };
 
-function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1e(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["ub-badge", `ub-badge--${$props.variant}`]) },
@@ -181604,9 +181604,9 @@ function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var UbBadge = /* @__PURE__ */ _export_sfc(_sfc_main$1e, [["render", _sfc_render$1d], ["__scopeId", "data-v-5a041c45"]]);
+var UbBadge = /* @__PURE__ */ _export_sfc(_sfc_main$1f, [["render", _sfc_render$1e], ["__scopeId", "data-v-5a041c45"]]);
 
-var _sfc_main$1d = /*@__PURE__*/ defineComponent({
+var _sfc_main$1e = /*@__PURE__*/ defineComponent({
     __name: 'UbButton',
     props: {
         variant: { default: 'default' },
@@ -181630,27 +181630,27 @@ var _sfc_main$1d = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-btn[data-v-3521ab51] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--ub-s2);\r\n  /* 不参与 flex 收缩：与输入框（width:100%）或长说明并排时，按比例收缩会把文字挤成「加…」甚至只剩图标 */\r\n  flex-shrink: 0;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s4);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  line-height: 1;\r\n  white-space: nowrap;\r\n  text-decoration: none;\r\n  cursor: pointer;\r\n  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.08s ease;\n}\n.ub-btn[data-v-3521ab51]:hover:not(:disabled) {\r\n  background: var(--ub-hover-strong);\n}\n.ub-btn[data-v-3521ab51]:active:not(:disabled) {\r\n  transform: scale(0.98);\n}\n.ub-btn[data-v-3521ab51]:focus-visible {\r\n  outline: 2px solid var(--ub-accent);\r\n  outline-offset: 2px;\n}\n.ub-btn[data-v-3521ab51]:disabled {\r\n  opacity: 0.45;\r\n  cursor: not-allowed;\n}\n.ub-btn--busy[data-v-3521ab51]:disabled {\r\n  opacity: 0.8;\r\n  cursor: progress;\n}\n.ub-btn--sm[data-v-3521ab51] {\r\n  height: var(--ub-control-h-sm);\r\n  padding: 0 var(--ub-s3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-btn--block[data-v-3521ab51] {\r\n  display: flex;\r\n  flex-shrink: 1;\r\n  width: 100%;\n}\n.ub-btn--primary[data-v-3521ab51] {\r\n  border-color: transparent;\r\n  background: var(--ub-accent);\r\n  color: var(--ub-on-accent);\n}\n.ub-btn--primary[data-v-3521ab51]:hover:not(:disabled) {\r\n  background: var(--ub-accent-2);\n}\n.ub-btn--soft[data-v-3521ab51] {\r\n  border-color: transparent;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-btn--soft[data-v-3521ab51]:hover:not(:disabled) {\r\n  background: var(--ub-accent-soft-2);\n}\n.ub-btn--ghost[data-v-3521ab51] {\r\n  border-color: transparent;\r\n  background: transparent;\r\n  color: var(--ub-text-2);\n}\n.ub-btn--ghost[data-v-3521ab51]:hover:not(:disabled) {\r\n  background: var(--ub-hover);\r\n  color: var(--ub-text);\n}\n.ub-btn--danger[data-v-3521ab51] {\r\n  border-color: transparent;\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-btn--danger[data-v-3521ab51]:hover:not(:disabled) {\r\n  background: var(--ub-danger);\r\n  color: var(--ub-on-accent);\n}\n.ub-btn__icon[data-v-3521ab51] {\r\n  flex: 0 0 auto;\r\n  font-size: 0.95em;\n}\n.ub-btn__label[data-v-3521ab51] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\n}\r\n", "src/presentation-v3/ui/UbButton.vue#style-0-3521ab51");
 var UbButton_vue_vue_type_style_index_0_scoped_3521ab51_lang = null;
 
-const _hoisted_1$16 = ["href", "title"];
-const _hoisted_2$X = {
+const _hoisted_1$17 = ["href", "title"];
+const _hoisted_2$Y = {
 	key: 1,
 	class: "ub-btn__label"
 };
-const _hoisted_3$P = [
+const _hoisted_3$Q = [
 	"type",
 	"disabled",
 	"title",
 	"aria-busy"
 ];
-const _hoisted_4$J = {
+const _hoisted_4$K = {
 	key: 0,
 	class: "fa-solid fa-circle-notch fa-spin ub-btn__icon",
 	"aria-hidden": "true"
 };
-const _hoisted_5$C = {
+const _hoisted_5$D = {
 	key: 2,
 	class: "ub-btn__label"
 };
-function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1d(_ctx, _cache, $props, $setup, $data, $options) {
 	return $props.href ? (openBlock(), createElementBlock("a", {
 		key: 0,
 		class: normalizeClass(["ub-btn", [
@@ -181672,7 +181672,7 @@ function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		2
 		/* CLASS */
-	)) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_2$X, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$16)) : (openBlock(), createElementBlock("button", {
+	)) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_2$Y, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$17)) : (openBlock(), createElementBlock("button", {
 		key: 1,
 		type: $props.nativeType,
 		class: normalizeClass(["ub-btn", [
@@ -181686,7 +181686,7 @@ function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 		disabled: $props.disabled || $props.busy,
 		title: $props.title,
 		"aria-busy": $props.busy ? "true" : undefined
-	}, [$props.busy ? (openBlock(), createElementBlock("i", _hoisted_4$J)) : $props.icon ? (openBlock(), createElementBlock(
+	}, [$props.busy ? (openBlock(), createElementBlock("i", _hoisted_4$K)) : $props.icon ? (openBlock(), createElementBlock(
 		"i",
 		{
 			key: 1,
@@ -181696,11 +181696,11 @@ function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		2
 		/* CLASS */
-	)) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_5$C, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_3$P));
+	)) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_5$D, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_3$Q));
 }
-var UbButton = /* @__PURE__ */ _export_sfc(_sfc_main$1d, [["render", _sfc_render$1c], ["__scopeId", "data-v-3521ab51"]]);
+var UbButton = /* @__PURE__ */ _export_sfc(_sfc_main$1e, [["render", _sfc_render$1d], ["__scopeId", "data-v-3521ab51"]]);
 
-var _sfc_main$1c = /*@__PURE__*/ defineComponent({
+var _sfc_main$1d = /*@__PURE__*/ defineComponent({
     __name: 'UbCallout',
     props: {
         kind: { default: 'info' }
@@ -181723,9 +181723,9 @@ var _sfc_main$1c = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-callout[data-v-a3348fcd] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-callout__icon[data-v-a3348fcd] {\r\n  flex: 0 0 auto;\r\n  margin-top: 0.22em;\r\n  color: var(--ub-text-3);\n}\n.ub-callout__body[data-v-a3348fcd] {\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\n.ub-callout--success[data-v-a3348fcd] {\r\n  background: var(--ub-ok-soft);\n}\n.ub-callout--success .ub-callout__icon[data-v-a3348fcd] {\r\n  color: var(--ub-ok);\n}\n.ub-callout--warning[data-v-a3348fcd] {\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text);\n}\n.ub-callout--warning .ub-callout__icon[data-v-a3348fcd] {\r\n  color: var(--ub-warn);\n}\n.ub-callout--error[data-v-a3348fcd] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-text);\n}\n.ub-callout--error .ub-callout__icon[data-v-a3348fcd] {\r\n  color: var(--ub-danger);\n}\r\n", "src/presentation-v3/ui/UbCallout.vue#style-0-a3348fcd");
 var UbCallout_vue_vue_type_style_index_0_scoped_a3348fcd_lang = null;
 
-const _hoisted_1$15 = ["role"];
-const _hoisted_2$W = { class: "ub-callout__body" };
-function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$16 = ["role"];
+const _hoisted_2$X = { class: "ub-callout__body" };
+function _sfc_render$1c(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("div", {
 		class: normalizeClass(["ub-callout", `ub-callout--${$props.kind}`]),
 		role: $props.kind === "error" ? "alert" : "status"
@@ -181738,11 +181738,11 @@ function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		2
 		/* CLASS */
-	), createBaseVNode("div", _hoisted_2$W, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])], 10, _hoisted_1$15);
+	), createBaseVNode("div", _hoisted_2$X, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])], 10, _hoisted_1$16);
 }
-var UbCallout = /* @__PURE__ */ _export_sfc(_sfc_main$1c, [["render", _sfc_render$1b], ["__scopeId", "data-v-a3348fcd"]]);
+var UbCallout = /* @__PURE__ */ _export_sfc(_sfc_main$1d, [["render", _sfc_render$1c], ["__scopeId", "data-v-a3348fcd"]]);
 
-var _sfc_main$1b = /*@__PURE__*/ defineComponent({
+var _sfc_main$1c = /*@__PURE__*/ defineComponent({
     __name: 'UbIconButton',
     props: {
         icon: {},
@@ -181763,12 +181763,12 @@ var _sfc_main$1b = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-icon-btn[data-v-09c99ba6] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: var(--ub-control-h);\r\n  height: var(--ub-control-h);\r\n  padding: 0;\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-md);\r\n  cursor: pointer;\r\n  transition: background 0.14s ease, color 0.14s ease;\n}\n.ub-icon-btn[data-v-09c99ba6]:hover:not(:disabled) {\r\n  background: var(--ub-hover);\r\n  color: var(--ub-text);\n}\n.ub-icon-btn[data-v-09c99ba6]:focus-visible {\r\n  outline: 2px solid var(--ub-accent);\r\n  outline-offset: 1px;\n}\n.ub-icon-btn[data-v-09c99ba6]:disabled {\r\n  opacity: 0.35;\r\n  cursor: not-allowed;\n}\n.ub-icon-btn--sm[data-v-09c99ba6] {\r\n  width: var(--ub-control-h-sm);\r\n  height: var(--ub-control-h-sm);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-icon-btn--accent[data-v-09c99ba6] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-icon-btn--danger[data-v-09c99ba6]:hover:not(:disabled) {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-icon-btn--solid[data-v-09c99ba6] {\r\n  border: 1px solid var(--ub-line);\r\n  background: var(--ub-panel);\n}\r\n", "src/presentation-v3/ui/UbIconButton.vue#style-0-09c99ba6");
 var UbIconButton_vue_vue_type_style_index_0_scoped_09c99ba6_lang = null;
 
-const _hoisted_1$14 = [
+const _hoisted_1$15 = [
 	"disabled",
 	"title",
 	"aria-label"
 ];
-function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1b(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", {
 		type: "button",
 		class: normalizeClass(["ub-icon-btn", [`ub-icon-btn--${$props.variant}`, `ub-icon-btn--${$props.size}`]]),
@@ -181784,11 +181784,11 @@ function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		2
 		/* CLASS */
-	)], 10, _hoisted_1$14);
+	)], 10, _hoisted_1$15);
 }
-var UbIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$1b, [["render", _sfc_render$1a], ["__scopeId", "data-v-09c99ba6"]]);
+var UbIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$1c, [["render", _sfc_render$1b], ["__scopeId", "data-v-09c99ba6"]]);
 
-var _sfc_main$1a = /*@__PURE__*/ defineComponent({
+var _sfc_main$1b = /*@__PURE__*/ defineComponent({
     __name: 'UbSegmented',
     props: {
         options: {},
@@ -181817,13 +181817,13 @@ var _sfc_main$1a = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-seg[data-v-a4a2b8e5] {\r\n  display: inline-flex;\r\n  align-items: stretch;\r\n  gap: 2px;\r\n  max-width: 100%;\r\n  padding: 3px;\r\n  border-radius: calc(var(--ub-r-control) + 3px);\r\n  background: var(--ub-sunken);\r\n  overflow-x: auto;\r\n  scrollbar-width: none;\n}\n.ub-seg--block[data-v-a4a2b8e5] {\r\n  display: flex;\r\n  width: 100%;\n}\n.ub-seg--block .ub-seg__item[data-v-a4a2b8e5] {\r\n  flex: 1 1 0;\n}\n.ub-seg__item[data-v-a4a2b8e5] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--ub-s1);\r\n  min-height: calc(var(--ub-control-h) - 6px);\r\n  padding: 0 var(--ub-s3);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  white-space: nowrap;\r\n  cursor: pointer;\r\n  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-seg--sm .ub-seg__item[data-v-a4a2b8e5] {\r\n  min-height: calc(var(--ub-control-h-sm) - 6px);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-seg__item[data-v-a4a2b8e5]:hover:not(:disabled):not(.is-active) {\r\n  color: var(--ub-text);\n}\n.ub-seg__item.is-active[data-v-a4a2b8e5] {\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text);\r\n  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--ub-line-soft);\n}\n.ub-seg__item[data-v-a4a2b8e5]:disabled {\r\n  opacity: 0.4;\r\n  cursor: not-allowed;\n}\r\n", "src/presentation-v3/ui/UbSegmented.vue#style-0-a4a2b8e5");
 var UbSegmented_vue_vue_type_style_index_0_scoped_a4a2b8e5_lang = null;
 
-const _hoisted_1$13 = ["aria-label"];
-const _hoisted_2$V = [
+const _hoisted_1$14 = ["aria-label"];
+const _hoisted_2$W = [
 	"aria-checked",
 	"disabled",
 	"onClick"
 ];
-function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$1a(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("div", {
 		class: normalizeClass(["ub-seg", {
 			"ub-seg--sm": $props.size === "sm",
@@ -181857,16 +181857,16 @@ function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
 				" " + toDisplayString(opt.label),
 				1
 				/* TEXT */
-			)], 10, _hoisted_2$V);
+			)], 10, _hoisted_2$W);
 		}),
 		128
 		/* KEYED_FRAGMENT */
-	))], 10, _hoisted_1$13);
+	))], 10, _hoisted_1$14);
 }
-var UbSegmented = /* @__PURE__ */ _export_sfc(_sfc_main$1a, [["render", _sfc_render$19], ["__scopeId", "data-v-a4a2b8e5"]]);
+var UbSegmented = /* @__PURE__ */ _export_sfc(_sfc_main$1b, [["render", _sfc_render$1a], ["__scopeId", "data-v-a4a2b8e5"]]);
 
 const LEAVE_MS$1 = 180;
-var _sfc_main$19 = /*@__PURE__*/ defineComponent({
+var _sfc_main$1a = /*@__PURE__*/ defineComponent({
     __name: 'UbSheet',
     props: {
         isOpen: { type: Boolean },
@@ -181943,21 +181943,21 @@ var _sfc_main$19 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-sheet-layer[data-v-34c6aa88] {\r\n  --ub-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tt-inset-bottom, 0px), var(--tt-ime-bottom, 0px));\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9300;\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  padding: var(--ub-safe-top) var(--ub-safe-right) var(--ub-safe-bottom) var(--ub-safe-left);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.18s ease-out both;\n}\n.ub-sheet-layer.is-closing[data-v-34c6aa88] {\r\n  animation: ub-fade-out 0.18s ease-in both;\n}\n.ub-sheet[data-v-34c6aa88] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  width: min(var(--ub-sheet-width), 100%);\r\n  height: 100%;\r\n  min-height: 0;\r\n  background: var(--ub-bg);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  animation: ub-sheet-in-right 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.is-closing .ub-sheet[data-v-34c6aa88] {\r\n  animation: ub-sheet-out-right 0.18s ease-in both;\n}\n.ub-sheet__head[data-v-34c6aa88] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s3) var(--ub-s3) var(--ub-s5);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-sheet__titles[data-v-34c6aa88] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-sheet__title[data-v-34c6aa88] {\r\n  margin: 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-sheet__subtitle[data-v-34c6aa88] {\r\n  margin: 2px 0 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-sheet__body[data-v-34c6aa88] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s4);\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  padding: var(--ub-s5);\r\n  overflow-y: auto;\r\n  overscroll-behavior: contain;\n}\n.ub-sheet__foot[data-v-34c6aa88] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  flex-wrap: wrap;\r\n  padding: var(--ub-s3) var(--ub-s5);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-panel);\n}\n@media (max-width: 760px) {\n.ub-sheet[data-v-34c6aa88] {\r\n    width: 100%;\r\n    animation-name: ub-sheet-in-up;\n}\n.is-closing .ub-sheet[data-v-34c6aa88] {\r\n    animation-name: ub-sheet-out-down;\n}\n.ub-sheet__head[data-v-34c6aa88] {\r\n    padding-left: var(--ub-s4);\n}\n.ub-sheet__body[data-v-34c6aa88] {\r\n    padding: var(--ub-s4);\n}\n.ub-sheet__foot[data-v-34c6aa88] {\r\n    padding: var(--ub-s3) var(--ub-s4);\n}\n}\r\n", "src/presentation-v3/ui/UbSheet.vue#style-0-34c6aa88");
 var UbSheet_vue_vue_type_style_index_0_scoped_34c6aa88_lang = null;
 
-const _hoisted_1$12 = ["onKeydown"];
-const _hoisted_2$U = ["aria-label"];
-const _hoisted_3$O = { class: "ub-sheet__head" };
-const _hoisted_4$I = { class: "ub-sheet__titles" };
-const _hoisted_5$B = { class: "ub-sheet__title" };
-const _hoisted_6$x = {
+const _hoisted_1$13 = ["onKeydown"];
+const _hoisted_2$V = ["aria-label"];
+const _hoisted_3$P = { class: "ub-sheet__head" };
+const _hoisted_4$J = { class: "ub-sheet__titles" };
+const _hoisted_5$C = { class: "ub-sheet__title" };
+const _hoisted_6$y = {
 	key: 0,
 	class: "ub-sheet__subtitle"
 };
-const _hoisted_7$v = { class: "ub-sheet__body" };
+const _hoisted_7$w = { class: "ub-sheet__body" };
 const _hoisted_8$p = {
 	key: 0,
 	class: "ub-sheet__foot"
 };
-function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$19(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock(Teleport, {
 		defer: "",
 		to: "#ub-portal"
@@ -181975,22 +181975,22 @@ function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
 		style: normalizeStyle({ "--ub-sheet-width": $props.width }),
 		onClick: _cache[0] || (_cache[0] = withModifiers(() => {}, ["stop"]))
 	}, [
-		createBaseVNode("header", _hoisted_3$O, [
+		createBaseVNode("header", _hoisted_3$P, [
 			$props.showBack ? (openBlock(), createBlock($setup["UbIconButton"], {
 				key: 0,
 				icon: "fa-solid fa-arrow-left",
 				title: "返回",
 				onClick: $setup.requestBack
 			})) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_4$I, [createBaseVNode(
+			createBaseVNode("div", _hoisted_4$J, [createBaseVNode(
 				"h3",
-				_hoisted_5$B,
+				_hoisted_5$C,
 				toDisplayString($props.title),
 				1
 				/* TEXT */
 			), $props.subtitle ? (openBlock(), createElementBlock(
 				"p",
-				_hoisted_6$x,
+				_hoisted_6$y,
 				toDisplayString($props.subtitle),
 				1
 				/* TEXT */
@@ -182002,11 +182002,11 @@ function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
 				onClick: $setup.requestClose
 			})
 		]),
-		createBaseVNode("div", _hoisted_7$v, [renderSlot(_ctx.$slots, "default", {}, undefined, true)]),
+		createBaseVNode("div", _hoisted_7$w, [renderSlot(_ctx.$slots, "default", {}, undefined, true)]),
 		_ctx.$slots.footer ? (openBlock(), createElementBlock("footer", _hoisted_8$p, [renderSlot(_ctx.$slots, "footer", {}, undefined, true)])) : createCommentVNode("v-if", true)
-	], 12, _hoisted_2$U)], 42, _hoisted_1$12)) : createCommentVNode("v-if", true)]);
+	], 12, _hoisted_2$V)], 42, _hoisted_1$13)) : createCommentVNode("v-if", true)]);
 }
-var UbSheet = /* @__PURE__ */ _export_sfc(_sfc_main$19, [["render", _sfc_render$18], ["__scopeId", "data-v-34c6aa88"]]);
+var UbSheet = /* @__PURE__ */ _export_sfc(_sfc_main$1a, [["render", _sfc_render$19], ["__scopeId", "data-v-34c6aa88"]]);
 
 function clone_ACU$1(value) {
     if (value === undefined)
@@ -186020,7 +186020,7 @@ function useVisualizerAssistant() {
     };
 }
 
-var _sfc_main$18 = /*@__PURE__*/ defineComponent({
+var _sfc_main$19 = /*@__PURE__*/ defineComponent({
     __name: 'UbFileButton',
     props: {
         accept: { default: undefined },
@@ -186057,8 +186057,8 @@ var _sfc_main$18 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-file[data-v-2a899a2f] {\r\n  display: inline-flex;\r\n  flex-shrink: 0;\r\n  min-width: 0;\n}\n.ub-file--block[data-v-2a899a2f] {\r\n  display: flex;\r\n  flex-shrink: 1;\r\n  width: 100%;\n}\n.ub-file__input[data-v-2a899a2f] {\r\n  display: none;\n}\r\n", "src/presentation-v3/ui/UbFileButton.vue#style-0-2a899a2f");
 var UbFileButton_vue_vue_type_style_index_0_scoped_2a899a2f_lang = null;
 
-const _hoisted_1$11 = ["accept"];
-function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$12 = ["accept"];
+function _sfc_render$18(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["ub-file", { "ub-file--block": $props.block }]) },
@@ -186098,14 +186098,14 @@ function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 			accept: $props.accept,
 			tabindex: "-1",
 			onChange: $setup.onChange
-		}, null, 40, _hoisted_1$11)],
+		}, null, 40, _hoisted_1$12)],
 		2
 		/* CLASS */
 	);
 }
-var UbFileButton = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$17], ["__scopeId", "data-v-2a899a2f"]]);
+var UbFileButton = /* @__PURE__ */ _export_sfc(_sfc_main$19, [["render", _sfc_render$18], ["__scopeId", "data-v-2a899a2f"]]);
 
-var _sfc_main$17 = /*@__PURE__*/ defineComponent({
+var _sfc_main$18 = /*@__PURE__*/ defineComponent({
     __name: 'UbSelect',
     props: {
         options: {},
@@ -186154,16 +186154,16 @@ var _sfc_main$17 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-select[data-v-4fd7ac21] {\r\n  position: relative;\r\n  display: inline-flex;\r\n  align-items: center;\r\n  min-width: 0;\r\n  width: 100%;\r\n  max-width: 100%;\n}\n.ub-select__native[data-v-4fd7ac21] {\r\n  appearance: none;\r\n  -webkit-appearance: none;\r\n  width: 100%;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 calc(var(--ub-s3) * 2 + 10px) 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  text-overflow: ellipsis;\r\n  cursor: pointer;\r\n  outline: none;\r\n  transition: border-color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-select--sm .ub-select__native[data-v-4fd7ac21] {\r\n  height: var(--ub-control-h-sm);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-select__native[data-v-4fd7ac21]:focus-visible {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-select__native option[data-v-4fd7ac21],\r\n.ub-select__native optgroup[data-v-4fd7ac21] {\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text);\n}\n.ub-select--placeholder .ub-select__native[data-v-4fd7ac21] {\r\n  color: var(--ub-text-3);\n}\n.ub-select--disabled .ub-select__native[data-v-4fd7ac21] {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.ub-select__caret[data-v-4fd7ac21] {\r\n  position: absolute;\r\n  right: var(--ub-s3);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  pointer-events: none;\n}\r\n", "src/presentation-v3/ui/UbSelect.vue#style-0-4fd7ac21");
 var UbSelect_vue_vue_type_style_index_0_scoped_4fd7ac21_lang = null;
 
-const _hoisted_1$10 = [
+const _hoisted_1$11 = [
 	"value",
 	"disabled",
 	"aria-label",
 	"title"
 ];
-const _hoisted_2$T = ["label"];
-const _hoisted_3$N = ["value"];
-const _hoisted_4$H = ["value"];
-function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_2$U = ["label"];
+const _hoisted_3$O = ["value"];
+const _hoisted_4$I = ["value"];
+function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["ub-select", {
@@ -186205,18 +186205,18 @@ function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
 							return openBlock(), createElementBlock("option", {
 								key: opt.value,
 								value: opt.value
-							}, toDisplayString(opt.label), 9, _hoisted_3$N);
+							}, toDisplayString(opt.label), 9, _hoisted_3$O);
 						}),
 						128
 						/* KEYED_FRAGMENT */
-					))], 8, _hoisted_2$T)) : (openBlock(true), createElementBlock(
+					))], 8, _hoisted_2$U)) : (openBlock(true), createElementBlock(
 						Fragment,
 						{ key: 1 },
 						renderList(block.options, (opt) => {
 							return openBlock(), createElementBlock("option", {
 								key: opt.value,
 								value: opt.value
-							}, toDisplayString(opt.label), 9, _hoisted_4$H);
+							}, toDisplayString(opt.label), 9, _hoisted_4$I);
 						}),
 						128
 						/* KEYED_FRAGMENT */
@@ -186227,7 +186227,7 @@ function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
 			}),
 			128
 			/* KEYED_FRAGMENT */
-		))], 40, _hoisted_1$10), _cache[0] || (_cache[0] = createBaseVNode(
+		))], 40, _hoisted_1$11), _cache[0] || (_cache[0] = createBaseVNode(
 			"i",
 			{
 				class: "fa-solid fa-chevron-down ub-select__caret",
@@ -186241,9 +186241,9 @@ function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var UbSelect = /* @__PURE__ */ _export_sfc(_sfc_main$17, [["render", _sfc_render$16], ["__scopeId", "data-v-4fd7ac21"]]);
+var UbSelect = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$17], ["__scopeId", "data-v-4fd7ac21"]]);
 
-var _sfc_main$16 = /*@__PURE__*/ defineComponent({
+var _sfc_main$17 = /*@__PURE__*/ defineComponent({
     __name: 'UbSwitch',
     props: {
         modelValue: { type: Boolean },
@@ -186263,12 +186263,12 @@ var _sfc_main$16 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-switch[data-v-97e8c2ad] {\r\n  position: relative;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 44);\r\n  height: calc(var(--ub-u) * 26);\r\n  padding: 0;\r\n  border: 0;\r\n  border-radius: 999px;\r\n  background: var(--ub-switch-off);\r\n  cursor: pointer;\r\n  transition: background 0.18s ease;\n}\n.ub-switch.is-on[data-v-97e8c2ad] {\r\n  background: var(--ub-accent);\n}\n.ub-switch[data-v-97e8c2ad]:focus-visible {\r\n  outline: 2px solid var(--ub-accent);\r\n  outline-offset: 2px;\n}\n.ub-switch[data-v-97e8c2ad]:disabled {\r\n  opacity: 0.4;\r\n  cursor: not-allowed;\n}\n.ub-switch__thumb[data-v-97e8c2ad] {\r\n  position: absolute;\r\n  top: calc(var(--ub-u) * 3);\r\n  left: calc(var(--ub-u) * 3);\r\n  width: calc(var(--ub-u) * 20);\r\n  height: calc(var(--ub-u) * 20);\r\n  border-radius: 50%;\r\n  background: #fff;\r\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);\r\n  transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1.2);\n}\n.ub-switch.is-on .ub-switch__thumb[data-v-97e8c2ad] {\r\n  transform: translateX(calc(var(--ub-u) * 18));\n}\r\n", "src/presentation-v3/ui/UbSwitch.vue#style-0-97e8c2ad");
 var UbSwitch_vue_vue_type_style_index_0_scoped_97e8c2ad_lang = null;
 
-const _hoisted_1$$ = [
+const _hoisted_1$10 = [
 	"aria-checked",
 	"aria-label",
 	"disabled"
 ];
-function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$16(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", {
 		type: "button",
 		role: "switch",
@@ -186286,11 +186286,11 @@ function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
 		null,
 		-1
 		/* CACHED */
-	)])], 10, _hoisted_1$$);
+	)])], 10, _hoisted_1$10);
 }
-var UbSwitch = /* @__PURE__ */ _export_sfc(_sfc_main$16, [["render", _sfc_render$15], ["__scopeId", "data-v-97e8c2ad"]]);
+var UbSwitch = /* @__PURE__ */ _export_sfc(_sfc_main$17, [["render", _sfc_render$16], ["__scopeId", "data-v-97e8c2ad"]]);
 
-var _sfc_main$15 = /*@__PURE__*/ defineComponent({
+var _sfc_main$16 = /*@__PURE__*/ defineComponent({
     __name: 'UbTextarea',
     props: {
         modelValue: {},
@@ -186346,11 +186346,11 @@ var _sfc_main$15 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-textarea[data-v-29d0f7ce] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\r\n  width: 100%;\n}\n.ub-textarea__label[data-v-29d0f7ce] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-textarea__input[data-v-29d0f7ce] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  resize: vertical;\r\n  outline: none;\r\n  transition: border-color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-textarea--mono .ub-textarea__input[data-v-29d0f7ce] {\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-textarea__input[data-v-29d0f7ce]:focus {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-textarea__input[data-v-29d0f7ce]::placeholder {\r\n  color: var(--ub-text-3);\r\n  opacity: 1;\n}\n.ub-textarea__input[data-v-29d0f7ce]:disabled {\r\n  opacity: 0.5;\n}\r\n", "src/presentation-v3/ui/UbTextarea.vue#style-0-29d0f7ce");
 var UbTextarea_vue_vue_type_style_index_0_scoped_29d0f7ce_lang = null;
 
-const _hoisted_1$_ = {
+const _hoisted_1$$ = {
 	key: 0,
 	class: "ub-textarea__label"
 };
-const _hoisted_2$S = [
+const _hoisted_2$T = [
 	"value",
 	"placeholder",
 	"rows",
@@ -186358,13 +186358,13 @@ const _hoisted_2$S = [
 	"readonly",
 	"aria-label"
 ];
-function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$15(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"label",
 		{ class: normalizeClass(["ub-textarea", { "ub-textarea--mono": $props.mono }]) },
 		[$props.label ? (openBlock(), createElementBlock(
 			"span",
-			_hoisted_1$_,
+			_hoisted_1$$,
 			toDisplayString($props.label),
 			1
 			/* TEXT */
@@ -186379,12 +186379,12 @@ function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
 			"aria-label": $props.ariaLabel || $props.label,
 			onInput: $setup.onInput,
 			onFocus: $setup.resize
-		}, null, 40, _hoisted_2$S)],
+		}, null, 40, _hoisted_2$T)],
 		2
 		/* CLASS */
 	);
 }
-var UbTextarea = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$14], ["__scopeId", "data-v-29d0f7ce"]]);
+var UbTextarea = /* @__PURE__ */ _export_sfc(_sfc_main$16, [["render", _sfc_render$15], ["__scopeId", "data-v-29d0f7ce"]]);
 
 const DEFAULT_ROLE_OPTIONS = [
     { value: 'SYSTEM', label: 'SYSTEM' },
@@ -186396,7 +186396,7 @@ const DEFAULT_SLOT_OPTIONS = [
     { value: 'A', label: '主插槽 A' },
     { value: 'B', label: '主插槽 B' },
 ];
-var _sfc_main$14 = /*@__PURE__*/ defineComponent({
+var _sfc_main$15 = /*@__PURE__*/ defineComponent({
     __name: 'UbPromptSegments',
     props: {
         segments: {},
@@ -186432,22 +186432,22 @@ var _sfc_main$14 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-segs[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: var(--ub-s2);\n}\n.ub-segs__add[data-v-f68c779d] {\r\n  align-self: flex-start;\n}\n.ub-segs__list[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-segs__item[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-left: 3px solid var(--ub-seg-tone, var(--ub-line));\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-segs__item--system[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-accent);\n}\n.ub-segs__item--user[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-ok);\n}\n.ub-segs__item--assistant[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-warn);\n}\n.ub-segs__head[data-v-f68c779d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  flex-wrap: wrap;\n}\n.ub-segs__index[data-v-f68c779d] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  min-width: 1.8em;\r\n  height: 1.8em;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-segs__role[data-v-f68c779d] {\r\n  width: calc(var(--ub-u) * 130);\n}\n.ub-segs__slot[data-v-f68c779d] {\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-segs__spacer[data-v-f68c779d] {\r\n  flex: 1 1 auto;\n}\n.ub-segs__item.is-disabled[data-v-f68c779d] >  .ub-textarea {\r\n  opacity: 0.5;\n}\n.ub-segs__enabled[data-v-f68c779d] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-segs__empty[data-v-f68c779d] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPromptSegments.vue#style-0-f68c779d");
 var UbPromptSegments_vue_vue_type_style_index_0_scoped_f68c779d_lang = null;
 
-const _hoisted_1$Z = { class: "ub-segs" };
-const _hoisted_2$R = { class: "ub-segs__list" };
-const _hoisted_3$M = { class: "ub-segs__head" };
-const _hoisted_4$G = { class: "ub-segs__index" };
-const _hoisted_5$A = { class: "ub-segs__role" };
-const _hoisted_6$w = {
+const _hoisted_1$_ = { class: "ub-segs" };
+const _hoisted_2$S = { class: "ub-segs__list" };
+const _hoisted_3$N = { class: "ub-segs__head" };
+const _hoisted_4$H = { class: "ub-segs__index" };
+const _hoisted_5$B = { class: "ub-segs__role" };
+const _hoisted_6$x = {
 	key: 0,
 	class: "ub-segs__slot"
 };
-const _hoisted_7$u = ["title"];
+const _hoisted_7$v = ["title"];
 const _hoisted_8$o = {
 	key: 0,
 	class: "ub-segs__empty"
 };
-function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$Z, [
+function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$_, [
 		createVNode($setup["UbButton"], {
 			size: "sm",
 			variant: "ghost",
@@ -186462,7 +186462,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 			)])]),
 			_: 1
 		}),
-		createBaseVNode("ol", _hoisted_2$R, [(openBlock(true), createElementBlock(
+		createBaseVNode("ol", _hoisted_2$S, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($props.segments, (seg, index) => {
@@ -186472,15 +186472,15 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 						key: index,
 						class: normalizeClass(["ub-segs__item", [`ub-segs__item--${$setup.roleTone(seg.role)}`, { "is-disabled": $props.showEnabled && seg.enabled === false }]])
 					},
-					[createBaseVNode("header", _hoisted_3$M, [
+					[createBaseVNode("header", _hoisted_3$N, [
 						createBaseVNode(
 							"span",
-							_hoisted_4$G,
+							_hoisted_4$H,
 							toDisplayString(index + 1),
 							1
 							/* TEXT */
 						),
-						createBaseVNode("div", _hoisted_5$A, [createVNode($setup["UbSelect"], {
+						createBaseVNode("div", _hoisted_5$B, [createVNode($setup["UbSelect"], {
 							size: "sm",
 							options: $props.roleOptions,
 							"model-value": seg.role,
@@ -186492,7 +186492,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 							"aria-label",
 							"onUpdate:modelValue"
 						])]),
-						$props.showSlot ? (openBlock(), createElementBlock("div", _hoisted_6$w, [createVNode($setup["UbSelect"], {
+						$props.showSlot ? (openBlock(), createElementBlock("div", _hoisted_6$x, [createVNode($setup["UbSelect"], {
 							size: "sm",
 							options: $props.slotOptions,
 							"model-value": seg.mainSlot || "",
@@ -186528,7 +186528,7 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 							"model-value",
 							"aria-label",
 							"onUpdate:modelValue"
-						])], 8, _hoisted_7$u)) : createCommentVNode("v-if", true),
+						])], 8, _hoisted_7$v)) : createCommentVNode("v-if", true),
 						$props.allowMove ? (openBlock(), createElementBlock(
 							Fragment,
 							{ key: 2 },
@@ -186610,9 +186610,9 @@ function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	]);
 }
-var UbPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$14, [["render", _sfc_render$13], ["__scopeId", "data-v-f68c779d"]]);
+var UbPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$14], ["__scopeId", "data-v-f68c779d"]]);
 
-var _sfc_main$13 = /*@__PURE__*/ defineComponent({
+var _sfc_main$14 = /*@__PURE__*/ defineComponent({
     __name: 'PromptSegmentsSheet',
     props: {
         isOpen: { type: Boolean },
@@ -186658,7 +186658,7 @@ var _sfc_main$13 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-pss__spacer[data-v-9a55233b] {\r\n  flex: 1 1 auto;\n}\r\n", "src/presentation-v3/parts/PromptSegmentsSheet.vue#style-0-9a55233b");
 var PromptSegmentsSheet_vue_vue_type_style_index_0_scoped_9a55233b_lang = null;
 
-function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$13(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSheet"], {
 		"is-open": $props.isOpen,
 		title: $props.title,
@@ -186762,9 +186762,9 @@ function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
 		"subtitle"
 	]);
 }
-var PromptSegmentsSheet = /* @__PURE__ */ _export_sfc(_sfc_main$13, [["render", _sfc_render$12], ["__scopeId", "data-v-9a55233b"]]);
+var PromptSegmentsSheet = /* @__PURE__ */ _export_sfc(_sfc_main$14, [["render", _sfc_render$13], ["__scopeId", "data-v-9a55233b"]]);
 
-var _sfc_main$12 = /*@__PURE__*/ defineComponent({
+var _sfc_main$13 = /*@__PURE__*/ defineComponent({
     __name: 'UbCheck',
     props: {
         modelValue: { type: Boolean },
@@ -186785,13 +186785,13 @@ var _sfc_main$12 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-check[data-v-58a3daf7] {\r\n  display: inline-flex;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.45;\r\n  cursor: pointer;\r\n  user-select: none;\n}\n.ub-check.is-disabled[data-v-58a3daf7] {\r\n  opacity: 0.45;\r\n  cursor: not-allowed;\n}\n.ub-check__native[data-v-58a3daf7] {\r\n  position: absolute;\r\n  opacity: 0;\r\n  width: 1px;\r\n  height: 1px;\r\n  pointer-events: none;\n}\n.ub-check__box[data-v-58a3daf7] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 18);\r\n  height: calc(var(--ub-u) * 18);\r\n  margin-top: 1px;\r\n  border: 1.5px solid var(--ub-line-strong);\r\n  border-radius: calc(var(--ub-u) * 5);\r\n  background: var(--ub-input-bg);\r\n  color: transparent;\r\n  font-size: calc(var(--ub-u) * 11);\r\n  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;\n}\n.ub-check.is-on .ub-check__box[data-v-58a3daf7] {\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-accent);\r\n  color: var(--ub-on-accent);\n}\n.ub-check__native:focus-visible + .ub-check__box[data-v-58a3daf7] {\r\n  outline: 2px solid var(--ub-accent);\r\n  outline-offset: 2px;\n}\n.ub-check__label[data-v-58a3daf7] {\r\n  min-width: 0;\r\n  overflow-wrap: anywhere;\n}\r\n", "src/presentation-v3/ui/UbCheck.vue#style-0-58a3daf7");
 var UbCheck_vue_vue_type_style_index_0_scoped_58a3daf7_lang = null;
 
-const _hoisted_1$Y = ["title"];
-const _hoisted_2$Q = ["checked", "disabled"];
-const _hoisted_3$L = {
+const _hoisted_1$Z = ["title"];
+const _hoisted_2$R = ["checked", "disabled"];
+const _hoisted_3$M = {
 	key: 0,
 	class: "ub-check__label"
 };
-function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$12(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("label", {
 		class: normalizeClass(["ub-check", {
 			"is-on": $props.modelValue,
@@ -186805,7 +186805,7 @@ function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 			checked: $props.modelValue,
 			disabled: $props.disabled,
 			onChange: _cache[0] || (_cache[0] = ($event) => $setup.emit("update:modelValue", $event.target.checked))
-		}, null, 40, _hoisted_2$Q),
+		}, null, 40, _hoisted_2$R),
 		_cache[1] || (_cache[1] = createBaseVNode(
 			"span",
 			{
@@ -186816,16 +186816,16 @@ function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 			-1
 			/* CACHED */
 		)),
-		$props.label || _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_3$L, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
+		$props.label || _ctx.$slots.default ? (openBlock(), createElementBlock("span", _hoisted_3$M, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
 			toDisplayString($props.label),
 			1
 			/* TEXT */
 		)], true)])) : createCommentVNode("v-if", true)
-	], 10, _hoisted_1$Y);
+	], 10, _hoisted_1$Z);
 }
-var UbCheck = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$11], ["__scopeId", "data-v-58a3daf7"]]);
+var UbCheck = /* @__PURE__ */ _export_sfc(_sfc_main$13, [["render", _sfc_render$12], ["__scopeId", "data-v-58a3daf7"]]);
 
-var _sfc_main$11 = /*@__PURE__*/ defineComponent({
+var _sfc_main$12 = /*@__PURE__*/ defineComponent({
     __name: 'UbDisclosure',
     props: {
         label: {},
@@ -186848,14 +186848,14 @@ var _sfc_main$11 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-disc[data-v-8841c368] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-disc--flat[data-v-8841c368] {\r\n  border: 0;\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.ub-disc__head[data-v-8841c368] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-disc__head[data-v-8841c368]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-disc__chevron[data-v-8841c368] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.is-open > .ub-disc__head .ub-disc__chevron[data-v-8841c368] {\r\n  transform: rotate(90deg);\n}\n.ub-disc__label[data-v-8841c368] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-disc__meta[data-v-8841c368] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 500;\n}\n.ub-disc__body[data-v-8841c368] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) var(--ub-s3) var(--ub-s3);\n}\r\n", "src/presentation-v3/ui/UbDisclosure.vue#style-0-8841c368");
 var UbDisclosure_vue_vue_type_style_index_0_scoped_8841c368_lang = null;
 
-const _hoisted_1$X = ["aria-expanded", "aria-controls"];
-const _hoisted_2$P = { class: "ub-disc__label" };
-const _hoisted_3$K = {
+const _hoisted_1$Y = ["aria-expanded", "aria-controls"];
+const _hoisted_2$Q = { class: "ub-disc__label" };
+const _hoisted_3$L = {
 	key: 0,
 	class: "ub-disc__meta"
 };
-const _hoisted_4$F = ["id"];
-function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_4$G = ["id"];
+function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{ class: normalizeClass(["ub-disc", {
@@ -186881,19 +186881,19 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 			)),
 			createBaseVNode(
 				"span",
-				_hoisted_2$P,
+				_hoisted_2$Q,
 				toDisplayString($props.label),
 				1
 				/* TEXT */
 			),
 			$props.meta ? (openBlock(), createElementBlock(
 				"span",
-				_hoisted_3$K,
+				_hoisted_3$L,
 				toDisplayString($props.meta),
 				1
 				/* TEXT */
 			)) : createCommentVNode("v-if", true)
-		], 8, _hoisted_1$X), $props.expanded ? (openBlock(), createElementBlock("div", {
+		], 8, _hoisted_1$Y), $props.expanded ? (openBlock(), createElementBlock("div", {
 			key: 0,
 			id: $props.bodyId,
 			class: "ub-disc__body",
@@ -186901,14 +186901,14 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 				maxHeight: $props.maxHeight,
 				overflowY: "auto"
 			} : undefined)
-		}, [renderSlot(_ctx.$slots, "default", {}, undefined, true)], 12, _hoisted_4$F)) : createCommentVNode("v-if", true)],
+		}, [renderSlot(_ctx.$slots, "default", {}, undefined, true)], 12, _hoisted_4$G)) : createCommentVNode("v-if", true)],
 		2
 		/* CLASS */
 	);
 }
-var UbDisclosure = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$10], ["__scopeId", "data-v-8841c368"]]);
+var UbDisclosure = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$11], ["__scopeId", "data-v-8841c368"]]);
 
-var _sfc_main$10 = /*@__PURE__*/ defineComponent({
+var _sfc_main$11 = /*@__PURE__*/ defineComponent({
     __name: 'VizAssistantView',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -186956,20 +186956,20 @@ var _sfc_main$10 = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vai[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s4);\r\n  min-width: 0;\r\n  min-height: 100%;\n}\n.ub-vai__intro[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\n}\n.ub-vai__lead[data-v-549c1194] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\n}\n.ub-vai__controls[data-v-549c1194] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: flex-end;\r\n  gap: var(--ub-s2) var(--ub-s3);\n}\n.ub-vai__preset[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  flex: 1 1 calc(var(--ub-u) * 240);\r\n  min-width: 0;\r\n  max-width: calc(var(--ub-u) * 360);\n}\n.ub-vai__cap[data-v-549c1194] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-vai__feed[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  flex: 1 1 auto;\n}\n.ub-vai__empty[data-v-549c1194],\r\n.ub-vai__running[data-v-549c1194] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-vai__empty[data-v-549c1194] {\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\n}\n.ub-vai__turn[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\n}\n.ub-vai__turn--user[data-v-549c1194] {\r\n  align-self: flex-end;\r\n  max-width: min(100%, calc(var(--ub-u) * 560));\r\n  border-color: transparent;\r\n  background: var(--ub-accent-soft);\n}\n.ub-vai__turn--error[data-v-549c1194] {\r\n  border-color: color-mix(in srgb, var(--ub-warn) 50%, var(--ub-line-soft));\n}\n.ub-vai__turn-head[data-v-549c1194] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\n}\n.ub-vai__who[data-v-549c1194] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-vai__turn--user .ub-vai__who[data-v-549c1194] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-vai__spacer[data-v-549c1194] {\r\n  flex: 1 1 auto;\n}\n.ub-vai__text[data-v-549c1194] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\r\n  white-space: pre-wrap;\r\n  overflow-wrap: anywhere;\n}\n.ub-vai__list[data-v-549c1194] {\r\n  margin: 0;\r\n  padding-left: 1.2em;\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-vai__diffs[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-vai__diff[data-v-549c1194] {\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\n}\n.ub-vai__diff.is-warning[data-v-549c1194] {\r\n  box-shadow: inset 3px 0 0 var(--ub-warn);\n}\n.ub-vai__diff-title[data-v-549c1194] {\r\n  margin-bottom: var(--ub-s1);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-vai__raw[data-v-549c1194] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-2xs);\r\n  line-height: 1.55;\r\n  white-space: pre-wrap;\r\n  overflow-wrap: anywhere;\n}\n.ub-vai__apply[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\n}\n.ub-vai__risks[data-v-549c1194] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  align-self: stretch;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\n}\n.ub-vai__risks-title[data-v-549c1194] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-vai__reason[data-v-549c1194] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vai__composer[data-v-549c1194] {\r\n  position: sticky;\r\n  bottom: 0;\r\n  display: flex;\r\n  align-items: flex-end;\r\n  gap: var(--ub-s2);\r\n  margin: 0 calc(var(--ub-s2) * -1);\r\n  padding: var(--ub-s3) var(--ub-s2);\r\n  background: linear-gradient(to bottom, transparent, var(--ub-bg) 30%);\n}\n.ub-vai__composer[data-v-549c1194] > :first-child {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-vai__docs-note[data-v-549c1194] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-vai__docs[data-v-549c1194] {\r\n  display: grid;\r\n  gap: var(--ub-s1) 0;\r\n  margin: var(--ub-s2) 0 0;\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vai__docs dt[data-v-549c1194] {\r\n  color: var(--ub-text);\r\n  font-weight: 650;\n}\n.ub-vai__docs dd[data-v-549c1194] {\r\n  margin: 0 0 var(--ub-s2);\r\n  color: var(--ub-text-3);\n}\n.ub-vai code[data-v-549c1194] {\r\n  font-family: var(--ub-mono);\r\n  font-size: 0.95em;\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizAssistantView.vue#style-0-549c1194");
 var VizAssistantView_vue_vue_type_style_index_0_scoped_549c1194_lang = null;
 
-const _hoisted_1$W = {
+const _hoisted_1$X = {
 	ref: "rootRef",
 	class: "ub-vai",
 	"data-ub-viz-assistant": ""
 };
-const _hoisted_2$O = { class: "ub-vai__intro" };
-const _hoisted_3$J = { class: "ub-vai__controls" };
-const _hoisted_4$E = { class: "ub-vai__preset" };
-const _hoisted_5$z = { class: "ub-vai__feed" };
-const _hoisted_6$v = {
+const _hoisted_2$P = { class: "ub-vai__intro" };
+const _hoisted_3$K = { class: "ub-vai__controls" };
+const _hoisted_4$F = { class: "ub-vai__preset" };
+const _hoisted_5$A = { class: "ub-vai__feed" };
+const _hoisted_6$w = {
 	key: 0,
 	class: "ub-vai__empty"
 };
-const _hoisted_7$t = { class: "ub-vai__turn-head" };
+const _hoisted_7$u = { class: "ub-vai__turn-head" };
 const _hoisted_8$n = { class: "ub-vai__who" };
 const _hoisted_9$i = { class: "ub-vai__text" };
 const _hoisted_10$h = { class: "ub-vai__list" };
@@ -187002,12 +187002,12 @@ const _hoisted_19$7 = {
 };
 const _hoisted_20$7 = { class: "ub-vai__docs-note" };
 const _hoisted_21$6 = { class: "ub-vai__docs" };
-function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
-		_hoisted_1$W,
+		_hoisted_1$X,
 		[
-			createBaseVNode("div", _hoisted_2$O, [
+			createBaseVNode("div", _hoisted_2$P, [
 				_cache[11] || (_cache[11] = createBaseVNode(
 					"p",
 					{ class: "ub-vai__lead" },
@@ -187015,7 +187015,7 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 					-1
 					/* CACHED */
 				)),
-				createBaseVNode("div", _hoisted_3$J, [createBaseVNode("label", _hoisted_4$E, [_cache[9] || (_cache[9] = createBaseVNode(
+				createBaseVNode("div", _hoisted_3$K, [createBaseVNode("label", _hoisted_4$F, [_cache[9] || (_cache[9] = createBaseVNode(
 					"span",
 					{ class: "ub-vai__cap" },
 					"API 预设",
@@ -187055,8 +187055,8 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 					_: 1
 				})) : createCommentVNode("v-if", true)
 			]),
-			createBaseVNode("div", _hoisted_5$z, [
-				!$setup.assistant.turns.value.length && !$setup.assistant.isRunning.value ? (openBlock(), createElementBlock("p", _hoisted_6$v, [..._cache[12] || (_cache[12] = [createBaseVNode(
+			createBaseVNode("div", _hoisted_5$A, [
+				!$setup.assistant.turns.value.length && !$setup.assistant.isRunning.value ? (openBlock(), createElementBlock("p", _hoisted_6$w, [..._cache[12] || (_cache[12] = [createBaseVNode(
 					"i",
 					{
 						class: "fa-regular fa-comments",
@@ -187081,7 +187081,7 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 								class: normalizeClass(["ub-vai__turn", `ub-vai__turn--${turn.type}`])
 							},
 							[
-								createBaseVNode("header", _hoisted_7$t, [
+								createBaseVNode("header", _hoisted_7$u, [
 									createBaseVNode("span", _hoisted_8$n, [createBaseVNode(
 										"i",
 										{
@@ -187463,9 +187463,9 @@ function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_PATCH */
 	);
 }
-var VizAssistantView = /* @__PURE__ */ _export_sfc(_sfc_main$10, [["render", _sfc_render$$], ["__scopeId", "data-v-549c1194"]]);
+var VizAssistantView = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$10], ["__scopeId", "data-v-549c1194"]]);
 
-var _sfc_main$$ = /*@__PURE__*/ defineComponent({
+var _sfc_main$10 = /*@__PURE__*/ defineComponent({
     __name: 'UbInput',
     props: {
         modelValue: {},
@@ -187519,7 +187519,7 @@ var _sfc_main$$ = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-field[data-v-17f68171] {\r\n  position: relative;\r\n  display: flex;\r\n  align-items: center;\r\n  min-width: 0;\r\n  width: 100%;\n}\n.ub-field--number[data-v-17f68171] {\r\n  width: calc(var(--ub-u) * 112);\r\n  max-width: 100%;\n}\n.ub-field__icon[data-v-17f68171] {\r\n  position: absolute;\r\n  left: var(--ub-s3);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  pointer-events: none;\n}\n.ub-field__input[data-v-17f68171] {\r\n  width: 100%;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  outline: none;\r\n  transition: border-color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-field__icon + .ub-field__input[data-v-17f68171] {\r\n  padding-left: calc(var(--ub-s3) * 2 + var(--ub-fs-sm));\n}\n.ub-field--number .ub-field__input[data-v-17f68171] {\r\n  text-align: right;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-field__input[data-v-17f68171]:focus {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-field__input[data-v-17f68171]::placeholder {\r\n  color: var(--ub-text-3);\r\n  opacity: 1;\n}\n.ub-field--disabled .ub-field__input[data-v-17f68171] {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\r\n", "src/presentation-v3/ui/UbInput.vue#style-0-17f68171");
 var UbInput_vue_vue_type_style_index_0_scoped_17f68171_lang = null;
 
-const _hoisted_1$V = [
+const _hoisted_1$W = [
 	"type",
 	"value",
 	"placeholder",
@@ -187531,7 +187531,7 @@ const _hoisted_1$V = [
 	"aria-label",
 	"inputmode"
 ];
-function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$$(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["ub-field", {
@@ -187563,14 +187563,14 @@ function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 			onInput: $setup.onInput,
 			onChange: $setup.onChange,
 			onWheel: $setup.onWheel
-		}, null, 40, _hoisted_1$V)],
+		}, null, 40, _hoisted_1$W)],
 		2
 		/* CLASS */
 	);
 }
-var UbInput = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$_], ["__scopeId", "data-v-17f68171"]]);
+var UbInput = /* @__PURE__ */ _export_sfc(_sfc_main$10, [["render", _sfc_render$$], ["__scopeId", "data-v-17f68171"]]);
 
-var _sfc_main$_ = /*@__PURE__*/ defineComponent({
+var _sfc_main$$ = /*@__PURE__*/ defineComponent({
     __name: 'UbRow',
     props: {
         label: { default: undefined },
@@ -187593,43 +187593,43 @@ var _sfc_main$_ = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-row[data-v-085151b3] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3) var(--ub-s4);\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-row + .ub-row[data-v-085151b3] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-row--stack[data-v-085151b3] {\r\n  flex-direction: column;\r\n  align-items: stretch;\n}\n.ub-row--flag[data-v-085151b3] {\r\n  background: var(--ub-warn-soft);\r\n  box-shadow: inset 3px 0 0 var(--ub-warn);\n}\n.ub-row__text[data-v-085151b3] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-row__label[data-v-085151b3] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.ub-row__hint[data-v-085151b3] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.55;\n}\n.ub-row__control[data-v-085151b3] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  /* 控件区不随长说明按比例收缩（否则说明越长按钮越窄、只剩图标）；宽度上限交给 max-width */\r\n  flex: 0 0 auto;\r\n  min-width: 0;\r\n  max-width: 62%;\n}\n.ub-row--stack .ub-row__control[data-v-085151b3] {\r\n  justify-content: stretch;\r\n  max-width: none;\r\n  width: 100%;\n}\n.ub-row--stack .ub-row__control[data-v-085151b3] >  * {\r\n  flex: 1 1 auto;\n}\n@media (max-width: 560px) {\n.ub-row:not(.ub-row--stack) .ub-row__control[data-v-085151b3] {\r\n    max-width: 55%;\n}\n}\r\n", "src/presentation-v3/ui/UbRow.vue#style-0-085151b3");
 var UbRow_vue_vue_type_style_index_0_scoped_085151b3_lang = null;
 
-const _hoisted_1$U = ["data-ub-row"];
-const _hoisted_2$N = {
+const _hoisted_1$V = ["data-ub-row"];
+const _hoisted_2$O = {
 	key: 0,
 	class: "ub-row__text"
 };
-const _hoisted_3$I = {
+const _hoisted_3$J = {
 	key: 0,
 	class: "ub-row__label"
 };
-const _hoisted_4$D = {
+const _hoisted_4$E = {
 	key: 1,
 	class: "ub-row__hint"
 };
-const _hoisted_5$y = {
+const _hoisted_5$z = {
 	key: 1,
 	class: "ub-row__control"
 };
-function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("div", {
 		class: normalizeClass(["ub-row", {
 			"ub-row--stack": $props.stack,
 			"ub-row--flag": $props.flagged
 		}]),
 		"data-ub-row": $props.label
-	}, [$props.label || _ctx.$slots.label || $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", _hoisted_2$N, [$props.label || _ctx.$slots.label ? (openBlock(), createElementBlock("div", _hoisted_3$I, [renderSlot(_ctx.$slots, "label", {}, () => [createTextVNode(
+	}, [$props.label || _ctx.$slots.label || $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", _hoisted_2$O, [$props.label || _ctx.$slots.label ? (openBlock(), createElementBlock("div", _hoisted_3$J, [renderSlot(_ctx.$slots, "label", {}, () => [createTextVNode(
 		toDisplayString($props.label),
 		1
 		/* TEXT */
-	)], true)])) : createCommentVNode("v-if", true), $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", _hoisted_4$D, [renderSlot(_ctx.$slots, "hint", {}, () => [createTextVNode(
+	)], true)])) : createCommentVNode("v-if", true), $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", _hoisted_4$E, [renderSlot(_ctx.$slots, "hint", {}, () => [createTextVNode(
 		toDisplayString($props.hint),
 		1
 		/* TEXT */
-	)], true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("div", _hoisted_5$y, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$U);
+	)], true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("div", _hoisted_5$z, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$V);
 }
-var UbRow = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$Z], ["__scopeId", "data-v-085151b3"]]);
+var UbRow = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$_], ["__scopeId", "data-v-085151b3"]]);
 
-var _sfc_main$Z = /*@__PURE__*/ defineComponent({
+var _sfc_main$_ = /*@__PURE__*/ defineComponent({
     __name: 'UbSection',
     props: {
         id: { default: undefined },
@@ -187654,35 +187654,35 @@ var _sfc_main$Z = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-section[data-v-ce2a775d] {\r\n  min-width: 0;\r\n  scroll-margin-top: var(--ub-s5);\n}\n.ub-section__head[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: flex-end;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s3);\r\n  margin: 0 var(--ub-s1) var(--ub-s2);\n}\n.ub-section__titles[data-v-ce2a775d] {\r\n  min-width: 0;\n}\n.ub-section__title[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\r\n  line-height: 1.3;\r\n  letter-spacing: -0.01em;\n}\n.ub-section__icon[data-v-ce2a775d] {\r\n  color: var(--ub-accent-ink);\r\n  font-size: 0.9em;\n}\n.ub-section__desc[data-v-ce2a775d] {\r\n  margin: var(--ub-s1) 0 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-section__actions[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  flex: 0 0 auto;\n}\n.ub-section__lead[data-v-ce2a775d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin-bottom: var(--ub-s2);\n}\n.ub-section__card[data-v-ce2a775d] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  overflow: hidden;\n}\n.ub-section__card.is-padded[data-v-ce2a775d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  overflow: visible;\n}\n.ub-section__card.is-bare[data-v-ce2a775d] {\r\n  border: 0;\r\n  background: transparent;\r\n  box-shadow: none;\r\n  overflow: visible;\n}\r\n", "src/presentation-v3/ui/UbSection.vue#style-0-ce2a775d");
 var UbSection_vue_vue_type_style_index_0_scoped_ce2a775d_lang = null;
 
-const _hoisted_1$T = ["id", "data-ub-section"];
-const _hoisted_2$M = {
+const _hoisted_1$U = ["id", "data-ub-section"];
+const _hoisted_2$N = {
 	key: 0,
 	class: "ub-section__head"
 };
-const _hoisted_3$H = { class: "ub-section__titles" };
-const _hoisted_4$C = {
+const _hoisted_3$I = { class: "ub-section__titles" };
+const _hoisted_4$D = {
 	key: 0,
 	class: "ub-section__title"
 };
-const _hoisted_5$x = {
+const _hoisted_5$y = {
 	key: 1,
 	class: "ub-section__desc"
 };
-const _hoisted_6$u = {
+const _hoisted_6$v = {
 	key: 0,
 	class: "ub-section__actions"
 };
-const _hoisted_7$s = {
+const _hoisted_7$t = {
 	key: 1,
 	class: "ub-section__lead"
 };
-function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", {
 		id: $props.id,
 		class: "ub-section",
 		"data-ub-section": $props.id
 	}, [
-		$props.title || _ctx.$slots.actions ? (openBlock(), createElementBlock("header", _hoisted_2$M, [createBaseVNode("div", _hoisted_3$H, [$props.title ? (openBlock(), createElementBlock("h2", _hoisted_4$C, [$props.icon ? (openBlock(), createElementBlock(
+		$props.title || _ctx.$slots.actions ? (openBlock(), createElementBlock("header", _hoisted_2$N, [createBaseVNode("div", _hoisted_3$I, [$props.title ? (openBlock(), createElementBlock("h2", _hoisted_4$D, [$props.icon ? (openBlock(), createElementBlock(
 			"i",
 			{
 				key: 0,
@@ -187698,12 +187698,12 @@ function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 			/* TEXT */
 		)])) : createCommentVNode("v-if", true), $props.description ? (openBlock(), createElementBlock(
 			"p",
-			_hoisted_5$x,
+			_hoisted_5$y,
 			toDisplayString($props.description),
 			1
 			/* TEXT */
-		)) : createCommentVNode("v-if", true)]), _ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_6$u, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true),
-		_ctx.$slots.lead ? (openBlock(), createElementBlock("div", _hoisted_7$s, [renderSlot(_ctx.$slots, "lead", {}, undefined, true)])) : createCommentVNode("v-if", true),
+		)) : createCommentVNode("v-if", true)]), _ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_6$v, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true),
+		_ctx.$slots.lead ? (openBlock(), createElementBlock("div", _hoisted_7$t, [renderSlot(_ctx.$slots, "lead", {}, undefined, true)])) : createCommentVNode("v-if", true),
 		createBaseVNode(
 			"div",
 			{ class: normalizeClass(["ub-section__card", {
@@ -187714,11 +187714,11 @@ function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 			2
 			/* CLASS */
 		)
-	], 8, _hoisted_1$T);
+	], 8, _hoisted_1$U);
 }
-var UbSection = /* @__PURE__ */ _export_sfc(_sfc_main$Z, [["render", _sfc_render$Y], ["__scopeId", "data-v-ce2a775d"]]);
+var UbSection = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$Z], ["__scopeId", "data-v-ce2a775d"]]);
 
-var _sfc_main$Y = /*@__PURE__*/ defineComponent({
+var _sfc_main$Z = /*@__PURE__*/ defineComponent({
     __name: 'VizPlacement',
     props: {
         title: {},
@@ -187739,18 +187739,18 @@ var _sfc_main$Y = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vplace[data-v-989a4ff8] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) minmax(0, 120px) minmax(0, 120px);\r\n  gap: var(--ub-s2);\n}\n.ub-vplace__cell[data-v-989a4ff8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\n}\n.ub-vplace__cap[data-v-989a4ff8] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n@media (max-width: 560px) {\n.ub-vplace[data-v-989a4ff8] {\r\n    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n}\n.ub-vplace__cell--pos[data-v-989a4ff8] {\r\n    grid-column: 1 / -1;\n}\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizPlacement.vue#style-0-989a4ff8");
 var VizPlacement_vue_vue_type_style_index_0_scoped_989a4ff8_lang = null;
 
-const _hoisted_1$S = { class: "ub-vplace" };
-const _hoisted_2$L = { class: "ub-vplace__cell ub-vplace__cell--pos" };
-const _hoisted_3$G = { class: "ub-vplace__cell" };
-const _hoisted_4$B = { class: "ub-vplace__cell" };
-function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$T = { class: "ub-vplace" };
+const _hoisted_2$M = { class: "ub-vplace__cell ub-vplace__cell--pos" };
+const _hoisted_3$H = { class: "ub-vplace__cell" };
+const _hoisted_4$C = { class: "ub-vplace__cell" };
+function _sfc_render$Y(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbRow"], {
 		label: $props.title,
 		hint: $props.hint,
 		stack: ""
 	}, {
-		default: withCtx(() => [createBaseVNode("div", _hoisted_1$S, [
-			createBaseVNode("label", _hoisted_2$L, [_cache[3] || (_cache[3] = createBaseVNode(
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$T, [
+			createBaseVNode("label", _hoisted_2$M, [_cache[3] || (_cache[3] = createBaseVNode(
 				"span",
 				{ class: "ub-vplace__cap" },
 				"位置",
@@ -187766,7 +187766,7 @@ function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 				"options",
 				"aria-label"
 			])]),
-			createBaseVNode("label", _hoisted_3$G, [_cache[4] || (_cache[4] = createBaseVNode(
+			createBaseVNode("label", _hoisted_3$H, [_cache[4] || (_cache[4] = createBaseVNode(
 				"span",
 				{ class: "ub-vplace__cap" },
 				"深度 Depth",
@@ -187779,7 +187779,7 @@ function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 				"aria-label": `${$props.title}：深度`,
 				"onUpdate:modelValue": _cache[1] || (_cache[1] = (value) => $props.updateField("depth", value))
 			}, null, 8, ["model-value", "aria-label"])]),
-			createBaseVNode("label", _hoisted_4$B, [_cache[5] || (_cache[5] = createBaseVNode(
+			createBaseVNode("label", _hoisted_4$C, [_cache[5] || (_cache[5] = createBaseVNode(
 				"span",
 				{ class: "ub-vplace__cap" },
 				"顺序 Order",
@@ -187797,10 +187797,10 @@ function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["label", "hint"]);
 }
-var VizPlacement = /* @__PURE__ */ _export_sfc(_sfc_main$Y, [["render", _sfc_render$X], ["__scopeId", "data-v-989a4ff8"]]);
+var VizPlacement = /* @__PURE__ */ _export_sfc(_sfc_main$Z, [["render", _sfc_render$Y], ["__scopeId", "data-v-989a4ff8"]]);
 
 const sqlInjectionPlaceholder = '留空则使用默认表格内容。支持 {[sql "SELECT ..."]} / {[db.表名.where(...).get(...)]}，会原样写入世界书并在发送前展开。';
-var _sfc_main$X = /*@__PURE__*/ defineComponent({
+var _sfc_main$Y = /*@__PURE__*/ defineComponent({
     __name: 'VizConfigView',
     emits: ["request-add-column", "request-delete-column"],
     setup(__props, { expose: __expose, emit: __emit }) {
@@ -187882,27 +187882,27 @@ var _sfc_main$X = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vconf[data-v-2658197b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-vconf__cols[data-v-2658197b] {\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vconf__col[data-v-2658197b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-vconf__col + .ub-vconf__col[data-v-2658197b] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vconf__col[data-v-2658197b] >  .ub-field {\r\n  flex: 1 1 auto;\n}\n.ub-vconf__col-no[data-v-2658197b] {\r\n  flex: 0 0 auto;\r\n  min-width: 1.6em;\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: right;\n}\n.ub-vconf__empty[data-v-2658197b],\r\n.ub-vconf__muted[data-v-2658197b] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vconf__empty[data-v-2658197b] {\r\n  padding: var(--ub-s4);\n}\n.ub-vconf__num[data-v-2658197b] {\r\n  display: block;\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-vconf__modes[data-v-2658197b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-vconf__mode[data-v-2658197b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-vconf__mode[data-v-2658197b] >  .ub-select {\r\n  flex: 0 1 calc(var(--ub-u) * 220);\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizConfigView.vue#style-0-2658197b");
 var VizConfigView_vue_vue_type_style_index_0_scoped_2658197b_lang = null;
 
-const _hoisted_1$R = {
+const _hoisted_1$S = {
 	class: "ub-vconf",
 	"data-ub-viz-config": ""
 };
-const _hoisted_2$K = {
+const _hoisted_2$L = {
 	key: 0,
 	class: "ub-vconf__cols"
 };
-const _hoisted_3$F = { class: "ub-vconf__col-no" };
-const _hoisted_4$A = {
+const _hoisted_3$G = { class: "ub-vconf__col-no" };
+const _hoisted_4$B = {
 	key: 1,
 	class: "ub-vconf__empty"
 };
-const _hoisted_5$w = { class: "ub-vconf__num" };
-const _hoisted_6$t = {
+const _hoisted_5$x = { class: "ub-vconf__num" };
+const _hoisted_6$u = {
 	key: 1,
 	class: "ub-vconf__muted"
 };
-const _hoisted_7$r = { class: "ub-vconf__modes" };
-function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$R, [
+const _hoisted_7$s = { class: "ub-vconf__modes" };
+function _sfc_render$X(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$S, [
 		createVNode($setup["UbSection"], {
 			title: "基本信息",
 			description: "AI 按表名和列名理解字段；填表找错字段时先检查这里。"
@@ -187949,7 +187949,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 				)])]),
 				_: 1
 			})]),
-			default: withCtx(() => [$setup.config.visibleColumnEntries.value.length ? (openBlock(), createElementBlock("ol", _hoisted_2$K, [(openBlock(true), createElementBlock(
+			default: withCtx(() => [$setup.config.visibleColumnEntries.value.length ? (openBlock(), createElementBlock("ol", _hoisted_2$L, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($setup.config.visibleColumnEntries.value, (column) => {
@@ -187959,7 +187959,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 					}, [
 						createBaseVNode(
 							"span",
-							_hoisted_3$F,
+							_hoisted_3$G,
 							toDisplayString(column.columnIndex + 1),
 							1
 							/* TEXT */
@@ -187984,7 +187984,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 				}),
 				128
 				/* KEYED_FRAGMENT */
-			))])) : (openBlock(), createElementBlock("p", _hoisted_4$A, "这张表还没有可编辑的列。"))]),
+			))])) : (openBlock(), createElementBlock("p", _hoisted_4$B, "这张表还没有可编辑的列。"))]),
 			_: 1
 		}),
 		createVNode($setup["UbSection"], {
@@ -188000,7 +188000,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 						label: item.label,
 						hint: item.hint
 					}, {
-						default: withCtx(() => [createBaseVNode("span", _hoisted_5$w, [createVNode($setup["UbInput"], {
+						default: withCtx(() => [createBaseVNode("span", _hoisted_5$x, [createVNode($setup["UbInput"], {
 							type: "number",
 							"model-value": $setup.updateConfig[item.key],
 							min: -1,
@@ -188095,7 +188095,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 						/* TEXT */
 					)]),
 					_: 1
-				}, 8, ["variant"])) : (openBlock(), createElementBlock("span", _hoisted_6$t, "修改后建议校验一次"))]),
+				}, 8, ["variant"])) : (openBlock(), createElementBlock("span", _hoisted_6$u, "修改后建议校验一次"))]),
 				default: withCtx(() => [createVNode($setup["UbButton"], {
 					size: "sm",
 					icon: "fa-solid fa-circle-check",
@@ -188258,7 +188258,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 									hint: "勾选要写进索引的列，并选择它只进索引还是两边都写。",
 									stack: ""
 								}, {
-									default: withCtx(() => [createBaseVNode("div", _hoisted_7$r, [(openBlock(true), createElementBlock(
+									default: withCtx(() => [createBaseVNode("div", _hoisted_7$s, [(openBlock(true), createElementBlock(
 										Fragment,
 										null,
 										renderList($setup.config.visibleColumnEntries.value, (column) => {
@@ -188361,7 +188361,7 @@ function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 		})) : createCommentVNode("v-if", true)
 	]);
 }
-var VizConfigView = /* @__PURE__ */ _export_sfc(_sfc_main$X, [["render", _sfc_render$W], ["__scopeId", "data-v-2658197b"]]);
+var VizConfigView = /* @__PURE__ */ _export_sfc(_sfc_main$Y, [["render", _sfc_render$X], ["__scopeId", "data-v-2658197b"]]);
 
 /** 数据库编辑器（v3）数据视图的纯布局计算：短字段并排、分页窗口。 */
 const VIZ_PAGE_SIZE = 30;
@@ -188397,7 +188397,7 @@ function pageWindow(rowCount, requestedPage, pageSize = VIZ_PAGE_SIZE) {
     return { page, pageCount, start, end: Math.min(rowCount, start + pageSize) };
 }
 
-var _sfc_main$W = /*@__PURE__*/ defineComponent({
+var _sfc_main$X = /*@__PURE__*/ defineComponent({
     __name: 'VizDataView',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -188657,20 +188657,20 @@ var _sfc_main$W = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vdata[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-vdata__bar[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vdata__range[data-v-80ab025b] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-vdata__pager[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vdata__pager-input[data-v-80ab025b] {\r\n  width: calc(var(--ub-u) * 64);\n}\n.ub-vdata__pager-text[data-v-80ab025b] {\r\n  white-space: nowrap;\n}\n.ub-vdata__empty[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-vdata__cards[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vcard[data-v-80ab025b] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  scroll-margin: var(--ub-s4);\n}\n.ub-vcard.is-locked[data-v-80ab025b] {\r\n  border-color: color-mix(in srgb, var(--ub-accent) 45%, var(--ub-line-soft));\n}\n.ub-vcard__head[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-vcard__no[data-v-80ab025b] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\n.ub-vcard__spacer[data-v-80ab025b] {\r\n  flex: 1 1 auto;\n}\n.ub-vcard__fields[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n}\n.ub-vcard__line[data-v-80ab025b] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-vcard__line.is-wide[data-v-80ab025b] {\r\n  grid-template-columns: minmax(0, 1fr);\n}\n.ub-vfield[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\n}\n.ub-vfield__label[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vfield__name[data-v-80ab025b] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vfield.is-locked .ub-vfield__name[data-v-80ab025b] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-vfield__locks[data-v-80ab025b] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 2px;\r\n  flex: 0 0 auto;\n}\n.ub-vfield__value[data-v-80ab025b],\r\n.ub-vfield__editor[data-v-80ab025b] {\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: calc(var(--ub-u) * 7) var(--ub-s3);\r\n  border: 1px solid transparent;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\r\n  white-space: pre-wrap;\n}\n.ub-vfield__value[data-v-80ab025b] {\r\n  cursor: text;\r\n  transition: border-color 0.14s ease, background 0.14s ease;\n}\n.ub-vfield__value[data-v-80ab025b]:hover {\r\n  border-color: var(--ub-line);\n}\n.ub-vfield__value[data-v-80ab025b]:focus-visible {\r\n  border-color: var(--ub-accent);\r\n  outline: none;\n}\n.ub-vfield__value.is-empty[data-v-80ab025b] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-vfield__editor[data-v-80ab025b] {\r\n  display: block;\r\n  resize: none;\r\n  overflow: hidden;\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-input-bg);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\r\n  outline: none;\n}\n.ub-vdata__add[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 48);\r\n  border: 1.5px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 650;\r\n  cursor: pointer;\r\n  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;\n}\n.ub-vdata__add[data-v-80ab025b]:hover {\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n@media (max-width: 560px) {\n.ub-vcard__fields[data-v-80ab025b] {\r\n    padding: var(--ub-s3);\n}\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizDataView.vue#style-0-80ab025b");
 var VizDataView_vue_vue_type_style_index_0_scoped_80ab025b_lang = null;
 
-const _hoisted_1$Q = { class: "ub-vdata__bar" };
-const _hoisted_2$J = { class: "ub-vdata__range" };
-const _hoisted_3$E = {
+const _hoisted_1$R = { class: "ub-vdata__bar" };
+const _hoisted_2$K = { class: "ub-vdata__range" };
+const _hoisted_3$F = {
 	key: 0,
 	class: "ub-vdata__pager",
 	"aria-label": "数据分页"
 };
-const _hoisted_4$z = { class: "ub-vdata__pager-input" };
-const _hoisted_5$v = { class: "ub-vdata__pager-text" };
-const _hoisted_6$s = {
+const _hoisted_4$A = { class: "ub-vdata__pager-input" };
+const _hoisted_5$w = { class: "ub-vdata__pager-text" };
+const _hoisted_6$t = {
 	key: 0,
 	class: "ub-vdata__empty"
 };
-const _hoisted_7$q = {
+const _hoisted_7$r = {
 	key: 1,
 	class: "ub-vdata__cards"
 };
@@ -188697,7 +188697,7 @@ const _hoisted_17$7 = [
 	"onClick",
 	"onKeydown"
 ];
-function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$W(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -188706,13 +188706,13 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 			onPointerdownCapture: $setup.onPointerDownCapture
 		},
 		[
-			createBaseVNode("div", _hoisted_1$Q, [createBaseVNode(
+			createBaseVNode("div", _hoisted_1$R, [createBaseVNode(
 				"span",
-				_hoisted_2$J,
+				_hoisted_2$K,
 				toDisplayString($setup.rangeText),
 				1
 				/* TEXT */
-			), $setup.win.pageCount > 1 ? (openBlock(), createElementBlock("div", _hoisted_3$E, [
+			), $setup.win.pageCount > 1 ? (openBlock(), createElementBlock("div", _hoisted_3$F, [
 				createVNode($setup["UbIconButton"], {
 					icon: "fa-solid fa-chevron-left",
 					size: "sm",
@@ -188727,7 +188727,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 					-1
 					/* CACHED */
 				)),
-				createBaseVNode("span", _hoisted_4$z, [createVNode($setup["UbInput"], {
+				createBaseVNode("span", _hoisted_4$A, [createVNode($setup["UbInput"], {
 					type: "number",
 					"model-value": $setup.pageJump,
 					min: 1,
@@ -188739,7 +188739,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 				}, null, 8, ["model-value", "max"])]),
 				createBaseVNode(
 					"span",
-					_hoisted_5$v,
+					_hoisted_5$w,
 					"/ " + toDisplayString($setup.win.pageCount) + " 页",
 					1
 					/* TEXT */
@@ -188752,7 +188752,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 					onClick: _cache[2] || (_cache[2] = ($event) => $setup.setPage($setup.win.page + 1))
 				}, null, 8, ["disabled"])
 			])) : createCommentVNode("v-if", true)]),
-			$setup.rowCount === 0 ? (openBlock(), createElementBlock("p", _hoisted_6$s, [..._cache[4] || (_cache[4] = [createBaseVNode(
+			$setup.rowCount === 0 ? (openBlock(), createElementBlock("p", _hoisted_6$t, [..._cache[4] || (_cache[4] = [createBaseVNode(
 				"i",
 				{
 					class: "fa-regular fa-folder-open",
@@ -188765,7 +188765,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 				" 这张表还没有数据。点下面的「新增一行」，再逐个字段填写。 ",
 				-1
 				/* CACHED */
-			)])])) : (openBlock(), createElementBlock("ol", _hoisted_7$q, [(openBlock(true), createElementBlock(
+			)])])) : (openBlock(), createElementBlock("ol", _hoisted_7$r, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($setup.rows, (row) => {
@@ -188955,9 +188955,9 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_HYDRATION, NEED_PATCH */
 	);
 }
-var VizDataView = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$V], ["__scopeId", "data-v-80ab025b"]]);
+var VizDataView = /* @__PURE__ */ _export_sfc(_sfc_main$X, [["render", _sfc_render$W], ["__scopeId", "data-v-80ab025b"]]);
 
-var _sfc_main$V = /*@__PURE__*/ defineComponent({
+var _sfc_main$W = /*@__PURE__*/ defineComponent({
     __name: 'VizManageView',
     props: {
         sheetItems: {}
@@ -188977,25 +188977,25 @@ var _sfc_main$V = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vmanage[data-v-c5bedf6c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-vmanage__list[data-v-c5bedf6c] {\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vmanage__item[data-v-c5bedf6c] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-vmanage__item + .ub-vmanage__item[data-v-c5bedf6c] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vmanage__no[data-v-c5bedf6c] {\r\n  flex: 0 0 auto;\r\n  min-width: 1.4em;\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: right;\n}\n.ub-vmanage__name[data-v-c5bedf6c] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: inherit;\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-vmanage__name[data-v-c5bedf6c]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-vmanage__title[data-v-c5bedf6c] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 650;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vmanage__meta[data-v-c5bedf6c] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vmanage__ops[data-v-c5bedf6c] {\r\n  display: inline-flex;\r\n  gap: 2px;\r\n  flex: 0 0 auto;\n}\n.ub-vmanage__empty[data-v-c5bedf6c] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizManageView.vue#style-0-c5bedf6c");
 var VizManageView_vue_vue_type_style_index_0_scoped_c5bedf6c_lang = null;
 
-const _hoisted_1$P = {
+const _hoisted_1$Q = {
 	class: "ub-vmanage",
 	"data-ub-viz-manage": ""
 };
-const _hoisted_2$I = {
+const _hoisted_2$J = {
 	key: 0,
 	class: "ub-vmanage__list"
 };
-const _hoisted_3$D = { class: "ub-vmanage__no" };
-const _hoisted_4$y = ["onClick"];
-const _hoisted_5$u = { class: "ub-vmanage__title" };
-const _hoisted_6$r = { class: "ub-vmanage__meta" };
-const _hoisted_7$p = { class: "ub-vmanage__ops" };
+const _hoisted_3$E = { class: "ub-vmanage__no" };
+const _hoisted_4$z = ["onClick"];
+const _hoisted_5$v = { class: "ub-vmanage__title" };
+const _hoisted_6$s = { class: "ub-vmanage__meta" };
+const _hoisted_7$q = { class: "ub-vmanage__ops" };
 const _hoisted_8$l = {
 	key: 1,
 	class: "ub-vmanage__empty"
 };
-function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$P, [createVNode($setup["UbSection"], {
+function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$Q, [createVNode($setup["UbSection"], {
 		title: "表格顺序",
 		description: "调整整套数据库的表格顺序，新增或删除表格。改动只进编辑器草稿，保存之前都可以放弃。"
 	}, {
@@ -189012,7 +189012,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 			)])]),
 			_: 1
 		})]),
-		default: withCtx(() => [$props.sheetItems.length ? (openBlock(), createElementBlock("ol", _hoisted_2$I, [(openBlock(true), createElementBlock(
+		default: withCtx(() => [$props.sheetItems.length ? (openBlock(), createElementBlock("ol", _hoisted_2$J, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($props.sheetItems, (item, index) => {
@@ -189023,7 +189023,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 				}, [
 					createBaseVNode(
 						"span",
-						_hoisted_3$D,
+						_hoisted_3$E,
 						toDisplayString(index + 1),
 						1
 						/* TEXT */
@@ -189035,18 +189035,18 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 						onClick: ($event) => $setup.emit("open-sheet", item.key)
 					}, [createBaseVNode(
 						"span",
-						_hoisted_5$u,
+						_hoisted_5$v,
 						toDisplayString(item.name),
 						1
 						/* TEXT */
 					), createBaseVNode(
 						"span",
-						_hoisted_6$r,
+						_hoisted_6$s,
 						toDisplayString(item.rowCount) + " 行 · " + toDisplayString(item.columnCount) + " 列",
 						1
 						/* TEXT */
-					)], 8, _hoisted_4$y),
-					createBaseVNode("span", _hoisted_7$p, [
+					)], 8, _hoisted_4$z),
+					createBaseVNode("span", _hoisted_7$q, [
 						createVNode($setup["UbIconButton"], {
 							icon: "fa-solid fa-arrow-up",
 							size: "sm",
@@ -189101,9 +189101,9 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})]);
 }
-var VizManageView = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$U], ["__scopeId", "data-v-c5bedf6c"]]);
+var VizManageView = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$V], ["__scopeId", "data-v-c5bedf6c"]]);
 
-var _sfc_main$U = /*@__PURE__*/ defineComponent({
+var _sfc_main$V = /*@__PURE__*/ defineComponent({
     __name: 'VizTableNav',
     props: {
         sheetItems: {},
@@ -189140,35 +189140,35 @@ var _sfc_main$U = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-vnav[data-v-cbdbabef] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  min-width: 0;\n}\n.ub-vnav__label[data-v-cbdbabef] {\r\n  margin: 0 var(--ub-s3) var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\r\n  letter-spacing: 0.06em;\n}\n.ub-vnav__list[data-v-cbdbabef] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vnav__item[data-v-cbdbabef] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 46);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\r\n  transition: background 0.14s ease, color 0.14s ease;\n}\n.ub-vnav__item[data-v-cbdbabef]:hover {\r\n  background: var(--ub-hover);\r\n  color: var(--ub-text);\n}\n.ub-vnav__item.is-active[data-v-cbdbabef] {\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-vnav__icon[data-v-cbdbabef] {\r\n  flex: 0 0 auto;\r\n  width: 1.2em;\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\r\n  opacity: 0.8;\n}\n.ub-vnav__text[data-v-cbdbabef] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-vnav__name[data-v-cbdbabef] {\r\n  overflow: hidden;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 650;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vnav__meta[data-v-cbdbabef] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vnav__item.is-active .ub-vnav__meta[data-v-cbdbabef] {\r\n  color: inherit;\r\n  opacity: 0.75;\n}\n.ub-vnav__empty[data-v-cbdbabef] {\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vnav__sep[data-v-cbdbabef] {\r\n  height: 1px;\r\n  margin: var(--ub-s2) var(--ub-s3);\r\n  background: var(--ub-line-soft);\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizTableNav.vue#style-0-cbdbabef");
 var VizTableNav_vue_vue_type_style_index_0_scoped_cbdbabef_lang = null;
 
-const _hoisted_1$O = {
+const _hoisted_1$P = {
 	class: "ub-vnav",
 	"data-ub-viz-nav": "",
 	"aria-label": "表格列表"
 };
-const _hoisted_2$H = { class: "ub-vnav__label" };
-const _hoisted_3$C = { class: "ub-vnav__list" };
-const _hoisted_4$x = [
+const _hoisted_2$I = { class: "ub-vnav__label" };
+const _hoisted_3$D = { class: "ub-vnav__list" };
+const _hoisted_4$y = [
 	"aria-current",
 	"data-ub-viz-sheet",
 	"onClick"
 ];
-const _hoisted_5$t = { class: "ub-vnav__text" };
-const _hoisted_6$q = { class: "ub-vnav__name" };
-const _hoisted_7$o = { class: "ub-vnav__meta" };
+const _hoisted_5$u = { class: "ub-vnav__text" };
+const _hoisted_6$r = { class: "ub-vnav__name" };
+const _hoisted_7$p = { class: "ub-vnav__meta" };
 const _hoisted_8$k = {
 	key: 0,
 	class: "ub-vnav__empty"
 };
-function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("nav", _hoisted_1$O, [
+function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("nav", _hoisted_1$P, [
 		createBaseVNode(
 			"p",
-			_hoisted_2$H,
+			_hoisted_2$I,
 			"表格 · " + toDisplayString($props.sheetItems.length),
 			1
 			/* TEXT */
 		),
-		createBaseVNode("ul", _hoisted_3$C, [(openBlock(true), createElementBlock(
+		createBaseVNode("ul", _hoisted_3$D, [(openBlock(true), createElementBlock(
 			Fragment,
 			null,
 			renderList($props.sheetItems, (item) => {
@@ -189189,19 +189189,19 @@ function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
 					null,
 					-1
 					/* CACHED */
-				)), createBaseVNode("span", _hoisted_5$t, [createBaseVNode(
+				)), createBaseVNode("span", _hoisted_5$u, [createBaseVNode(
 					"span",
-					_hoisted_6$q,
+					_hoisted_6$r,
 					toDisplayString(item.name),
 					1
 					/* TEXT */
 				), createBaseVNode(
 					"span",
-					_hoisted_7$o,
+					_hoisted_7$p,
 					toDisplayString(item.rowCount) + " 行 · " + toDisplayString(item.columnCount) + " 列",
 					1
 					/* TEXT */
-				)])], 10, _hoisted_4$x)]);
+				)])], 10, _hoisted_4$y)]);
 			}),
 			128
 			/* KEYED_FRAGMENT */
@@ -189246,9 +189246,9 @@ function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
 		)
 	]);
 }
-var VizTableNav = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$T], ["__scopeId", "data-v-cbdbabef"]]);
+var VizTableNav = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$U], ["__scopeId", "data-v-cbdbabef"]]);
 
-var _sfc_main$T = /*@__PURE__*/ defineComponent({
+var _sfc_main$U = /*@__PURE__*/ defineComponent({
     __name: 'VisualizerSurface',
     emits: ["close"],
     setup(__props, { expose: __expose, emit: __emit }) {
@@ -189448,16 +189448,16 @@ var _sfc_main$T = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-viz[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  min-height: 0;\n}\n.ub-viz__rail[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 0 0 var(--ub-rail-w);\r\n  width: var(--ub-rail-w);\r\n  min-height: 0;\r\n  padding: var(--ub-s5) var(--ub-s3) var(--ub-s3);\r\n  border-right: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-nav-bg);\n}\n.ub-viz__brand[data-v-e4f3077e] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\r\n  padding: 0 var(--ub-s2);\n}\n.ub-viz__mark[data-v-e4f3077e] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 36);\r\n  height: calc(var(--ub-u) * 36);\r\n  border-radius: 11px;\r\n  background: linear-gradient(140deg, var(--ub-accent), color-mix(in srgb, var(--ub-accent) 55%, var(--ub-text)));\r\n  color: var(--ub-on-accent);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-viz__brand-text[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-viz__brand-name[data-v-e4f3077e] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 800;\n}\n.ub-viz__brand-tag[data-v-e4f3077e] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-viz__rail-nav[data-v-e4f3077e] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  margin: var(--ub-s5) calc(var(--ub-s1) * -1) 0;\r\n  padding: 0 var(--ub-s1);\r\n  overflow-y: auto;\n}\n.ub-viz__main[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  min-height: 0;\n}\n.ub-viz__head[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  flex: 0 0 auto;\r\n  min-height: calc(var(--ub-u) * 64);\r\n  padding: var(--ub-s2) var(--ub-s3) var(--ub-s2) var(--ub-page-pad);\n}\n.ub-viz__switcher[data-v-e4f3077e] {\r\n  display: none;\n}\n.ub-viz__titles[data-v-e4f3077e] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-viz__title[data-v-e4f3077e] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xl);\r\n  font-weight: 800;\r\n  letter-spacing: -0.02em;\r\n  line-height: 1.25;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-viz__sub[data-v-e4f3077e] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-viz__conflict[data-v-e4f3077e] {\r\n  flex: 0 0 auto;\r\n  padding: 0 var(--ub-page-pad) var(--ub-s3);\n}\n.ub-viz__conflict-actions[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\r\n  margin-top: var(--ub-s2);\n}\n.ub-viz__scroll[data-v-e4f3077e] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  overflow-x: hidden;\r\n  overflow-y: auto;\r\n  overscroll-behavior: contain;\r\n  scrollbar-gutter: stable;\n}\n.ub-viz__page[data-v-e4f3077e] {\r\n  border: 0;\r\n  min-width: 0;\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-height: 100%;\r\n  max-width: calc(var(--ub-page-max) + var(--ub-page-pad) * 2);\r\n  margin: 0 auto;\r\n  padding: var(--ub-s2) var(--ub-page-pad) var(--ub-s8);\n}\n.ub-viz__state[data-v-e4f3077e] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s6) 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-viz__state--error[data-v-e4f3077e] {\r\n  flex-direction: column;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s3);\n}\n.ub-viz__footer[data-v-e4f3077e] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  flex: 0 0 auto;\r\n  padding: var(--ub-s3) var(--ub-page-pad);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-panel);\n}\n.ub-viz__status[data-v-e4f3077e] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-viz__status > i[data-v-e4f3077e] {\r\n  font-size: 0.85em;\r\n  color: var(--ub-ok);\n}\n.ub-viz__status.is-dirty[data-v-e4f3077e] {\r\n  color: var(--ub-text);\n}\n.ub-viz__status.is-dirty > i[data-v-e4f3077e] {\r\n  font-size: 0.6em;\r\n  color: var(--ub-warn);\n}\n.ub-viz__save[data-v-e4f3077e] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n@media (max-width: 760px) {\n.ub-viz__rail[data-v-e4f3077e] {\r\n    display: none;\n}\n.ub-viz__head[data-v-e4f3077e] {\r\n    min-height: 0;\r\n    padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s3);\n}\n.ub-viz__titles[data-v-e4f3077e] {\r\n    display: none;\n}\n.ub-viz__switcher[data-v-e4f3077e] {\r\n    display: inline-flex;\r\n    align-items: center;\r\n    gap: var(--ub-s2);\r\n    flex: 1 1 auto;\r\n    min-width: 0;\r\n    min-height: calc(var(--ub-u) * 40);\r\n    padding: 0 var(--ub-s3);\r\n    border: 1px solid var(--ub-line-soft);\r\n    border-radius: var(--ub-r-control);\r\n    background: var(--ub-panel);\r\n    color: var(--ub-text);\r\n    font: inherit;\r\n    font-size: var(--ub-fs-md);\r\n    font-weight: 700;\r\n    text-align: left;\r\n    cursor: pointer;\n}\n.ub-viz__switcher > i[data-v-e4f3077e]:first-child {\r\n    color: var(--ub-accent-ink);\r\n    font-size: var(--ub-fs-sm);\n}\n.ub-viz__switcher-name[data-v-e4f3077e] {\r\n    flex: 1 1 auto;\r\n    min-width: 0;\r\n    overflow: hidden;\r\n    text-overflow: ellipsis;\r\n    white-space: nowrap;\n}\n.ub-viz__switcher-chev[data-v-e4f3077e] {\r\n    color: var(--ub-text-3);\r\n    font-size: var(--ub-fs-xs);\n}\n.ub-viz__modes[data-v-e4f3077e] {\r\n    order: 10;\r\n    flex: 1 1 100%;\n}\n.ub-viz__modes[data-v-e4f3077e] .ub-seg__item {\r\n    flex: 1 1 0;\n}\n.ub-viz__footer[data-v-e4f3077e] {\r\n    flex-direction: column;\r\n    align-items: stretch;\r\n    gap: var(--ub-s2);\r\n    padding: var(--ub-s2) var(--ub-s3);\n}\n.ub-viz__status[data-v-e4f3077e] {\r\n    display: none;\n}\n.ub-viz__save[data-v-e4f3077e] {\r\n    display: grid;\r\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n.ub-viz__save-main[data-v-e4f3077e] {\r\n    grid-column: 1 / -1;\n}\n.ub-viz__save[data-v-e4f3077e] .ub-btn__label {\r\n    overflow: hidden;\r\n    text-overflow: ellipsis;\n}\n}\r\n", "src/presentation-v3/surfaces/VisualizerSurface.vue#style-0-e4f3077e");
 var VisualizerSurface_vue_vue_type_style_index_0_scoped_e4f3077e_lang = null;
 
-const _hoisted_1$N = {
+const _hoisted_1$O = {
 	class: "ub-viz",
 	"data-ub-viz": ""
 };
-const _hoisted_2$G = { class: "ub-viz__rail" };
-const _hoisted_3$B = { class: "ub-viz__brand" };
-const _hoisted_4$w = { class: "ub-viz__brand-text" };
-const _hoisted_5$s = { class: "ub-viz__brand-tag" };
-const _hoisted_6$p = { class: "ub-viz__rail-nav" };
-const _hoisted_7$n = { class: "ub-viz__main" };
+const _hoisted_2$H = { class: "ub-viz__rail" };
+const _hoisted_3$C = { class: "ub-viz__brand" };
+const _hoisted_4$x = { class: "ub-viz__brand-text" };
+const _hoisted_5$t = { class: "ub-viz__brand-tag" };
+const _hoisted_6$q = { class: "ub-viz__rail-nav" };
+const _hoisted_7$o = { class: "ub-viz__main" };
 const _hoisted_8$j = {
 	class: "ub-viz__head",
 	"data-ub-viz-head": ""
@@ -189495,9 +189495,9 @@ const _hoisted_21$5 = {
 	"aria-label": "保存"
 };
 const _hoisted_22$5 = { class: "ub-viz__save" };
-function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$N, [
-		createBaseVNode("aside", _hoisted_2$G, [createBaseVNode("div", _hoisted_3$B, [_cache[5] || (_cache[5] = createBaseVNode(
+function _sfc_render$T(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$O, [
+		createBaseVNode("aside", _hoisted_2$H, [createBaseVNode("div", _hoisted_3$C, [_cache[5] || (_cache[5] = createBaseVNode(
 			"span",
 			{
 				class: "ub-viz__mark",
@@ -189506,7 +189506,7 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 			[createBaseVNode("i", { class: "fa-solid fa-database" })],
 			-1
 			/* CACHED */
-		)), createBaseVNode("span", _hoisted_4$w, [_cache[4] || (_cache[4] = createBaseVNode(
+		)), createBaseVNode("span", _hoisted_4$x, [_cache[4] || (_cache[4] = createBaseVNode(
 			"span",
 			{ class: "ub-viz__brand-name" },
 			"数据库编辑器",
@@ -189514,11 +189514,11 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 			/* CACHED */
 		)), createBaseVNode(
 			"span",
-			_hoisted_5$s,
+			_hoisted_5$t,
 			toDisplayString($setup.visualizer.sheetItems.length) + " 张表 · " + toDisplayString($setup.visualizer.dirty ? "有未保存修改" : "已同步"),
 			1
 			/* TEXT */
-		)])]), createBaseVNode("div", _hoisted_6$p, [createVNode($setup["VizTableNav"], {
+		)])]), createBaseVNode("div", _hoisted_6$q, [createVNode($setup["VizTableNav"], {
 			"sheet-items": $setup.visualizer.sheetItems,
 			"current-sheet-key": $setup.visualizer.currentSheetKey,
 			"sheet-mode": $setup.sheetMode,
@@ -189529,7 +189529,7 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 			"current-sheet-key",
 			"sheet-mode"
 		])])]),
-		createBaseVNode("div", _hoisted_7$n, [
+		createBaseVNode("div", _hoisted_7$o, [
 			createBaseVNode("header", _hoisted_8$j, [
 				createBaseVNode("button", {
 					type: "button",
@@ -189822,7 +189822,7 @@ function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 		}, 8, ["is-open", "subtitle"])
 	]);
 }
-var VisualizerSurface = /* @__PURE__ */ _export_sfc(_sfc_main$T, [["render", _sfc_render$S], ["__scopeId", "data-v-e4f3077e"]]);
+var VisualizerSurface = /* @__PURE__ */ _export_sfc(_sfc_main$U, [["render", _sfc_render$T], ["__scopeId", "data-v-e4f3077e"]]);
 
 /**
  * presentation-v2/composables/debug-issue-link.ts — Debug 面板「前往 GitHub 提交 issue」链接
@@ -191800,7 +191800,7 @@ const advancedToolsCopy = {
     },
 };
 
-var _sfc_main$S = /*@__PURE__*/ defineComponent({
+var _sfc_main$T = /*@__PURE__*/ defineComponent({
     __name: 'UbPage',
     props: {
         lead: { default: undefined },
@@ -191834,18 +191834,18 @@ var _sfc_main$S = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-page[data-v-2ff73a0a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s4);\r\n  width: 100%;\r\n  max-width: var(--ub-page-max);\r\n  min-width: 0;\r\n  margin: 0 auto;\r\n  padding: var(--ub-s2) var(--ub-page-pad) calc(var(--ub-s8) + var(--ub-safe-bottom));\n}\n.ub-page--wide[data-v-2ff73a0a] {\r\n  max-width: var(--ub-page-max-wide);\n}\n.ub-page__lead[data-v-2ff73a0a] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\n}\n.ub-page__jump[data-v-2ff73a0a] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 5;\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  margin: 0 calc(var(--ub-page-pad) * -1);\r\n  padding: var(--ub-s2) var(--ub-page-pad);\r\n  overflow-x: auto;\r\n  background: linear-gradient(var(--ub-bg) 78%, transparent);\r\n  scrollbar-width: none;\n}\n.ub-page__jump[data-v-2ff73a0a]::-webkit-scrollbar {\r\n  display: none;\n}\n.ub-page__chip[data-v-2ff73a0a] {\r\n  flex: 0 0 auto;\r\n  padding: var(--ub-s1) var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  cursor: pointer;\r\n  transition: color 0.14s ease, border-color 0.14s ease;\n}\n.ub-page__chip[data-v-2ff73a0a]:hover {\r\n  border-color: var(--ub-accent);\r\n  color: var(--ub-accent-ink);\n}\n.ub-page__body[data-v-2ff73a0a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\r\n", "src/presentation-v3/ui/UbPage.vue#style-0-2ff73a0a");
 var UbPage_vue_vue_type_style_index_0_scoped_2ff73a0a_lang = null;
 
-const _hoisted_1$M = {
+const _hoisted_1$N = {
 	key: 0,
 	class: "ub-page__lead"
 };
-const _hoisted_2$F = {
+const _hoisted_2$G = {
 	key: 1,
 	class: "ub-page__jump",
 	"aria-label": "页内跳转"
 };
-const _hoisted_3$A = ["onClick"];
-const _hoisted_4$v = { class: "ub-page__body" };
-function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_3$B = ["onClick"];
+const _hoisted_4$w = { class: "ub-page__body" };
+function _sfc_render$S(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{
@@ -191855,12 +191855,12 @@ function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
 		[
 			$props.lead ? (openBlock(), createElementBlock(
 				"p",
-				_hoisted_1$M,
+				_hoisted_1$N,
 				toDisplayString($props.lead),
 				1
 				/* TEXT */
 			)) : createCommentVNode("v-if", true),
-			$props.sections && $props.sections.length > 1 ? (openBlock(), createElementBlock("nav", _hoisted_2$F, [(openBlock(true), createElementBlock(
+			$props.sections && $props.sections.length > 1 ? (openBlock(), createElementBlock("nav", _hoisted_2$G, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($props.sections, (item) => {
@@ -191869,20 +191869,20 @@ function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
 						type: "button",
 						class: "ub-page__chip",
 						onClick: ($event) => $setup.jumpTo(item.id)
-					}, toDisplayString(item.label), 9, _hoisted_3$A);
+					}, toDisplayString(item.label), 9, _hoisted_3$B);
 				}),
 				128
 				/* KEYED_FRAGMENT */
 			))])) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_4$v, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])
+			createBaseVNode("div", _hoisted_4$w, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])
 		],
 		2
 		/* CLASS */
 	);
 }
-var UbPage = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$R], ["__scopeId", "data-v-2ff73a0a"]]);
+var UbPage = /* @__PURE__ */ _export_sfc(_sfc_main$T, [["render", _sfc_render$S], ["__scopeId", "data-v-2ff73a0a"]]);
 
-var _sfc_main$R = /*@__PURE__*/ defineComponent({
+var _sfc_main$S = /*@__PURE__*/ defineComponent({
     __name: 'AdvancedToolsPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -191966,22 +191966,22 @@ var _sfc_main$R = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-at__sql[data-v-8872d3e1],\r\n.ub-at__logs[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-at__row[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-at__spacer[data-v-8872d3e1] {\r\n  flex: 1 1 auto;\n}\n.ub-at__hint[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__status[data-v-8872d3e1] {\r\n  margin-left: auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__status.is-success[data-v-8872d3e1] {\r\n  color: var(--ub-ok);\n}\n.ub-at__status.is-error[data-v-8872d3e1] {\r\n  color: var(--ub-danger);\n}\n.ub-at__result[data-v-8872d3e1] {\r\n  min-width: 0;\n}\n.ub-at__empty[data-v-8872d3e1] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-at__error[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\n}\n.ub-at__table-wrap[data-v-8872d3e1] {\r\n  max-height: calc(var(--ub-u) * 420);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  overflow: auto;\n}\n.ub-at__table[data-v-8872d3e1] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__table th[data-v-8872d3e1],\r\n.ub-at__table td[data-v-8872d3e1] {\r\n  max-width: 320px;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  text-align: left;\r\n  vertical-align: top;\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__table th[data-v-8872d3e1] {\r\n  position: sticky;\r\n  top: 0;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__table td.is-null[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-at__meta[data-v-8872d3e1] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__note[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__sort[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 4px;\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: inherit;\r\n  font: inherit;\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-at__cell[data-v-8872d3e1] {\r\n  cursor: copy;\n}\n.ub-at__snippets[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-at__snippet[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  max-width: 100%;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  cursor: pointer;\n}\n.ub-at__snippet code[data-v-8872d3e1] {\r\n  max-width: 320px;\r\n  overflow: hidden;\r\n  color: var(--ub-text-2);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-at__snippet-remove[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__snippet-remove[data-v-8872d3e1]:hover {\r\n  color: var(--ub-danger);\n}\n.ub-at__history[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  width: 100%;\r\n  padding: var(--ub-s2);\r\n  border: 0;\r\n  border-left: 3px solid var(--ub-ok);\r\n  border-radius: 6px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-at__history.is-fail[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-danger);\n}\n.ub-at__history-meta[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__history code[data-v-8872d3e1] {\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-all;\n}\n.ub-at__filters[data-v-8872d3e1] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);\r\n  gap: var(--ub-s2);\n}\n.ub-at__switch[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__loglist[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  max-height: calc(var(--ub-u) * 520);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  overflow-y: auto;\n}\n.ub-at__log[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  border-left: 3px solid transparent;\n}\n.ub-at__log.is-error[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-danger);\n}\n.ub-at__log.is-warn[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-warn);\n}\n.ub-at__log-meta[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__log-tag[data-v-8872d3e1] {\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__log-msg[data-v-8872d3e1] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__log-hint[data-v-8872d3e1] {\r\n  margin-top: var(--ub-s1);\r\n  padding: var(--ub-s2);\r\n  border-radius: 6px;\r\n  background: var(--ub-warn-soft);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__log-hint summary[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  cursor: pointer;\r\n  list-style: none;\n}\n.ub-at__log-hint summary i[data-v-8872d3e1] {\r\n  color: var(--ub-warn);\n}\n.ub-at__log-hint-toggle[data-v-8872d3e1] {\r\n  margin-left: auto;\r\n  color: var(--ub-accent-ink);\r\n  font-weight: 700;\n}\n.ub-at__log-hint ol[data-v-8872d3e1] {\r\n  margin: var(--ub-s2) 0 0;\r\n  padding-left: 1.4em;\n}\n.ub-at__steps[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.8;\n}\n@media (max-width: 640px) {\n.ub-at__filters[data-v-8872d3e1] {\r\n    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n}\n.ub-at__filters[data-v-8872d3e1] > :last-child {\r\n    grid-column: 1 / -1;\n}\n}\r\n", "src/presentation-v3/pages/AdvancedToolsPage.vue#style-0-8872d3e1");
 var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_8872d3e1_lang = null;
 
-const _hoisted_1$L = { class: "ub-at__sql" };
-const _hoisted_2$E = { class: "ub-at__row" };
-const _hoisted_3$z = { class: "ub-at__row" };
-const _hoisted_4$u = {
+const _hoisted_1$M = { class: "ub-at__sql" };
+const _hoisted_2$F = { class: "ub-at__row" };
+const _hoisted_3$A = { class: "ub-at__row" };
+const _hoisted_4$v = {
 	class: "ub-at__result",
 	"aria-label": "SQL 执行结果"
 };
-const _hoisted_5$r = {
+const _hoisted_5$s = {
 	key: 0,
 	class: "ub-at__empty"
 };
-const _hoisted_6$o = {
+const _hoisted_6$p = {
 	key: 1,
 	class: "ub-at__note"
 };
-const _hoisted_7$m = {
+const _hoisted_7$n = {
 	key: 3,
 	class: "ub-at__error"
 };
@@ -192043,7 +192043,7 @@ const _hoisted_34$1 = { class: "ub-at__log-tag" };
 const _hoisted_35$1 = { class: "ub-at__log-msg" };
 const _hoisted_36$1 = ["data-hint-id"];
 const _hoisted_37$1 = { class: "ub-at__row" };
-function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$R(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		sections: $setup.sections,
 		wide: ""
@@ -192063,8 +192063,8 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 					)]),
 					_: 1
 				}, 8, ["variant"])]),
-				default: withCtx(() => [createBaseVNode("div", _hoisted_1$L, [
-					createBaseVNode("div", _hoisted_2$E, [createVNode($setup["UbButton"], {
+				default: withCtx(() => [createBaseVNode("div", _hoisted_1$M, [
+					createBaseVNode("div", _hoisted_2$F, [createVNode($setup["UbButton"], {
 						size: "sm",
 						variant: "ghost",
 						icon: "fa-solid fa-list",
@@ -192108,7 +192108,7 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 						32
 						/* NEED_HYDRATION */
 					),
-					createBaseVNode("div", _hoisted_3$z, [
+					createBaseVNode("div", _hoisted_3$A, [
 						createVNode($setup["UbButton"], {
 							variant: "primary",
 							icon: "fa-solid fa-play",
@@ -192170,9 +192170,9 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 							/* TEXT, CLASS */
 						)
 					]),
-					createBaseVNode("div", _hoisted_4$u, [$setup.sqlFlow.result.value.kind === "idle" ? (openBlock(), createElementBlock("p", _hoisted_5$r, "执行 SQL 后结果会显示在这里")) : createCommentVNode("v-if", true), $setup.sqlFlow.multiStatementCount.value > 0 ? (openBlock(), createElementBlock(
+					createBaseVNode("div", _hoisted_4$v, [$setup.sqlFlow.result.value.kind === "idle" ? (openBlock(), createElementBlock("p", _hoisted_5$s, "执行 SQL 后结果会显示在这里")) : createCommentVNode("v-if", true), $setup.sqlFlow.multiStatementCount.value > 0 ? (openBlock(), createElementBlock(
 						"p",
-						_hoisted_6$o,
+						_hoisted_6$p,
 						" 输入包含 " + toDisplayString($setup.sqlFlow.multiStatementCount.value) + " 条语句：多条语句不会逐条展示结果/影响（只读查询请逐条执行），批量变更由提交机制统一处理。 ",
 						1
 						/* TEXT */
@@ -192188,7 +192188,7 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 						_: 1
 					})) : $setup.sqlFlow.result.value.kind === "error" ? (openBlock(), createElementBlock(
 						"pre",
-						_hoisted_7$m,
+						_hoisted_7$n,
 						toDisplayString($setup.sqlFlow.result.value.error),
 						1
 						/* TEXT */
@@ -192715,7 +192715,7 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$Q], ["__scopeId", "data-v-8872d3e1"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$S, [["render", _sfc_render$R], ["__scopeId", "data-v-8872d3e1"]]);
 
 function buildWorldbookSnapshotEntryIndexByBook_ACU(snapshot) {
     const result = new Map();
@@ -194585,7 +194585,7 @@ function useWorldbookSelector() {
     return { names, charPrimary, status, error, refresh };
 }
 
-var _sfc_main$Q = /*@__PURE__*/ defineComponent({
+var _sfc_main$R = /*@__PURE__*/ defineComponent({
     __name: 'AgentAdvancedSheet',
     props: {
         open: { type: Boolean },
@@ -194760,8 +194760,8 @@ var _sfc_main$Q = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-agadv__prompt-head[data-v-2ccfbde7] {\r\n  display: flex;\r\n  justify-content: flex-end;\n}\r\n", "src/presentation-v3/parts/AgentAdvancedSheet.vue#style-0-2ccfbde7");
 var AgentAdvancedSheet_vue_vue_type_style_index_0_scoped_2ccfbde7_lang = null;
 
-const _hoisted_1$K = { class: "ub-agadv__prompt-head" };
-function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$L = { class: "ub-agadv__prompt-head" };
+function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSheet"], {
 		"is-open": $props.open,
 		title: $setup.copy.advanced.title,
@@ -194982,7 +194982,7 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 								"aria-label": "提示词类别",
 								block: ""
 							}, null, 8, ["modelValue"]),
-							createBaseVNode("div", _hoisted_1$K, [createVNode($setup["UbButton"], {
+							createBaseVNode("div", _hoisted_1$L, [createVNode($setup["UbButton"], {
 								size: "sm",
 								variant: "ghost",
 								icon: "fa-solid fa-rotate-left",
@@ -195023,10 +195023,10 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 		"subtitle"
 	]);
 }
-var AgentAdvancedSheet = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$P], ["__scopeId", "data-v-2ccfbde7"]]);
+var AgentAdvancedSheet = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$Q], ["__scopeId", "data-v-2ccfbde7"]]);
 
 const PAGE_SIZE = 200;
-var _sfc_main$P = /*@__PURE__*/ defineComponent({
+var _sfc_main$Q = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookEntries',
     props: {
         groups: {},
@@ -195172,23 +195172,23 @@ var _sfc_main$P = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-wbe[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\n}\n.ub-wbe__toolbar[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-wbe__search[data-v-2ffd55d4] {\r\n  flex: 1 1 calc(var(--ub-u) * 200);\n}\n.ub-wbe__actions[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\n}\n.ub-wbe__status[data-v-2ffd55d4] {\r\n  padding: var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-wbe__status.is-error[data-v-2ffd55d4] {\r\n  border-color: var(--ub-danger);\r\n  color: var(--ub-danger);\n}\n.ub-wbe__groups[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-wbe__entry[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  padding: var(--ub-s1) 0;\n}\n.ub-wbe__entry + .ub-wbe__entry[data-v-2ffd55d4] {\r\n  border-top: 1px dashed var(--ub-line-soft);\r\n  padding-top: var(--ub-s2);\n}\n.ub-wbe__entry.is-disabled[data-v-2ffd55d4] {\r\n  opacity: 0.6;\n}\n.ub-wbe__entry-main[data-v-2ffd55d4] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\n}\n.ub-wbe__label[data-v-2ffd55d4] {\r\n  min-width: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  overflow-wrap: anywhere;\n}\n.ub-wbe__tags[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s1);\r\n  flex: 0 0 auto;\n}\n.ub-wbe__skill-row[data-v-2ffd55d4] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\r\n  padding-left: calc(var(--ub-u) * 26);\n}\n.ub-wbe__skill[data-v-2ffd55d4] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin-left: calc(var(--ub-u) * 26);\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-wbe__skill-actions[data-v-2ffd55d4] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\r\n", "src/presentation-v3/parts/WorldbookEntries.vue#style-0-2ffd55d4");
 var WorldbookEntries_vue_vue_type_style_index_0_scoped_2ffd55d4_lang = null;
 
-const _hoisted_1$J = { class: "ub-wbe" };
-const _hoisted_2$D = { class: "ub-wbe__toolbar" };
-const _hoisted_3$y = { class: "ub-wbe__actions" };
-const _hoisted_4$t = {
+const _hoisted_1$K = { class: "ub-wbe" };
+const _hoisted_2$E = { class: "ub-wbe__toolbar" };
+const _hoisted_3$z = { class: "ub-wbe__actions" };
+const _hoisted_4$u = {
 	key: 0,
 	class: "ub-wbe__status"
 };
-const _hoisted_5$q = {
+const _hoisted_5$r = {
 	key: 1,
 	class: "ub-wbe__status is-error",
 	role: "alert"
 };
-const _hoisted_6$n = {
+const _hoisted_6$o = {
 	key: 2,
 	class: "ub-wbe__status"
 };
-const _hoisted_7$l = {
+const _hoisted_7$m = {
 	key: 3,
 	class: "ub-wbe__groups"
 };
@@ -195204,15 +195204,15 @@ const _hoisted_12$a = {
 	class: "ub-wbe__skill"
 };
 const _hoisted_13$9 = { class: "ub-wbe__skill-actions" };
-function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$J, [createBaseVNode("div", _hoisted_2$D, [createVNode($setup["UbInput"], {
+function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$K, [createBaseVNode("div", _hoisted_2$E, [createVNode($setup["UbInput"], {
 		class: "ub-wbe__search",
 		"model-value": $props.filter,
 		icon: "fa-solid fa-magnifying-glass",
 		placeholder: "搜索条目...",
 		"aria-label": "搜索条目",
 		"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => $setup.emit("update:filter", String($event)))
-	}, null, 8, ["model-value"]), createBaseVNode("div", _hoisted_3$y, [$props.showEntryToggle ? (openBlock(), createElementBlock(
+	}, null, 8, ["model-value"]), createBaseVNode("div", _hoisted_3$z, [$props.showEntryToggle ? (openBlock(), createElementBlock(
 		Fragment,
 		{ key: 0 },
 		[createVNode($setup["UbButton"], {
@@ -195284,19 +195284,19 @@ function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
 		],
 		64
 		/* STABLE_FRAGMENT */
-	)) : createCommentVNode("v-if", true)])]), $props.loading ? (openBlock(), createElementBlock("p", _hoisted_4$t, "正在加载条目...")) : $props.status === "error" ? (openBlock(), createElementBlock(
+	)) : createCommentVNode("v-if", true)])]), $props.loading ? (openBlock(), createElementBlock("p", _hoisted_4$u, "正在加载条目...")) : $props.status === "error" ? (openBlock(), createElementBlock(
 		"p",
-		_hoisted_5$q,
+		_hoisted_5$r,
 		toDisplayString($props.error || "加载条目失败"),
 		1
 		/* TEXT */
 	)) : $props.groups.length === 0 ? (openBlock(), createElementBlock(
 		"p",
-		_hoisted_6$n,
+		_hoisted_6$o,
 		toDisplayString($props.emptyText),
 		1
 		/* TEXT */
-	)) : (openBlock(), createElementBlock("div", _hoisted_7$l, [(openBlock(true), createElementBlock(
+	)) : (openBlock(), createElementBlock("div", _hoisted_7$m, [(openBlock(true), createElementBlock(
 		Fragment,
 		null,
 		renderList($setup.filteredGroups, (group, index) => {
@@ -195467,9 +195467,9 @@ function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
 		/* KEYED_FRAGMENT */
 	))]))]);
 }
-var WorldbookEntries = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$O], ["__scopeId", "data-v-2ffd55d4"]]);
+var WorldbookEntries = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$P], ["__scopeId", "data-v-2ffd55d4"]]);
 
-var _sfc_main$O = /*@__PURE__*/ defineComponent({
+var _sfc_main$P = /*@__PURE__*/ defineComponent({
     __name: 'WorldbookSourcePicker',
     props: {
         source: {},
@@ -195510,26 +195510,26 @@ var _sfc_main$O = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-wbsrc[data-v-fa1a6bea] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\n}\n.ub-wbsrc__manual[data-v-fa1a6bea] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-wbsrc__list[data-v-fa1a6bea] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  max-height: calc(var(--ub-u) * 220);\r\n  padding: var(--ub-s1);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  overflow-y: auto;\n}\n.ub-wbsrc__list.is-loading[data-v-fa1a6bea] {\r\n  opacity: 0.6;\n}\n.ub-wbsrc__book[data-v-fa1a6bea] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: var(--ub-control-h-sm);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: calc(var(--ub-r-control) - 3px);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-wbsrc__book[data-v-fa1a6bea]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-wbsrc__book.is-on[data-v-fa1a6bea] {\r\n  color: var(--ub-text);\r\n  font-weight: 600;\n}\n.ub-wbsrc__book.is-on i[data-v-fa1a6bea] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-wbsrc__book span[data-v-fa1a6bea] {\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-wbsrc__empty[data-v-fa1a6bea] {\r\n  padding: var(--ub-s3);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: center;\n}\n.ub-wbsrc__error[data-v-fa1a6bea] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\r\n", "src/presentation-v3/parts/WorldbookSourcePicker.vue#style-0-fa1a6bea");
 var WorldbookSourcePicker_vue_vue_type_style_index_0_scoped_fa1a6bea_lang = null;
 
-const _hoisted_1$I = { class: "ub-wbsrc" };
-const _hoisted_2$C = {
+const _hoisted_1$J = { class: "ub-wbsrc" };
+const _hoisted_2$D = {
 	key: 0,
 	class: "ub-wbsrc__manual"
 };
-const _hoisted_3$x = [
+const _hoisted_3$y = [
 	"aria-checked",
 	"disabled",
 	"onClick"
 ];
-const _hoisted_4$s = {
+const _hoisted_4$t = {
 	key: 0,
 	class: "ub-wbsrc__empty"
 };
-const _hoisted_5$p = {
+const _hoisted_5$q = {
 	key: 1,
 	class: "ub-wbsrc__error"
 };
-function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$I, [
+function _sfc_render$O(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$J, [
 		createVNode($setup["UbSegmented"], {
 			options: $setup.sourceOptions,
 			"model-value": $props.source,
@@ -195537,7 +195537,7 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 			block: "",
 			"onUpdate:modelValue": $setup.onSourceChange
 		}, null, 8, ["options", "model-value"]),
-		$props.source === "manual" ? (openBlock(), createElementBlock("div", _hoisted_2$C, [$props.filterable ? (openBlock(), createBlock($setup["UbInput"], {
+		$props.source === "manual" ? (openBlock(), createElementBlock("div", _hoisted_2$D, [$props.filterable ? (openBlock(), createBlock($setup["UbInput"], {
 			key: 0,
 			modelValue: $setup.filter,
 			"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => $setup.filter = $event),
@@ -195574,13 +195574,13 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 						toDisplayString(name),
 						1
 						/* TEXT */
-					)], 10, _hoisted_3$x);
+					)], 10, _hoisted_3$y);
 				}),
 				128
 				/* KEYED_FRAGMENT */
 			)), !$setup.filteredNames.length ? (openBlock(), createElementBlock(
 				"p",
-				_hoisted_4$s,
+				_hoisted_4$t,
 				toDisplayString($props.status === "loading" ? "正在加载世界书..." : "无可选世界书"),
 				1
 				/* TEXT */
@@ -195590,16 +195590,16 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 		)])) : createCommentVNode("v-if", true),
 		$props.status === "error" ? (openBlock(), createElementBlock(
 			"p",
-			_hoisted_5$p,
+			_hoisted_5$q,
 			toDisplayString($props.error || "加载失败"),
 			1
 			/* TEXT */
 		)) : createCommentVNode("v-if", true)
 	]);
 }
-var WorldbookSourcePicker = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$N], ["__scopeId", "data-v-fa1a6bea"]]);
+var WorldbookSourcePicker = /* @__PURE__ */ _export_sfc(_sfc_main$P, [["render", _sfc_render$O], ["__scopeId", "data-v-fa1a6bea"]]);
 
-var _sfc_main$N = /*@__PURE__*/ defineComponent({
+var _sfc_main$O = /*@__PURE__*/ defineComponent({
     __name: 'AgentPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -195830,16 +195830,16 @@ var _sfc_main$N = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-agent__mode[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-agent__config[data-v-f0fd1638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-agent__actions[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\n}\n.ub-agent__current[data-v-f0fd1638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  overflow-wrap: anywhere;\n}\n.ub-agent__current strong[data-v-f0fd1638] {\r\n  color: var(--ub-text);\n}\n.ub-agent-fav[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-agent-fav__list[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  padding: var(--ub-s1);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\n}\n.ub-agent-fav__item[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) 0;\n}\n.ub-agent-fav__item + .ub-agent-fav__item[data-v-f0fd1638] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-agent-fav__check[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex: 1 1 calc(var(--ub-u) * 120);\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  min-height: var(--ub-control-h-sm);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: calc(var(--ub-r-control) - 3px);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: left;\r\n  cursor: pointer;\r\n  overflow-wrap: anywhere;\n}\n.ub-agent-fav__check[data-v-f0fd1638]:hover:not(:disabled) {\r\n  background: var(--ub-hover);\n}\n.ub-agent-fav__check[data-v-f0fd1638]:disabled {\r\n  cursor: not-allowed;\r\n  opacity: 0.6;\n}\n.ub-agent-fav__check.is-on[data-v-f0fd1638] {\r\n  color: var(--ub-text);\r\n  font-weight: 600;\n}\n.ub-agent-fav__check.is-on i[data-v-f0fd1638] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-agent-fav__add[data-v-f0fd1638],\r\n.ub-agent-fav__mount[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-agent-fav__add[data-v-f0fd1638] > :first-child {\r\n  flex: 1 1 calc(var(--ub-u) * 140);\r\n  min-width: 0;\n}\n.ub-agent-fav__mount .ub-agent__current[data-v-f0fd1638] {\r\n  flex: 1 1 auto;\n}\r\n", "src/presentation-v3/pages/AgentPage.vue#style-0-f0fd1638");
 var AgentPage_vue_vue_type_style_index_0_scoped_f0fd1638_lang = null;
 
-const _hoisted_1$H = { class: "ub-agent__mode" };
-const _hoisted_2$B = { class: "ub-agent__config" };
-const _hoisted_3$w = { class: "ub-agent__actions" };
-const _hoisted_4$r = { class: "ub-agent__current" };
-const _hoisted_5$o = { class: "ub-agent-fav" };
-const _hoisted_6$m = {
+const _hoisted_1$I = { class: "ub-agent__mode" };
+const _hoisted_2$C = { class: "ub-agent__config" };
+const _hoisted_3$x = { class: "ub-agent__actions" };
+const _hoisted_4$s = { class: "ub-agent__current" };
+const _hoisted_5$p = { class: "ub-agent-fav" };
+const _hoisted_6$n = {
 	key: 0,
 	class: "ub-agent__current"
 };
-const _hoisted_7$k = {
+const _hoisted_7$l = {
 	key: 1,
 	class: "ub-agent-fav__list"
 };
@@ -195852,7 +195852,7 @@ const _hoisted_8$g = [
 const _hoisted_9$d = { class: "ub-agent-fav__add" };
 const _hoisted_10$c = { class: "ub-agent-fav__mount" };
 const _hoisted_11$b = { class: "ub-agent__current" };
-function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		lead: "独立管理 Agent 的世界书范围、Skill 元数据和接管状态。",
 		sections: $setup.sections
@@ -195873,9 +195873,9 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 					_: 1
 				}, 8, ["variant"])]),
 				default: withCtx(() => [
-					createBaseVNode("div", _hoisted_1$H, [createBaseVNode(
+					createBaseVNode("div", _hoisted_1$I, [createBaseVNode(
 						"p",
-						_hoisted_2$B,
+						_hoisted_2$C,
 						toDisplayString($setup.agentControl.configStatusText.value),
 						1
 						/* TEXT */
@@ -195932,7 +195932,7 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 						"hint",
 						"flagged"
 					]),
-					createBaseVNode("div", _hoisted_3$w, [
+					createBaseVNode("div", _hoisted_3$x, [
 						createVNode($setup["UbButton"], {
 							size: "sm",
 							icon: "fa-solid fa-sliders",
@@ -196014,7 +196014,7 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 					"names",
 					"status",
 					"error"
-				]), createBaseVNode("p", _hoisted_4$r, [_cache[9] || (_cache[9] = createTextVNode(
+				]), createBaseVNode("p", _hoisted_4$s, [_cache[9] || (_cache[9] = createTextVNode(
 					"当前范围：",
 					-1
 					/* CACHED */
@@ -196071,8 +196071,8 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 				icon: "fa-solid fa-star",
 				padded: ""
 			}, {
-				default: withCtx(() => [createBaseVNode("div", _hoisted_5$o, [
-					$setup.favorites.favorites.value.length === 0 ? (openBlock(), createElementBlock("p", _hoisted_6$m, "还没有常用世界书，从下面选一本加入。")) : (openBlock(), createElementBlock("div", _hoisted_7$k, [(openBlock(true), createElementBlock(
+				default: withCtx(() => [createBaseVNode("div", _hoisted_5$p, [
+					$setup.favorites.favorites.value.length === 0 ? (openBlock(), createElementBlock("p", _hoisted_6$n, "还没有常用世界书，从下面选一本加入。")) : (openBlock(), createElementBlock("div", _hoisted_7$l, [(openBlock(true), createElementBlock(
 						Fragment,
 						null,
 						renderList($setup.favorites.favorites.value, (name) => {
@@ -196276,7 +196276,7 @@ function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$N, [["render", _sfc_render$M], ["__scopeId", "data-v-f0fd1638"]]);
+var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$N], ["__scopeId", "data-v-f0fd1638"]]);
 
 const apiCopy = {
     panels: {
@@ -196633,7 +196633,7 @@ function apiPresetFromDraft(draft) {
     };
 }
 
-var _sfc_main$M = /*@__PURE__*/ defineComponent({
+var _sfc_main$N = /*@__PURE__*/ defineComponent({
     __name: 'UbPresetPicker',
     props: {
         items: {},
@@ -196678,21 +196678,21 @@ var _sfc_main$M = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-picker[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker__trigger[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-picker__trigger[data-v-2ea232e6]:hover:not(:disabled) {\r\n  border-color: var(--ub-line-strong);\n}\n.ub-picker__trigger[data-v-2ea232e6]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.ub-picker__star-mark[data-v-2ea232e6] {\r\n  color: var(--ub-warn);\r\n  font-size: 0.85em;\n}\n.ub-picker__value[data-v-2ea232e6] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker__value.is-placeholder[data-v-2ea232e6] {\r\n  color: var(--ub-text-3);\r\n  font-weight: 500;\n}\n.ub-picker__caret[data-v-2ea232e6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-layer[data-v-2ea232e6] {\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9350;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  padding: max(var(--ub-safe-top), 16px) 16px max(var(--ub-safe-bottom), 16px);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.14s ease-out both;\n}\n.ub-picker-panel[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  width: min(420px, 100%);\r\n  max-height: min(560px, 100%);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  overflow: hidden;\r\n  animation: ub-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.ub-picker-panel__head[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-picker-panel__title[data-v-2ea232e6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 700;\n}\n.ub-picker-panel__hint[data-v-2ea232e6] {\r\n  margin: 0;\r\n  padding: 0 var(--ub-s4) var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-panel__list[data-v-2ea232e6] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  margin: 0;\r\n  padding: var(--ub-s1) var(--ub-s2) var(--ub-s2);\r\n  list-style: none;\r\n  overflow-y: auto;\n}\n.ub-picker-panel__item[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: calc(var(--ub-control-h) + 6px);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-radius: var(--ub-r-control);\r\n  cursor: pointer;\n}\n.ub-picker-panel__item[data-v-2ea232e6]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-picker-panel__item.is-active[data-v-2ea232e6] {\r\n  background: var(--ub-accent-soft);\n}\n.ub-picker-panel__check[data-v-2ea232e6] {\r\n  display: inline-flex;\r\n  justify-content: center;\r\n  width: 1.2em;\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-picker-panel__main[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker-panel__name[data-v-2ea232e6] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__meta[data-v-2ea232e6] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__star[data-v-2ea232e6] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  width: var(--ub-control-h-sm);\r\n  height: var(--ub-control-h-sm);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-3);\r\n  cursor: pointer;\n}\n.ub-picker-panel__star[data-v-2ea232e6]:hover {\r\n  background: var(--ub-hover-strong);\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__star.is-default[data-v-2ea232e6] {\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__empty[data-v-2ea232e6] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPresetPicker.vue#style-0-2ea232e6");
 var UbPresetPicker_vue_vue_type_style_index_0_scoped_2ea232e6_lang = null;
 
-const _hoisted_1$G = ["disabled", "aria-expanded"];
-const _hoisted_2$A = {
+const _hoisted_1$H = ["disabled", "aria-expanded"];
+const _hoisted_2$B = {
 	key: 0,
 	class: "fa-solid fa-star ub-picker__star-mark",
 	"aria-hidden": "true",
 	title: "全局默认"
 };
-const _hoisted_3$v = ["aria-label"];
-const _hoisted_4$q = { class: "ub-picker-panel__head" };
-const _hoisted_5$n = { class: "ub-picker-panel__title" };
-const _hoisted_6$l = {
+const _hoisted_3$w = ["aria-label"];
+const _hoisted_4$r = { class: "ub-picker-panel__head" };
+const _hoisted_5$o = { class: "ub-picker-panel__title" };
+const _hoisted_6$m = {
 	key: 0,
 	class: "ub-picker-panel__hint"
 };
-const _hoisted_7$j = {
+const _hoisted_7$k = {
 	class: "ub-picker-panel__list",
 	role: "listbox"
 };
@@ -196720,7 +196720,7 @@ const _hoisted_15$6 = {
 	key: 0,
 	class: "ub-picker-panel__empty"
 };
-function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$M(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{ class: normalizeClass(["ub-picker", { "is-disabled": $props.disabled }]) },
@@ -196732,7 +196732,7 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 			"aria-expanded": $setup.open ? "true" : "false",
 			onClick: _cache[0] || (_cache[0] = ($event) => $setup.open = true)
 		}, [
-			$props.modelValue && $props.modelValue === $props.defaultName && $props.showDefaultAction ? (openBlock(), createElementBlock("i", _hoisted_2$A)) : createCommentVNode("v-if", true),
+			$props.modelValue && $props.modelValue === $props.defaultName && $props.showDefaultAction ? (openBlock(), createElementBlock("i", _hoisted_2$B)) : createCommentVNode("v-if", true),
 			createBaseVNode(
 				"span",
 				{ class: normalizeClass(["ub-picker__value", { "is-placeholder": !$setup.selectedItem }]) },
@@ -196750,7 +196750,7 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 				-1
 				/* CACHED */
 			))
-		], 8, _hoisted_1$G), (openBlock(), createBlock(Teleport, {
+		], 8, _hoisted_1$H), (openBlock(), createBlock(Teleport, {
 			defer: "",
 			to: "#ub-portal"
 		}, [$setup.open ? (openBlock(), createElementBlock("div", {
@@ -196764,9 +196764,9 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 			"aria-modal": "true",
 			"aria-label": $props.title
 		}, [
-			createBaseVNode("header", _hoisted_4$q, [createBaseVNode(
+			createBaseVNode("header", _hoisted_4$r, [createBaseVNode(
 				"span",
-				_hoisted_5$n,
+				_hoisted_5$o,
 				toDisplayString($props.title),
 				1
 				/* TEXT */
@@ -196776,8 +196776,8 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 				title: "关闭",
 				onClick: _cache[1] || (_cache[1] = ($event) => $setup.open = false)
 			})]),
-			$props.showDefaultAction ? (openBlock(), createElementBlock("p", _hoisted_6$l, "点选切换；点星标设为全局默认（新聊天使用）。")) : createCommentVNode("v-if", true),
-			createBaseVNode("ul", _hoisted_7$j, [(openBlock(true), createElementBlock(
+			$props.showDefaultAction ? (openBlock(), createElementBlock("p", _hoisted_6$m, "点选切换；点星标设为全局默认（新聊天使用）。")) : createCommentVNode("v-if", true),
+			createBaseVNode("ul", _hoisted_7$k, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($props.items, (item) => {
@@ -196827,14 +196827,14 @@ function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
 				1
 				/* TEXT */
 			)) : createCommentVNode("v-if", true)])
-		], 8, _hoisted_3$v)])) : createCommentVNode("v-if", true)]))],
+		], 8, _hoisted_3$w)])) : createCommentVNode("v-if", true)]))],
 		2
 		/* CLASS */
 	);
 }
-var UbPresetPicker = /* @__PURE__ */ _export_sfc(_sfc_main$M, [["render", _sfc_render$L], ["__scopeId", "data-v-2ea232e6"]]);
+var UbPresetPicker = /* @__PURE__ */ _export_sfc(_sfc_main$N, [["render", _sfc_render$M], ["__scopeId", "data-v-2ea232e6"]]);
 
-var _sfc_main$L = /*@__PURE__*/ defineComponent({
+var _sfc_main$M = /*@__PURE__*/ defineComponent({
     __name: 'ApiPresetEditor',
     props: {
         idPrefix: { default: 'api' }
@@ -197094,33 +197094,33 @@ var _sfc_main$L = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-api[data-v-16694c0f],\n.ub-api__form[data-v-16694c0f] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ub-s6);\n  min-width: 0;\n}\n.ub-api__picker[data-v-16694c0f] {\n  display: flex;\n  align-items: center;\n  gap: var(--ub-s2);\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-api__empty[data-v-16694c0f] {\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n.ub-api__model[data-v-16694c0f] {\n  display: flex;\n  gap: var(--ub-s2);\n  width: 100%;\n}\n.ub-api__model[data-v-16694c0f] > :first-child {\n  flex: 1 1 auto;\n}\n.ub-api__error[data-v-16694c0f] {\n  color: var(--ub-danger);\n  font-size: var(--ub-fs-xs);\n}\n.ub-api__test-result[data-v-16694c0f] {\n  display: block;\n  margin-top: var(--ub-s2);\n  font-size: var(--ub-fs-xs);\n  font-weight: 500;\n  overflow-wrap: anywhere;\n}\n.ub-api__test-result.is-ok[data-v-16694c0f] {\n  color: var(--ub-ok);\n}\n.ub-api__test-result.is-error[data-v-16694c0f] {\n  color: var(--ub-danger);\n}\n.ub-api__test-note[data-v-16694c0f] {\n  display: block;\n  color: var(--ub-text-2);\n}\n.ub-api__danger-hint[data-v-16694c0f] {\n  color: var(--ub-danger);\n  font-weight: 600;\n}\n.ub-api__savebar[data-v-16694c0f] {\n  position: sticky;\n  bottom: var(--ub-s3);\n  z-index: 4;\n  display: flex;\n  align-items: center;\n  gap: var(--ub-s2);\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n  border: 1px solid var(--ub-line-soft);\n  border-radius: 999px;\n  background: var(--ub-toast-bg);\n  box-shadow: var(--ub-overlay-shadow);\n  backdrop-filter: blur(12px);\n  -webkit-backdrop-filter: blur(12px);\n}\n.ub-api__savebar[data-v-16694c0f]:not(.is-dirty) {\n  box-shadow: none;\n}\n.ub-api__savebar-text[data-v-16694c0f] {\n  flex: 1 1 auto;\n  min-width: 0;\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n  font-weight: 600;\n}\n.ub-api__savebar.is-dirty .ub-api__savebar-text[data-v-16694c0f] {\n  color: var(--ub-warn);\n}\n.ub-api__savebar-text.is-error[data-v-16694c0f] {\n  color: var(--ub-danger) !important;\n}\n@media (max-width: 560px) {\n.ub-api__savebar[data-v-16694c0f] {\n    flex-wrap: wrap;\n    border-radius: var(--ub-r-card);\n}\n.ub-api__savebar-text[data-v-16694c0f] {\n    flex-basis: 100%;\n}\n}\n", "src/presentation-v3/parts/ApiPresetEditor.vue#style-0-16694c0f");
 var ApiPresetEditor_vue_vue_type_style_index_0_scoped_16694c0f_lang = null;
 
-const _hoisted_1$F = { class: "ub-api" };
-const _hoisted_2$z = { class: "ub-api__picker" };
-const _hoisted_3$u = {
+const _hoisted_1$G = { class: "ub-api" };
+const _hoisted_2$A = { class: "ub-api__picker" };
+const _hoisted_3$v = {
 	key: 0,
 	class: "ub-api__empty"
 };
-const _hoisted_4$p = {
+const _hoisted_4$q = {
 	key: 1,
 	class: "ub-api__empty"
 };
-const _hoisted_5$m = { class: "ub-api__model" };
-const _hoisted_6$k = {
+const _hoisted_5$n = { class: "ub-api__model" };
+const _hoisted_6$l = {
 	key: 1,
 	class: "ub-api__error"
 };
-const _hoisted_7$i = {
+const _hoisted_7$j = {
 	key: 1,
 	class: "ub-api__test-note"
 };
-function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$F, [createVNode($setup["UbSection"], {
+function _sfc_render$L(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$G, [createVNode($setup["UbSection"], {
 		id: `${$props.idPrefix}-preset`,
 		title: "当前 API 预设",
 		description: "数据库各功能默认用这里选中的预设。星标 = 新聊天默认使用的预设。",
 		icon: "fa-solid fa-plug"
 	}, {
-		default: withCtx(() => [createBaseVNode("div", _hoisted_2$z, [
+		default: withCtx(() => [createBaseVNode("div", _hoisted_2$A, [
 			createVNode($setup["UbPresetPicker"], {
 				title: "选择 API 预设",
 				items: $setup.presetItems,
@@ -197150,14 +197150,14 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 				disabled: !$setup.store.activePreset,
 				onClick: _cache[1] || (_cache[1] = ($event) => $setup.store.activePreset && $setup.deletePreset($setup.store.activePreset.name))
 			}, null, 8, ["disabled"])
-		]), $setup.formMode === "empty" ? (openBlock(), createElementBlock("div", _hoisted_3$u, [createVNode($setup["UbCallout"], { kind: "warning" }, {
+		]), $setup.formMode === "empty" ? (openBlock(), createElementBlock("div", _hoisted_3$v, [createVNode($setup["UbCallout"], { kind: "warning" }, {
 			default: withCtx(() => [..._cache[22] || (_cache[22] = [createTextVNode(
 				"暂无可用 API 预设，请新建并设为当前或全局默认。",
 				-1
 				/* CACHED */
 			)])]),
 			_: 1
-		})])) : $setup.formMode === "create" ? (openBlock(), createElementBlock("div", _hoisted_4$p, [createVNode($setup["UbCallout"], { kind: "info" }, {
+		})])) : $setup.formMode === "create" ? (openBlock(), createElementBlock("div", _hoisted_4$q, [createVNode($setup["UbCallout"], { kind: "info" }, {
 			default: withCtx(() => [..._cache[23] || (_cache[23] = [createTextVNode(
 				"正在新建预设：填好下面的连接信息后保存，会自动切换为当前聊天使用。",
 				-1
@@ -197263,7 +197263,7 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 						stack: ""
 					}, {
 						default: withCtx(() => [
-							createBaseVNode("div", _hoisted_5$m, [createVNode($setup["UbInput"], {
+							createBaseVNode("div", _hoisted_5$n, [createVNode($setup["UbInput"], {
 								modelValue: $setup.draft.model,
 								"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => $setup.draft.model = $event),
 								"aria-label": "模型名"
@@ -197289,7 +197289,7 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 							}, null, 8, ["options", "model-value"])) : createCommentVNode("v-if", true),
 							$setup.store.modelLoadStatus === "error" ? (openBlock(), createElementBlock(
 								"p",
-								_hoisted_6$k,
+								_hoisted_6$l,
 								toDisplayString($setup.store.modelLoadError),
 								1
 								/* TEXT */
@@ -197332,7 +197332,7 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 									)) : createCommentVNode("v-if", true),
 									$setup.connectionResult.note ? (openBlock(), createElementBlock(
 										"span",
-										_hoisted_7$i,
+										_hoisted_7$j,
 										toDisplayString($setup.connectionResult.note),
 										1
 										/* TEXT */
@@ -197665,9 +197665,9 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_HYDRATION */
 	)) : createCommentVNode("v-if", true)]);
 }
-var ApiPresetEditor = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$K], ["__scopeId", "data-v-16694c0f"]]);
+var ApiPresetEditor = /* @__PURE__ */ _export_sfc(_sfc_main$M, [["render", _sfc_render$L], ["__scopeId", "data-v-16694c0f"]]);
 
-var _sfc_main$K = /*@__PURE__*/ defineComponent({
+var _sfc_main$L = /*@__PURE__*/ defineComponent({
     __name: 'ApiPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -197684,7 +197684,7 @@ var _sfc_main$K = /*@__PURE__*/ defineComponent({
     }
 });
 
-function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		lead: $setup.apiCopy.panels.preset.description,
 		sections: $setup.sections
@@ -197693,7 +197693,7 @@ function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["lead"]);
 }
-var ApiPage = /* @__PURE__ */ _export_sfc(_sfc_main$K, [["render", _sfc_render$J]]);
+var ApiPage = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$K]]);
 
 const basicConfigCopy = {
     nav: {
@@ -198329,7 +198329,7 @@ function sanitizeFilename_UB(value, fallback) {
         .slice(0, 48) || fallback;
 }
 
-var _sfc_main$J = /*@__PURE__*/ defineComponent({
+var _sfc_main$K = /*@__PURE__*/ defineComponent({
     __name: 'UbRulePairs',
     props: {
         modelValue: {},
@@ -198368,21 +198368,21 @@ var _sfc_main$J = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-rules[data-v-17445fad] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\n}\n.ub-rules__head[data-v-17445fad] {\r\n  display: flex;\r\n  align-items: baseline;\r\n  justify-content: space-between;\r\n  width: 100%;\n}\n.ub-rules__label[data-v-17445fad] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\n}\n.ub-rules__count[data-v-17445fad] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-rules__row[data-v-17445fad] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\n}\n.ub-rules__sep[data-v-17445fad] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\r\n", "src/presentation-v3/ui/UbRulePairs.vue#style-0-17445fad");
 var UbRulePairs_vue_vue_type_style_index_0_scoped_17445fad_lang = null;
 
-const _hoisted_1$E = { class: "ub-rules" };
-const _hoisted_2$y = { class: "ub-rules__head" };
-const _hoisted_3$t = { class: "ub-rules__label" };
-const _hoisted_4$o = { class: "ub-rules__count" };
-function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$E, [
-		createBaseVNode("div", _hoisted_2$y, [createBaseVNode(
+const _hoisted_1$F = { class: "ub-rules" };
+const _hoisted_2$z = { class: "ub-rules__head" };
+const _hoisted_3$u = { class: "ub-rules__label" };
+const _hoisted_4$p = { class: "ub-rules__count" };
+function _sfc_render$J(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$F, [
+		createBaseVNode("div", _hoisted_2$z, [createBaseVNode(
 			"span",
-			_hoisted_3$t,
+			_hoisted_3$u,
 			toDisplayString($props.label),
 			1
 			/* TEXT */
 		), createBaseVNode(
 			"span",
-			_hoisted_4$o,
+			_hoisted_4$p,
 			toDisplayString($props.modelValue.length ? `${$props.modelValue.length} 条` : "暂无"),
 			1
 			/* TEXT */
@@ -198454,9 +198454,9 @@ function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	]);
 }
-var UbRulePairs = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$I], ["__scopeId", "data-v-17445fad"]]);
+var UbRulePairs = /* @__PURE__ */ _export_sfc(_sfc_main$K, [["render", _sfc_render$J], ["__scopeId", "data-v-17445fad"]]);
 
-var _sfc_main$I = /*@__PURE__*/ defineComponent({
+var _sfc_main$J = /*@__PURE__*/ defineComponent({
     __name: 'PlotTaskEditor',
     props: {
         task: {},
@@ -198508,17 +198508,17 @@ var _sfc_main$I = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-pte[data-v-5bbd16c6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s5);\n}\n.ub-pte__segs[data-v-5bbd16c6] {\r\n  padding: var(--ub-s3);\n}\n.ub-pte__empty[data-v-5bbd16c6] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/parts/PlotTaskEditor.vue#style-0-5bbd16c6");
 var PlotTaskEditor_vue_vue_type_style_index_0_scoped_5bbd16c6_lang = null;
 
-const _hoisted_1$D = {
+const _hoisted_1$E = {
 	key: 0,
 	class: "ub-pte"
 };
-const _hoisted_2$x = { class: "ub-pte__segs" };
-const _hoisted_3$s = {
+const _hoisted_2$y = { class: "ub-pte__segs" };
+const _hoisted_3$t = {
 	key: 1,
 	class: "ub-pte__empty"
 };
-function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
-	return $props.task ? (openBlock(), createElementBlock("div", _hoisted_1$D, [
+function _sfc_render$I(_ctx, _cache, $props, $setup, $data, $options) {
+	return $props.task ? (openBlock(), createElementBlock("div", _hoisted_1$E, [
 		createVNode($setup["UbSection"], {
 			title: "基本字段",
 			description: "同一阶段号的任务并发执行，不同阶段按顺序串行。"
@@ -198765,7 +198765,7 @@ function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
 			title: "提示词段",
 			description: "promptGroup：按顺序发送给规划 AI。"
 		}, {
-			default: withCtx(() => [createBaseVNode("div", _hoisted_2$x, [createVNode($setup["UbPromptSegments"], {
+			default: withCtx(() => [createBaseVNode("div", _hoisted_2$y, [createVNode($setup["UbPromptSegments"], {
 				segments: $props.task.promptGroup,
 				"show-slot": true,
 				"allow-move": true,
@@ -198778,11 +198778,11 @@ function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
 			}, null, 8, ["segments"])])]),
 			_: 1
 		})
-	])) : (openBlock(), createElementBlock("p", _hoisted_3$s, "请先在上方选择一个任务。"));
+	])) : (openBlock(), createElementBlock("p", _hoisted_3$t, "请先在上方选择一个任务。"));
 }
-var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_render$H], ["__scopeId", "data-v-5bbd16c6"]]);
+var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$J, [["render", _sfc_render$I], ["__scopeId", "data-v-5bbd16c6"]]);
 
-var _sfc_main$H = /*@__PURE__*/ defineComponent({
+var _sfc_main$I = /*@__PURE__*/ defineComponent({
     __name: 'PlotPresetSheet',
     props: {
         isOpen: { type: Boolean },
@@ -198829,20 +198829,20 @@ var _sfc_main$H = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-pps-form[data-v-3b300f52] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s5);\n}\n.ub-pps-list[data-v-3b300f52] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  margin: 0;\r\n  padding: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  list-style: none;\r\n  overflow: hidden;\n}\n.ub-pps-list__item[data-v-3b300f52] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-pps-list__item + .ub-pps-list__item[data-v-3b300f52] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-pps-list__info[data-v-3b300f52] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-pps-list__name[data-v-3b300f52] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-pps-list__star[data-v-3b300f52] {\r\n  color: var(--ub-warn);\r\n  font-size: 0.85em;\n}\n.ub-pps-list__meta[data-v-3b300f52] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-pps-list__actions[data-v-3b300f52] {\r\n  display: flex;\r\n  gap: 2px;\n}\n.ub-pps-empty[data-v-3b300f52] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-pps-tasks[data-v-3b300f52] {\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  overflow-x: auto;\n}\n.ub-pps-task[data-v-3b300f52] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: flex-start;\r\n  gap: 2px;\r\n  flex: 0 0 auto;\r\n  min-width: calc(var(--ub-u) * 130);\r\n  max-width: calc(var(--ub-u) * 220);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 1.5px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-pps-task.is-active[data-v-3b300f52] {\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\n}\n.ub-pps-task.is-off[data-v-3b300f52] {\r\n  opacity: 0.55;\n}\n.ub-pps-task__name[data-v-3b300f52] {\r\n  max-width: 100%;\r\n  overflow: hidden;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-pps-task__meta[data-v-3b300f52] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\r\n", "src/presentation-v3/parts/PlotPresetSheet.vue#style-0-3b300f52");
 var PlotPresetSheet_vue_vue_type_style_index_0_scoped_3b300f52_lang = null;
 
-const _hoisted_1$C = {
+const _hoisted_1$D = {
 	key: 0,
 	class: "ub-pps-list"
 };
-const _hoisted_2$w = { class: "ub-pps-list__info" };
-const _hoisted_3$r = { class: "ub-pps-list__name" };
-const _hoisted_4$n = {
+const _hoisted_2$x = { class: "ub-pps-list__info" };
+const _hoisted_3$s = { class: "ub-pps-list__name" };
+const _hoisted_4$o = {
 	key: 0,
 	class: "fa-solid fa-star ub-pps-list__star",
 	"aria-hidden": "true"
 };
-const _hoisted_5$l = { class: "ub-pps-list__meta" };
-const _hoisted_6$j = { class: "ub-pps-list__actions" };
-const _hoisted_7$h = {
+const _hoisted_5$m = { class: "ub-pps-list__meta" };
+const _hoisted_6$k = { class: "ub-pps-list__actions" };
+const _hoisted_7$i = {
 	key: 1,
 	class: "ub-pps-empty"
 };
@@ -198855,7 +198855,7 @@ const _hoisted_13$7 = {
 	key: 0,
 	class: "ub-pps-empty"
 };
-function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$H(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSheet"], {
 		"is-open": $props.isOpen,
 		title: $props.title,
@@ -198879,18 +198879,18 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 					/* CACHED */
 				)])]),
 				_: 1
-			}), $props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$C, [(openBlock(true), createElementBlock(
+			}), $props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$D, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($props.presetMeta, (meta) => {
 					return openBlock(), createElementBlock("li", {
 						key: meta.name,
 						class: "ub-pps-list__item"
-					}, [createBaseVNode("div", _hoisted_2$w, [createBaseVNode("span", _hoisted_3$r, [meta.name === $props.defaultPresetName ? (openBlock(), createElementBlock("i", _hoisted_4$n)) : createCommentVNode("v-if", true), createTextVNode(
+					}, [createBaseVNode("div", _hoisted_2$x, [createBaseVNode("span", _hoisted_3$s, [meta.name === $props.defaultPresetName ? (openBlock(), createElementBlock("i", _hoisted_4$o)) : createCommentVNode("v-if", true), createTextVNode(
 						" " + toDisplayString(meta.name),
 						1
 						/* TEXT */
-					)]), createBaseVNode("span", _hoisted_5$l, [createTextVNode(
+					)]), createBaseVNode("span", _hoisted_5$m, [createTextVNode(
 						"共 " + toDisplayString(meta.taskCount) + " 个任务",
 						1
 						/* TEXT */
@@ -198900,7 +198900,7 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 						[createTextVNode(" · 全局默认")],
 						64
 						/* STABLE_FRAGMENT */
-					)) : createCommentVNode("v-if", true)])]), createBaseVNode("div", _hoisted_6$j, [
+					)) : createCommentVNode("v-if", true)])]), createBaseVNode("div", _hoisted_6$k, [
 						createVNode($setup["UbIconButton"], {
 							icon: meta.name === $props.defaultPresetName ? "fa-solid fa-star" : "fa-regular fa-star",
 							title: "设为全局默认",
@@ -198931,7 +198931,7 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 				}),
 				128
 				/* KEYED_FRAGMENT */
-			))])) : (openBlock(), createElementBlock("p", _hoisted_7$h, "暂无预设，点上方按钮从默认新建，或在预设卡片里导入。"))],
+			))])) : (openBlock(), createElementBlock("p", _hoisted_7$i, "暂无预设，点上方按钮从默认新建，或在预设卡片里导入。"))],
 			64
 			/* STABLE_FRAGMENT */
 		)) : (openBlock(), createElementBlock(
@@ -199181,9 +199181,9 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 		"before-close"
 	]);
 }
-var PlotPresetSheet = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$G], ["__scopeId", "data-v-3b300f52"]]);
+var PlotPresetSheet = /* @__PURE__ */ _export_sfc(_sfc_main$I, [["render", _sfc_render$H], ["__scopeId", "data-v-3b300f52"]]);
 
-var _sfc_main$G = /*@__PURE__*/ defineComponent({
+var _sfc_main$H = /*@__PURE__*/ defineComponent({
     __name: 'PlotPresetSection',
     props: {
         id: { default: undefined },
@@ -199268,9 +199268,9 @@ var _sfc_main$G = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-plotp[data-v-0c48a73a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-plotp.has-below[data-v-0c48a73a] {\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-plotp__facts[data-v-0c48a73a] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s2);\r\n  margin: 0;\n}\n.ub-plotp__facts > div[data-v-0c48a73a] {\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-plotp__facts dt[data-v-0c48a73a] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-plotp__facts dd[data-v-0c48a73a] {\r\n  margin: 2px 0 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-plotp__picker[data-v-0c48a73a] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\r\n", "src/presentation-v3/parts/PlotPresetSection.vue#style-0-0c48a73a");
 var PlotPresetSection_vue_vue_type_style_index_0_scoped_0c48a73a_lang = null;
 
-const _hoisted_1$B = { class: "ub-plotp__facts" };
-const _hoisted_2$v = { class: "ub-plotp__picker" };
-function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$C = { class: "ub-plotp__facts" };
+const _hoisted_2$w = { class: "ub-plotp__picker" };
+function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: $setup.plotCopy.panels.preset.title,
@@ -199296,7 +199296,7 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 			createBaseVNode(
 				"div",
 				{ class: normalizeClass(["ub-plotp", { "has-below": $props.showApiPreset }]) },
-				[createBaseVNode("dl", _hoisted_1$B, [createBaseVNode("div", null, [_cache[6] || (_cache[6] = createBaseVNode(
+				[createBaseVNode("dl", _hoisted_1$C, [createBaseVNode("div", null, [_cache[6] || (_cache[6] = createBaseVNode(
 					"dt",
 					null,
 					"当前聊天",
@@ -199320,7 +199320,7 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 					toDisplayString($setup.store.defaultPresetName || "默认预设"),
 					1
 					/* TEXT */
-				)])]), createBaseVNode("div", _hoisted_2$v, [
+				)])]), createBaseVNode("div", _hoisted_2$w, [
 					createVNode($setup["UbPresetPicker"], {
 						title: "选择剧情推进预设",
 						items: $setup.presetItems,
@@ -199434,7 +199434,7 @@ function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 		"description"
 	]);
 }
-var PlotPresetSection = /* @__PURE__ */ _export_sfc(_sfc_main$G, [["render", _sfc_render$F], ["__scopeId", "data-v-0c48a73a"]]);
+var PlotPresetSection = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$G], ["__scopeId", "data-v-0c48a73a"]]);
 
 function buildTemplateRecoveryConfirmMessage_ACU(action, error) {
     const actionText = action === 'save-template' ? '保存这次聊天模板修改' : '切换并保存当前聊天模板';
@@ -200453,7 +200453,7 @@ const tableCopy = {
     worldbook: worldbookEntriesCopy,
 };
 
-var _sfc_main$F = /*@__PURE__*/ defineComponent({
+var _sfc_main$G = /*@__PURE__*/ defineComponent({
     __name: 'TablePresetSheet',
     props: {
         isOpen: { type: Boolean },
@@ -200476,24 +200476,24 @@ var _sfc_main$F = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-plist[data-v-aed3eab6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  margin: 0;\r\n  padding: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  list-style: none;\r\n  overflow: hidden;\n}\n.ub-plist__item[data-v-aed3eab6] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-plist__item + .ub-plist__item[data-v-aed3eab6] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-plist__info[data-v-aed3eab6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-plist__name[data-v-aed3eab6] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-plist__star[data-v-aed3eab6] {\r\n  color: var(--ub-warn);\r\n  font-size: 0.85em;\n}\n.ub-plist__meta[data-v-aed3eab6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-plist__actions[data-v-aed3eab6] {\r\n  display: flex;\r\n  flex: 0 0 auto;\r\n  gap: 2px;\n}\n.ub-plist__empty[data-v-aed3eab6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n@media (max-width: 480px) {\n.ub-plist__item[data-v-aed3eab6] {\r\n    flex-wrap: wrap;\n}\n.ub-plist__actions[data-v-aed3eab6] {\r\n    width: 100%;\r\n    justify-content: flex-end;\n}\n}\r\n", "src/presentation-v3/parts/TablePresetSheet.vue#style-0-aed3eab6");
 var TablePresetSheet_vue_vue_type_style_index_0_scoped_aed3eab6_lang = null;
 
-const _hoisted_1$A = {
+const _hoisted_1$B = {
 	key: 1,
 	class: "ub-plist"
 };
-const _hoisted_2$u = { class: "ub-plist__info" };
-const _hoisted_3$q = { class: "ub-plist__name" };
-const _hoisted_4$m = {
+const _hoisted_2$v = { class: "ub-plist__info" };
+const _hoisted_3$r = { class: "ub-plist__name" };
+const _hoisted_4$n = {
 	key: 0,
 	class: "fa-solid fa-star ub-plist__star",
 	"aria-hidden": "true"
 };
-const _hoisted_5$k = { class: "ub-plist__meta" };
-const _hoisted_6$i = { class: "ub-plist__actions" };
-const _hoisted_7$g = {
+const _hoisted_5$l = { class: "ub-plist__meta" };
+const _hoisted_6$j = { class: "ub-plist__actions" };
+const _hoisted_7$h = {
 	key: 2,
 	class: "ub-plist__empty"
 };
-function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$F(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSheet"], {
 		"is-open": $props.isOpen,
 		title: $props.title,
@@ -200526,18 +200526,18 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 				)])]),
 				_: 1
 			}, 8, ["disabled"]),
-			$props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$A, [(openBlock(true), createElementBlock(
+			$props.presetMeta.length ? (openBlock(), createElementBlock("ul", _hoisted_1$B, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($props.presetMeta, (meta) => {
 					return openBlock(), createElementBlock("li", {
 						key: meta.name,
 						class: "ub-plist__item"
-					}, [createBaseVNode("div", _hoisted_2$u, [createBaseVNode("span", _hoisted_3$q, [meta.kind !== "runtime" && meta.name === $props.defaultPresetName ? (openBlock(), createElementBlock("i", _hoisted_4$m)) : createCommentVNode("v-if", true), createTextVNode(
+					}, [createBaseVNode("div", _hoisted_2$v, [createBaseVNode("span", _hoisted_3$r, [meta.kind !== "runtime" && meta.name === $props.defaultPresetName ? (openBlock(), createElementBlock("i", _hoisted_4$n)) : createCommentVNode("v-if", true), createTextVNode(
 						" " + toDisplayString(meta.label ?? meta.name),
 						1
 						/* TEXT */
-					)]), createBaseVNode("span", _hoisted_5$k, [meta.kind === "runtime" ? (openBlock(), createElementBlock(
+					)]), createBaseVNode("span", _hoisted_5$l, [meta.kind === "runtime" ? (openBlock(), createElementBlock(
 						Fragment,
 						{ key: 0 },
 						[createTextVNode(
@@ -200559,7 +200559,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 						[createTextVNode("全局预设")],
 						64
 						/* STABLE_FRAGMENT */
-					))])]), createBaseVNode("div", _hoisted_6$i, [meta.kind === "runtime" ? (openBlock(), createBlock($setup["UbIconButton"], {
+					))])]), createBaseVNode("div", _hoisted_6$j, [meta.kind === "runtime" ? (openBlock(), createBlock($setup["UbIconButton"], {
 						key: 0,
 						icon: "fa-solid fa-upload",
 						title: "导出当前生效模板",
@@ -200613,7 +200613,7 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 				}),
 				128
 				/* KEYED_FRAGMENT */
-			))])) : (openBlock(), createElementBlock("p", _hoisted_7$g, "暂无全局预设。点上方「从默认新建」，或在模板卡片里用「导入」创建。")),
+			))])) : (openBlock(), createElementBlock("p", _hoisted_7$h, "暂无全局预设。点上方「从默认新建」，或在模板卡片里用「导入」创建。")),
 			createVNode($setup["UbCallout"], { kind: "info" }, {
 				default: withCtx(() => [..._cache[3] || (_cache[3] = [createTextVNode(
 					" 模板的表头与表级参数在「可视化表格编辑器」里编辑。点某一行的「编辑」会先把当前聊天切到该预设，再打开编辑器。 ",
@@ -200626,9 +200626,9 @@ function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["is-open", "title"]);
 }
-var TablePresetSheet = /* @__PURE__ */ _export_sfc(_sfc_main$F, [["render", _sfc_render$E], ["__scopeId", "data-v-aed3eab6"]]);
+var TablePresetSheet = /* @__PURE__ */ _export_sfc(_sfc_main$G, [["render", _sfc_render$F], ["__scopeId", "data-v-aed3eab6"]]);
 
-var _sfc_main$E = /*@__PURE__*/ defineComponent({
+var _sfc_main$F = /*@__PURE__*/ defineComponent({
     __name: 'TableTemplateSection',
     props: {
         id: { default: undefined }
@@ -200654,10 +200654,10 @@ var _sfc_main$E = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-tpl[data-v-4bb4a8a2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-tpl__facts[data-v-4bb4a8a2] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s2);\r\n  margin: 0;\n}\n.ub-tpl__facts > div[data-v-4bb4a8a2] {\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-tpl__facts dt[data-v-4bb4a8a2] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-tpl__facts dd[data-v-4bb4a8a2] {\r\n  margin: 2px 0 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-tpl__tools[data-v-4bb4a8a2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\r\n  margin: 0 calc(var(--ub-s2) * -1);\n}\r\n", "src/presentation-v3/parts/TableTemplateSection.vue#style-0-4bb4a8a2");
 var TableTemplateSection_vue_vue_type_style_index_0_scoped_4bb4a8a2_lang = null;
 
-const _hoisted_1$z = { class: "ub-tpl" };
-const _hoisted_2$t = { class: "ub-tpl__facts" };
-const _hoisted_3$p = { class: "ub-tpl__tools" };
-function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$A = { class: "ub-tpl" };
+const _hoisted_2$u = { class: "ub-tpl__facts" };
+const _hoisted_3$q = { class: "ub-tpl__tools" };
+function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: $setup.tableCopy.panels.templatePreset.title,
@@ -200672,7 +200672,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 			)]),
 			_: 1
 		}, 8, ["variant"])]),
-		default: withCtx(() => [createBaseVNode("div", _hoisted_1$z, [
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$A, [
 			$setup.templates.message.value ? (openBlock(), createBlock($setup["UbCallout"], {
 				key: 0,
 				kind: $setup.templates.message.value.kind
@@ -200695,7 +200695,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 				)]),
 				_: 1
 			}, 8, ["kind"])) : createCommentVNode("v-if", true),
-			createBaseVNode("dl", _hoisted_2$t, [createBaseVNode("div", null, [_cache[9] || (_cache[9] = createBaseVNode(
+			createBaseVNode("dl", _hoisted_2$u, [createBaseVNode("div", null, [_cache[9] || (_cache[9] = createBaseVNode(
 				"dt",
 				null,
 				"当前聊天",
@@ -200735,7 +200735,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 				"default-name",
 				"disabled"
 			]),
-			createBaseVNode("div", _hoisted_3$p, [
+			createBaseVNode("div", _hoisted_3$q, [
 				createVNode($setup["UbFileButton"], {
 					size: "sm",
 					variant: "ghost",
@@ -200856,7 +200856,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["id", "title"]);
 }
-var TableTemplateSection = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$D], ["__scopeId", "data-v-4bb4a8a2"]]);
+var TableTemplateSection = /* @__PURE__ */ _export_sfc(_sfc_main$F, [["render", _sfc_render$E], ["__scopeId", "data-v-4bb4a8a2"]]);
 
 const NUMBER_FIELD_META = [
     {
@@ -201452,7 +201452,7 @@ const formFillCopy = {
     },
 };
 
-var _sfc_main$D = /*@__PURE__*/ defineComponent({
+var _sfc_main$E = /*@__PURE__*/ defineComponent({
     __name: 'UpdateSettingsSection',
     props: {
         id: { default: undefined },
@@ -201573,8 +201573,8 @@ var _sfc_main$D = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-upd__more[data-v-a7b059dc] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border: 0;\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-upd__more[data-v-a7b059dc]:hover {\r\n  color: var(--ub-text);\n}\n.ub-upd__chevron[data-v-a7b059dc] {\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.ub-upd__chevron.is-open[data-v-a7b059dc] {\r\n  transform: rotate(90deg);\n}\n.ub-upd__more + .ub-row[data-v-a7b059dc],\r\n.ub-upd__more ~ .ub-row[data-v-a7b059dc] {\r\n  background: color-mix(in srgb, var(--ub-sunken) 50%, transparent);\n}\r\n", "src/presentation-v3/parts/UpdateSettingsSection.vue#style-0-a7b059dc");
 var UpdateSettingsSection_vue_vue_type_style_index_0_scoped_a7b059dc_lang = null;
 
-const _hoisted_1$y = ["aria-expanded"];
-function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$z = ["aria-expanded"];
+function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: $setup.formFillCopy.panels.update.title,
@@ -201668,7 +201668,7 @@ function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 						)]),
 						_: 1
 					}, 8, ["variant"])
-				], 8, _hoisted_1$y), $setup.advancedExpanded ? (openBlock(), createElementBlock(
+				], 8, _hoisted_1$z), $setup.advancedExpanded ? (openBlock(), createElementBlock(
 					Fragment,
 					{ key: 0 },
 					[
@@ -201752,9 +201752,9 @@ function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 		"description"
 	]);
 }
-var UpdateSettingsSection = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$C], ["__scopeId", "data-v-a7b059dc"]]);
+var UpdateSettingsSection = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$D], ["__scopeId", "data-v-a7b059dc"]]);
 
-var _sfc_main$C = /*@__PURE__*/ defineComponent({
+var _sfc_main$D = /*@__PURE__*/ defineComponent({
     __name: 'BasicConfigPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -201770,7 +201770,7 @@ var _sfc_main$C = /*@__PURE__*/ defineComponent({
     }
 });
 
-function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$C(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		lead: "上手只需要这一页。按顺序配好 API、更新节奏、表格模板与剧情推进就能开始；需要更多功能时切到「高手模式」。",
 		sections: $setup.sections
@@ -201787,7 +201787,7 @@ function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$B]]);
+var BasicConfigPage = /* @__PURE__ */ _export_sfc(_sfc_main$D, [["render", _sfc_render$C]]);
 
 const contentReplaceCopy = {
     nav: {
@@ -202589,7 +202589,7 @@ const useContentReplaceStore = defineStore('acu-v2-content-replace', {
 });
 
 const DECISION_PROVIDER_SWITCH_HINT_ACU = '两家各存各的 Key 和模型，切换不会丢掉另一家的设置。';
-var _sfc_main$B = /*@__PURE__*/ defineComponent({
+var _sfc_main$C = /*@__PURE__*/ defineComponent({
     __name: 'ContentReplacePage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -202812,16 +202812,16 @@ var _sfc_main$B = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-cr__preset[data-v-1c918263] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ub-s3);\n  padding: var(--ub-s4);\n}\n.ub-cr__meta[data-v-1c918263] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__meta strong[data-v-1c918263] {\n  color: var(--ub-text);\n}\n.ub-cr__picker[data-v-1c918263] {\n  display: flex;\n  align-items: center;\n  gap: var(--ub-s2);\n}\n.ub-cr__test-actions[data-v-1c918263] {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ub-s2);\n}\n.ub-cr__output[data-v-1c918263] {\n  max-height: calc(var(--ub-u) * 360);\n  margin: 0;\n  padding: var(--ub-s3);\n  border-radius: var(--ub-r-control);\n  background: var(--ub-sunken);\n  color: var(--ub-text);\n  font-family: var(--ub-mono);\n  font-size: var(--ub-fs-xs);\n  line-height: 1.6;\n  white-space: pre-wrap;\n  overflow: auto;\n}\n.ub-cr__list[data-v-1c918263] {\n  margin: 0;\n  padding: 0;\n  border: 1px solid var(--ub-line-soft);\n  border-radius: var(--ub-r-card);\n  background: var(--ub-panel);\n  list-style: none;\n  overflow: hidden;\n}\n.ub-cr__list-item[data-v-1c918263] {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-cr__list-item + .ub-cr__list-item[data-v-1c918263] {\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cr__list-info[data-v-1c918263] {\n  display: flex;\n  flex-direction: column;\n  flex: 1 1 auto;\n  min-width: 0;\n}\n.ub-cr__list-name[data-v-1c918263] {\n  overflow: hidden;\n  color: var(--ub-text);\n  font-size: var(--ub-fs-sm);\n  font-weight: 600;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.ub-cr__list-meta[data-v-1c918263] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders[data-v-1c918263] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ub-s1);\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders code[data-v-1c918263] {\n  padding: 1px 6px;\n  border-radius: 6px;\n  background: var(--ub-sunken);\n  color: var(--ub-accent-ink);\n  font-family: var(--ub-mono);\n}\n", "src/presentation-v3/pages/ContentReplacePage.vue#style-0-1c918263");
 var ContentReplacePage_vue_vue_type_style_index_0_scoped_1c918263_lang = null;
 
-const _hoisted_1$x = { class: "ub-cr__picker" };
-const _hoisted_2$s = { class: "ub-cr__preset" };
-const _hoisted_3$o = { class: "ub-cr__meta" };
-const _hoisted_4$l = { class: "ub-cr__picker" };
-const _hoisted_5$j = { class: "ub-cr__test-actions" };
-const _hoisted_6$h = {
+const _hoisted_1$y = { class: "ub-cr__picker" };
+const _hoisted_2$t = { class: "ub-cr__preset" };
+const _hoisted_3$p = { class: "ub-cr__meta" };
+const _hoisted_4$m = { class: "ub-cr__picker" };
+const _hoisted_5$k = { class: "ub-cr__test-actions" };
+const _hoisted_6$i = {
 	key: 0,
 	class: "ub-cr__output"
 };
-const _hoisted_7$f = {
+const _hoisted_7$g = {
 	key: 1,
 	class: "ub-cr__list"
 };
@@ -202833,7 +202833,7 @@ const _hoisted_11$8 = {
 	class: "ub-cr__meta"
 };
 const _hoisted_12$7 = { class: "ub-cr__placeholders" };
-function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$B(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		lead: "正文生成后自动检查并润色 AI 回复。下面从上到下依次是：调用参数、替换方式、提示词、标签筛选与手动测试。",
 		sections: $setup.sections
@@ -203079,7 +203079,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 						label: "决策模型",
 						hint: $setup.decisionView.modelHint
 					}, {
-						default: withCtx(() => [createBaseVNode("div", _hoisted_1$x, [createVNode($setup["UbSelect"], {
+						default: withCtx(() => [createBaseVNode("div", _hoisted_1$y, [createVNode($setup["UbSelect"], {
 							options: $setup.decisionModelOptions,
 							"model-value": $setup.decisionModel,
 							"aria-label": "决策模型",
@@ -203126,8 +203126,8 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 					)]),
 					_: 1
 				}, 8, ["variant"])]),
-				default: withCtx(() => [createBaseVNode("div", _hoisted_2$s, [
-					createBaseVNode("p", _hoisted_3$o, [
+				default: withCtx(() => [createBaseVNode("div", _hoisted_2$t, [
+					createBaseVNode("p", _hoisted_3$p, [
 						_cache[14] || (_cache[14] = createTextVNode(
 							"当前提示词：",
 							-1
@@ -203146,7 +203146,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 							/* TEXT */
 						)
 					]),
-					createBaseVNode("div", _hoisted_4$l, [
+					createBaseVNode("div", _hoisted_4$m, [
 						createVNode($setup["UbPresetPicker"], {
 							title: "选择正文替换预设",
 							items: $setup.presetItems,
@@ -203264,7 +203264,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 						placeholder: "输入一段模拟 AI 正文，验证提示词与返回格式。",
 						"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => $setup.store.setString("testInput", $event))
 					}, null, 8, ["model-value"]),
-					createBaseVNode("div", _hoisted_5$j, [createVNode($setup["UbButton"], {
+					createBaseVNode("div", _hoisted_5$k, [createVNode($setup["UbButton"], {
 						icon: "fa-solid fa-scale-balanced",
 						busy: $setup.store.busyAction === "decision-test",
 						onClick: $setup.store.runDecisionTest
@@ -203290,7 +203290,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["busy", "onClick"])]),
 					$setup.store.testOutput ? (openBlock(), createElementBlock(
 						"pre",
-						_hoisted_6$h,
+						_hoisted_6$i,
 						toDisplayString($setup.store.testOutput),
 						1
 						/* TEXT */
@@ -203328,7 +203328,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 						)])]),
 						_: 1
 					}, 8, ["onClick"]),
-					$setup.store.promptPresets.length ? (openBlock(), createElementBlock("ul", _hoisted_7$f, [(openBlock(true), createElementBlock(
+					$setup.store.promptPresets.length ? (openBlock(), createElementBlock("ul", _hoisted_7$g, [(openBlock(true), createElementBlock(
 						Fragment,
 						null,
 						renderList($setup.store.promptPresets, (preset) => {
@@ -203433,7 +203433,7 @@ function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$B, [["render", _sfc_render$A], ["__scopeId", "data-v-1c918263"]]);
+var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$C, [["render", _sfc_render$B], ["__scopeId", "data-v-1c918263"]]);
 
 /** 连续高压轮上限的可配置上界。页面是 .vue，不能直接 import 服务层常量，由本组合式函数中转。 */
 const CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_UI_ACU = CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU;
@@ -204068,7 +204068,7 @@ function useContinuationSession() {
 }
 
 const FOLD_STEP = 40;
-var _sfc_main$A = /*@__PURE__*/ defineComponent({
+var _sfc_main$B = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationSessionFeed',
     props: {
         entries: {},
@@ -204149,22 +204149,22 @@ var _sfc_main$A = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-feed[data-v-be3d44d3] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  min-height: calc(var(--ub-u) * 220);\r\n  max-height: min(calc(var(--tt-base-viewport-height, 100vh) * 0.62), calc(var(--ub-u) * 640));\r\n  padding: var(--ub-s4);\r\n  overflow-y: auto;\r\n  overscroll-behavior: contain;\n}\n.ub-feed__empty[data-v-be3d44d3] {\r\n  margin: auto;\r\n  max-width: 360px;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.7;\r\n  text-align: center;\n}\n.ub-feed__fold[data-v-be3d44d3] {\r\n  align-self: center;\r\n  padding: var(--ub-s1) var(--ub-s3);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: 999px;\r\n  background: transparent;\r\n  color: var(--ub-text-3);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  cursor: pointer;\n}\n.ub-feed__divider[data-v-be3d44d3] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s2) 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-feed__divider[data-v-be3d44d3]::before,\r\n.ub-feed__divider[data-v-be3d44d3]::after {\r\n  content: '';\r\n  flex: 1 1 auto;\r\n  height: 1px;\r\n  background: var(--ub-line-soft);\n}\n.ub-feed__divider-badge[data-v-be3d44d3] {\r\n  padding: 1px 8px;\r\n  border-radius: 999px;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\r\n  font-weight: 700;\n}\n.ub-feed__divider-title[data-v-be3d44d3] {\r\n  max-width: 40%;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-feed__time[data-v-be3d44d3] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-feed__user[data-v-be3d44d3] {\r\n  display: flex;\r\n  justify-content: flex-end;\n}\n.ub-feed__bubble[data-v-be3d44d3] {\r\n  max-width: 82%;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: 16px 16px 4px 16px;\r\n  background: var(--ub-accent);\r\n  color: var(--ub-on-accent);\n}\n.ub-feed__bubble p[data-v-be3d44d3] {\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  white-space: pre-wrap;\r\n  overflow-wrap: anywhere;\n}\n.ub-feed__bubble .ub-feed__time[data-v-be3d44d3] {\r\n  display: block;\r\n  margin-top: 2px;\r\n  color: inherit;\r\n  opacity: 0.7;\r\n  text-align: right;\n}\n.ub-feed__thought[data-v-be3d44d3] {\r\n  padding: var(--ub-s1) var(--ub-s3);\r\n  border-left: 2px solid var(--ub-line);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-feed__thought-label[data-v-be3d44d3] {\r\n  font-weight: 700;\n}\n.ub-feed__thought p[data-v-be3d44d3] {\r\n  margin-top: 2px;\r\n  white-space: pre-wrap;\r\n  overflow-wrap: anywhere;\n}\n.ub-feed__card[data-v-be3d44d3] {\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\r\n  overflow: hidden;\n}\n.ub-feed__card.is-failed[data-v-be3d44d3] {\r\n  border-color: color-mix(in srgb, var(--ub-danger) 45%, var(--ub-line-soft));\n}\n.ub-feed__card-head[data-v-be3d44d3] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-feed__status[data-v-be3d44d3] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: 18px;\r\n  height: 18px;\r\n  border-radius: 50%;\r\n  background: var(--ub-ok-soft);\r\n  color: var(--ub-ok);\r\n  font-size: 10px;\n}\n.ub-feed__status.is-running[data-v-be3d44d3] {\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-feed__status.is-failed[data-v-be3d44d3] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-feed__kind[data-v-be3d44d3] {\r\n  flex: 0 0 auto;\r\n  padding: 1px 6px;\r\n  border-radius: 6px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-feed__title[data-v-be3d44d3] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-feed__chevron[data-v-be3d44d3] {\r\n  color: var(--ub-text-3);\r\n  font-size: 0.8em;\r\n  transition: transform 0.14s ease;\n}\n.ub-feed__chevron.is-open[data-v-be3d44d3] {\r\n  transform: rotate(180deg);\n}\n.ub-feed__preview[data-v-be3d44d3],\r\n.ub-feed__detail[data-v-be3d44d3] {\r\n  padding: 0 var(--ub-s3) var(--ub-s2) calc(var(--ub-s3) + 26px);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  white-space: pre-wrap;\r\n  overflow-wrap: anywhere;\n}\n.ub-feed__preview[data-v-be3d44d3] {\r\n  display: -webkit-box;\r\n  overflow: hidden;\r\n  cursor: pointer;\r\n  -webkit-line-clamp: 2;\r\n  -webkit-box-orient: vertical;\n}\n.ub-feed__running[data-v-be3d44d3] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-feed__pulse[data-v-be3d44d3] {\r\n  width: 8px;\r\n  height: 8px;\r\n  border-radius: 50%;\r\n  background: var(--ub-accent);\r\n  animation: ub-feed-pulse-be3d44d3 1.2s ease-in-out infinite;\n}\n@keyframes ub-feed-pulse-be3d44d3 {\n0%, 100% { opacity: 1; transform: scale(1);\n}\n50% { opacity: 0.35; transform: scale(0.7);\n}\n}\r\n", "src/presentation-v3/parts/ContinuationSessionFeed.vue#style-0-be3d44d3");
 var ContinuationSessionFeed_vue_vue_type_style_index_0_scoped_be3d44d3_lang = null;
 
-const _hoisted_1$w = {
+const _hoisted_1$x = {
 	ref: "feedElement",
 	class: "ub-feed"
 };
-const _hoisted_2$r = {
+const _hoisted_2$s = {
 	key: 0,
 	class: "ub-feed__empty"
 };
-const _hoisted_3$n = {
+const _hoisted_3$o = {
 	key: 0,
 	class: "ub-feed__divider"
 };
-const _hoisted_4$k = { class: "ub-feed__divider-badge" };
-const _hoisted_5$i = { class: "ub-feed__divider-title" };
-const _hoisted_6$g = { class: "ub-feed__time" };
-const _hoisted_7$e = {
+const _hoisted_4$l = { class: "ub-feed__divider-badge" };
+const _hoisted_5$j = { class: "ub-feed__divider-title" };
+const _hoisted_6$h = { class: "ub-feed__time" };
+const _hoisted_7$f = {
 	key: 1,
 	class: "ub-feed__user"
 };
@@ -204204,12 +204204,12 @@ const _hoisted_22$3 = {
 	key: 2,
 	class: "ub-feed__running"
 };
-function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$A(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
-		_hoisted_1$w,
+		_hoisted_1$x,
 		[
-			!$props.entries.length ? (openBlock(), createElementBlock("p", _hoisted_2$r, " 还没有运行记录。发送一条指令后，主 Agent 的思考、派工、大纲操作与交付过程会实时显示在这里。 ")) : createCommentVNode("v-if", true),
+			!$props.entries.length ? (openBlock(), createElementBlock("p", _hoisted_2$s, " 还没有运行记录。发送一条指令后，主 Agent 的思考、派工、大纲操作与交付过程会实时显示在这里。 ")) : createCommentVNode("v-if", true),
 			$setup.hiddenCount > 0 ? (openBlock(), createElementBlock(
 				"button",
 				{
@@ -204229,29 +204229,29 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					return openBlock(), createElementBlock(
 						Fragment,
 						{ key: entry.id },
-						[entry.kind === "run_started" || entry.kind === "run_resumed" ? (openBlock(), createElementBlock("div", _hoisted_3$n, [
+						[entry.kind === "run_started" || entry.kind === "run_resumed" ? (openBlock(), createElementBlock("div", _hoisted_3$o, [
 							createBaseVNode(
 								"span",
-								_hoisted_4$k,
+								_hoisted_4$l,
 								toDisplayString(entry.kind === "run_resumed" ? "恢复运行" : "开始运行"),
 								1
 								/* TEXT */
 							),
 							createBaseVNode(
 								"span",
-								_hoisted_5$i,
+								_hoisted_5$j,
 								toDisplayString(entry.title),
 								1
 								/* TEXT */
 							),
 							createBaseVNode(
 								"span",
-								_hoisted_6$g,
+								_hoisted_6$h,
 								toDisplayString($setup.formatTime(entry.at)),
 								1
 								/* TEXT */
 							)
-						])) : entry.kind === "user_message" ? (openBlock(), createElementBlock("div", _hoisted_7$e, [createBaseVNode("div", _hoisted_8$c, [createBaseVNode(
+						])) : entry.kind === "user_message" ? (openBlock(), createElementBlock("div", _hoisted_7$f, [createBaseVNode("div", _hoisted_8$c, [createBaseVNode(
 							"p",
 							null,
 							toDisplayString(entry.detail || entry.title),
@@ -204376,9 +204376,9 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_PATCH */
 	);
 }
-var ContinuationSessionFeed = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$z], ["__scopeId", "data-v-be3d44d3"]]);
+var ContinuationSessionFeed = /* @__PURE__ */ _export_sfc(_sfc_main$B, [["render", _sfc_render$A], ["__scopeId", "data-v-be3d44d3"]]);
 
-var _sfc_main$z = /*@__PURE__*/ defineComponent({
+var _sfc_main$A = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationChat',
     props: {
         task: {},
@@ -204415,12 +204415,12 @@ var _sfc_main$z = /*@__PURE__*/ defineComponent({
         });
         const placeholder = computed(() => {
             if (!props.task)
-                return '描述你想要的续写方向，发送后主 Agent 会创建任务并开始规划...';
+                return '描述你想要的续写方向，发送后主 Agent 会创建任务并开始规划…';
             if (props.awaitingHost)
                 return '酒馆正在生成正文。点「停止」可打断；要接着做就打字再发送。';
             if (props.task.status === 'running' || props.running)
                 return '主 Agent 正在工作。点「停止」可打断；要接着做就打字再发送。';
-            return '继续和主 Agent 对话，写好后再发送...';
+            return '继续和主 Agent 对话，写好后再发送…';
         });
         const notice = computed(() => {
             if (props.awaitingHost)
@@ -204450,23 +204450,23 @@ var _sfc_main$z = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-cchat[data-v-acb581a2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-cchat__status[data-v-acb581a2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s1) var(--ub-s3);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-cchat__state[data-v-acb581a2] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  padding: 2px 10px 2px 8px;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-cchat__dot[data-v-acb581a2] {\r\n  width: 7px;\r\n  height: 7px;\r\n  border-radius: 50%;\r\n  background: var(--ub-text-3);\n}\n.ub-cchat__state.is-running[data-v-acb581a2] {\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-cchat__state.is-running .ub-cchat__dot[data-v-acb581a2] {\r\n  background: var(--ub-accent);\r\n  animation: ub-cchat-pulse-acb581a2 1.2s ease-in-out infinite;\n}\n.ub-cchat__state.is-failed[data-v-acb581a2] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-cchat__state.is-failed .ub-cchat__dot[data-v-acb581a2] {\r\n  background: var(--ub-danger);\n}\n.ub-cchat__notice[data-v-acb581a2] {\r\n  margin: 0 var(--ub-s4);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cchat__composer[data-v-acb581a2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  padding: var(--ub-s2);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: calc(var(--ub-r-control) + 4px);\r\n  background: var(--ub-input-bg);\r\n  transition: border-color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-cchat__composer[data-v-acb581a2]:focus-within {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-cchat__input[data-v-acb581a2] {\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 64);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  resize: vertical;\r\n  outline: none;\n}\n.ub-cchat__input[data-v-acb581a2]::placeholder {\r\n  color: var(--ub-text-3);\n}\n.ub-cchat__actions[data-v-acb581a2] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cchat__hint[data-v-acb581a2] {\r\n  margin-right: auto;\r\n  padding-left: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n@keyframes ub-cchat-pulse-acb581a2 {\n0%, 100% { opacity: 1;\n}\n50% { opacity: 0.3;\n}\n}\r\n", "src/presentation-v3/parts/ContinuationChat.vue#style-0-acb581a2");
-var ContinuationChat_vue_vue_type_style_index_0_scoped_acb581a2_lang = null;
+injectSfcStyle("\n.ub-cchat[data-v-9627e422] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-cchat__status[data-v-9627e422] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s1) var(--ub-s3);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-cchat__state[data-v-9627e422] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  padding: 2px 10px 2px 8px;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-cchat__dot[data-v-9627e422] {\r\n  width: 7px;\r\n  height: 7px;\r\n  border-radius: 50%;\r\n  background: var(--ub-text-3);\n}\n.ub-cchat__state.is-running[data-v-9627e422] {\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-cchat__state.is-running .ub-cchat__dot[data-v-9627e422] {\r\n  background: var(--ub-accent);\r\n  animation: ub-cchat-pulse-9627e422 1.2s ease-in-out infinite;\n}\n.ub-cchat__state.is-failed[data-v-9627e422] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-cchat__state.is-failed .ub-cchat__dot[data-v-9627e422] {\r\n  background: var(--ub-danger);\n}\n.ub-cchat__notice[data-v-9627e422] {\r\n  margin: 0 var(--ub-s4);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cchat__composer[data-v-9627e422] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  padding: var(--ub-s2);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: calc(var(--ub-r-control) + 4px);\r\n  background: var(--ub-input-bg);\r\n  transition: border-color 0.14s ease, box-shadow 0.14s ease;\n}\n.ub-cchat__composer[data-v-9627e422]:focus-within {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-cchat__input[data-v-9627e422] {\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 64);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  resize: vertical;\r\n  outline: none;\n}\n.ub-cchat__input[data-v-9627e422]::placeholder {\r\n  color: var(--ub-text-3);\n}\n.ub-cchat__actions[data-v-9627e422] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cchat__hint[data-v-9627e422] {\r\n  margin-right: auto;\r\n  padding-left: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n@keyframes ub-cchat-pulse-9627e422 {\n0%, 100% { opacity: 1;\n}\n50% { opacity: 0.3;\n}\n}\r\n", "src/presentation-v3/parts/ContinuationChat.vue#style-0-9627e422");
+var ContinuationChat_vue_vue_type_style_index_0_scoped_9627e422_lang = null;
 
-const _hoisted_1$v = { class: "ub-cchat" };
-const _hoisted_2$q = { class: "ub-cchat__status" };
-const _hoisted_3$m = { key: 0 };
-const _hoisted_4$j = {
+const _hoisted_1$w = { class: "ub-cchat" };
+const _hoisted_2$r = { class: "ub-cchat__status" };
+const _hoisted_3$n = { key: 0 };
+const _hoisted_4$k = {
 	key: 0,
 	class: "ub-cchat__notice"
 };
-const _hoisted_5$h = { class: "ub-cchat__composer" };
-const _hoisted_6$f = ["value", "placeholder"];
-const _hoisted_7$d = { class: "ub-cchat__actions" };
+const _hoisted_5$i = { class: "ub-cchat__composer" };
+const _hoisted_6$g = ["value", "placeholder"];
+const _hoisted_7$e = { class: "ub-cchat__actions" };
 const _hoisted_8$b = { class: "ub-cchat__hint" };
-function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$v, [
-		createBaseVNode("div", _hoisted_2$q, [
+function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$w, [
+		createBaseVNode("div", _hoisted_2$r, [
 			createBaseVNode(
 				"span",
 				{ class: normalizeClass(["ub-cchat__state", `is-${$setup.statusTone}`]) },
@@ -204503,7 +204503,7 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 			),
 			$props.revisionText ? (openBlock(), createElementBlock(
 				"span",
-				_hoisted_3$m,
+				_hoisted_3$n,
 				"大纲 " + toDisplayString($props.revisionText),
 				1
 				/* TEXT */
@@ -204529,12 +204529,12 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 		}, null, 8, ["entries", "running"]),
 		$setup.notice ? (openBlock(), createElementBlock(
 			"p",
-			_hoisted_4$j,
+			_hoisted_4$k,
 			toDisplayString($setup.notice),
 			1
 			/* TEXT */
 		)) : createCommentVNode("v-if", true),
-		createBaseVNode("div", _hoisted_5$h, [createBaseVNode("textarea", {
+		createBaseVNode("div", _hoisted_5$i, [createBaseVNode("textarea", {
 			class: "ub-cchat__input",
 			value: $props.draft,
 			rows: "3",
@@ -204542,7 +204542,7 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 			"aria-label": "给主 Agent 的消息",
 			onInput: _cache[0] || (_cache[0] = ($event) => $setup.emit("update:draft", $event.target.value)),
 			onKeydown: $setup.onKeydown
-		}, null, 40, _hoisted_6$f), createBaseVNode("div", _hoisted_7$d, [createBaseVNode(
+		}, null, 40, _hoisted_6$g), createBaseVNode("div", _hoisted_7$e, [createBaseVNode(
 			"span",
 			_hoisted_8$b,
 			toDisplayString($setup.inFlight ? "进行中可点停止" : "Ctrl / ⌘ + Enter 发送"),
@@ -204576,7 +204576,7 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 		}, 8, ["disabled"]))])])
 	]);
 }
-var ContinuationChat = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$y], ["__scopeId", "data-v-acb581a2"]]);
+var ContinuationChat = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$z], ["__scopeId", "data-v-9627e422"]]);
 
 /**
  * 续写资料模块的显示名：资料面板、待修复卡片、保存提示共用这一份（R10B-18：曾有三份映射，
@@ -204769,7 +204769,7 @@ function buildMaterialCompletionCards_ACU(input) {
     });
 }
 
-var _sfc_main$y = /*@__PURE__*/ defineComponent({
+var _sfc_main$z = /*@__PURE__*/ defineComponent({
     __name: 'JsonDraftEditor',
     props: {
         draft: {},
@@ -204796,22 +204796,22 @@ var _sfc_main$y = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-jde[data-v-c21c1478] {\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-jde.is-open[data-v-c21c1478] {\r\n  border-style: solid;\n}\n.ub-jde__toggle[data-v-c21c1478] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-jde__chevron[data-v-c21c1478] {\r\n  margin-left: auto;\r\n  transition: transform 0.14s ease;\n}\n.is-open .ub-jde__chevron[data-v-c21c1478] {\r\n  transform: rotate(180deg);\n}\n.ub-jde__body[data-v-c21c1478] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: 0 var(--ub-s3) var(--ub-s3);\n}\n.ub-jde__hint[data-v-c21c1478] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-jde__error[data-v-c21c1478] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-jde__actions[data-v-c21c1478] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\r\n", "src/presentation-v3/parts/JsonDraftEditor.vue#style-0-c21c1478");
 var JsonDraftEditor_vue_vue_type_style_index_0_scoped_c21c1478_lang = null;
 
-const _hoisted_1$u = ["aria-expanded"];
-const _hoisted_2$p = {
+const _hoisted_1$v = ["aria-expanded"];
+const _hoisted_2$q = {
 	key: 0,
 	class: "ub-jde__body"
 };
-const _hoisted_3$l = {
+const _hoisted_3$m = {
 	key: 0,
 	class: "ub-jde__hint"
 };
-const _hoisted_4$i = {
+const _hoisted_4$j = {
 	key: 1,
 	class: "ub-jde__error",
 	role: "alert"
 };
-const _hoisted_5$g = { class: "ub-jde__actions" };
-function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_5$h = { class: "ub-jde__actions" };
+function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"div",
 		{ class: normalizeClass(["ub-jde", { "is-open": $setup.open }]) },
@@ -204857,10 +204857,10 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 				-1
 				/* CACHED */
 			))
-		], 8, _hoisted_1$u), $setup.open ? (openBlock(), createElementBlock("div", _hoisted_2$p, [
+		], 8, _hoisted_1$v), $setup.open ? (openBlock(), createElementBlock("div", _hoisted_2$q, [
 			$props.hint ? (openBlock(), createElementBlock(
 				"p",
-				_hoisted_3$l,
+				_hoisted_3$m,
 				toDisplayString($props.hint),
 				1
 				/* TEXT */
@@ -204878,12 +204878,12 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 			]),
 			$props.error ? (openBlock(), createElementBlock(
 				"p",
-				_hoisted_4$i,
+				_hoisted_4$j,
 				toDisplayString($props.error),
 				1
 				/* TEXT */
 			)) : createCommentVNode("v-if", true),
-			createBaseVNode("div", _hoisted_5$g, [createVNode($setup["UbButton"], {
+			createBaseVNode("div", _hoisted_5$h, [createVNode($setup["UbButton"], {
 				size: "sm",
 				variant: "ghost",
 				disabled: !$props.dirty,
@@ -204915,10 +204915,10 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var JsonDraftEditor = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$x], ["__scopeId", "data-v-c21c1478"]]);
+var JsonDraftEditor = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$y], ["__scopeId", "data-v-c21c1478"]]);
 
 const OUTLINE_STALE_MESSAGE = '底稿已过期：编辑期间大纲已被更新，保存会覆盖新大纲。请放弃草稿后基于最新大纲重新编辑。';
-var _sfc_main$x = /*@__PURE__*/ defineComponent({
+var _sfc_main$y = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationMaterials',
     props: {
         task: {},
@@ -205179,23 +205179,23 @@ var _sfc_main$x = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-cm[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-cm__bar[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-cm__spacer[data-v-77fa46d6] {\r\n  flex: 1 1 auto;\n}\n.ub-cm__confirm[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s3) var(--ub-s4) 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__pane[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-cm__actions[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__empty[data-v-77fa46d6] {\r\n  padding: var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-cm__meta[data-v-77fa46d6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__body[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__error[data-v-77fa46d6] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cm__tags[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\n}\n.ub-cm__hero[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s4);\r\n  border-radius: var(--ub-r-card);\r\n  background: linear-gradient(140deg, var(--ub-accent-soft), transparent 70%), var(--ub-sunken);\n}\n.ub-cm__hero-title[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 800;\n}\n.ub-cm__progress[data-v-77fa46d6] {\r\n  height: 6px;\r\n  border-radius: 999px;\r\n  background: var(--ub-line-soft);\r\n  overflow: hidden;\n}\n.ub-cm__progress span[data-v-77fa46d6] {\r\n  display: block;\r\n  height: 100%;\r\n  border-radius: inherit;\r\n  background: var(--ub-accent);\n}\n.ub-cm__node[data-v-77fa46d6] {\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__node-head[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__turns[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s2) 0 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-cm__turns li[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-left: 3px solid var(--ub-line);\r\n  border-radius: 0 6px 6px 0;\r\n  background: var(--ub-input-bg);\n}\n.ub-cm__turns li.is-done[data-v-77fa46d6] {\r\n  border-left-color: var(--ub-ok);\r\n  opacity: 0.6;\n}\n.ub-cm__turns li.is-current[data-v-77fa46d6] {\r\n  border-left-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\n}\n.ub-cm__turn-goal[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__history[data-v-77fa46d6] {\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  padding: var(--ub-s2) var(--ub-s3);\n}\n.ub-cm__history > summary[data-v-77fa46d6] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-cm__history--inner[data-v-77fa46d6] {\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__history-body[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__list[data-v-77fa46d6] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__status-grid[data-v-77fa46d6] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__status[data-v-77fa46d6] {\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-cm__status.is-bad[data-v-77fa46d6] {\r\n  background: var(--ub-danger-soft);\n}\n.ub-cm__box[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__box.is-warn[data-v-77fa46d6] {\r\n  border-color: color-mix(in srgb, var(--ub-warn) 45%, var(--ub-line-soft));\r\n  background: var(--ub-warn-soft);\n}\n.ub-cm__box-title[data-v-77fa46d6],\r\n.ub-cm__module-head[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 800;\n}\n.ub-cm__module-head span[data-v-77fa46d6] {\r\n  margin-left: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cm__checks[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-cm__fix + .ub-cm__fix[data-v-77fa46d6] {\r\n  padding-top: var(--ub-s2);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__module[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding-top: var(--ub-s3);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__cards[data-v-77fa46d6] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__card[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-cm__card.is-retired[data-v-77fa46d6] {\r\n  opacity: 0.55;\n}\ndetails.ub-cm__card > summary[data-v-77fa46d6] {\r\n  cursor: pointer;\n}\n.ub-cm__reqs[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req[data-v-77fa46d6] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req-index[data-v-77fa46d6] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: 1.8em;\r\n  height: 1.8em;\r\n  margin-top: 6px;\r\n  border-radius: 50%;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 800;\n}\r\n", "src/presentation-v3/parts/ContinuationMaterials.vue#style-0-77fa46d6");
 var ContinuationMaterials_vue_vue_type_style_index_0_scoped_77fa46d6_lang = null;
 
-const _hoisted_1$t = { class: "ub-cm" };
-const _hoisted_2$o = { class: "ub-cm__bar" };
-const _hoisted_3$k = {
+const _hoisted_1$u = { class: "ub-cm" };
+const _hoisted_2$p = { class: "ub-cm__bar" };
+const _hoisted_3$l = {
 	key: 0,
 	class: "ub-cm__confirm",
 	role: "alert"
 };
-const _hoisted_4$h = { class: "ub-cm__actions" };
-const _hoisted_5$f = {
+const _hoisted_4$i = { class: "ub-cm__actions" };
+const _hoisted_5$g = {
 	key: 1,
 	class: "ub-cm__pane"
 };
-const _hoisted_6$e = {
+const _hoisted_6$f = {
 	key: 0,
 	class: "ub-cm__empty"
 };
-const _hoisted_7$c = { class: "ub-cm__hero" };
+const _hoisted_7$d = { class: "ub-cm__hero" };
 const _hoisted_8$a = { class: "ub-cm__hero-title" };
 const _hoisted_9$8 = { class: "ub-cm__tags" };
 const _hoisted_10$7 = { class: "ub-cm__body" };
@@ -205395,9 +205395,9 @@ const _hoisted_109 = {
 	class: "ub-cm__error",
 	role: "alert"
 };
-function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("div", _hoisted_1$t, [
-		createBaseVNode("div", _hoisted_2$o, [
+function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("div", _hoisted_1$u, [
+		createBaseVNode("div", _hoisted_2$p, [
 			createVNode($setup["UbSegmented"], {
 				modelValue: $setup.activeTab,
 				"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => $setup.activeTab = $event),
@@ -205441,13 +205441,13 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 				_: 1
 			}, 8, ["busy"])
 		]),
-		$setup.clearPending ? (openBlock(), createElementBlock("div", _hoisted_3$k, [_cache[29] || (_cache[29] = createBaseVNode(
+		$setup.clearPending ? (openBlock(), createElementBlock("div", _hoisted_3$l, [_cache[29] || (_cache[29] = createBaseVNode(
 			"p",
 			null,
 			" 清空会删除当前续写任务、主 Agent 的会话记录与本地资料快照（伏笔、信息差、长期约束、故事总纲、年代学、百科资料库、用户要求）。 小说正文楼层不受影响，清空后可以从当前剧情重新开始规划。 ",
 			-1
 			/* CACHED */
-		)), createBaseVNode("div", _hoisted_4$h, [createVNode($setup["UbButton"], {
+		)), createBaseVNode("div", _hoisted_4$i, [createVNode($setup["UbButton"], {
 			size: "sm",
 			variant: "ghost",
 			onClick: _cache[2] || (_cache[2] = ($event) => $setup.clearPending = false)
@@ -205472,14 +205472,14 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 			_: 1
 		}, 8, ["busy"])])])) : createCommentVNode("v-if", true),
 		createCommentVNode(" 阶段大纲 "),
-		$setup.activeTab === "outline" ? (openBlock(), createElementBlock("div", _hoisted_5$f, [!$props.task ? (openBlock(), createElementBlock("p", _hoisted_6$e, "还没有续写任务，也就没有阶段大纲。")) : (openBlock(), createElementBlock(
+		$setup.activeTab === "outline" ? (openBlock(), createElementBlock("div", _hoisted_5$g, [!$props.task ? (openBlock(), createElementBlock("p", _hoisted_6$f, "还没有续写任务，也就没有阶段大纲。")) : (openBlock(), createElementBlock(
 			Fragment,
 			{ key: 1 },
 			[$props.activeRevision && $props.activeStage ? (openBlock(), createElementBlock(
 				Fragment,
 				{ key: 0 },
 				[
-					createBaseVNode("div", _hoisted_7$c, [
+					createBaseVNode("div", _hoisted_7$d, [
 						createBaseVNode(
 							"div",
 							_hoisted_8$a,
@@ -207131,10 +207131,10 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 		)) : createCommentVNode("v-if", true)
 	]);
 }
-var ContinuationMaterials = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$w], ["__scopeId", "data-v-77fa46d6"]]);
+var ContinuationMaterials = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$x], ["__scopeId", "data-v-77fa46d6"]]);
 
 const INHERIT_CHANNEL_VALUE = '__inherit__';
-var _sfc_main$w = /*@__PURE__*/ defineComponent({
+var _sfc_main$x = /*@__PURE__*/ defineComponent({
     __name: 'ContinuationPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -207813,22 +207813,22 @@ var _sfc_main$w = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-cont__actions[data-v-57f4a57a] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cont__error[data-v-57f4a57a] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cont__notice[data-v-57f4a57a] {\r\n  color: var(--ub-warn);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cont__pad[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-cont__groups[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cont__groups[data-v-57f4a57a] .ub-row {\r\n  padding-left: 0;\r\n  padding-right: 0;\n}\n.ub-cont__meta[data-v-57f4a57a] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cont__checks[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) 0;\n}\n.ub-cont__subhead[data-v-57f4a57a] {\r\n  margin: var(--ub-s2) 0 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\r\n", "src/presentation-v3/pages/ContinuationPage.vue#style-0-57f4a57a");
 var ContinuationPage_vue_vue_type_style_index_0_scoped_57f4a57a_lang = null;
 
-const _hoisted_1$s = {
+const _hoisted_1$t = {
 	key: 0,
 	class: "ub-cont__error"
 };
-const _hoisted_2$n = { class: "ub-cont__actions" };
-const _hoisted_3$j = {
+const _hoisted_2$o = { class: "ub-cont__actions" };
+const _hoisted_3$k = {
 	key: 0,
 	class: "ub-cont__notice"
 };
-const _hoisted_4$g = {
+const _hoisted_4$h = {
 	key: 0,
 	class: "ub-cont__pad"
 };
-const _hoisted_5$e = { class: "ub-cont__groups" };
-const _hoisted_6$d = { class: "ub-cont__checks" };
-const _hoisted_7$b = {
+const _hoisted_5$f = { class: "ub-cont__groups" };
+const _hoisted_6$e = { class: "ub-cont__checks" };
+const _hoisted_7$c = {
 	key: 0,
 	class: "ub-cont__pad"
 };
@@ -207838,7 +207838,7 @@ const _hoisted_9$7 = {
 	class: "ub-cont__meta"
 };
 const _hoisted_10$6 = { class: "ub-cont__actions" };
-function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		sections: $setup.sections,
 		wide: ""
@@ -207901,12 +207901,12 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 					}, null, 8, ["model-value"]),
 					$setup.outlineDraftError ? (openBlock(), createElementBlock(
 						"p",
-						_hoisted_1$s,
+						_hoisted_1$t,
 						toDisplayString($setup.outlineDraftError),
 						1
 						/* TEXT */
 					)) : createCommentVNode("v-if", true),
-					createBaseVNode("div", _hoisted_2$n, [createVNode($setup["UbButton"], {
+					createBaseVNode("div", _hoisted_2$o, [createVNode($setup["UbButton"], {
 						variant: "primary",
 						icon: "fa-solid fa-check",
 						busy: $setup.runtime.busy.value,
@@ -207954,13 +207954,13 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 			}, {
 				actions: withCtx(() => [$setup.settingsNotice ? (openBlock(), createElementBlock(
 					"span",
-					_hoisted_3$j,
+					_hoisted_3$k,
 					toDisplayString($setup.settingsNotice),
 					1
 					/* TEXT */
 				)) : createCommentVNode("v-if", true)]),
 				default: withCtx(() => [
-					$setup.settingsError ? (openBlock(), createElementBlock("div", _hoisted_4$g, [createVNode($setup["UbCallout"], { kind: "error" }, {
+					$setup.settingsError ? (openBlock(), createElementBlock("div", _hoisted_4$h, [createVNode($setup["UbCallout"], { kind: "error" }, {
 						default: withCtx(() => [createTextVNode(
 							toDisplayString($setup.settingsError),
 							1
@@ -208122,7 +208122,7 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 						}, null, 8, ["modelValue"])]),
 						_: 1
 					}),
-					createBaseVNode("div", _hoisted_5$e, [
+					createBaseVNode("div", _hoisted_5$f, [
 						createVNode($setup["UbDisclosure"], {
 							label: "固定工作流",
 							meta: $setup.workflowGroupMeta,
@@ -208519,7 +208519,7 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 									-1
 									/* CACHED */
 								)),
-								createBaseVNode("div", _hoisted_6$d, [
+								createBaseVNode("div", _hoisted_6$e, [
 									createVNode($setup["UbCheck"], {
 										modelValue: $setup.settingsDraft.webResearch.sources.moegirl,
 										"onUpdate:modelValue": _cache[42] || (_cache[42] = ($event) => $setup.settingsDraft.webResearch.sources.moegirl = $event),
@@ -208728,7 +208728,7 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 					)])]),
 					_: 1
 				})]),
-				default: withCtx(() => [$setup.promptIoError || $setup.promptIoNotice || $setup.settingsError ? (openBlock(), createElementBlock("div", _hoisted_7$b, [
+				default: withCtx(() => [$setup.promptIoError || $setup.promptIoNotice || $setup.settingsError ? (openBlock(), createElementBlock("div", _hoisted_7$c, [
 					$setup.promptIoError ? (openBlock(), createBlock($setup["UbCallout"], {
 						key: 0,
 						kind: "error"
@@ -208880,7 +208880,7 @@ function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["sections"]);
 }
-var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$w, [["render", _sfc_render$v], ["__scopeId", "data-v-57f4a57a"]]);
+var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$w], ["__scopeId", "data-v-57f4a57a"]]);
 
 const FLIGHT_MODE_BIG_SUMMARY_ENTRY_PLACEMENT_ACU = {
     position: 'at_depth_as_system',
@@ -210237,7 +210237,7 @@ function syncFeaturePageGates_UB(router, contentReplaceEnabled, plotEnabled) {
     router.syncFeatureGate(FEATURE_FLAG_PLOT_PAUSED, isDecisionRecallStandaloneActive_ACU(settings_ACU.decisionRecallSettings));
 }
 
-var _sfc_main$v = /*@__PURE__*/ defineComponent({
+var _sfc_main$w = /*@__PURE__*/ defineComponent({
     __name: 'DashboardPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -210342,24 +210342,24 @@ var _sfc_main$v = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-dash-health[data-v-1ee4f1f2] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--ub-u) * 340)), 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-health[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-text-3);\r\n  display: flex;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\r\n  padding: var(--ub-s4);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\n}\n.ub-health.is-ok[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-ok);\n}\n.ub-health.is-info[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-accent-ink);\n}\n.ub-health.is-warning[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-warn);\n}\n.ub-health.is-error[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-danger);\r\n  border-color: color-mix(in srgb, var(--ub-danger) 40%, var(--ub-line-soft));\n}\n.ub-health__icon[data-v-1ee4f1f2] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 36);\r\n  height: calc(var(--ub-u) * 36);\r\n  border-radius: 11px;\r\n  background: color-mix(in srgb, var(--ub-health-tone) 15%, transparent);\r\n  color: var(--ub-health-tone);\n}\n.ub-health__body[data-v-1ee4f1f2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-health__head[data-v-1ee4f1f2] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\n}\n.ub-health__title[data-v-1ee4f1f2] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\n}\n.ub-health__summary[data-v-1ee4f1f2] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-health__action[data-v-1ee4f1f2] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  align-self: flex-start;\r\n  margin-top: var(--ub-s1);\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-accent-ink);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-health__action[data-v-1ee4f1f2]:hover {\r\n  text-decoration: underline;\n}\r\n", "src/presentation-v3/pages/DashboardPage.vue#style-0-1ee4f1f2");
 var DashboardPage_vue_vue_type_style_index_0_scoped_1ee4f1f2_lang = null;
 
-const _hoisted_1$r = {
+const _hoisted_1$s = {
 	class: "ub-dash-health",
 	"aria-label": "运行概览"
 };
-const _hoisted_2$m = ["data-health-key"];
-const _hoisted_3$i = {
+const _hoisted_2$n = ["data-health-key"];
+const _hoisted_3$j = {
 	class: "ub-health__icon",
 	"aria-hidden": "true"
 };
-const _hoisted_4$f = { class: "ub-health__body" };
-const _hoisted_5$d = { class: "ub-health__head" };
-const _hoisted_6$c = { class: "ub-health__title" };
-const _hoisted_7$a = { class: "ub-health__summary" };
+const _hoisted_4$g = { class: "ub-health__body" };
+const _hoisted_5$e = { class: "ub-health__head" };
+const _hoisted_6$d = { class: "ub-health__title" };
+const _hoisted_7$b = { class: "ub-health__summary" };
 const _hoisted_8$8 = ["onClick"];
-function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$v(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], { lead: $setup.dashboardCopy.panels.healthDescription }, {
 		default: withCtx(() => [
-			createBaseVNode("section", _hoisted_1$r, [(openBlock(true), createElementBlock(
+			createBaseVNode("section", _hoisted_1$s, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
 				renderList($setup.healthCards, (item) => {
@@ -210367,16 +210367,16 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 						key: item.key,
 						class: normalizeClass(["ub-health", `is-${item.kind}`]),
 						"data-health-key": item.key
-					}, [createBaseVNode("span", _hoisted_3$i, [createBaseVNode(
+					}, [createBaseVNode("span", _hoisted_3$j, [createBaseVNode(
 						"i",
 						{ class: normalizeClass(item.iconClass) },
 						null,
 						2
 						/* CLASS */
-					)]), createBaseVNode("div", _hoisted_4$f, [
-						createBaseVNode("div", _hoisted_5$d, [createBaseVNode(
+					)]), createBaseVNode("div", _hoisted_4$g, [
+						createBaseVNode("div", _hoisted_5$e, [createBaseVNode(
 							"strong",
-							_hoisted_6$c,
+							_hoisted_6$d,
 							toDisplayString(item.title),
 							1
 							/* TEXT */
@@ -210390,7 +210390,7 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 						}, 1032, ["variant"])]),
 						createBaseVNode(
 							"p",
-							_hoisted_7$a,
+							_hoisted_7$b,
 							toDisplayString(item.summary),
 							1
 							/* TEXT */
@@ -210414,7 +210414,7 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 							-1
 							/* CACHED */
 						))], 8, _hoisted_8$8)) : createCommentVNode("v-if", true)
-					])], 10, _hoisted_2$m);
+					])], 10, _hoisted_2$n);
 				}),
 				128
 				/* KEYED_FRAGMENT */
@@ -210495,7 +210495,7 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["lead"]);
 }
-var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$u], ["__scopeId", "data-v-1ee4f1f2"]]);
+var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$w, [["render", _sfc_render$v], ["__scopeId", "data-v-1ee4f1f2"]]);
 
 /**
  * service/worldbook/worldbook-cleanup.ts — 世界书条目清理（service 层：纯业务逻辑）
@@ -212029,7 +212029,7 @@ function useDormantData() {
     };
 }
 
-var _sfc_main$u = /*@__PURE__*/ defineComponent({
+var _sfc_main$v = /*@__PURE__*/ defineComponent({
     __name: 'DormantDataSection',
     props: {
         id: { default: undefined }
@@ -212058,22 +212058,22 @@ var _sfc_main$u = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-dormant__notes[data-v-527fd598] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-dormant__issues[data-v-527fd598] {\r\n  margin: var(--ub-s1) 0 0;\r\n  padding-left: 1.2em;\n}\n.ub-dormant__empty[data-v-527fd598] {\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-dormant__group[data-v-527fd598] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 800;\n}\n.ub-dormant__group[data-v-527fd598]:first-child {\r\n  border-top: 0;\n}\n.ub-dormant__blocked[data-v-527fd598] {\r\n  display: block;\r\n  color: var(--ub-warn);\n}\r\n", "src/presentation-v3/parts/DormantDataSection.vue#style-0-527fd598");
 var DormantDataSection_vue_vue_type_style_index_0_scoped_527fd598_lang = null;
 
-const _hoisted_1$q = {
+const _hoisted_1$r = {
 	key: 0,
 	class: "ub-dormant__notes"
 };
-const _hoisted_2$l = { class: "ub-dormant__issues" };
-const _hoisted_3$h = {
+const _hoisted_2$m = { class: "ub-dormant__issues" };
+const _hoisted_3$i = {
 	key: 1,
 	class: "ub-dormant__empty"
 };
-const _hoisted_4$e = { class: "ub-dormant__group" };
-const _hoisted_5$c = {
+const _hoisted_4$f = { class: "ub-dormant__group" };
+const _hoisted_5$d = {
 	key: 0,
 	class: "ub-dormant__blocked"
 };
-const _hoisted_6$b = { class: "ub-dormant__group" };
-function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_6$c = { class: "ub-dormant__group" };
+function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: "休眠数据",
@@ -212095,7 +212095,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 			_: 1
 		}, 8, ["disabled", "onClick"])]),
 		default: withCtx(() => [
-			$setup.dormant.listError.value || $setup.dormant.integrityIssues.value.length ? (openBlock(), createElementBlock("div", _hoisted_1$q, [$setup.dormant.listError.value ? (openBlock(), createBlock($setup["UbCallout"], {
+			$setup.dormant.listError.value || $setup.dormant.integrityIssues.value.length ? (openBlock(), createElementBlock("div", _hoisted_1$r, [$setup.dormant.listError.value ? (openBlock(), createBlock($setup["UbCallout"], {
 				key: 0,
 				kind: "error"
 			}, {
@@ -212113,7 +212113,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 					" 休眠完整性自检发现 " + toDisplayString($setup.dormant.integrityIssues.value.length) + " 项问题： ",
 					1
 					/* TEXT */
-				), createBaseVNode("ul", _hoisted_2$l, [(openBlock(true), createElementBlock(
+				), createBaseVNode("ul", _hoisted_2$m, [(openBlock(true), createElementBlock(
 					Fragment,
 					null,
 					renderList($setup.dormant.integrityIssues.value, (issue) => {
@@ -212130,7 +212130,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 				))])]),
 				_: 1
 			})) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true),
-			$setup.dormant.loaded.value && !$setup.dormant.listError.value && $setup.dormant.isEmpty.value ? (openBlock(), createElementBlock("p", _hoisted_3$h, [..._cache[1] || (_cache[1] = [createBaseVNode(
+			$setup.dormant.loaded.value && !$setup.dormant.listError.value && $setup.dormant.isEmpty.value ? (openBlock(), createElementBlock("p", _hoisted_3$i, [..._cache[1] || (_cache[1] = [createBaseVNode(
 				"i",
 				{
 					class: "fa-regular fa-face-smile",
@@ -212149,7 +212149,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 				{ key: 2 },
 				[createBaseVNode(
 					"div",
-					_hoisted_4$e,
+					_hoisted_4$f,
 					"休眠表（" + toDisplayString($setup.dormant.dormantTables.value.length) + "）",
 					1
 					/* TEXT */
@@ -212167,7 +212167,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 								/* TEXT */
 							), !entry.canWake && entry.wakeBlockedReason ? (openBlock(), createElementBlock(
 								"span",
-								_hoisted_5$c,
+								_hoisted_5$d,
 								toDisplayString(entry.wakeBlockedReason),
 								1
 								/* TEXT */
@@ -212204,7 +212204,7 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 				{ key: 3 },
 				[createBaseVNode(
 					"div",
-					_hoisted_6$b,
+					_hoisted_6$c,
 					"休眠列（" + toDisplayString($setup.dormant.dormantColumns.value.length) + "）",
 					1
 					/* TEXT */
@@ -212248,9 +212248,9 @@ function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["id"]);
 }
-var DormantDataSection = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$t], ["__scopeId", "data-v-527fd598"]]);
+var DormantDataSection = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$u], ["__scopeId", "data-v-527fd598"]]);
 
-var _sfc_main$t = /*@__PURE__*/ defineComponent({
+var _sfc_main$u = /*@__PURE__*/ defineComponent({
     __name: 'DataMgmtPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -212504,19 +212504,19 @@ ${floorNote}确认继续？`,
 injectSfcStyle("\n.ub-dm__text[data-v-69190edf] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-dm__strong[data-v-69190edf] {\r\n  color: var(--ub-text);\n}\n.ub-dm__block[data-v-69190edf] {\r\n  display: block;\r\n  margin-top: 2px;\n}\n.ub-dm__buttons[data-v-69190edf] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-dm__group[data-v-69190edf] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-dm__sheets[data-v-69190edf] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-dm__danger[data-v-69190edf] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: color-mix(in srgb, var(--ub-danger-soft) 40%, transparent);\n}\r\n", "src/presentation-v3/pages/DataMgmtPage.vue#style-0-69190edf");
 var DataMgmtPage_vue_vue_type_style_index_0_scoped_69190edf_lang = null;
 
-const _hoisted_1$p = { class: "ub-dm__text" };
-const _hoisted_2$k = { class: "ub-dm__buttons" };
-const _hoisted_3$g = { class: "ub-dm__text" };
-const _hoisted_4$d = { class: "ub-dm__buttons" };
-const _hoisted_5$b = {
+const _hoisted_1$q = { class: "ub-dm__text" };
+const _hoisted_2$l = { class: "ub-dm__buttons" };
+const _hoisted_3$h = { class: "ub-dm__text" };
+const _hoisted_4$e = { class: "ub-dm__buttons" };
+const _hoisted_5$c = {
 	key: 0,
 	class: "ub-dm__block"
 };
-const _hoisted_6$a = {
+const _hoisted_6$b = {
 	key: 1,
 	class: "ub-dm__block"
 };
-const _hoisted_7$9 = { class: "ub-dm__group" };
+const _hoisted_7$a = { class: "ub-dm__group" };
 const _hoisted_8$7 = {
 	class: "ub-dm__sheets",
 	role: "group",
@@ -212525,7 +212525,7 @@ const _hoisted_8$7 = {
 const _hoisted_9$6 = { class: "ub-dm__danger" };
 const _hoisted_10$5 = { class: "ub-dm__text" };
 const _hoisted_11$5 = { class: "ub-dm__buttons" };
-function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$t(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], { sections: $setup.sections }, {
 		default: withCtx(() => [
 			$setup.flow.message.value ? (openBlock(), createBlock($setup["UbCallout"], {
@@ -212624,7 +212624,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 				icon: "fa-solid fa-code-merge",
 				padded: ""
 			}, {
-				default: withCtx(() => [createBaseVNode("p", _hoisted_1$p, [
+				default: withCtx(() => [createBaseVNode("p", _hoisted_1$q, [
 					createTextVNode(
 						" 当前聊天同时检测到 legacy-v1 与 V2 数据。决议：" + toDisplayString($setup.flow.mixedStorageDecision.value.kind) + "。 ",
 						1
@@ -212657,7 +212657,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 						-1
 						/* CACHED */
 					))
-				]), createBaseVNode("div", _hoisted_2$k, [
+				]), createBaseVNode("div", _hoisted_2$l, [
 					createVNode($setup["UbButton"], {
 						disabled: $setup.busy,
 						busy: $setup.flow.busyAction.value === "export-mixed-storage-snapshots",
@@ -212712,11 +212712,11 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			}, {
 				default: withCtx(() => [createBaseVNode(
 					"p",
-					_hoisted_3$g,
+					_hoisted_3$h,
 					toDisplayString($setup.flow.v2RecoverySummary.value.message) + " 恢复只使用服务端冻结候选，不会从页面读取或提交可编辑表格数据。",
 					1
 					/* TEXT */
-				), createBaseVNode("div", _hoisted_4$d, [
+				), createBaseVNode("div", _hoisted_4$e, [
 					createVNode($setup["UbButton"], {
 						disabled: $setup.busy,
 						onClick: $setup.flow.exportV2RecoveryBackups
@@ -212777,7 +212777,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 								toDisplayString(diagnostic.message) + " ",
 								1
 								/* TEXT */
-							), !diagnostic.isCurrentIsolation ? (openBlock(), createElementBlock("span", _hoisted_5$b, "请切换到该隔离域后重新诊断；当前恢复提交不会跨隔离域执行。")) : diagnostic.status.startsWith("recoverable_") ? (openBlock(), createElementBlock("span", _hoisted_6$a, "当前隔离域存在可恢复候选，请诊断 V2 数据恢复生成可提交计划。")) : createCommentVNode("v-if", true)]),
+							), !diagnostic.isCurrentIsolation ? (openBlock(), createElementBlock("span", _hoisted_5$c, "请切换到该隔离域后重新诊断；当前恢复提交不会跨隔离域执行。")) : diagnostic.status.startsWith("recoverable_") ? (openBlock(), createElementBlock("span", _hoisted_6$b, "当前隔离域存在可恢复候选，请诊断 V2 数据恢复生成可提交计划。")) : createCommentVNode("v-if", true)]),
 							_: 2
 						}, 1032, ["label"]);
 					}),
@@ -212811,7 +212811,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createBaseVNode(
 						"div",
-						_hoisted_7$9,
+						_hoisted_7$a,
 						" 手动删除 · 当前聊天 " + toDisplayString($setup.flow.aiMessageCount.value) + " 个 AI 楼层 · 将处理：" + toDisplayString($setup.flow.rangeLabel.value),
 						1
 						/* TEXT */
@@ -212981,9 +212981,9 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["sections"]);
 }
-var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$s], ["__scopeId", "data-v-69190edf"]]);
+var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$u, [["render", _sfc_render$t], ["__scopeId", "data-v-69190edf"]]);
 
-var _sfc_main$s = /*@__PURE__*/ defineComponent({
+var _sfc_main$t = /*@__PURE__*/ defineComponent({
     __name: 'DecisionRecallPage',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -213148,19 +213148,19 @@ var _sfc_main$s = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.ub-dr__more[data-v-5ba6a7f4] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border: 0;\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-dr__more[data-v-5ba6a7f4]:hover {\r\n  color: var(--ub-text);\n}\n.ub-dr__chevron[data-v-5ba6a7f4] {\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.ub-dr__chevron.is-open[data-v-5ba6a7f4] {\r\n  transform: rotate(90deg);\n}\n.ub-dr__more ~ .ub-row[data-v-5ba6a7f4] {\r\n  background: color-mix(in srgb, var(--ub-sunken) 50%, transparent);\n}\n.ub-dr__picker[data-v-5ba6a7f4] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__meta[data-v-5ba6a7f4] {\r\n  margin: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-dr__actions[data-v-5ba6a7f4] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__output[data-v-5ba6a7f4] {\r\n  max-height: calc(var(--ub-u) * 360);\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  white-space: pre-wrap;\r\n  overflow: auto;\n}\r\n", "src/presentation-v3/pages/DecisionRecallPage.vue#style-0-5ba6a7f4");
 var DecisionRecallPage_vue_vue_type_style_index_0_scoped_5ba6a7f4_lang = null;
 
-const _hoisted_1$o = {
+const _hoisted_1$p = {
 	key: 0,
 	class: "ub-dr__picker"
 };
-const _hoisted_2$j = ["aria-expanded"];
-const _hoisted_3$f = { class: "ub-dr__meta" };
-const _hoisted_4$c = { class: "ub-dr__actions" };
-const _hoisted_5$a = { class: "ub-dr__actions" };
-const _hoisted_6$9 = {
+const _hoisted_2$k = ["aria-expanded"];
+const _hoisted_3$g = { class: "ub-dr__meta" };
+const _hoisted_4$d = { class: "ub-dr__actions" };
+const _hoisted_5$b = { class: "ub-dr__actions" };
+const _hoisted_6$a = {
 	key: 0,
 	class: "ub-dr__output"
 };
-function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
 		lead: "发送前让决策模型给纪要打分，挑出与接下来剧情最相关的几条，连同最新几条按表号顺序带进本轮输入。",
 		sections: $setup.sections
@@ -213285,7 +213285,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 							autocomplete: "off",
 							"aria-label": "决策模型名",
 							onChange: $setup.setModelText
-						}, null, 8, ["model-value", "placeholder"])), $setup.store.settings.provider !== "custom" ? (openBlock(), createElementBlock("div", _hoisted_1$o, [createVNode($setup["UbSelect"], {
+						}, null, 8, ["model-value", "placeholder"])), $setup.store.settings.provider !== "custom" ? (openBlock(), createElementBlock("div", _hoisted_1$p, [createVNode($setup["UbSelect"], {
 							options: $setup.modelOptions,
 							"model-value": $setup.store.endpoint.model,
 							placeholder: "从常用模型里选",
@@ -213367,7 +213367,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 							)]),
 							_: 1
 						}, 8, ["variant"])
-					], 8, _hoisted_2$j),
+					], 8, _hoisted_2$k),
 					$setup.advancedOpen ? (openBlock(), createElementBlock(
 						Fragment,
 						{ key: 0 },
@@ -213489,12 +213489,12 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 					}, null, 8, ["model-value"]),
 					createBaseVNode(
 						"p",
-						_hoisted_3$f,
+						_hoisted_3$g,
 						"$8 换成用户本轮输入；" + toDisplayString($setup.codesPlaceholder) + " 换成召回编码块（没写就追加在末尾）。",
 						1
 						/* TEXT */
 					),
-					createBaseVNode("div", _hoisted_4$c, [createVNode($setup["UbButton"], {
+					createBaseVNode("div", _hoisted_4$d, [createVNode($setup["UbButton"], {
 						size: "sm",
 						icon: "fa-solid fa-rotate-left",
 						onClick: $setup.resetDirective
@@ -213537,7 +213537,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 						placeholder: "例如：我回到旧宅，想起那天的约定。",
 						"onUpdate:modelValue": $setup.store.setTestInput
 					}, null, 8, ["model-value", "onUpdate:modelValue"]),
-					createBaseVNode("div", _hoisted_5$a, [createVNode($setup["UbButton"], {
+					createBaseVNode("div", _hoisted_5$b, [createVNode($setup["UbButton"], {
 						variant: "primary",
 						icon: "fa-solid fa-play",
 						busy: $setup.store.testBusy,
@@ -213552,7 +213552,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["busy", "onClick"])]),
 					$setup.store.testOutput ? (openBlock(), createElementBlock(
 						"pre",
-						_hoisted_6$9,
+						_hoisted_6$a,
 						toDisplayString($setup.store.testOutput),
 						1
 						/* TEXT */
@@ -213564,7 +213564,7 @@ function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var DecisionRecallPage = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["render", _sfc_render$r], ["__scopeId", "data-v-5ba6a7f4"]]);
+var DecisionRecallPage = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$s], ["__scopeId", "data-v-5ba6a7f4"]]);
 
 const developerCopy = {
     panels: {
@@ -213583,7 +213583,7 @@ const developerCopy = {
     },
 };
 
-var _sfc_main$r = /*@__PURE__*/ defineComponent({
+var _sfc_main$s = /*@__PURE__*/ defineComponent({
     __name: 'AcuBadge',
     props: {
         variant: { default: 'neutral' }
@@ -213601,7 +213601,7 @@ var _sfc_main$r = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-badge[data-v-925544ff] {\r\n  display: inline-flex; align-items: center;\r\n  padding: var(--acu-space-050, 2px) var(--acu-space-2, 8px); border-radius: var(--acu-radius-sm);\r\n  font-size: var(--acu-font-size-caption, 11px); font-weight: 500;\r\n  white-space: nowrap; line-height: 1.6;\n}\n.acu-badge--neutral[data-v-925544ff] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 16%, transparent);\r\n  color: var(--acu-text-2);\n}\n.acu-badge--accent[data-v-925544ff] {\r\n  background: var(--acu-accent);\r\n  color: var(--acu-on-accent);\n}\n.acu-badge--success[data-v-925544ff],\r\n.acu-badge--warning[data-v-925544ff],\r\n.acu-badge--danger[data-v-925544ff] {\r\n  font-weight: 600;\n}\n.acu-badge--success[data-v-925544ff] {\r\n  background: color-mix(in srgb, var(--acu-success) 16%, transparent);\r\n  color: var(--acu-success);\n}\n.acu-badge--warning[data-v-925544ff] {\r\n  background: color-mix(in srgb, var(--acu-warning) 16%, transparent);\r\n  color: var(--acu-warning);\n}\n.acu-badge--danger[data-v-925544ff] {\r\n  background: color-mix(in srgb, var(--acu-danger) 16%, transparent);\r\n  color: var(--acu-danger);\n}\r\n", "src/presentation-v2/components/_lib/AcuBadge.vue#style-0-925544ff");
 var AcuBadge_vue_vue_type_style_index_0_scoped_925544ff_lang = null;
 
-function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$r(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock(
 		"span",
 		{ class: normalizeClass(["acu-badge", $setup.variantClass]) },
@@ -213610,9 +213610,9 @@ function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var AcuBadge = /* @__PURE__ */ _export_sfc(_sfc_main$r, [["render", _sfc_render$q], ["__scopeId", "data-v-925544ff"]]);
+var AcuBadge = /* @__PURE__ */ _export_sfc(_sfc_main$s, [["render", _sfc_render$r], ["__scopeId", "data-v-925544ff"]]);
 
-var _sfc_main$q = /*@__PURE__*/ defineComponent({
+var _sfc_main$r = /*@__PURE__*/ defineComponent({
     __name: 'AcuButton',
     props: {
         variant: { default: 'default' },
@@ -213638,16 +213638,16 @@ var _sfc_main$q = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-btn[data-v-0ac61136] {\r\n  font: inherit;\r\n  border: 0;\r\n  background: var(--acu-bg-2);\r\n  color: var(--acu-text-1);\r\n  border-radius: var(--acu-radius-sm);\r\n  cursor: pointer;\r\n  display: inline-flex; align-items: center; justify-content: center; gap: var(--acu-space-150, 6px);\r\n  min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere;\r\n  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;\n}\n.acu-btn--md[data-v-0ac61136] { min-height: var(--acu-button-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px); font-size: var(--acu-font-size-body-lg, 13px);\n}\n.acu-btn--sm[data-v-0ac61136] { min-height: var(--acu-button-height-sm, 28px); padding: var(--acu-space-1, 4px) var(--acu-space-250, 10px); font-size: var(--acu-font-size-body, 12px);\n}\n.acu-btn--block[data-v-0ac61136] { width: 100%; min-width: 0;\n}\n.acu-btn--icon-only[data-v-0ac61136] { min-width: var(--acu-button-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-space-2, 8px);\n}\n.acu-btn--icon-only.acu-btn--sm[data-v-0ac61136] { min-width: var(--acu-button-height-sm, 28px); padding: var(--acu-space-1, 4px) var(--acu-space-2, 8px);\n}\n.acu-btn[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2);\n}\n.acu-btn[data-v-0ac61136]:disabled { opacity: 0.5; cursor: not-allowed;\n}\n.acu-btn--primary[data-v-0ac61136] {\r\n  background: var(--acu-accent);\r\n  color: var(--acu-on-accent);\r\n  font-weight: 500;\r\n  box-shadow: none;\n}\n.acu-btn--primary[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: var(--acu-accent-2);\r\n  box-shadow: none;\n}\n.acu-btn--danger[data-v-0ac61136] {\r\n  background: color-mix(in srgb, var(--acu-danger) 10%, transparent);\r\n  color: var(--acu-danger);\n}\n.acu-btn--danger[data-v-0ac61136]:hover:not(:disabled) {\r\n  background: color-mix(in srgb, var(--acu-danger) 18%, transparent);\n}\n.acu-btn[data-v-0ac61136]:focus-visible {\r\n  outline: none;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-btn--loading[data-v-0ac61136] { cursor: wait;\n}\n.acu-btn__spinner[data-v-0ac61136] { font-size: 0.85em;\n}\r\n", "src/presentation-v2/components/_lib/AcuButton.vue#style-0-0ac61136");
 var AcuButton_vue_vue_type_style_index_0_scoped_0ac61136_lang = null;
 
-const _hoisted_1$n = [
+const _hoisted_1$o = [
 	"type",
 	"disabled",
 	"title"
 ];
-const _hoisted_2$i = {
+const _hoisted_2$j = {
 	key: 0,
 	class: "fa-solid fa-spinner fa-spin acu-btn__spinner"
 };
-function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$q(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("button", {
 		type: $props.nativeType,
 		disabled: $props.disabled || $props.loading,
@@ -213662,107 +213662,9 @@ function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
 			}
 		]]),
 		onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("click", $event))
-	}, [$props.loading ? (openBlock(), createElementBlock("i", _hoisted_2$i)) : createCommentVNode("v-if", true), !$props.loading ? renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true) : renderSlot(_ctx.$slots, "loading-text", { key: 2 }, undefined, true)], 10, _hoisted_1$n);
+	}, [$props.loading ? (openBlock(), createElementBlock("i", _hoisted_2$j)) : createCommentVNode("v-if", true), !$props.loading ? renderSlot(_ctx.$slots, "default", { key: 1 }, undefined, true) : renderSlot(_ctx.$slots, "loading-text", { key: 2 }, undefined, true)], 10, _hoisted_1$o);
 }
-var AcuButton = /* @__PURE__ */ _export_sfc(_sfc_main$q, [["render", _sfc_render$p], ["__scopeId", "data-v-0ac61136"]]);
-
-var _sfc_main$p = /*@__PURE__*/ defineComponent({
-    __name: 'AcuInfoBanner',
-    props: {
-        text: { default: '' },
-        tone: { default: 'info' },
-        icon: { default: undefined }
-    },
-    setup(__props, { expose: __expose }) {
-        __expose();
-        const props = __props;
-        const iconClass = computed(() => {
-            if (props.icon)
-                return props.icon;
-            return '';
-        });
-        const __returned__ = { props, iconClass };
-        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
-        return __returned__;
-    }
-});
-
-injectSfcStyle("\n.acu-info-banner[data-v-5b9a5d77] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--acu-space-250, 10px);\r\n  padding: var(--acu-space-225, 9px) var(--acu-space-250, 10px);\r\n  border-radius: var(--acu-radius-sm);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  color: var(--acu-text-2);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  min-width: 0;\n}\n.acu-info-banner__icon[data-v-5b9a5d77] {\r\n  flex-shrink: 0;\r\n  margin-top: var(--acu-space-050, 2px);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\n}\n.acu-info-banner__content[data-v-5b9a5d77] {\r\n  min-width: 0;\r\n  width: 100%;\r\n  word-wrap: break-word;\r\n  overflow-wrap: anywhere;\n}\n.acu-info-banner--info[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\n}\n.acu-info-banner--info .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\n}\n.acu-info-banner--tip[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-accent) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-accent) 18%, transparent);\n}\n.acu-info-banner--tip .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-accent);\r\n  color: var(--acu-accent);\n}\n.acu-info-banner--warning[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-warning) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-warning) 20%, transparent);\n}\n.acu-info-banner--warning .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-warning);\r\n  color: var(--acu-warning);\n}\r\n", "src/presentation-v2/components/_lib/AcuInfoBanner.vue#style-0-5b9a5d77");
-var AcuInfoBanner_vue_vue_type_style_index_0_scoped_5b9a5d77_lang = null;
-
-const _hoisted_1$m = { class: "acu-info-banner__content" };
-function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock(
-		"div",
-		{
-			class: normalizeClass(["acu-info-banner", `acu-info-banner--${$props.tone}`]),
-			role: "note"
-		},
-		[$setup.iconClass ? (openBlock(), createElementBlock(
-			"i",
-			{
-				key: 0,
-				class: normalizeClass(["acu-info-banner__icon", $setup.iconClass]),
-				"aria-hidden": "true"
-			},
-			null,
-			2
-			/* CLASS */
-		)) : createCommentVNode("v-if", true), createBaseVNode("div", _hoisted_1$m, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
-			toDisplayString($props.text),
-			1
-			/* TEXT */
-		)], true)])],
-		2
-		/* CLASS */
-	);
-}
-var AcuInfoBanner = /* @__PURE__ */ _export_sfc(_sfc_main$p, [["render", _sfc_render$o], ["__scopeId", "data-v-5b9a5d77"]]);
-
-var _sfc_main$o = /*@__PURE__*/ defineComponent({
-    __name: 'AcuIconButton',
-    props: {
-        icon: {},
-        title: { default: undefined },
-        ariaLabel: { default: undefined },
-        disabled: { type: Boolean, default: false },
-        variant: { default: 'default' },
-        size: { default: 'md' }
-    },
-    emits: ["click"],
-    setup(__props, { expose: __expose }) {
-        __expose();
-        const __returned__ = {};
-        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
-        return __returned__;
-    }
-});
-
-injectSfcStyle("\n.acu-icon-btn[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\r\n  appearance: none !important;\r\n  -webkit-appearance: none !important;\r\n  flex: 0 0 auto;\r\n  display: inline-flex !important;\r\n  align-items: center !important;\r\n  justify-content: center !important;\r\n  width: var(--acu-icon-btn-size) !important;\r\n  min-width: var(--acu-icon-btn-size) !important;\r\n  max-width: var(--acu-icon-btn-size) !important;\r\n  height: var(--acu-icon-btn-size) !important;\r\n  min-height: var(--acu-icon-btn-size) !important;\r\n  max-height: var(--acu-icon-btn-size) !important;\r\n  box-sizing: border-box !important;\r\n  margin: 0 !important;\r\n  padding: 0 !important;\r\n  border: 0 !important;\r\n  background: transparent !important;\r\n  color: var(--acu-text-2) !important;\r\n  border-radius: var(--acu-radius-sm) !important;\r\n  cursor: pointer;\r\n  font: inherit !important;\r\n  font-size: var(--acu-icon-btn-font-size) !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: middle !important;\r\n  box-shadow: none !important;\r\n  outline: none !important;\r\n  -webkit-tap-highlight-color: transparent;\r\n  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;\n}\n.acu-icon-btn > i[data-v-70b36214] {\r\n  flex: 0 0 auto !important;\r\n  display: inline-block !important;\r\n  width: 1em !important;\r\n  min-width: 1em !important;\r\n  height: 1em !important;\r\n  min-height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: -0.125em !important;\n}\n.acu-icon-btn > i[data-v-70b36214]::before {\r\n  display: block !important;\r\n  width: 1em !important;\r\n  height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\n}\n.acu-icon-btn--md[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\n}\n.acu-icon-btn--sm[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-sm, 22px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-sm, 10px);\r\n  background: var(--acu-bg-2) !important;\n}\n.acu-icon-btn--default[data-v-70b36214]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--danger[data-v-70b36214]:hover:not(:disabled) {\r\n  color: var(--acu-danger) !important;\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214] {\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214]:hover:not(:disabled) {\r\n  background: var(--acu-accent-glow) !important; color: var(--acu-accent) !important;\n}\n.acu-icon-btn[data-v-70b36214]:focus-visible {\r\n  outline: none !important;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow) !important;\n}\n.acu-icon-btn[data-v-70b36214]:disabled { opacity: 0.4; cursor: not-allowed;\n}\r\n", "src/presentation-v2/components/_lib/AcuIconButton.vue#style-0-70b36214");
-var AcuIconButton_vue_vue_type_style_index_0_scoped_70b36214_lang = null;
-
-const _hoisted_1$l = [
-	"disabled",
-	"title",
-	"aria-label"
-];
-function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock("button", {
-		type: "button",
-		disabled: $props.disabled,
-		title: $props.title,
-		"aria-label": $props.ariaLabel || $props.title,
-		class: normalizeClass(["acu-icon-btn", [`acu-icon-btn--${$props.variant}`, `acu-icon-btn--${$props.size}`]]),
-		onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("click", $event))
-	}, [createBaseVNode(
-		"i",
-		{ class: normalizeClass($props.icon) },
-		null,
-		2
-		/* CLASS */
-	)], 10, _hoisted_1$l);
-}
-var AcuIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["render", _sfc_render$n], ["__scopeId", "data-v-70b36214"]]);
+var AcuButton = /* @__PURE__ */ _export_sfc(_sfc_main$r, [["render", _sfc_render$q], ["__scopeId", "data-v-0ac61136"]]);
 
 const MIN_DURATION_MS = 100;
 const MAX_DURATION_MS = 200;
@@ -213891,6 +213793,257 @@ function useAcuHeightTransition(options = {}) {
     };
 }
 
+var _sfc_main$q = /*@__PURE__*/ defineComponent({
+    __name: 'AcuDisclosureGroup',
+    props: {
+        label: { default: '' },
+        meta: { default: '' },
+        expanded: { type: Boolean },
+        bodyId: { default: '' },
+        bodyMode: { default: 'show' },
+        bodyMaxHeight: { default: '' },
+        rootClass: { default: '' },
+        headerClass: { default: '' },
+        bodyClass: { default: '' },
+        chevronClass: { default: '' },
+        chevronOpenClass: { default: '' },
+        labelClass: { default: '' },
+        metaClass: { default: '' }
+    },
+    emits: ["toggle"],
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const props = __props;
+        // 裁切只在高度动画进行中需要（useAcuHeightTransition 会在 beforeEnter/beforeLeave 临时设 hidden）。
+        // 静止状态必须放开 overflow，否则 body 里的浮层（AcuSelect 下拉菜单等）会被折叠容器切掉。
+        // 指定了 bodyMaxHeight 的组是滚动容器，保持 overflow-y: auto。
+        const bodyStyle = computed(() => ({
+            maxHeight: props.bodyMaxHeight || undefined,
+            overflowY: props.bodyMaxHeight ? 'auto' : 'visible',
+            overflowX: props.bodyMaxHeight ? 'hidden' : 'visible',
+        }));
+        const heightTransition = useAcuHeightTransition({
+            restoreOverflow(el) {
+                el.style.overflowY = props.bodyMaxHeight ? 'auto' : 'visible';
+                el.style.overflowX = props.bodyMaxHeight ? 'hidden' : 'visible';
+            },
+        });
+        function beforeEnter(el) {
+            heightTransition.beforeEnter(el);
+        }
+        function enter(el, done) {
+            heightTransition.enter(el, done);
+        }
+        function afterEnter(el) {
+            const body = el;
+            body.removeAttribute('aria-hidden');
+            body.removeAttribute('inert');
+            heightTransition.afterEnter(el);
+        }
+        function beforeLeave(el) {
+            const body = el;
+            body.setAttribute('aria-hidden', 'true');
+            body.setAttribute('inert', '');
+            heightTransition.beforeLeave(el);
+        }
+        function leave(el, done) {
+            heightTransition.leave(el, done);
+        }
+        function afterLeave(el) {
+            heightTransition.afterLeave(el);
+        }
+        function cleanupTransition(el) {
+            heightTransition.cleanupTransition(el);
+        }
+        const __returned__ = { props, bodyStyle, heightTransition, beforeEnter, enter, afterEnter, beforeLeave, leave, afterLeave, cleanupTransition };
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-disclosure-group[data-v-73a020fe] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 0;\r\n  /* 根节点不裁切：折叠动画的裁切由 body 的内联 overflow 承担，静止时下拉菜单等浮层需要溢出到组外。 */\r\n  overflow: visible;\r\n  border-radius: var(--acu-radius-md);\r\n  background: transparent;\n}\n.acu-disclosure-group__header[data-v-73a020fe] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  width: 100%;\r\n  min-height: 34px;\r\n  appearance: none;\r\n  border: 0;\r\n  /* 头部自己收圆角：根节点已不再用 overflow: hidden 帮它裁掉悬停底色。 */\r\n  border-radius: var(--acu-radius-md);\r\n  padding: 7px 10px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.35;\r\n  text-align: left;\r\n  cursor: pointer;\r\n  user-select: none;\r\n  transition: background-color 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-disclosure-group--expanded .acu-disclosure-group__header[data-v-73a020fe] {\r\n  border-bottom-left-radius: 0;\r\n  border-bottom-right-radius: 0;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-disclosure-group__chevron[data-v-73a020fe] {\r\n  flex: 0 0 10px;\r\n  width: 10px;\r\n  font-size: var(--acu-font-size-micro, 10px);\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\r\n  transition: transform 0.15s ease;\n}\n.acu-disclosure-group__chevron--open[data-v-73a020fe] {\r\n  transform: rotate(90deg);\n}\n.acu-disclosure-group__label[data-v-73a020fe] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-weight: 500;\r\n  color: var(--acu-text-2);\n}\n.acu-disclosure-group__meta[data-v-73a020fe] {\r\n  flex-shrink: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-3);\r\n  font-variant-numeric: tabular-nums;\r\n  white-space: nowrap;\n}\n.acu-disclosure-group__body[data-v-73a020fe] {\r\n  box-sizing: border-box;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  padding: 8px;\r\n  opacity: 1;\r\n  transform: translateY(0);\n}\r\n", "src/presentation-v2/components/_lib/AcuDisclosureGroup.vue#style-0-73a020fe");
+var AcuDisclosureGroup_vue_vue_type_style_index_0_scoped_73a020fe_lang = null;
+
+const _hoisted_1$n = ["aria-expanded", "aria-controls"];
+const _hoisted_2$i = [
+	"id",
+	"aria-hidden",
+	"inert"
+];
+function _sfc_render$p(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock(
+		"div",
+		{ class: normalizeClass(["acu-disclosure-group", [$props.rootClass, { "acu-disclosure-group--expanded": $props.expanded }]]) },
+		[createBaseVNode("button", {
+			type: "button",
+			class: normalizeClass(["acu-disclosure-group__header", $props.headerClass]),
+			"aria-expanded": $props.expanded,
+			"aria-controls": $props.bodyId || undefined,
+			onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("toggle"))
+		}, [
+			createBaseVNode(
+				"i",
+				{
+					class: normalizeClass(["fa-solid fa-chevron-right acu-disclosure-group__chevron", [$props.chevronClass, {
+						"acu-disclosure-group__chevron--open": $props.expanded,
+						[$props.chevronOpenClass]: $props.expanded && $props.chevronOpenClass
+					}]]),
+					"aria-hidden": "true"
+				},
+				null,
+				2
+				/* CLASS */
+			),
+			createBaseVNode(
+				"span",
+				{ class: normalizeClass(["acu-disclosure-group__label", $props.labelClass]) },
+				[renderSlot(_ctx.$slots, "label", {}, () => [createTextVNode(
+					toDisplayString($props.label),
+					1
+					/* TEXT */
+				)], true)],
+				2
+				/* CLASS */
+			),
+			_ctx.$slots.meta || $props.meta ? (openBlock(), createElementBlock(
+				"span",
+				{
+					key: 0,
+					class: normalizeClass(["acu-disclosure-group__meta", $props.metaClass])
+				},
+				[renderSlot(_ctx.$slots, "meta", {}, () => [createTextVNode(
+					toDisplayString($props.meta),
+					1
+					/* TEXT */
+				)], true)],
+				2
+				/* CLASS */
+			)) : createCommentVNode("v-if", true)
+		], 10, _hoisted_1$n), createVNode(Transition, {
+			css: false,
+			onBeforeEnter: $setup.beforeEnter,
+			onEnter: $setup.enter,
+			onAfterEnter: $setup.afterEnter,
+			onEnterCancelled: $setup.cleanupTransition,
+			onBeforeLeave: $setup.beforeLeave,
+			onLeave: $setup.leave,
+			onAfterLeave: $setup.afterLeave,
+			onLeaveCancelled: $setup.cleanupTransition
+		}, {
+			default: withCtx(() => [$props.bodyMode === "show" || $props.expanded ? withDirectives((openBlock(), createElementBlock("div", {
+				key: 0,
+				id: $props.bodyId || undefined,
+				class: normalizeClass(["acu-disclosure-group__body", $props.bodyClass]),
+				style: normalizeStyle($setup.bodyStyle),
+				"aria-hidden": !$props.expanded ? "true" : undefined,
+				inert: !$props.expanded ? true : undefined
+			}, [renderSlot(_ctx.$slots, "default", {}, undefined, true)], 14, _hoisted_2$i)), [[vShow, $props.expanded]]) : createCommentVNode("v-if", true)]),
+			_: 3
+		})],
+		2
+		/* CLASS */
+	);
+}
+var AcuDisclosureGroup = /* @__PURE__ */ _export_sfc(_sfc_main$q, [["render", _sfc_render$p], ["__scopeId", "data-v-73a020fe"]]);
+
+var _sfc_main$p = /*@__PURE__*/ defineComponent({
+    __name: 'AcuIconButton',
+    props: {
+        icon: {},
+        title: { default: undefined },
+        ariaLabel: { default: undefined },
+        disabled: { type: Boolean, default: false },
+        variant: { default: 'default' },
+        size: { default: 'md' }
+    },
+    emits: ["click"],
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const __returned__ = {};
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-icon-btn[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\r\n  appearance: none !important;\r\n  -webkit-appearance: none !important;\r\n  flex: 0 0 auto;\r\n  display: inline-flex !important;\r\n  align-items: center !important;\r\n  justify-content: center !important;\r\n  width: var(--acu-icon-btn-size) !important;\r\n  min-width: var(--acu-icon-btn-size) !important;\r\n  max-width: var(--acu-icon-btn-size) !important;\r\n  height: var(--acu-icon-btn-size) !important;\r\n  min-height: var(--acu-icon-btn-size) !important;\r\n  max-height: var(--acu-icon-btn-size) !important;\r\n  box-sizing: border-box !important;\r\n  margin: 0 !important;\r\n  padding: 0 !important;\r\n  border: 0 !important;\r\n  background: transparent !important;\r\n  color: var(--acu-text-2) !important;\r\n  border-radius: var(--acu-radius-sm) !important;\r\n  cursor: pointer;\r\n  font: inherit !important;\r\n  font-size: var(--acu-icon-btn-font-size) !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: middle !important;\r\n  box-shadow: none !important;\r\n  outline: none !important;\r\n  -webkit-tap-highlight-color: transparent;\r\n  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;\n}\n.acu-icon-btn > i[data-v-70b36214] {\r\n  flex: 0 0 auto !important;\r\n  display: inline-block !important;\r\n  width: 1em !important;\r\n  min-width: 1em !important;\r\n  height: 1em !important;\r\n  min-height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\r\n  text-align: center !important;\r\n  vertical-align: -0.125em !important;\n}\n.acu-icon-btn > i[data-v-70b36214]::before {\r\n  display: block !important;\r\n  width: 1em !important;\r\n  height: 1em !important;\r\n  color: inherit !important;\r\n  font-size: inherit !important;\r\n  line-height: 1 !important;\n}\n.acu-icon-btn--md[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-md, 32px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-md, 13px);\n}\n.acu-icon-btn--sm[data-v-70b36214] {\r\n  --acu-icon-btn-size: var(--acu-icon-button-size-sm, 22px);\r\n  --acu-icon-btn-font-size: var(--acu-icon-inline-sm, 10px);\r\n  background: var(--acu-bg-2) !important;\n}\n.acu-icon-btn--default[data-v-70b36214]:hover:not(:disabled) {\r\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--danger[data-v-70b36214]:hover:not(:disabled) {\r\n  color: var(--acu-danger) !important;\r\n  background: color-mix(in srgb, var(--acu-danger) 12%, transparent) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214] {\r\n  background: var(--acu-bg-2) !important;\r\n  color: var(--acu-text-1) !important;\n}\n.acu-icon-btn--accent[data-v-70b36214]:hover:not(:disabled) {\r\n  background: var(--acu-accent-glow) !important; color: var(--acu-accent) !important;\n}\n.acu-icon-btn[data-v-70b36214]:focus-visible {\r\n  outline: none !important;\r\n  box-shadow: 0 0 0 2px var(--acu-accent-glow) !important;\n}\n.acu-icon-btn[data-v-70b36214]:disabled { opacity: 0.4; cursor: not-allowed;\n}\r\n", "src/presentation-v2/components/_lib/AcuIconButton.vue#style-0-70b36214");
+var AcuIconButton_vue_vue_type_style_index_0_scoped_70b36214_lang = null;
+
+const _hoisted_1$m = [
+	"disabled",
+	"title",
+	"aria-label"
+];
+function _sfc_render$o(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock("button", {
+		type: "button",
+		disabled: $props.disabled,
+		title: $props.title,
+		"aria-label": $props.ariaLabel || $props.title,
+		class: normalizeClass(["acu-icon-btn", [`acu-icon-btn--${$props.variant}`, `acu-icon-btn--${$props.size}`]]),
+		onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("click", $event))
+	}, [createBaseVNode(
+		"i",
+		{ class: normalizeClass($props.icon) },
+		null,
+		2
+		/* CLASS */
+	)], 10, _hoisted_1$m);
+}
+var AcuIconButton = /* @__PURE__ */ _export_sfc(_sfc_main$p, [["render", _sfc_render$o], ["__scopeId", "data-v-70b36214"]]);
+
+var _sfc_main$o = /*@__PURE__*/ defineComponent({
+    __name: 'AcuInfoBanner',
+    props: {
+        text: { default: '' },
+        tone: { default: 'info' },
+        icon: { default: undefined }
+    },
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const props = __props;
+        const iconClass = computed(() => {
+            if (props.icon)
+                return props.icon;
+            return '';
+        });
+        const __returned__ = { props, iconClass };
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-info-banner[data-v-5b9a5d77] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--acu-space-250, 10px);\r\n  padding: var(--acu-space-225, 9px) var(--acu-space-250, 10px);\r\n  border-radius: var(--acu-radius-sm);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  color: var(--acu-text-2);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  min-width: 0;\n}\n.acu-info-banner__icon[data-v-5b9a5d77] {\r\n  flex-shrink: 0;\r\n  margin-top: var(--acu-space-050, 2px);\r\n  font-size: var(--acu-font-size-body-lg, 13px);\r\n  line-height: 1.55;\n}\n.acu-info-banner__content[data-v-5b9a5d77] {\r\n  min-width: 0;\r\n  width: 100%;\r\n  word-wrap: break-word;\r\n  overflow-wrap: anywhere;\n}\n.acu-info-banner--info[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-text-3) 12%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-text-3) 18%, transparent);\n}\n.acu-info-banner--info .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\n}\n.acu-info-banner--tip[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-accent) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-accent) 18%, transparent);\n}\n.acu-info-banner--tip .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-accent);\r\n  color: var(--acu-accent);\n}\n.acu-info-banner--warning[data-v-5b9a5d77] {\r\n  background: color-mix(in srgb, var(--acu-warning) 10%, transparent);\r\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-warning) 20%, transparent);\n}\n.acu-info-banner--warning .acu-info-banner__icon[data-v-5b9a5d77] {\r\n  --acu-icon-color: var(--acu-warning);\r\n  color: var(--acu-warning);\n}\r\n", "src/presentation-v2/components/_lib/AcuInfoBanner.vue#style-0-5b9a5d77");
+var AcuInfoBanner_vue_vue_type_style_index_0_scoped_5b9a5d77_lang = null;
+
+const _hoisted_1$l = { class: "acu-info-banner__content" };
+function _sfc_render$n(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock(
+		"div",
+		{
+			class: normalizeClass(["acu-info-banner", `acu-info-banner--${$props.tone}`]),
+			role: "note"
+		},
+		[$setup.iconClass ? (openBlock(), createElementBlock(
+			"i",
+			{
+				key: 0,
+				class: normalizeClass(["acu-info-banner__icon", $setup.iconClass]),
+				"aria-hidden": "true"
+			},
+			null,
+			2
+			/* CLASS */
+		)) : createCommentVNode("v-if", true), createBaseVNode("div", _hoisted_1$l, [renderSlot(_ctx.$slots, "default", {}, () => [createTextVNode(
+			toDisplayString($props.text),
+			1
+			/* TEXT */
+		)], true)])],
+		2
+		/* CLASS */
+	);
+}
+var AcuInfoBanner = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["render", _sfc_render$n], ["__scopeId", "data-v-5b9a5d77"]]);
+
 var _sfc_main$n = /*@__PURE__*/ defineComponent({
     __name: 'AcuPanel',
     props: {
@@ -213951,17 +214104,17 @@ const _hoisted_2$h = {
 	key: 0,
 	class: "acu-panel__title"
 };
-const _hoisted_3$e = {
+const _hoisted_3$f = {
 	key: 1,
 	class: "acu-panel__header-right"
 };
-const _hoisted_4$b = {
+const _hoisted_4$c = {
 	key: 0,
 	class: "acu-panel__actions"
 };
-const _hoisted_5$9 = ["id", "aria-hidden"];
-const _hoisted_6$8 = { class: "acu-panel__description-region-inner" };
-const _hoisted_7$8 = { class: "acu-panel__body" };
+const _hoisted_5$a = ["id", "aria-hidden"];
+const _hoisted_6$9 = { class: "acu-panel__description-region-inner" };
+const _hoisted_7$9 = { class: "acu-panel__body" };
 function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createElementBlock("section", _hoisted_1$k, [
 		$props.title || _ctx.$slots.title || _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock(
@@ -213974,7 +214127,7 @@ function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 				toDisplayString($props.title),
 				1
 				/* TEXT */
-			)], true)])) : createCommentVNode("v-if", true), _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock("div", _hoisted_3$e, [_ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_4$b, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true), $setup.hasDescription ? (openBlock(), createBlock($setup["AcuIconButton"], {
+			)], true)])) : createCommentVNode("v-if", true), _ctx.$slots.actions || $setup.hasDescription ? (openBlock(), createElementBlock("div", _hoisted_3$f, [_ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_4$c, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true), $setup.hasDescription ? (openBlock(), createBlock($setup["AcuIconButton"], {
 				key: 1,
 				class: normalizeClass(["acu-panel__description-button", { "acu-panel__description-button--open": $setup.descriptionOpen }]),
 				icon: "fa-solid fa-circle-info",
@@ -214009,7 +214162,7 @@ function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 				id: $setup.descriptionId,
 				class: "acu-panel__description-region",
 				"aria-hidden": !$setup.descriptionOpen
-			}, [createBaseVNode("div", _hoisted_6$8, [createVNode($setup["AcuInfoBanner"], {
+			}, [createBaseVNode("div", _hoisted_6$9, [createVNode($setup["AcuInfoBanner"], {
 				class: "acu-panel__description-banner",
 				tone: $props.descriptionTone
 			}, {
@@ -214019,13 +214172,75 @@ function _sfc_render$m(_ctx, _cache, $props, $setup, $data, $options) {
 					/* TEXT */
 				)], true)]),
 				_: 3
-			}, 8, ["tone"])])], 8, _hoisted_5$9)), [[vShow, $setup.descriptionOpen]]) : createCommentVNode("v-if", true)]),
+			}, 8, ["tone"])])], 8, _hoisted_5$a)), [[vShow, $setup.descriptionOpen]]) : createCommentVNode("v-if", true)]),
 			_: 3
 		}),
-		createBaseVNode("div", _hoisted_7$8, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])
+		createBaseVNode("div", _hoisted_7$9, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])
 	]);
 }
 var AcuPanel = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["render", _sfc_render$m], ["__scopeId", "data-v-c4139d23"]]);
+
+var _sfc_main$m = /*@__PURE__*/ defineComponent({
+    __name: 'AcuStatsList',
+    props: {
+        items: {},
+        mono: { type: Boolean, default: false }
+    },
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const __returned__ = {};
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-stats[data-v-249ee71c] {\r\n  margin: 0;\r\n  padding: 2px 0 0;\r\n  background: transparent;\r\n  border-radius: 0;\r\n  display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 16px;\n}\n.acu-stats__item[data-v-249ee71c] {\r\n  min-width: 0;\r\n  padding: 8px 0;\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-stats dt[data-v-249ee71c] {\r\n  margin: 0 0 2px; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\n}\n.acu-stats dd[data-v-249ee71c] {\r\n  margin: 0; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-1); word-break: break-all;\n}\n.acu-stats--mono code[data-v-249ee71c] {\r\n  display: inline-block; max-width: 100%;\r\n  font-family: var(--acu-font-mono); font-size: var(--acu-font-size-body, 12px);\r\n  background: transparent; color: var(--acu-text-1);\r\n  padding: 0; border-radius: 0;\n}\n@media (max-width: 720px) {\n.acu-stats[data-v-249ee71c] { grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuStatsList.vue#style-0-249ee71c");
+var AcuStatsList_vue_vue_type_style_index_0_scoped_249ee71c_lang = null;
+
+const _hoisted_1$j = { key: 0 };
+function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createElementBlock(
+		"dl",
+		{ class: normalizeClass(["acu-stats", { "acu-stats--mono": $props.mono }]) },
+		[(openBlock(true), createElementBlock(
+			Fragment,
+			null,
+			renderList($props.items, (item) => {
+				return openBlock(), createElementBlock("div", {
+					key: item.label,
+					class: "acu-stats__item"
+				}, [createBaseVNode(
+					"dt",
+					null,
+					toDisplayString(item.label),
+					1
+					/* TEXT */
+				), createBaseVNode("dd", null, [renderSlot(_ctx.$slots, item.key ?? item.label, { item }, () => [$props.mono ? (openBlock(), createElementBlock(
+					"code",
+					_hoisted_1$j,
+					toDisplayString(item.value ?? "—"),
+					1
+					/* TEXT */
+				)) : (openBlock(), createElementBlock(
+					Fragment,
+					{ key: 1 },
+					[createTextVNode(
+						toDisplayString(item.value ?? "—"),
+						1
+						/* TEXT */
+					)],
+					64
+					/* STABLE_FRAGMENT */
+				))], true)])]);
+			}),
+			128
+			/* KEYED_FRAGMENT */
+		))],
+		2
+		/* CLASS */
+	);
+}
+var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_render$l], ["__scopeId", "data-v-249ee71c"]]);
 
 /**
  * shared/plugin-identity.ts — 插件自身的身份事实（构建戳 / 版本号）
@@ -214039,7 +214254,7 @@ var AcuPanel = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["render", _sfc_render$
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261108-1353";
+        const stamp = "20261108-1633";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -214056,6 +214271,386 @@ function getPluginVersion_ACU() {
         return 'unknown';
     }
 }
+
+/**
+ * useCapabilityOverview — Developer 页「环境与能力总览」的数据接缝
+ *
+ * 目的（用户要求的两件事合一处）：
+ * - **可审查**：把「这份产物跑在哪个宿主上、它能做什么、状态存在哪几个通道」摊开在界面上；
+ * - **agent 友好**：整体可一键复制成脱敏文本，贴给酒馆里的 AI —— 它据此就知道有哪些接口可调、
+ *   数据存在哪，不必靠猜。
+ *
+ * 只读 + 零副作用：不写任何状态，仅汇总既有常量与运行时事实。所有取值都来自别处的单一事实源，
+ * 这里**不重复定义**（方法清单来自 API 注册表分组索引、字段清单来自数据层常量）。
+ */
+function useCapabilityOverview() {
+    const toast = useToastStore();
+    /** 环境事实。取值全部现读，避免缓存出「上次打开时的宿主」这种误导。 */
+    const environment = computed(() => {
+        const read = (fn, fallback = '—') => {
+            try {
+                const v = fn();
+                return v === undefined || v === null || v === '' ? fallback : String(v);
+            }
+            catch {
+                return fallback;
+            }
+        };
+        return [
+            { label: '宿主', value: read(() => getAcuHostKind()) },
+            { label: '插件版本', value: read(() => getPluginVersion_ACU()) },
+            { label: '构建戳', value: read(() => getBuildStamp_ACU()) },
+            { label: '存储模式', value: isSqliteMode() ? 'SQLite' : 'JSON（原生）' },
+            { label: '当前聊天标识', value: read(() => currentChatFileIdentifier_ACU) },
+            {
+                label: '数据隔离',
+                value: (() => {
+                    try {
+                        if (settings_ACU?.dataIsolationEnabled !== true)
+                            return '未启用';
+                        const code = read(() => getCurrentIsolationKey_ACU(), '');
+                        return code ? '已启用' : '已启用（标记为空）';
+                    }
+                    catch {
+                        return '—';
+                    }
+                })(),
+            },
+        ];
+    });
+    /**
+     * 公开 API 分组。**从宿主全局读，不 import `presentation/bootstrap/api-registry`**：
+     * 那个模块是「安装全局 API」的副作用模块（无业务模块 import 它，由入口挂载），
+     * UI 一旦 import 就会把它拽进 app 依赖图，实测会连带打挂无关用例（它在模块初始化时
+     * 直接改写 `topLevelWindow_ACU.AutoCardUpdaterAPI`）。读全局与 UI 读 API 本身同路。
+     */
+    const apiGroupIndex = computed(() => {
+        try {
+            const index = topLevelWindow_ACU?.__ACU_API_GROUP_INDEX__;
+            if (index && typeof index === 'object')
+                return index;
+        }
+        catch { /* 拿不到就是空 */ }
+        return {};
+    });
+    const apiGroups = computed(() => Object.entries(apiGroupIndex.value)
+        .map(([name, methods]) => ({ name, methods: [...methods].sort() }))
+        .sort((a, b) => a.name.localeCompare(b.name)));
+    /** 静态定义总数（分组索引求和）。 */
+    const apiDefinedTotal = computed(() => apiGroups.value.reduce((sum, g) => sum + g.methods.length, 0));
+    /**
+     * **运行时实际可调用**的方法数。
+     *
+     * 为什么不直接用定义总数：本插件有运行时门禁（`installRuntimeGatedSqlReadApi_ACU` 在 SQLite
+     * runtime 未发布时把 SQL 同步读取方法从 API 对象上摘掉）。定义数与可调用数因此可能不等
+     * （实测 114 vs 113）。面板给人看的是「你现在能调什么」，所以以实时对象的键数为准，
+     * 定义数只在拿不到对象时兜底。
+     */
+    const apiLiveTotal = computed(() => {
+        try {
+            const api = topLevelWindow_ACU?.AutoCardUpdaterAPI;
+            if (api && typeof api === 'object') {
+                const count = Object.keys(api).length;
+                if (count > 0)
+                    return count;
+            }
+        }
+        catch { /* 拿不到就退回定义数 */ }
+        return apiDefinedTotal.value;
+    });
+    /** 运行时被门禁隐藏的方法数（>0 时面板要说明「清单里有些现在调不到」）。 */
+    const apiGatedCount = computed(() => Math.max(0, apiDefinedTotal.value - apiLiveTotal.value));
+    /**
+     * 持久化面：本插件的状态只落这四类通道。
+     * 前三类的字段清单来自数据层常量；第四类是服务端向量文件，按路径存放、不经聊天接口。
+     */
+    const storageChannels = computed(() => [
+        {
+            name: '聊天消息字段',
+            detail: '随消息一起进聊天存储（纯数据库模式下由 chatfilesys 按楼层拆存）',
+            fields: MESSAGE_TABLE_FIELDS_ACU,
+        },
+        {
+            name: 'chat[0] 镜像 + chatMetadata',
+            detail: '聊天级容器；chatMetadata 侧为权威源，纯数据库模式下只被转发、不被接管',
+            fields: FIRST_MESSAGE_SCOPE_GUIDE_FIELDS_ACU,
+        },
+        {
+            name: '浏览器本地',
+            detail: '与宿主存储无关：IndexedDB 向量缓存 + 本 UI 状态',
+            fields: [ACU_V2_STORAGE_KEY],
+        },
+        {
+            name: '服务端向量文件',
+            detail: '按路径存放的向量索引，不经聊天接口（按聊天定键，切换分支时由本插件自己保证键稳定）',
+            fields: [SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU],
+        },
+    ]);
+    /** 组装「可贴给 AI」的脱敏文本报告。 */
+    function buildOverviewReport() {
+        const lines = [];
+        lines.push('# 数据库插件能力与存储总览');
+        lines.push(`导出时间：${new Date().toISOString()}`);
+        lines.push('');
+        lines.push('## 环境');
+        for (const row of environment.value)
+            lines.push(`- ${row.label}：${row.value}`);
+        lines.push('');
+        lines.push(`## 可调用的公开 API（挂在 window.AutoCardUpdaterAPI）`);
+        lines.push(`当前可调用 ${apiLiveTotal.value} 个；静态定义 ${apiDefinedTotal.value} 个`
+            + (apiGatedCount.value > 0 ? `（其中 ${apiGatedCount.value} 个当前被运行时门禁隐藏，例如 SQLite runtime 未就绪时的 SQL 读取方法）` : ''));
+        for (const group of apiGroups.value) {
+            lines.push(`### ${group.name}（${group.methods.length}）`);
+            lines.push(group.methods.join('、'));
+        }
+        lines.push('');
+        lines.push('## 状态持久化面（改数据前先看这里）');
+        for (const channel of storageChannels.value) {
+            lines.push(`### ${channel.name}`);
+            lines.push(`- 说明：${channel.detail}`);
+            lines.push(`- 字段/键：${channel.fields.join('、')}`);
+        }
+        lines.push('');
+        lines.push('> 本报告由插件自身生成，已在导出前过脱敏（不含密钥/请求头）。');
+        return maskSensitiveText_ACU(lines.join('\n'));
+    }
+    async function copyOverview() {
+        const ok = await copyTextToClipboard_ACU(buildOverviewReport());
+        if (ok)
+            toast.success('已复制能力与存储总览（已脱敏），可直接贴进聊天让 AI 参照。');
+        else
+            toast.warning('复制失败（宿主未开放剪贴板）。可展开各节手动选取文本。');
+    }
+    return {
+        environment,
+        apiGroups,
+        apiLiveTotal,
+        apiDefinedTotal,
+        apiGatedCount,
+        storageChannels,
+        buildOverviewReport,
+        copyOverview,
+    };
+}
+
+var _sfc_main$l = /*@__PURE__*/ defineComponent({
+    __name: 'CapabilityOverviewPanel',
+    setup(__props, { expose: __expose }) {
+        __expose();
+        const flow = useCapabilityOverview();
+        /** 展开态：默认全收起，避免一次把上百个方法名铺满屏幕（有限屏幕优先）。 */
+        const expanded = ref(new Set());
+        function isOpen(key) {
+            return expanded.value.has(key);
+        }
+        function toggle(key) {
+            const next = new Set(expanded.value);
+            if (next.has(key))
+                next.delete(key);
+            else
+                next.add(key);
+            expanded.value = next;
+        }
+        const environmentItems = computed(() => flow.environment.value.map(row => ({ label: row.label, value: row.value })));
+        /** 宿主名直接取「环境」首行（其顺序由 composable 的单一事实源决定），不另开一条取值路径。 */
+        const hostKindLabel = computed(() => flow.environment.value[0]?.value || '—');
+        const isTauriHost = computed(() => hostKindLabel.value === 'tauritavern');
+        /**
+         * composable 的返回值挂在 `flow` 上，模板只认**顶层绑定**——这里显式提到顶层。
+         * （踩过：直接在模板里写裸名字会导致渲染报错 / 静默渲染成空。）
+         */
+        const apiLiveTotal = computed(() => flow.apiLiveTotal.value);
+        const apiGatedCount = computed(() => flow.apiGatedCount.value);
+        const __returned__ = { flow, expanded, isOpen, toggle, environmentItems, hostKindLabel, isTauriHost, apiLiveTotal, apiGatedCount, AcuBadge, AcuButton, AcuDisclosureGroup, AcuPanel, AcuStatsList };
+        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
+        return __returned__;
+    }
+});
+
+injectSfcStyle("\n.acu-v2-capability-overview__actions[data-v-f39848ee] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-2, 8px);\r\n  margin-bottom: var(--acu-space-3, 12px);\n}\n.acu-v2-capability-overview__section[data-v-f39848ee] {\r\n  margin-top: var(--acu-space-3, 12px);\r\n  min-width: 0;\n}\n.acu-v2-capability-overview__section-title[data-v-f39848ee] {\r\n  margin: 0 0 var(--acu-space-150, 6px);\r\n  color: var(--acu-text-2);\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  font-weight: 600;\n}\n.acu-v2-capability-overview__note[data-v-f39848ee] {\r\n  margin: var(--acu-space-100, 4px) 0 var(--acu-space-150, 6px);\r\n  color: var(--acu-text-3);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-capability-overview__chips[data-v-f39848ee] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--acu-space-100, 4px);\r\n  margin-bottom: var(--acu-space-150, 6px);\n}\n.acu-v2-capability-overview__chip[data-v-f39848ee] {\r\n  font-family: var(--acu-font-mono);\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-1);\r\n  background: var(--acu-bg-2);\r\n  padding: 1px var(--acu-space-100, 4px);\r\n  border-radius: var(--acu-radius-sm);\r\n  word-break: break-all;\n}\r\n", "src/presentation-v2/components/CapabilityOverviewPanel.vue#style-0-f39848ee");
+var CapabilityOverviewPanel_vue_vue_type_style_index_0_scoped_f39848ee_lang = null;
+
+const _hoisted_1$i = { class: "acu-v2-capability-overview__actions" };
+const _hoisted_2$g = { class: "acu-v2-capability-overview__section" };
+const _hoisted_3$e = { class: "acu-v2-capability-overview__section" };
+const _hoisted_4$b = { class: "acu-v2-capability-overview__chips" };
+const _hoisted_5$9 = { class: "acu-v2-capability-overview__section" };
+const _hoisted_6$8 = { class: "acu-v2-capability-overview__note" };
+const _hoisted_7$8 = { class: "acu-v2-capability-overview__chips" };
+function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
+	return openBlock(), createBlock($setup["AcuPanel"], {
+		id: "developer-capability-overview-panel",
+		class: "acu-v2-capability-overview",
+		title: "环境与能力总览",
+		description: "把「这份产物跑在哪个宿主上、它能做什么、状态存在哪几个通道」摊开在一处：环境事实现读现显，接口清单来自插件自身的 API 注册表，持久化面来自数据层的字段常量——都是单一事实源，不是抄来的说明。整块可一键复制成脱敏文本贴给 AI，它据此就知道有哪些接口可调、数据存在哪，不用猜。"
+	}, {
+		actions: withCtx(() => [
+			createVNode($setup["AcuBadge"], { variant: "accent" }, {
+				default: withCtx(() => [createTextVNode(
+					"可调用 " + toDisplayString($setup.apiLiveTotal) + " 个方法",
+					1
+					/* TEXT */
+				)]),
+				_: 1
+			}),
+			$setup.apiGatedCount > 0 ? (openBlock(), createBlock($setup["AcuBadge"], {
+				key: 0,
+				variant: "warning"
+			}, {
+				default: withCtx(() => [createTextVNode(
+					toDisplayString($setup.apiGatedCount) + " 个当前被门禁隐藏 ",
+					1
+					/* TEXT */
+				)]),
+				_: 1
+			})) : createCommentVNode("v-if", true),
+			createVNode($setup["AcuBadge"], { variant: $setup.isTauriHost ? "warning" : "neutral" }, {
+				default: withCtx(() => [createTextVNode(
+					" 宿主 " + toDisplayString($setup.hostKindLabel),
+					1
+					/* TEXT */
+				)]),
+				_: 1
+			}, 8, ["variant"])
+		]),
+		default: withCtx(() => [
+			createBaseVNode("div", _hoisted_1$i, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.flow.copyOverview()) }, {
+				default: withCtx(() => [..._cache[1] || (_cache[1] = [createBaseVNode(
+					"i",
+					{ class: "fa-solid fa-clipboard" },
+					null,
+					-1
+					/* CACHED */
+				), createTextVNode(
+					" 复制总览给 AI ",
+					-1
+					/* CACHED */
+				)])]),
+				_: 1
+			})]),
+			createBaseVNode("section", _hoisted_2$g, [_cache[2] || (_cache[2] = createBaseVNode(
+				"h4",
+				{ class: "acu-v2-capability-overview__section-title" },
+				"环境",
+				-1
+				/* CACHED */
+			)), createVNode($setup["AcuStatsList"], {
+				items: $setup.environmentItems,
+				mono: ""
+			}, null, 8, ["items"])]),
+			createBaseVNode("section", _hoisted_3$e, [_cache[3] || (_cache[3] = createBaseVNode(
+				"h4",
+				{ class: "acu-v2-capability-overview__section-title" },
+				" 可调用的公开 API（window.AutoCardUpdaterAPI） ",
+				-1
+				/* CACHED */
+			)), (openBlock(true), createElementBlock(
+				Fragment,
+				null,
+				renderList($setup.flow.apiGroups.value, (group) => {
+					return openBlock(), createBlock($setup["AcuDisclosureGroup"], {
+						key: group.name,
+						label: group.name,
+						meta: `${group.methods.length} 个方法`,
+						expanded: $setup.isOpen(`api:${group.name}`),
+						onToggle: ($event) => $setup.toggle(`api:${group.name}`)
+					}, {
+						default: withCtx(() => [createBaseVNode("div", _hoisted_4$b, [(openBlock(true), createElementBlock(
+							Fragment,
+							null,
+							renderList(group.methods, (method) => {
+								return openBlock(), createElementBlock(
+									"code",
+									{
+										key: method,
+										class: "acu-v2-capability-overview__chip"
+									},
+									toDisplayString(method),
+									1
+									/* TEXT */
+								);
+							}),
+							128
+							/* KEYED_FRAGMENT */
+						))])]),
+						_: 2
+					}, 1032, [
+						"label",
+						"meta",
+						"expanded",
+						"onToggle"
+					]);
+				}),
+				128
+				/* KEYED_FRAGMENT */
+			))]),
+			createBaseVNode("section", _hoisted_5$9, [
+				_cache[4] || (_cache[4] = createBaseVNode(
+					"h4",
+					{ class: "acu-v2-capability-overview__section-title" },
+					"状态持久化面",
+					-1
+					/* CACHED */
+				)),
+				_cache[5] || (_cache[5] = createBaseVNode(
+					"p",
+					{ class: "acu-v2-capability-overview__note" },
+					" 本插件的状态只落这四类通道。改数据层之前先确认新状态属于哪一类——未归类的新通道就是审查不通过。 ",
+					-1
+					/* CACHED */
+				)),
+				(openBlock(true), createElementBlock(
+					Fragment,
+					null,
+					renderList($setup.flow.storageChannels.value, (channel) => {
+						return openBlock(), createBlock($setup["AcuDisclosureGroup"], {
+							key: channel.name,
+							label: channel.name,
+							meta: `${channel.fields.length} 个字段/键`,
+							expanded: $setup.isOpen(`store:${channel.name}`),
+							onToggle: ($event) => $setup.toggle(`store:${channel.name}`)
+						}, {
+							default: withCtx(() => [createBaseVNode(
+								"p",
+								_hoisted_6$8,
+								toDisplayString(channel.detail),
+								1
+								/* TEXT */
+							), createBaseVNode("div", _hoisted_7$8, [(openBlock(true), createElementBlock(
+								Fragment,
+								null,
+								renderList(channel.fields, (field) => {
+									return openBlock(), createElementBlock(
+										"code",
+										{
+											key: field,
+											class: "acu-v2-capability-overview__chip"
+										},
+										toDisplayString(field),
+										1
+										/* TEXT */
+									);
+								}),
+								128
+								/* KEYED_FRAGMENT */
+							))])]),
+							_: 2
+						}, 1032, [
+							"label",
+							"meta",
+							"expanded",
+							"onToggle"
+						]);
+					}),
+					128
+					/* KEYED_FRAGMENT */
+				))
+			])
+		]),
+		_: 1
+	});
+}
+var CapabilityOverviewPanel = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$k], ["__scopeId", "data-v-f39848ee"]]);
 
 /**
  * service/table/historical-frame-replay.ts — 历史楼层只读回放（父子任务 T3.3）
@@ -214577,7 +215172,7 @@ function useDiagnosticBundle() {
     return { exportJson, copyText };
 }
 
-var _sfc_main$m = /*@__PURE__*/ defineComponent({
+var _sfc_main$k = /*@__PURE__*/ defineComponent({
     __name: 'DiagnosticBundlePanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -214592,8 +215187,8 @@ var _sfc_main$m = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-diagnostic-bundle__actions[data-v-15ff48ca] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 10px;\n  margin-bottom: 12px;\n}\n", "src/presentation-v2/components/DiagnosticBundlePanel.vue#style-0-15ff48ca");
 var DiagnosticBundlePanel_vue_vue_type_style_index_0_scoped_15ff48ca_lang = null;
 
-const _hoisted_1$j = { class: "acu-v2-diagnostic-bundle__actions" };
-function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
+const _hoisted_1$h = { class: "acu-v2-diagnostic-bundle__actions" };
+function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		id: "developer-diagnostic-bundle-panel",
 		class: "acu-v2-diagnostic-bundle",
@@ -214608,7 +215203,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 			)]),
 			_: 1
 		})]),
-		default: withCtx(() => [createBaseVNode("div", _hoisted_1$j, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.bundle.exportJson()) }, {
+		default: withCtx(() => [createBaseVNode("div", _hoisted_1$h, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.bundle.exportJson()) }, {
 			default: withCtx(() => [_cache[2] || (_cache[2] = createBaseVNode(
 				"i",
 				{ class: "fa-solid fa-download" },
@@ -214648,69 +215243,7 @@ function _sfc_render$l(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["title", "description"]);
 }
-var DiagnosticBundlePanel = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_render$l], ["__scopeId", "data-v-15ff48ca"]]);
-
-var _sfc_main$l = /*@__PURE__*/ defineComponent({
-    __name: 'AcuStatsList',
-    props: {
-        items: {},
-        mono: { type: Boolean, default: false }
-    },
-    setup(__props, { expose: __expose }) {
-        __expose();
-        const __returned__ = {};
-        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
-        return __returned__;
-    }
-});
-
-injectSfcStyle("\n.acu-stats[data-v-249ee71c] {\r\n  margin: 0;\r\n  padding: 2px 0 0;\r\n  background: transparent;\r\n  border-radius: 0;\r\n  display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 16px;\n}\n.acu-stats__item[data-v-249ee71c] {\r\n  min-width: 0;\r\n  padding: 8px 0;\r\n  border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);\n}\n.acu-stats dt[data-v-249ee71c] {\r\n  margin: 0 0 2px; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3);\n}\n.acu-stats dd[data-v-249ee71c] {\r\n  margin: 0; font-size: var(--acu-font-size-body, 12px); color: var(--acu-text-1); word-break: break-all;\n}\n.acu-stats--mono code[data-v-249ee71c] {\r\n  display: inline-block; max-width: 100%;\r\n  font-family: var(--acu-font-mono); font-size: var(--acu-font-size-body, 12px);\r\n  background: transparent; color: var(--acu-text-1);\r\n  padding: 0; border-radius: 0;\n}\n@media (max-width: 720px) {\n.acu-stats[data-v-249ee71c] { grid-template-columns: 1fr;\n}\n}\r\n", "src/presentation-v2/components/_lib/AcuStatsList.vue#style-0-249ee71c");
-var AcuStatsList_vue_vue_type_style_index_0_scoped_249ee71c_lang = null;
-
-const _hoisted_1$i = { key: 0 };
-function _sfc_render$k(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock(
-		"dl",
-		{ class: normalizeClass(["acu-stats", { "acu-stats--mono": $props.mono }]) },
-		[(openBlock(true), createElementBlock(
-			Fragment,
-			null,
-			renderList($props.items, (item) => {
-				return openBlock(), createElementBlock("div", {
-					key: item.label,
-					class: "acu-stats__item"
-				}, [createBaseVNode(
-					"dt",
-					null,
-					toDisplayString(item.label),
-					1
-					/* TEXT */
-				), createBaseVNode("dd", null, [renderSlot(_ctx.$slots, item.key ?? item.label, { item }, () => [$props.mono ? (openBlock(), createElementBlock(
-					"code",
-					_hoisted_1$i,
-					toDisplayString(item.value ?? "—"),
-					1
-					/* TEXT */
-				)) : (openBlock(), createElementBlock(
-					Fragment,
-					{ key: 1 },
-					[createTextVNode(
-						toDisplayString(item.value ?? "—"),
-						1
-						/* TEXT */
-					)],
-					64
-					/* STABLE_FRAGMENT */
-				))], true)])]);
-			}),
-			128
-			/* KEYED_FRAGMENT */
-		))],
-		2
-		/* CLASS */
-	);
-}
-var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["render", _sfc_render$k], ["__scopeId", "data-v-249ee71c"]]);
+var DiagnosticBundlePanel = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$j], ["__scopeId", "data-v-15ff48ca"]]);
 
 /**
  * prompt-inspection-report — 把提示词观测记录渲染成「可直接贴进酒馆让 AI 排查」的文本报告
@@ -214908,7 +215441,7 @@ function useFrameReplay() {
     };
 }
 
-var _sfc_main$k = /*@__PURE__*/ defineComponent({
+var _sfc_main$j = /*@__PURE__*/ defineComponent({
     __name: 'FrameReplayPanel',
     setup(__props, { expose: __expose }) {
         __expose();
@@ -214967,8 +215500,8 @@ var _sfc_main$k = /*@__PURE__*/ defineComponent({
 injectSfcStyle("\n.acu-v2-frame-replay__actions[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__howto[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-3, 12px);\n}\n.acu-v2-frame-replay__empty[data-v-dfe9f8eb] {\n  /* 网格会把面板拉到与同行最高面板等高；空态吃掉剩余高度并居中，\n     把\"面板内大片死空间\"变成有意图的空态画面。 */\n  flex: 1 1 auto;\n  min-height: 200px;\n  margin: var(--acu-space-3, 12px) 0 0;\n  padding: var(--acu-space-4, 16px);\n  border: 1px dashed var(--acu-border);\n  border-radius: var(--acu-radius-md);\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: 8px;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-body, 12px);\n  line-height: var(--acu-line-height-body, 1.6);\n  text-align: center;\n}\n.acu-v2-frame-replay__empty-icon[data-v-dfe9f8eb] {\n  font-size: 24px;\n  opacity: 0.85;\n}\n.acu-v2-frame-replay__empty-text[data-v-dfe9f8eb] {\n  margin: 0;\n  color: var(--acu-text-2);\n}\n.acu-v2-frame-replay__empty-hint[data-v-dfe9f8eb] {\n  margin: 0;\n  font-size: var(--acu-font-size-caption, 11px);\n}\n.acu-v2-frame-replay__floors[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  max-height: 260px;\n  overflow: auto;\n  margin-top: var(--acu-space-3, 12px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 4px;\n  padding: 8px 10px;\n  border: 0;\n  border-bottom: 1px solid var(--acu-border-2);\n  background: transparent;\n  color: inherit;\n  cursor: pointer;\n  font: inherit;\n  text-align: left;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb]:last-child {\n  border-bottom: 0;\n}\n.acu-v2-frame-replay__floor.acu-btn[data-v-dfe9f8eb]:hover {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n}\n.acu-v2-frame-replay__floor--active.acu-btn[data-v-dfe9f8eb] {\n  background: linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)), transparent;\n  box-shadow: inset 2px 0 0 var(--acu-accent);\n}\n.acu-v2-frame-replay__floor-head[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__floor-index[data-v-dfe9f8eb] {\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  color: var(--acu-text-1);\n}\n.acu-v2-frame-replay__floor-meta[data-v-dfe9f8eb] {\n  margin-left: auto;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  white-space: nowrap;\n}\n.acu-v2-frame-replay__detail[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-3, 12px);\n  padding-top: var(--acu-space-3, 12px);\n  border-top: 1px solid var(--acu-border-2);\n  min-width: 0;\n}\n.acu-v2-frame-replay__section-title[data-v-dfe9f8eb] {\n  margin: 0 0 var(--acu-space-150, 6px);\n  color: var(--acu-text-2);\n  font-size: var(--acu-font-size-body, 12px);\n  font-weight: 600;\n}\n.acu-v2-frame-replay__badges[data-v-dfe9f8eb] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--acu-space-150, 6px);\n}\n.acu-v2-frame-replay__stats[data-v-dfe9f8eb] {\n  margin-top: var(--acu-space-2, 8px);\n}\n.acu-v2-frame-replay__entries[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-2, 8px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__entry[data-v-dfe9f8eb] {\n  min-width: 0;\n  padding: var(--acu-space-2, 8px);\n  border: 1px solid var(--acu-border-2);\n  border-radius: var(--acu-radius-sm);\n}\n.acu-v2-frame-replay__statements[data-v-dfe9f8eb] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--acu-space-2, 8px);\n  margin-top: var(--acu-space-150, 6px);\n  min-width: 0;\n}\n.acu-v2-frame-replay__statement[data-v-dfe9f8eb] {\n  min-width: 0;\n}\n.acu-v2-frame-replay__tables[data-v-dfe9f8eb] {\n  color: var(--acu-text-2);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  word-break: break-all;\n}\n.acu-v2-frame-replay__note[data-v-dfe9f8eb] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  color: var(--acu-text-3);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n}\n.acu-v2-frame-replay__content[data-v-dfe9f8eb] {\n  margin: var(--acu-space-150, 6px) 0 0;\n  padding: var(--acu-space-2, 8px);\n  background: var(--acu-bg-2);\n  border-radius: var(--acu-radius-sm);\n  color: var(--acu-text-1);\n  font-family: var(--acu-font-mono);\n  font-size: var(--acu-font-size-caption, 11px);\n  line-height: var(--acu-line-height-caption, 1.5);\n  white-space: pre-wrap;\n  word-break: break-word;\n  overflow-x: auto;\n}\n", "src/presentation-v2/components/FrameReplayPanel.vue#style-0-dfe9f8eb");
 var FrameReplayPanel_vue_vue_type_style_index_0_scoped_dfe9f8eb_lang = null;
 
-const _hoisted_1$h = { class: "acu-v2-frame-replay__actions" };
-const _hoisted_2$g = {
+const _hoisted_1$g = { class: "acu-v2-frame-replay__actions" };
+const _hoisted_2$f = {
 	key: 0,
 	class: "acu-v2-frame-replay__empty"
 };
@@ -215024,7 +215557,7 @@ const _hoisted_20$2 = {
 	key: 1,
 	class: "acu-v2-frame-replay__note"
 };
-function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
+function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["AcuPanel"], {
 		id: "developer-frame-replay-panel",
 		class: "acu-v2-frame-replay",
@@ -215050,7 +215583,7 @@ function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 			_: 1
 		})) : createCommentVNode("v-if", true)]),
 		default: withCtx(() => [
-			createBaseVNode("div", _hoisted_1$h, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.flow.refreshFloors()) }, {
+			createBaseVNode("div", _hoisted_1$g, [createVNode($setup["AcuButton"], { onClick: _cache[0] || (_cache[0] = ($event) => $setup.flow.refreshFloors()) }, {
 				default: withCtx(() => [..._cache[2] || (_cache[2] = [createBaseVNode(
 					"i",
 					{ class: "fa-solid fa-rotate" },
@@ -215091,7 +215624,7 @@ function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 				)])]),
 				_: 1
 			}),
-			!$setup.flow.floors.value.length ? (openBlock(), createElementBlock("div", _hoisted_2$g, [
+			!$setup.flow.floors.value.length ? (openBlock(), createElementBlock("div", _hoisted_2$f, [
 				_cache[6] || (_cache[6] = createBaseVNode(
 					"i",
 					{
@@ -215325,160 +215858,7 @@ function _sfc_render$j(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var FrameReplayPanel = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["render", _sfc_render$j], ["__scopeId", "data-v-dfe9f8eb"]]);
-
-var _sfc_main$j = /*@__PURE__*/ defineComponent({
-    __name: 'AcuDisclosureGroup',
-    props: {
-        label: { default: '' },
-        meta: { default: '' },
-        expanded: { type: Boolean },
-        bodyId: { default: '' },
-        bodyMode: { default: 'show' },
-        bodyMaxHeight: { default: '' },
-        rootClass: { default: '' },
-        headerClass: { default: '' },
-        bodyClass: { default: '' },
-        chevronClass: { default: '' },
-        chevronOpenClass: { default: '' },
-        labelClass: { default: '' },
-        metaClass: { default: '' }
-    },
-    emits: ["toggle"],
-    setup(__props, { expose: __expose }) {
-        __expose();
-        const props = __props;
-        // 裁切只在高度动画进行中需要（useAcuHeightTransition 会在 beforeEnter/beforeLeave 临时设 hidden）。
-        // 静止状态必须放开 overflow，否则 body 里的浮层（AcuSelect 下拉菜单等）会被折叠容器切掉。
-        // 指定了 bodyMaxHeight 的组是滚动容器，保持 overflow-y: auto。
-        const bodyStyle = computed(() => ({
-            maxHeight: props.bodyMaxHeight || undefined,
-            overflowY: props.bodyMaxHeight ? 'auto' : 'visible',
-            overflowX: props.bodyMaxHeight ? 'hidden' : 'visible',
-        }));
-        const heightTransition = useAcuHeightTransition({
-            restoreOverflow(el) {
-                el.style.overflowY = props.bodyMaxHeight ? 'auto' : 'visible';
-                el.style.overflowX = props.bodyMaxHeight ? 'hidden' : 'visible';
-            },
-        });
-        function beforeEnter(el) {
-            heightTransition.beforeEnter(el);
-        }
-        function enter(el, done) {
-            heightTransition.enter(el, done);
-        }
-        function afterEnter(el) {
-            const body = el;
-            body.removeAttribute('aria-hidden');
-            body.removeAttribute('inert');
-            heightTransition.afterEnter(el);
-        }
-        function beforeLeave(el) {
-            const body = el;
-            body.setAttribute('aria-hidden', 'true');
-            body.setAttribute('inert', '');
-            heightTransition.beforeLeave(el);
-        }
-        function leave(el, done) {
-            heightTransition.leave(el, done);
-        }
-        function afterLeave(el) {
-            heightTransition.afterLeave(el);
-        }
-        function cleanupTransition(el) {
-            heightTransition.cleanupTransition(el);
-        }
-        const __returned__ = { props, bodyStyle, heightTransition, beforeEnter, enter, afterEnter, beforeLeave, leave, afterLeave, cleanupTransition };
-        Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
-        return __returned__;
-    }
-});
-
-injectSfcStyle("\n.acu-disclosure-group[data-v-73a020fe] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 0;\r\n  /* 根节点不裁切：折叠动画的裁切由 body 的内联 overflow 承担，静止时下拉菜单等浮层需要溢出到组外。 */\r\n  overflow: visible;\r\n  border-radius: var(--acu-radius-md);\r\n  background: transparent;\n}\n.acu-disclosure-group__header[data-v-73a020fe] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 8px;\r\n  width: 100%;\r\n  min-height: 34px;\r\n  appearance: none;\r\n  border: 0;\r\n  /* 头部自己收圆角：根节点已不再用 overflow: hidden 帮它裁掉悬停底色。 */\r\n  border-radius: var(--acu-radius-md);\r\n  padding: 7px 10px;\r\n  background: transparent;\r\n  color: var(--acu-text-2);\r\n  font: inherit;\r\n  font-size: var(--acu-font-size-body, 12px);\r\n  line-height: 1.35;\r\n  text-align: left;\r\n  cursor: pointer;\r\n  user-select: none;\r\n  transition: background-color 0.15s ease, box-shadow 0.15s ease;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:hover {\r\n  background: var(--acu-hover-overlay);\n}\n.acu-disclosure-group--expanded .acu-disclosure-group__header[data-v-73a020fe] {\r\n  border-bottom-left-radius: 0;\r\n  border-bottom-right-radius: 0;\n}\n.acu-disclosure-group__header[data-v-73a020fe]:focus-visible {\r\n  outline: none;\r\n  box-shadow: inset 0 0 0 2px var(--acu-accent-glow);\n}\n.acu-disclosure-group__chevron[data-v-73a020fe] {\r\n  flex: 0 0 10px;\r\n  width: 10px;\r\n  font-size: var(--acu-font-size-micro, 10px);\r\n  --acu-icon-color: var(--acu-text-3);\r\n  color: var(--acu-text-3);\r\n  transition: transform 0.15s ease;\n}\n.acu-disclosure-group__chevron--open[data-v-73a020fe] {\r\n  transform: rotate(90deg);\n}\n.acu-disclosure-group__label[data-v-73a020fe] {\r\n  flex: 1;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\r\n  font-weight: 500;\r\n  color: var(--acu-text-2);\n}\n.acu-disclosure-group__meta[data-v-73a020fe] {\r\n  flex-shrink: 0;\r\n  font-size: var(--acu-font-size-caption, 11px);\r\n  color: var(--acu-text-3);\r\n  font-variant-numeric: tabular-nums;\r\n  white-space: nowrap;\n}\n.acu-disclosure-group__body[data-v-73a020fe] {\r\n  box-sizing: border-box;\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 6px;\r\n  border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 18%, transparent);\r\n  padding: 8px;\r\n  opacity: 1;\r\n  transform: translateY(0);\n}\r\n", "src/presentation-v2/components/_lib/AcuDisclosureGroup.vue#style-0-73a020fe");
-var AcuDisclosureGroup_vue_vue_type_style_index_0_scoped_73a020fe_lang = null;
-
-const _hoisted_1$g = ["aria-expanded", "aria-controls"];
-const _hoisted_2$f = [
-	"id",
-	"aria-hidden",
-	"inert"
-];
-function _sfc_render$i(_ctx, _cache, $props, $setup, $data, $options) {
-	return openBlock(), createElementBlock(
-		"div",
-		{ class: normalizeClass(["acu-disclosure-group", [$props.rootClass, { "acu-disclosure-group--expanded": $props.expanded }]]) },
-		[createBaseVNode("button", {
-			type: "button",
-			class: normalizeClass(["acu-disclosure-group__header", $props.headerClass]),
-			"aria-expanded": $props.expanded,
-			"aria-controls": $props.bodyId || undefined,
-			onClick: _cache[0] || (_cache[0] = ($event) => _ctx.$emit("toggle"))
-		}, [
-			createBaseVNode(
-				"i",
-				{
-					class: normalizeClass(["fa-solid fa-chevron-right acu-disclosure-group__chevron", [$props.chevronClass, {
-						"acu-disclosure-group__chevron--open": $props.expanded,
-						[$props.chevronOpenClass]: $props.expanded && $props.chevronOpenClass
-					}]]),
-					"aria-hidden": "true"
-				},
-				null,
-				2
-				/* CLASS */
-			),
-			createBaseVNode(
-				"span",
-				{ class: normalizeClass(["acu-disclosure-group__label", $props.labelClass]) },
-				[renderSlot(_ctx.$slots, "label", {}, () => [createTextVNode(
-					toDisplayString($props.label),
-					1
-					/* TEXT */
-				)], true)],
-				2
-				/* CLASS */
-			),
-			_ctx.$slots.meta || $props.meta ? (openBlock(), createElementBlock(
-				"span",
-				{
-					key: 0,
-					class: normalizeClass(["acu-disclosure-group__meta", $props.metaClass])
-				},
-				[renderSlot(_ctx.$slots, "meta", {}, () => [createTextVNode(
-					toDisplayString($props.meta),
-					1
-					/* TEXT */
-				)], true)],
-				2
-				/* CLASS */
-			)) : createCommentVNode("v-if", true)
-		], 10, _hoisted_1$g), createVNode(Transition, {
-			css: false,
-			onBeforeEnter: $setup.beforeEnter,
-			onEnter: $setup.enter,
-			onAfterEnter: $setup.afterEnter,
-			onEnterCancelled: $setup.cleanupTransition,
-			onBeforeLeave: $setup.beforeLeave,
-			onLeave: $setup.leave,
-			onAfterLeave: $setup.afterLeave,
-			onLeaveCancelled: $setup.cleanupTransition
-		}, {
-			default: withCtx(() => [$props.bodyMode === "show" || $props.expanded ? withDirectives((openBlock(), createElementBlock("div", {
-				key: 0,
-				id: $props.bodyId || undefined,
-				class: normalizeClass(["acu-disclosure-group__body", $props.bodyClass]),
-				style: normalizeStyle($setup.bodyStyle),
-				"aria-hidden": !$props.expanded ? "true" : undefined,
-				inert: !$props.expanded ? true : undefined
-			}, [renderSlot(_ctx.$slots, "default", {}, undefined, true)], 14, _hoisted_2$f)), [[vShow, $props.expanded]]) : createCommentVNode("v-if", true)]),
-			_: 3
-		})],
-		2
-		/* CLASS */
-	);
-}
-var AcuDisclosureGroup = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["render", _sfc_render$i], ["__scopeId", "data-v-73a020fe"]]);
+var FrameReplayPanel = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["render", _sfc_render$i], ["__scopeId", "data-v-dfe9f8eb"]]);
 
 var _sfc_main$i = /*@__PURE__*/ defineComponent({
     __name: 'AcuFormRow',
@@ -216612,7 +216992,7 @@ var _sfc_main$e = /*@__PURE__*/ defineComponent({
     setup(__props, { expose: __expose }) {
         __expose();
         const devOptions = useDevOptions();
-        const __returned__ = { devOptions, get copy() { return developerCopy; }, DiagnosticBundlePanel, FrameReplayPanel, PromptInspectionPanel, WritePipelinePanel, UbPage, UbRow, UbSection, UbSwitch };
+        const __returned__ = { devOptions, get copy() { return developerCopy; }, CapabilityOverviewPanel, DiagnosticBundlePanel, FrameReplayPanel, PromptInspectionPanel, WritePipelinePanel, UbPage, UbRow, UbSection, UbSwitch };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
@@ -216664,6 +217044,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 				_: 1
 			}, 8, ["title", "description"]),
 			createCommentVNode(" 我方差量移植（2026-11-07 上游追平）：观测与诊断四面板，自包含 AcuPanel 组件直接挂载 "),
+			createVNode($setup["CapabilityOverviewPanel"]),
 			createVNode($setup["PromptInspectionPanel"]),
 			createVNode($setup["WritePipelinePanel"]),
 			createVNode($setup["FrameReplayPanel"]),
@@ -217621,8 +218002,8 @@ var _sfc_main$c = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-ff-facts[data-v-d8dd9638] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));\r\n  gap: 1px;\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-line-soft);\n}\n.ub-ff-fact[data-v-d8dd9638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  background: var(--ub-panel);\n}\n.ub-ff-fact span[data-v-d8dd9638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-ff-fact strong[data-v-d8dd9638] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-variant-numeric: tabular-nums;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-ff-notes[data-v-d8dd9638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-ff-table[data-v-d8dd9638] {\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-ff-table__row[data-v-d8dd9638] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1.8fr) repeat(4, minmax(0, 1fr));\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-2);\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-ff-table__row--head[data-v-d8dd9638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-ff-table__row[data-v-d8dd9638]:not(.ub-ff-table__row--head):hover {\r\n  background: var(--ub-hover);\n}\n.ub-ff-table__row.is-ready[data-v-d8dd9638] {\r\n  background: var(--ub-ok-soft);\n}\n.ub-ff-table__row.is-off[data-v-d8dd9638] {\r\n  opacity: 0.6;\n}\n.ub-ff-table__name[data-v-d8dd9638] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-ff-table__empty[data-v-d8dd9638] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  text-align: center;\n}\n.ub-ff-run[data-v-d8dd9638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-ff-run__buttons[data-v-d8dd9638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  margin-top: var(--ub-s1);\n}\n@media (max-width: 600px) {\n.ub-ff-facts[data-v-d8dd9638] {\r\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n.ub-ff-fact--wide[data-v-d8dd9638] {\r\n    grid-column: 1 / -1;\n}\n.ub-ff-table__row--head[data-v-d8dd9638] {\r\n    display: none;\n}\n.ub-ff-table__row[data-v-d8dd9638] {\r\n    grid-template-columns: repeat(4, minmax(0, 1fr));\r\n    row-gap: var(--ub-s1);\r\n    padding: var(--ub-s3) var(--ub-s2);\n}\n.ub-ff-table__row + .ub-ff-table__row[data-v-d8dd9638] {\r\n    border-top: 1px solid var(--ub-line-soft);\r\n    border-radius: 0;\n}\n.ub-ff-table__name[data-v-d8dd9638] {\r\n    grid-column: 1 / -1;\n}\n.ub-ff-table__row [data-label][data-v-d8dd9638]::before {\r\n    content: attr(data-label);\r\n    display: block;\r\n    color: var(--ub-text-3);\r\n    font-size: var(--ub-fs-2xs);\r\n    font-weight: 700;\n}\n.ub-ff-run__buttons[data-v-d8dd9638] > * {\r\n    flex: 1 1 100%;\n}\n}\r\n", "src/presentation-v3/pages/FormFillPage.vue#style-0-d8dd9638");
-var FormFillPage_vue_vue_type_style_index_0_scoped_d8dd9638_lang = null;
+injectSfcStyle("\n.ub-ff-facts[data-v-1504b042] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));\r\n  gap: 1px;\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-line-soft);\n}\n.ub-ff-fact[data-v-1504b042] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  background: var(--ub-panel);\n}\n.ub-ff-fact span[data-v-1504b042] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-ff-fact strong[data-v-1504b042] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-variant-numeric: tabular-nums;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-ff-notes[data-v-1504b042] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-ff-table[data-v-1504b042] {\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-ff-table__row[data-v-1504b042] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1.8fr) repeat(4, minmax(0, 1fr));\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-2);\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-ff-table__row--head[data-v-1504b042] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-ff-table__row[data-v-1504b042]:not(.ub-ff-table__row--head):hover {\r\n  background: var(--ub-hover);\n}\n.ub-ff-table__row.is-ready[data-v-1504b042] {\r\n  background: var(--ub-ok-soft);\n}\n.ub-ff-table__row.is-off[data-v-1504b042] {\r\n  opacity: 0.6;\n}\n.ub-ff-table__name[data-v-1504b042] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-ff-table__empty[data-v-1504b042] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  text-align: center;\n}\n.ub-ff-run[data-v-1504b042] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-ff-run__buttons[data-v-1504b042] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  margin-top: var(--ub-s1);\n}\n@media (max-width: 600px) {\n.ub-ff-facts[data-v-1504b042] {\r\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n.ub-ff-fact--wide[data-v-1504b042] {\r\n    grid-column: 1 / -1;\n}\n.ub-ff-table__row--head[data-v-1504b042] {\r\n    display: none;\n}\n.ub-ff-table__row[data-v-1504b042] {\r\n    grid-template-columns: repeat(4, minmax(0, 1fr));\r\n    row-gap: var(--ub-s1);\r\n    padding: var(--ub-s3) var(--ub-s2);\n}\n.ub-ff-table__row + .ub-ff-table__row[data-v-1504b042] {\r\n    border-top: 1px solid var(--ub-line-soft);\r\n    border-radius: 0;\n}\n.ub-ff-table__name[data-v-1504b042] {\r\n    grid-column: 1 / -1;\n}\n.ub-ff-table__row [data-label][data-v-1504b042]::before {\r\n    content: attr(data-label);\r\n    display: block;\r\n    color: var(--ub-text-3);\r\n    font-size: var(--ub-fs-2xs);\r\n    font-weight: 700;\n}\n.ub-ff-run__buttons[data-v-1504b042] > * {\r\n    flex: 1 1 100%;\n}\n}\r\n", "src/presentation-v3/pages/FormFillPage.vue#style-0-1504b042");
+var FormFillPage_vue_vue_type_style_index_0_scoped_1504b042_lang = null;
 
 const _hoisted_1$a = {
 	class: "ub-ff-facts",
@@ -217947,7 +218328,7 @@ function _sfc_render$b(_ctx, _cache, $props, $setup, $data, $options) {
 							onClick: $setup.manualUpdate.runManualUpdate
 						}, {
 							default: withCtx(() => [createTextVNode(
-								toDisplayString($setup.manualUpdate.manualUpdateBusy.value ? "填表中..." : $setup.manualUpdate.vectorIndexWarning.value ? "交火索引已启用" : $setup.formFillCopy.panels.manual.runLabel),
+								toDisplayString($setup.manualUpdate.manualUpdateBusy.value ? "填表中…" : $setup.manualUpdate.vectorIndexWarning.value ? "交火索引已启用" : $setup.formFillCopy.panels.manual.runLabel),
 								1
 								/* TEXT */
 							)]),
@@ -217966,7 +218347,7 @@ function _sfc_render$b(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$b], ["__scopeId", "data-v-d8dd9638"]]);
+var FormFillPage = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["render", _sfc_render$b], ["__scopeId", "data-v-1504b042"]]);
 
 /**
  * usePlotWorldbookConfig — 剧情推进世界书配置（D23.1）
@@ -220206,8 +220587,8 @@ var _sfc_main$7 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-vi__flush-error[data-v-974c43ec] {\n  display: block;\n  color: var(--ub-danger);\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vi__actions[data-v-974c43ec] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--ub-s2);\n  padding: var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__note[data-v-974c43ec] {\n  flex-basis: 100%;\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-vi__group[data-v-974c43ec] {\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s1);\n  border-top: 1px solid var(--ub-line-soft);\n  background: var(--ub-sunken);\n  color: var(--ub-text-2);\n  font-size: var(--ub-fs-2xs);\n  font-weight: 800;\n  letter-spacing: 0.06em;\n}\n.ub-vi__group[data-v-974c43ec]:first-child {\n  border-top: 0;\n}\n.ub-vi__save[data-v-974c43ec] {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-end;\n  gap: var(--ub-s2);\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__save[data-v-974c43ec] > :first-child:not(:last-child) {\n  align-self: stretch;\n}\n.ub-vi__pad[data-v-974c43ec] {\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n", "src/presentation-v3/pages/VectorIndexPage.vue#style-0-974c43ec");
-var VectorIndexPage_vue_vue_type_style_index_0_scoped_974c43ec_lang = null;
+injectSfcStyle("\n.ub-vi__flush-error[data-v-36509a39] {\n  display: block;\n  color: var(--ub-danger);\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vi__actions[data-v-36509a39] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--ub-s2);\n  padding: var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__note[data-v-36509a39] {\n  flex-basis: 100%;\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-vi__group[data-v-36509a39] {\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s1);\n  border-top: 1px solid var(--ub-line-soft);\n  background: var(--ub-sunken);\n  color: var(--ub-text-2);\n  font-size: var(--ub-fs-2xs);\n  font-weight: 800;\n  letter-spacing: 0.06em;\n}\n.ub-vi__group[data-v-36509a39]:first-child {\n  border-top: 0;\n}\n.ub-vi__save[data-v-36509a39] {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-end;\n  gap: var(--ub-s2);\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__save[data-v-36509a39] > :first-child:not(:last-child) {\n  align-self: stretch;\n}\n.ub-vi__pad[data-v-36509a39] {\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n", "src/presentation-v3/pages/VectorIndexPage.vue#style-0-36509a39");
+var VectorIndexPage_vue_vue_type_style_index_0_scoped_36509a39_lang = null;
 
 const _hoisted_1$6 = ["title"];
 const _hoisted_2$5 = { class: "ub-vi__actions" };
@@ -220258,7 +220639,7 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 						onClick: $setup.vector.buildNow
 					}, {
 						default: withCtx(() => [createTextVNode(
-							toDisplayString($setup.vector.buildBusy.value ? "正在重建..." : "立即构建交火纪要索引"),
+							toDisplayString($setup.vector.buildBusy.value ? "正在重建…" : "立即构建交火纪要索引"),
 							1
 							/* TEXT */
 						)]),
@@ -220792,7 +221173,7 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["render", _sfc_render$6], ["__scopeId", "data-v-974c43ec"]]);
+var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["render", _sfc_render$6], ["__scopeId", "data-v-36509a39"]]);
 
 /**
  * page-catalog — 新版界面的页面目录

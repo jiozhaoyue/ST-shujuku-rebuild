@@ -18,7 +18,7 @@
           :disabled="vector.buildBusy.value || vector.maintenanceBusy.value"
           @click="vector.buildNow"
         >
-          {{ vector.buildBusy.value ? '正在重建...' : '立即构建交火纪要索引' }}
+          {{ vector.buildBusy.value ? '正在重建…' : '立即构建交火纪要索引' }}
         </UbButton>
         <UbButton :disabled="vector.maintenanceBusy.value || vector.buildBusy.value" icon="fa-solid fa-broom" @click="vector.clearIndexCache">清空临时缓存</UbButton>
         <UbButton variant="danger" :disabled="vector.maintenanceBusy.value || vector.buildBusy.value" icon="fa-solid fa-trash-can" @click="onDeleteCurrentIndex">删除当前索引</UbButton>
