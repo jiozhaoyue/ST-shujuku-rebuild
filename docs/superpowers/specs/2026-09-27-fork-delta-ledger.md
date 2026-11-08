@@ -236,6 +236,26 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **AlbusKen/shujuku（龙血玄黄 1.3.6）核对**：shuiyue 已在其 145 提交内跟进 1.3.6（19438d7/26e453e 等）；三仓（shujuku / shujuku-rebuild / newshujuku=SP·数据库 V）共用 `shujuku_v120` / `TavernDB_ACU_*` 命名空间，数据面天然同构。未跟的差异只有 AlbusKen PR #66/#67 两个公开 API 便利项（只读历史来源身份 / 写入可选前端回读等待）——属「不重要的不兼容」，无数据面影响。AlbusKen/newshujuku 经查是同血统的 messy 开发仓（SP·数据库 V v2.0.0，非模板仓），参考价值主要在其外部 API 文档形态。
 
+## 4c. 第三次追平实况（2026-11-08，`aa1c490e`，上游 `8f1fb759`）+ AlbusKen 差量处置 + 36 红清账
+
+**上游侧**：`8f1fb759`（模板切换去冗余——每类风险只留一道关卡，修复回滚时可能把旧聊天模板配置写进新聊天）。`git merge-tree` 预检仅 `index.js` 1 个冲突，按 G 类取我方后重建；其余 12 文件（storage-frame-v2-persist / template-preset-service / template-switch-mode-resolver / v2 composables 等）全部自动合并，零人工 hunk。
+
+**AlbusKen/shujuku 差量处置（口径升级：有价值的未跟差异「化为功能写进去」）**：
+
+| albus 差量 | 处置 | 证据 |
+| --- | --- | --- |
+| PR #66 公开历史来源身份 | **移植**（`4b3053ec`）：`table-history-api.ts` 新增 `getTableHistoryContext()` + `PublicTableHistoryContext_ACU` | 真浏览器实测通过 |
+| PR #67 写入接口可选前端回读等待 | **移植**（`4b3053ec`）：sql/table-crud/core-data 三 API 组公开 `awaitFrontendReadback`；内部选项由我方 `skipReadbackWait` **统一更名为上游同款 `awaitFrontendReadback`**（极性对齐：默认 true=等待，消除后续合并摩擦） | 真浏览器实测 `executeSqlMutation(…, { awaitFrontendReadback: false })` 通过 |
+| PR #70 存盘节流+尾随补存 | **已在我方树内**：shuiyue `26e453e6`（11-07 已并入）即其实现（`chat-save-coalescer` 两仓同构，shuiyue 口径「一轮填表只在结束时存一次」更激进） | `source/tests/data/gateways/chat-save-coalescer.test.ts` 在树 |
+| `597ef6ea` 回退 PR#65（格林推演恢复原执行链） | **零影响**：PR#65 因果链文件（plot-causal-delivery-bridge / ordinary-plot-causal-context / plot-internal-causal-result / zero-layer-world-delivery-session）在 albus 回退后、shuiyue、我方三树终态**均为零**——回退把 albus 拉回我方已有状态 | `git ls-tree` 三树比对 |
+| albus 自有子系统（simulation 世界模拟/桌宠/notice-hub/zero-layer/fill-mode 等，test 分支整模块缺失 284 个） | **不在范围**：shuiyue 是 albus 的筛选吸收层（其 `UPSTREAM-DRIFT.md` 自述 + `npm run drift` 终态比对工具），这些是 shuiyue 层的取舍；我方跟随 shuiyue | drift 工具两轮比对（albus/test 与 albus/main） |
+
+**36 红清账（`ac976efc`）**：§4b 遗留 37 红 → 本班清至 0（分类处置）：developer-page 23 = 我方「环境与能力总览」面板**补移植进 v3**（11-07 四面板批漏项）+ 定位器 `.acu-v2-developer-page` → `[data-ub-main] .acu-panel`；向量镜像 8 = mock 补 `settings_ACU`（上游 FRESH_READ 直读路径读取 `dataIsolationEnabled`）；v2 页面零散 5 = 品牌串关闭按钮 title（`UnbirthDB`→`Luker·数据库`，连带修出 `tauri-version-gate.ts` 一处 A 类漏网的用户可见品牌串）+ 省略号「…」口径 + data-mgmt 四节期望（写入体积提示）+ table-page 空态改 v3 契约断言。**波及源码 2 处、测试 8 文件，单文件级全部复跑绿；全量 vitest 复跑被「绝对禁止任何 node 进程」打断——全量零红认证与产物重建待 node 解禁后补（产物 `c6c0ed0e` 对应 `4b3053ec` 源码，`ac976efc` 的两处源码修正未入产物）。**
+
+**静态前端验证（chatfilesys 式，零酒馆运行时）**：Dev ST 实例真静态文件（jQuery 3.5.1）+ 真实扩展路径形态 `scripts/extensions/third-party/ST-shujuku-rebuild/` + `http-server :3060 -c-1 --cors` + 真浏览器——验证序列全绿（v3 挂载 / 菜单注入 / 0 错误 / `getTableHistoryContext` ✓ / `awaitFrontendReadback` 写入 ✓），仪表盘/SQL 控制台/数据管理/开发者选项四页截图留证（临时目录，不入库）。
+
+**公开 API 文档**：`source/docs/public-api.md`（命名空间总览 + 两个新能力语义 + 跨仓兼容性说明）；README 功能清单与上游同步段同步更新。
+
 ## 5. 同步纪律（每次追平照此执行）
 
 1. 先跑 §1 第 1 条确认落后量；为 0 说明同步正常，无需动作。

@@ -21,7 +21,10 @@ Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmy
   - SQL 控制台：结果一键导出 CSV（带 BOM，Excel 直开）/ JSON / 复制为 Markdown 表格（贴进聊天）、
     大结果只渲染前 200 行（「显示更多」逐窗追加，复制/导出仍取全量）、单元格点击复制为 SQL 字面量、
     列头点击排序、编辑器草稿与常用语句跨重开持久化（常用语句点击仅填入、绝不自动执行）
-- **开发者诊断**：出站提示词观测、写库流水观测、历史帧回放、一键诊断包四面板（默认关闭）
+- **开发者诊断**：环境与能力总览、出站提示词观测、写库流水观测、历史帧回放、一键诊断包五面板（默认关闭）
+- **对外 JavaScript API**：`window.AutoCardUpdaterAPI` 向聊天内其它脚本暴露 SQL / CRUD / 导入导出 / 只读历史等能力；
+  支持历史来源身份读取（`getTableHistoryContext`）与写入接口的前端回读等待选项（`awaitFrontendReadback`），
+  选项语义与 AlbusKen/shujuku 公开文档同名同义——详见 [`source/docs/public-api.md`](source/docs/public-api.md)
 - **宿主适配**：TT / Luker / 通用 ST 三态宿主 profile（`shared/host-bridge.ts`），探测失败自动降级 generic，不阻塞启动
 
 ## 安装
@@ -49,9 +52,10 @@ https://github.com/jiozhaoyue/ST-shujuku-rebuild
 
 ## 上游同步
 
-- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 已追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3）
+- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3），2026-11-08 再追平 `8f1fb759`（模板切换去冗余）
+- **AlbusKen/shujuku（更上游）差量处置**：由上游 shuiyue 作筛选吸收层；未被吸收且对我方有价值的差量按「化为功能写进去」口径移植——已移植 PR #66/#67（历史来源身份 / 写入回读等待），PR #70 已随上游 `26e453e6` 同主题实现进树，PR #65 回退（`597ef6ea`）三树终态一致零影响；albus 自有子系统（世界模拟/桌宠/零层世界等）系 shuiyue 层的取舍，不在本仓范围
 - **自动同步已停用（2026-11-07 裁定）**：每日定时拉取与自动开 issue 的 CI 已关闭，同步改为手动触发（`Upstream Sync` workflow 仅 `workflow_dispatch`），追平前按差量台账（`docs/superpowers/specs/2026-09-27-fork-delta-ledger.md`）人工评估
-- 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild（更上游的 AlbusKen/shujuku 由上游自行移植，本仓数据面与两者保持同构）
+- 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild （更上游：https://github.com/AlbusKen/shujuku ，本仓数据面与两者保持同构）
 
 ## 开发
 

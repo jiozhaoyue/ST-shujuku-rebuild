@@ -124,6 +124,17 @@
 - [ ] **人工补验：Excel 打开导出的 CSV** 中文不乱码（BOM 只能自动化验证字节，观感需人眼）。
 - [ ] **人工补验：Tauri 宿主下载**——导出 CSV/JSON 在 TauriTavern WebView 里的落盘行为（browser 下载 vs 拦截）。
 
+## 0.9 公开 API 移植 + 总览面板补移植（2026-11-08 追平批；静态验证已证，真机留白）
+
+- [ ] **`getTableHistoryContext()`**：在控制台执行 `AutoCardUpdaterAPI.getTableHistoryContext()`，
+      返回 `{version:1, chatId, characterId, groupId, isolationKey}` 与当前聊天一致；换聊天后 chatId/isolationKey 跟随变化。
+- [ ] **`awaitFrontendReadback: false`**：经酒馆助手或控制台调 `updateCell(…, { awaitFrontendReadback: false })`，
+      数据落库且 UI 照常刷新（默认行为不变）；外部脚本侧应感知"返回时渲染可能未完成"。
+- [ ] **环境与能力总览面板**（v3 开发者页新补移植）：开发者选项页出现「环境与能力总览」节，
+      环境事实 / 可调用 API 分组 / 持久化通道四类齐全，「复制总览给 AI」产出脱敏文本。
+- [ ] **模板切换去冗余（上游 8f1fb759 行为变化）**：模板切换确认弹窗每类风险只出现一道关卡；
+      回滚后新聊天不再残留旧聊天的模板配置。
+
 ## 1. 启动与核心（不依赖酒馆助手）
 
 - [ ] 不安装酒馆助手（JS-Slash-Runner）的情况下，扩展能正常启动，控制台无「等待 TavernHelper 超时」类报错
