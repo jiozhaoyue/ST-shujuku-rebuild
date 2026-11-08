@@ -257,13 +257,16 @@ describe('TablePage', () => {
     mount.__resetAcuV2MountForTests();
   });
 
-  it('填表提示词面板渲染空态说明（含插槽就绪与模式文案）', async () => {
+  it('填表提示词面板对插槽就绪与自定义模式有真实反馈（v3 契约）', async () => {
     const { mount } = await mountTablePage();
-    const hint = document.querySelector('.acu-v2-table-page__prompt-hint');
-    expect(hint).not.toBeNull();
-    // 夹具的 charCardPrompt 与内置默认不同 → promptTemplateMode 为 custom 分支
-    expect(hint!.textContent || '').toContain('自定义填表提示词');
-    expect(hint!.textContent || '').toContain('主插槽 A/B 就绪');
+    const section = document.querySelector('[data-ub-section="tbl-prompt"]');
+    expect(section).not.toBeNull();
+    const text = section!.textContent || '';
+    // 夹具的 charCardPrompt 与内置默认不同 → badge 走自定义分支；A/B 主插槽齐全 → 无警告 callout
+    expect(text).toContain('已自定义提示词');
+    expect(text).not.toContain('使用默认提示词');
+    expect(text).not.toContain('缺少必要主插槽');
+    expect(text).toContain('共 3 段提示词');
     mount.__resetAcuV2MountForTests();
   });
 

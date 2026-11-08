@@ -16,6 +16,7 @@
     </UbSection>
 
     <!-- 我方差量移植（2026-11-07 上游追平）：观测与诊断四面板，自包含 AcuPanel 组件直接挂载 -->
+    <CapabilityOverviewPanel />
     <PromptInspectionPanel />
     <WritePipelinePanel />
     <FrameReplayPanel />
@@ -26,6 +27,7 @@
 <script setup lang="ts">
 import { useDevOptions } from '../../presentation-v2/composables/useDevOptions';
 import { developerCopy as copy } from '../../presentation-v2/copy/developer-copy';
+import CapabilityOverviewPanel from '../../presentation-v2/components/CapabilityOverviewPanel.vue';
 import DiagnosticBundlePanel from '../../presentation-v2/components/DiagnosticBundlePanel.vue';
 import FrameReplayPanel from '../../presentation-v2/components/FrameReplayPanel.vue';
 import PromptInspectionPanel from '../../presentation-v2/components/PromptInspectionPanel.vue';

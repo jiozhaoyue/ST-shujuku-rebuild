@@ -461,7 +461,7 @@ describe('VectorIndexPage', () => {
     textarea!.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise(r => setTimeout(r, 0));
 
-    const appClose = document.querySelector<HTMLButtonElement>('button[title="关闭 UnbirthDB"]');
+    const appClose = document.querySelector<HTMLButtonElement>('button[title="关闭 Luker·数据库"]');
     expect(appClose).not.toBeNull();
     appClose!.click();
     const layer = await flushDialog();

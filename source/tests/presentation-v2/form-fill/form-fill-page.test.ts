@@ -564,7 +564,7 @@ describe('FormFillPage', () => {
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     await Promise.resolve();
 
-    const appClose = document.querySelector<HTMLButtonElement>('button[title="关闭 UnbirthDB"]')!;
+    const appClose = document.querySelector<HTMLButtonElement>('button[title="关闭 Luker·数据库"]')!;
     appClose.click();
     await Promise.resolve();
 
@@ -761,7 +761,7 @@ describe('FormFillPage · 手动填表面板', () => {
     await new Promise(r => setTimeout(r, 0));
 
     const toastText = document.querySelector('.ub-toasts')?.textContent || '';
-    expect(toastText).toContain('批次 1/1 · 正在生成第 1/20 组手动填表结果...');
+    expect(toastText).toContain('批次 1/1 · 正在生成第 1/20 组手动填表结果…');
     expect(toastText).not.toContain('调用 AI (1/20)');
     expect(button.textContent || '').toContain('填表中…');
 

@@ -13,6 +13,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   currentChatFileIdentifier_ACU: 'probe-chat',
   getCurrentIsolationKey_ACU: () => 'iso',
   get currentJsonTableData_ACU() { return { sheet_summary: h.table }; },
+  settings_ACU: { dataIsolationEnabled: true, dataIsolationCode: 'iso' },
 }));
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: () => h.chat,

@@ -9,12 +9,14 @@ const h = vi.hoisted(() => ({
   files: new Map<string, any>(),
   saveStrict: vi.fn(async () => undefined),
   embeddingGate: null as null | { started: () => void; wait: Promise<void> },
+  settings: { dataIsolationEnabled: true, dataIsolationCode: 'iso' } as any,
 }));
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   currentChatFileIdentifier_ACU: 'probe-chat',
   getCurrentIsolationKey_ACU: () => h.isolationKey,
   get currentJsonTableData_ACU() { return { sheet_summary: h.table }; },
+  get settings_ACU() { return h.settings; },
 }));
 vi.mock('../../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: () => h.chat,

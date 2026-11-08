@@ -37,7 +37,7 @@ export function buildAcuTauriVersionWarningHtml_ACU(
   const extension = escapeHtml_ACU(String(extensionVersion || '未知'));
   return [
     '<h3>建议升级 TauriTavern</h3>',
-    `<p>宿主版本（TauriTavern）：<b>${current}</b>；扩展版本（UnbirthDB）：<b>${extension}</b>；本插件适配与验证的要求基线：<b>${required}</b>。</p>`,
+    `<p>宿主版本（TauriTavern）：<b>${current}</b>；扩展版本（Luker·数据库）：<b>${extension}</b>；本插件适配与验证的要求基线：<b>${required}</b>。</p>`,
     `<p>检测到宿主版本低于要求基线。TauriTavern 2.4.0 修复了两个会影响你的问题：一是扩展的确认框不弹出、被直接当作「确定」执行；二是 Android 上的证书安全漏洞（RUSTSEC-2026-0381，可能让连接 API 时的加密被冒充）。更早的版本还可能出现楼层识别偏差、填表或追平异常。</p>`,
     `<p>请把宿主升级到 <b>${required}</b> 或更高版本后重新加载页面（扩展不用动）。可在 TauriTavern 内检查更新，或从官方 Releases 下载：<br>github.com/Darkatse/TauriTavern/releases</p>`,
   ].join('');

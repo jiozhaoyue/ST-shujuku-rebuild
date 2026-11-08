@@ -191,7 +191,7 @@ describe('DeveloperPage · 环境与能力总览', () => {
   const fakeTotal = Object.values(FAKE_API_INDEX).reduce((sum, list) => sum + list.length, 0);
 
   function overviewPanel(): HTMLElement {
-    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+    return Array.from(document.querySelectorAll<HTMLElement>('[data-ub-main] .acu-panel'))
       .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('环境与能力总览'))!;
   }
 
@@ -275,7 +275,7 @@ describe('DeveloperPage · 提示词检查器', () => {
   const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
 
   function inspectionPanel(): HTMLElement {
-    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+    return Array.from(document.querySelectorAll<HTMLElement>('[data-ub-main] .acu-panel'))
       .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('提示词检查器'))!;
   }
 
@@ -436,7 +436,7 @@ describe('DeveloperPage · 写库流水', () => {
   const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
 
   function pipelinePanel(): HTMLElement {
-    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+    return Array.from(document.querySelectorAll<HTMLElement>('[data-ub-main] .acu-panel'))
       .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('写库流水'))!;
   }
 
@@ -608,7 +608,7 @@ describe('DeveloperPage · 历史楼层回放', () => {
   const ISO = '';
 
   function replayPanel(): HTMLElement {
-    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+    return Array.from(document.querySelectorAll<HTMLElement>('[data-ub-main] .acu-panel'))
       .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('历史楼层回放'))!;
   }
 
@@ -729,7 +729,7 @@ describe('DeveloperPage · 一键诊断包', () => {
   const settle = (): Promise<void> => new Promise(r => setTimeout(r, 0));
 
   function bundlePanel(): HTMLElement {
-    return Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-developer-page .acu-panel'))
+    return Array.from(document.querySelectorAll<HTMLElement>('[data-ub-main] .acu-panel'))
       .find(el => el.querySelector('.acu-panel__title')?.textContent?.includes('一键诊断包'))!;
   }
 
