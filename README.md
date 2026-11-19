@@ -13,7 +13,7 @@ Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmy
 - **SQL 表格**：默认 8 张表（可自定义增删列），SQLite 持久化，支持 `INSERT/UPDATE/DELETE`，模板预设一键切换
 - **新版界面（v3）**：上游「新版界面转正」后的全页面重构——基础模式一页上手、高手模式全功能、Claude 风格外壳可选；本仓的全部自有功能已移植进 v3
 - **填表**：正文接收 / 跟随角色卡 / 手动选择三种世界书来源，支持按表分组自动/手动填表与一键追平；差量注入（实验）可只带热表全量、冷表仅供建表语句
-- **剧情推进 / 决策召回 / 智能续写 / 正文替换**：随上游 Unbirth A.D. 6386 全量并入——剧情推进预设、决策模型给纪要打分挑相关记忆、多任务续写工作流、替换前判定
+- **剧情推进 / 决策召回 / 智能续写 / 正文替换**：随上游 Unbirth A.D. 6386 全量并入——剧情推进预设、决策模型给纪要打分挑相关记忆（可附加世界书条目参与打分）、多任务续写工作流、替换前判定、开发者选项「提示词额外要求」（执行边界 / 安全审查提示词按功能附加）、API 页 OpenCode Go 用量进度条
 - **世界书与 Skill 化**：支持常量/关键词触发，Skill 化条目可由 Agent 接管并受正文放行控制
 - **可视化前端**：表格查看、剧情推进、世界书管理均在新版面板内完成（兼容 [st-acu-visualizer](https://github.com/shuiyue-cmyk/st-acu-visualizer)）
 - **API 预设**：每个预设独立保存 `stream` / `reasoning_effort`（含 `xhigh`）/ 温度等，填表/剧情/追踪可分别指定预设；支持经酒馆转接与数据库直接发送两种通道
@@ -26,6 +26,7 @@ Luker / TauriTavern 数据库插件「Luker·数据库」，基于 [`shuiyue-cmy
   支持历史来源身份读取（`getTableHistoryContext`）与写入接口的前端回读等待选项（`awaitFrontendReadback`），
   选项语义与 AlbusKen/shujuku 公开文档同名同义——详见 [`source/docs/public-api.md`](source/docs/public-api.md)
 - **宿主适配**：TT / Luker / 通用 ST 三态宿主 profile（`shared/host-bridge.ts`），探测失败自动降级 generic，不阻塞启动
+- **稳定性增强（移植自 AlbusKen/shujuku）**：SQLite exec 栈指针配对（修复长会话约 33 万次查询后 wasm 越界崩溃）、JSON 清洗保留字符串正文（「」『』定界符模式，只改写字符串外的区域，提升填表成功率）、配置防丢三件套（未落盘副本自动回收 / 宿主写入确认 / 命名空间备份，静默生效，写确认默认关闭）、SSE 规范事件解析器（WHATWG 语义就位，供后续原生工具通道使用）
 
 ## 安装
 
@@ -52,8 +53,8 @@ https://github.com/jiozhaoyue/ST-shujuku-rebuild
 
 ## 上游同步
 
-- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3），2026-11-08 再追平 `8f1fb759`（模板切换去冗余）
-- **AlbusKen/shujuku（更上游）差量处置**：由上游 shuiyue 作筛选吸收层；未被吸收且对我方有价值的差量按「化为功能写进去」口径移植——已移植 PR #66/#67（历史来源身份 / 写入回读等待），PR #70 已随上游 `26e453e6` 同主题实现进树，PR #65 回退（`597ef6ea`）三树终态一致零影响；albus 自有子系统（世界模拟/桌宠/零层世界等）系 shuiyue 层的取舍，不在本仓范围
+- 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3），2026-11-08 再追平 `8f1fb759`（模板切换去冗余），2026-11-20 追平 `76ffdc81`（DeepSeek 填表专项第三轮复审 8 提交、提示词额外要求、决策召回世界书、Go 用量，冲突 7 文件按台账口径并集解决）
+- **AlbusKen/shujuku（更上游）差量处置**：由上游 shuiyue 作筛选吸收层；未被吸收且对我方有价值的差量按「化为功能写进去」口径移植——已移植 PR #66/#67（历史来源身份 / 写入回读等待），PR #70 已随上游 `26e453e6` 同主题实现进树，PR #65 回退（`597ef6ea`）三树终态一致零影响；2026-11-20 依功能面比对移植四件：SQLite exec 栈泄漏修复（`5518792c`）、JSON 清洗保留字符串正文（`c45d50ee`）、配置防丢三件套（`5518792c`，含 host-bridge 探测收口）、SSE 规范事件解析器（`c45d50ee`）；albus 自有子系统（世界模拟/桌宠/零层世界等）系 shuiyue 层的取舍，不在本仓范围
 - **自动同步已停用（2026-11-07 裁定）**：每日定时拉取与自动开 issue 的 CI 已关闭，同步改为手动触发（`Upstream Sync` workflow 仅 `workflow_dispatch`），追平前按差量台账（`docs/superpowers/specs/2026-09-27-fork-delta-ledger.md`）人工评估
 - 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild （更上游：https://github.com/AlbusKen/shujuku ，本仓数据面与两者保持同构）
 

@@ -61,13 +61,15 @@
 ## 阶段三：全面迭代开发（子代理高并发）
 
 ### 任务池（登记区，边跑边补）
-1. **[bug] plot-page.test.ts:323 全量污染红**：导入预设→绑定切换用例单跑绿/全量红；找污染源或补隔离 reset；验收 = 全量 vitest 8437/8437 绿。
-2. **[移植#1·albus 5518792c] SQLite exec 栈泄漏修复**：sql.js `Database.exec` stackAlloc(4) 不恢复指针，约 33 万次查询后 wasm 越界；`sqlite-engine.ts` 单文件 stackSave/stackRestore 配对；价值高（长会话崩溃）难度低。
-3. **[移植#2·albus c45d50ee] JSON 清洗保留字符串正文**：引号式定界符模式（「」『』＂ 作外定界符时保留正文）+ mapOutsideJsonStrings_ACU；`json-sanitizer.ts` 同文件升级 + albus 879 行测试 diff；价值高（填表成功率）难度低。
-4. **[移植#3·albus 5518792c] 配置防丢三件套**：settings-rescue（未落盘/加载期回收/副本）、save-confirm（TT 确认弹窗路径须进 host-bridge）、namespace-backup（globalMeta 缺失恢复）；价值高难度中。
-5. **[移植#4·albus c45d50ee] SSE 规范事件拆分**：新文件 `sse-event-parser.ts`（CR/LF/CRLF、data: 单空格、多行 data 拼接、空行派发、注释行）+ 测试；接入点 prompt-api-call.ts 改造谨慎（我方真流式重差量文件）。
-6. **[清理] CSS 注释品牌串 UnbirthDB ×3**：presentation/theme/toast.ts:29,86、presentation-v2/theme/host-claude-skin.ts:28；非用户可见，统一为 Luker·数据库 口径。
-7. **[复核·scout2存疑] #11 greenlight 最终回复注入**：我方 agent-decision-engine 数据面已有，最终回复阶段注入实现未核验。
+1. ~~[bug] plot-page.test.ts:323 全量红~~ **✓ 修复（任务B）**：scratch 实验否定跨文件污染，真根因 = 固定 2 tick 不及跨 macrotask FileReader 异步链（时序竞态）；断言原文不动包进 `vi.waitFor` 轮询；429 文件 7791 用例压测 ×2 全绿。
+2. ~~[移植#1] SQLite exec 栈泄漏~~ **✓ 完成（任务C）**：query（含 readOnly 分支）+ loadFromBinary 双处配对，覆盖比 albus 原修复更全；sqlite 域 156 绿。
+3. ~~[移植#2] JSON 清洗保留字符串正文~~ **✓ 完成（任务D）**：函数级合并 albus 3 hunk，我方原型污染守卫保留；98+525 绿。
+4. ~~[移植#3] 配置防丢三件套~~ **✓ 完成（任务E，数据面）**：rescue/save-confirm(默认关)/namespace-backup + service 门面 + host-bridge 2 探测；265 绿；**裁定**：globalMeta 恢复不暂停写入（本仓 UI 已删）；UI 恢复面板登记后续任务。
+5. ~~[移植#4] SSE 规范事件解析器~~ **✓ 能力就位不接入（任务F + 主代理裁定）**：解析器+39 用例；现有语料非标准形态直接接入会破坏 onDelta 契约（实测证据），待原生工具通道。
+6. ~~[清理] CSS 注释品牌串 ×3~~ **✓ 完成（任务G）**：源码树 UnbirthDB 清零；默认标题常量本就正确。
+7. ~~[复核·scout2存疑] #11 greenlight 注入~~ **✓ 已解除**：数据面+消费面齐全。getTableHistoryContext 在位 ✓。
+8. **[bug] chat-gateway 直连 /api/chats/delete（merge 回归）** **✓ 修复（任务A）**：postHostChatApi_ACU 单一出口（CSRF 头），URL 逐字不变；守卫 6 绿+网关 148 绿+补删 7 绿。
+9. **[后续任务·登记] 配置防丢 UI 恢复面板**：rescue 的查看/恢复/忽略交互层（本轮数据面就位即静默生效，无 UI 不影响功能）。
 （#5 回放快照续放：价值高但触及 replay 核心，独立排期本轮不做；政策外子系统不移植。）
 
 - [ ] 任务清单细化（依赖代理 1/2 结果 + 基线测试暴露的问题）
@@ -94,3 +96,30 @@
 - 23:43 启动。fetch 完成，判明落后 20 提交。
 - 23:47 CI 停用判明（95e7d8a8 有意移除 schedule，非故障）。
 - 23:48 两个 scout 调研代理后台发出；基线 typecheck+vitest 后台启动；本计划落盘。
+- 00:15 merge 8c295ed3（追平 76ffdc81，落后归零），7 冲突并集解决。
+- 00:40 质量门：typecheck/build/smoke 绿；全量 8536 用例 2 红定性（直连回归+时序竞态）。
+- 00:45 7 任务并发派工（A/B/C/D/E/F/G）。
+- 00:50 TESTING.md 遗留冲突标记补修 4fc36bc1；台账 §4d 落盘 4ec0e6ff。
+- 01:00-02:10 任务逐个回收验收（全部通过，主代理裁定 4 条）。
+- 02:10 终轮全门禁启动；README/台账 §4d-2/任务池登记完成。
+- **02:25 终验全绿收官**：typecheck 0；vitest **8684/8684 全绿（520 文件，基线 8437 → +247）**；build ✓；smoke ✓（挂载/菜单注入/0 错误）。进入分批提交。
+- （收尾提交，进行中）
+
+## 交接节（2026-11-20 07:30 收尾时补全）
+
+### 本班成果
+- 追平上游 A 20 提交（merge 8c295ed3）+ albus 移植四件 + bug 修复两件 + 注释清理（详见台账 §4d / §4d-2）。
+- 提交历史：86fd92b1（计划）→ 8c295ed3（merge）→ 4fc36bc1（TESTING 补修）→ 4ec0e6ff（台账 §4d）→（待：终验后功能提交批 + 收尾批）
+- 终验结果：（待回填）
+
+### 移交后续任务（按优先级）
+1. **真机验证**（source/docs/TESTING.md 手工节）：本轮 albus 移植四件均需真机确认——尤其配置防丢三件套（TT extension.store / SETTINGS_UPDATED 事件语义）与 SQLite 栈修复（长会话不崩）。另有 Dev Luker 8003 的 `getTableHistoryContext` 已在上班验证。
+2. **配置防丢 UI 恢复面板**：rescue 的查看/恢复/忽略交互（数据面+API 已就位，静默生效中）。
+3. **albus 移植#5 回放快照续放**（`fd9ba783`，中-高价值/中难度）：触及 replay 核心，需整套回放回归，独立排期。
+4. **SSE 解析器接入**：待 albus #9 原生工具通道决策一并做（需同时定「非标准连续 data 流」兜底口径）。
+5. **albus 移植评估余量**：#6 接管暂停总开关 / #10 API 全量日志（低-中价值）；#7 安全审查网关、#8 HTML 渲染重建依赖 albus agent 架构，暂缓。
+6. **plot-page 用例观察**：`vi.waitFor` 修复后若全量终验仍红在 323 行（binding 断言，非 322 预设入库），指向另一机制（`currentChatFileIdentifier_ACU` 被改），见 state-manager.ts:479/581。
+
+### 断点续跑指引
+- 全部状态以本文件 + 台账 §4d/§4d-2 为准；提交历史见 `git log --oneline -8`。
+- 若工作区有未提交改动：按台账 §4d-2 清单核对应提交文件，显式 pathspec 分批提交。

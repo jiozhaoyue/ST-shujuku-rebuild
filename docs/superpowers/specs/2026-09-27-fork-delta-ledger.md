@@ -276,6 +276,25 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **注意**：上游新增功能落点说明——「提示词额外要求」服务层自读持久化（不打开面板也生效），store 只做切换推送；「Go 用量」走裸 fetch 直连 `/inference/go/v1/usage`（非 AI 出口，无需响应观测）。
 
+### 4d-2. 随班 albus 功能移植实况（2026-11-20，7 子代理并发）
+
+依「功能面比对 → 化为功能写进去」口径（§4c），本轮移植四件 + 修两 bug + 一清理：
+
+| 项 | 内容 | 关键实现 | 测试证据 |
+|---|---|---|---|
+| 移植#1 | SQLite exec 栈泄漏修复（albus `5518792c`） | `sqlite-engine.ts` 的 `query()`（含我方特有 readOnly 分支）与 `loadFromBinary()` 双处 `stackSave/stackRestore` 配对，能力探测兼容 asm 回滚；比 albus 原单点修复覆盖更全 | sqlite 域 156 绿（新增 1 万次高频回归+结构断言） |
+| 移植#2 | JSON 清洗保留字符串正文（albus `c45d50ee`） | `json-sanitizer.ts` 函数级合并：`QUOTE_LIKE_CHARS_ACU` 三态定界符 + `mapOutsideJsonStrings_ACU`（字符串外才改写）；我方原型污染守卫保留 | json-sanitizer 98 绿；service/ai 域 525 绿 |
+| 移植#3 | 配置防丢三件套（albus `5518792c`） | `settings-rescue.ts`（未落盘副本双后端回收）/ `settings-save-confirm.ts`（写确认，默认关）/ `settings-namespace-backup.ts`（命名空间快照）+ service 门面 4 文件；宿主探测 2 函数收进 host-bridge；TT store 命名空间 `shujuku_v120-shujuku` 与上游 `acu-shujuku` 隔离不冲突 | storage+settings 域 265 绿（+36 新增） |
+| 移植#4 | SSE 规范事件解析器（albus `c45d50ee`） | `shared/sse-event-parser.ts`（WHATWG 状态机）逐字移植 + 39 用例；**未接入** prompt-api-call.ts——我方现有语料为「相邻 data: 行无空行」非标准形态，直接接入会破坏 onDelta 逐字节契约（实测证据），能力就位待原生工具通道 | tests/shared/ 676 绿（+39） |
+| bug① | merge 回归：上游 feed4c59 在 `chat-gateway.ts:461` 引入直连 `fetch('/api/chats/delete')`，违反我方 D-03 宿主通道架构前提 | 新增 `postHostChatApi_ACU` 单一出口（CSRF 宿主请求头，比上游裸 fetch 更稳），两处直连收敛；URL/method/body 逐字不变 | pure-db-mode-compat 6 绿；gateways 域 148 绿；补删守卫 7 绿 |
+| bug② | plot-page.test.ts:323 全量偶发红——scratch 实验否定跨文件污染，真根因为固定 2 tick 等不及跨 macrotask FileReader 异步链（时序竞态） | 断言原文一字未改，包进 `vi.waitFor(…, { timeout: 3000 })` 轮询 | 单跑 ×3 绿；复现组合绿；429 文件 7791 用例压测 ×2 全绿 |
+| 清理 | CSS 注释品牌串 UnbirthDB ×3 → Luker·数据库 | toast.ts:29,86、host-claude-skin.ts:28 纯注释；默认标题常量 `ACU_TOAST_TITLE_ACU` 本就正确 | 源码树 UnbirthDB 清零 |
+
+**主代理裁定记录**：① E 的 globalMeta 恢复**有意偏离上游**——上游暂停写入等 UI 选回，本仓该切换 UI 已删（G11 死代码清理），照搬会致保存永久失败；改为只检测+提示+并入隔离历史，写暂停开关数据面就位未接线。② E 的写入登记双 seq（登记先于宿主调用+同步失败补记）低风险保留——rescue 只看 `writtenAt`，动三态契约收益为零。③ 移植#4 本轮不接入。④ 配置防丢 UI 恢复面板本轮不做（rescue 静默生效、save-confirm 默认关，数据面+API 已就位），登记后续任务。
+
+**硬红线全程核查**：UNIQUE_SCRIPT_ID / TavernDB_ACU_* 存储结构 / host-bridge 单口纪律 / 模板 JSON 同构性均未触碰（各任务报告 + 主代理 grep 复核）。
+
+
 ## 5. 同步纪律（每次追平照此执行）
 
 
