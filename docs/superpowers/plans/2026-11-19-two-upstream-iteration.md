@@ -69,7 +69,7 @@
 6. ~~[清理] CSS 注释品牌串 ×3~~ **✓ 完成（任务G）**：源码树 UnbirthDB 清零；默认标题常量本就正确。
 7. ~~[复核·scout2存疑] #11 greenlight 注入~~ **✓ 已解除**：数据面+消费面齐全。getTableHistoryContext 在位 ✓。
 8. **[bug] chat-gateway 直连 /api/chats/delete（merge 回归）** **✓ 修复（任务A）**：postHostChatApi_ACU 单一出口（CSRF 头），URL 逐字不变；守卫 6 绿+网关 148 绿+补删 7 绿。
-9. **[后续任务·登记] 配置防丢 UI 恢复面板**：rescue 的查看/恢复/忽略交互层（本轮数据面就位即静默生效，无 UI 不影响功能）。
+9. ~~[后续任务·登记] 配置防丢 UI 恢复面板~~ **✓ 完成（任务H）**：`presentation-v3/parts/SettingsRescueSection.vue` 落数据管理页（「备份与恢复」之后，页内导航「配置副本恢复」）；三态面板走 rescue-service 门面零越层；双前缀+宿主变量；v3 域 122 绿含新增 4 条页测；**裁定逐条恢复/忽略粒度**（与数据面单条签名一致，「全部恢复最新」列为后续可选）；截图待真机（Dev 实例未起）。
 （#5 回放快照续放：价值高但触及 replay 核心，独立排期本轮不做；政策外子系统不移植。）
 
 - [ ] 任务清单细化（依赖代理 1/2 结果 + 基线测试暴露的问题）
@@ -103,7 +103,8 @@
 - 01:00-02:10 任务逐个回收验收（全部通过，主代理裁定 4 条）。
 - 02:10 终轮全门禁启动；README/台账 §4d-2/任务池登记完成。
 - **02:25 终验全绿收官**：typecheck 0；vitest **8684/8684 全绿（520 文件，基线 8437 → +247）**；build ✓；smoke ✓（挂载/菜单注入/0 错误）。进入分批提交。
-- （收尾提交，进行中）
+- 02:30 分批提交 4 笔并推 origin（0f35e37b fix / 9c8b1975 移植三件 / c668f31b 防丢三件套 / ddaa0507 docs+产物），工作区清零。
+- 02:32 第二批派工：任务 H（恢复面板 UI 层，数据面已就位）+ 任务 J（Dev 实例 compat:probe + e2e:shots 真机探测）。裁定：#5 回放续放与 API 全量日志不做（前者高风险、后者与我方观测体系冗余）。
 
 ## 交接节（2026-11-20 07:30 收尾时补全）
 
@@ -113,8 +114,14 @@
 - 终验结果：（待回填）
 
 ### 移交后续任务（按优先级）
-1. **真机验证**（source/docs/TESTING.md 手工节）：本轮 albus 移植四件均需真机确认——尤其配置防丢三件套（TT extension.store / SETTINGS_UPDATED 事件语义）与 SQLite 栈修复（长会话不崩）。另有 Dev Luker 8003 的 `getTableHistoryContext` 已在上班验证。
-2. **配置防丢 UI 恢复面板**：rescue 的查看/恢复/忽略交互（数据面+API 已就位，静默生效中）。
+1. **真机验证**（source/docs/TESTING.md 手工节）：本轮 albus 移植四件均需真机确认——尤其配置防丢三件套（TT extension.store / SETTINGS_UPDATED 事件语义）与 SQLite 栈修复（长会话不崩）。**e2e 探测本夜未跑成**：Dev 8001/8003 实例未起（连接拒绝，非本班改动问题）；实例起后复跑：
+   ```bash
+   cd source && curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 http://127.0.0.1:8003
+   NODE_PATH="C:/nvm4w/nodejs/node_modules" ACU_PROBE_TARGET_TIMEOUT_MS=600000 npm run compat:probe -- --only=luker,st
+   NODE_PATH="C:/nvm4w/nodejs/node_modules" ACU_PROBE_TARGET_TIMEOUT_MS=600000 npm run e2e:shots
+   ```
+   产物构建戳 `20261119-1736`（UTC 口径 = 北京 11-20 01:36 终态重建）静态核验吻合；TESTING.md:44 的旧版本记录 9.7.5 已滞后（现 Unbirth A.D. 6386），下次顺手更新。
+2. ~~配置防丢 UI 恢复面板~~ **本夜已完成**（任务H，数据管理页「配置副本恢复」分区）；可选后续：加「全部恢复最新」一键操作。
 3. **albus 移植#5 回放快照续放**（`fd9ba783`，中-高价值/中难度）：触及 replay 核心，需整套回放回归，独立排期。
 4. **SSE 解析器接入**：待 albus #9 原生工具通道决策一并做（需同时定「非标准连续 data 流」兜底口径）。
 5. **albus 移植评估余量**：#6 接管暂停总开关 / #10 API 全量日志（低-中价值）；#7 安全审查网关、#8 HTML 渲染重建依赖 albus agent 架构，暂缓。
