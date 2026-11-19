@@ -25,7 +25,7 @@ export function buildHostClaudeSkinCss(colorScheme: AcuV2ColorScheme): string {
   const clayInk = dark ? '#e08264' : '#c4532f';
   const claySoft = dark ? 'rgba(217, 119, 87, 0.15)' : '#fbf3ef';
   const focus = `inset 0 0 0 1px var(--acu-bg-0), 0 0 0 1.5px var(--acu-accent), 0 0 6px 1px rgba(217, 119, 87, ${dark ? '0.35' : '0.25'})`;
-  return `/* UnbirthDB：Claude 风格下的面板外弹窗 */
+  return `/* Luker·数据库：Claude 风格下的面板外弹窗 */
 :is(${S}.acu-hd-layer, ${S}.acu-hd-scrim) {
   background: ${scrim};
   -webkit-backdrop-filter: blur(2px);

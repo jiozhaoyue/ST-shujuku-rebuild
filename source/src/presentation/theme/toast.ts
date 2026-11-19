@@ -26,7 +26,7 @@ function ensureAcuToastStylesInjected_ACU() {
     const style = doc.createElement('style');
     style.id = styleId;
     style.textContent = `
-      /* UnbirthDB 插件提示框：与新界面提示框同一套设计，颜色取当前主题 token
+      /* Luker·数据库 插件提示框：与新界面提示框同一套设计，颜色取当前主题 token
          （主题注入器给 .acu-host-surface 写 token；未注入时回退默认浅色）。 */
       #toast-container > .acu-toast.toast {
         --acu-toast-tone: var(--acu-accent, #2F5FD0);
@@ -83,7 +83,7 @@ function ensureAcuToastStylesInjected_ACU() {
       #toast-container > .acu-toast.acu-toast--warning::before { content: "\\f071"; }
       #toast-container > .acu-toast.acu-toast--error::before { content: "\\f06a"; }
 
-      /* 标题（默认 UnbirthDB）做成小号来源标签，正文为主 */
+      /* 标题（默认 Luker·数据库）做成小号来源标签，正文为主 */
       #toast-container > .acu-toast .toast-title {
         margin: 0 0 1px !important;
         color: var(--acu-text-3, #8A8780) !important;

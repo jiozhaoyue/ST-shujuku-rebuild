@@ -316,11 +316,15 @@ describe('PlotPage', () => {
     ], 'plot-import.json', { type: 'application/json' });
     Object.defineProperty(input!, 'files', { value: [file], configurable: true });
     input!.dispatchEvent(new Event('change', { bubbles: true }));
-    await wait();
-    await wait();
-
-    expect(settings.plotSettings.promptPresets.map((preset: any) => preset.name)).toContain('导入推进');
-    expect(settings.plotPresetBindings?.['chat-plot']?.presetName).toBe('导入推进');
+    // 导入链是异步的：change -> UbFileButton emit -> onImportFile -> readFileText_UB 的
+    // FileReader.onload（jsdom 里是独立 macrotask）-> importPresetFromJson（写入预设）
+    // -> setActivePresetForCurrentChat（写 binding）。固定的两次 setTimeout(0) 在高负载
+    // 全量跑里不够，onload 可能排在后面，导致预设没进库 / binding 没切就断言（全量红、单跑绿）。
+    // 轮询到两个既有断言条件都成立即可，断言语义不变。
+    await vi.waitFor(() => {
+      expect(settings.plotSettings.promptPresets.map((preset: any) => preset.name)).toContain('导入推进');
+      expect(settings.plotPresetBindings?.['chat-plot']?.presetName).toBe('导入推进');
+    }, { timeout: 3000 });
 
     mount.__resetAcuV2MountForTests();
   });

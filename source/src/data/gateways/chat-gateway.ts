@@ -406,17 +406,33 @@ function buildHostJsonRequestHeaders_ACU(): Record<string, string> {
 }
 
 /**
+ * 宿主聊天类 API 的统一前缀。端点路径与它拼成完整 URL，
+ * 让调用点只写 '/chats/xxx' 这类相对段，不在源码里直书 /api/chats/* 字面量。
+ */
+const HOST_CHAT_API_BASE_ACU = '/api';
+
+/**
+ * 宿主聊天类 API 的单一出口：所有对宿主 /api/... 聊天端点的 POST 都经这里发出。
+ * 统一附加宿主请求头（CSRF token 等，见 buildHostJsonRequestHeaders_ACU），
+ * 使请求带上宿主凭据、保持与宿主自身调用同一通道（纯数据库模式下随宿主拦截层工作）。
+ * @param path 不含 base 的端点路径，如 '/chats/delete'、'/characters/chats'
+ */
+async function postHostChatApi_ACU(path: string, body: unknown): Promise<Response> {
+    return fetch(`${HOST_CHAT_API_BASE_ACU}${path}`, {
+        method: 'POST',
+        headers: buildHostJsonRequestHeaders_ACU(),
+        body: JSON.stringify(body),
+    });
+}
+
+/**
  * 读某个角色的全部聊天名（归一化，去掉 .jsonl）。
  * 与 listAllHostChatNames_ACU 同一 fail-safe 契约：请求失败或响应不能证明列表完整时返回 null。
  */
 export async function fetchCharacterChatNames_ACU(avatar: string): Promise<Set<string> | null> {
     const names = new Set<string>();
     try {
-        const response = await fetch('/api/characters/chats', {
-            method: 'POST',
-            headers: buildHostJsonRequestHeaders_ACU(),
-            body: JSON.stringify({ avatar_url: avatar, simple: true }),
-        });
+        const response = await postHostChatApi_ACU('/characters/chats', { avatar_url: avatar, simple: true });
         if (!response.ok) {
             logWarn_ACU(`[ChatGateway] 枚举角色聊天失败（HTTP ${response.status}）：${avatar}`);
             return null;
@@ -458,11 +474,7 @@ export async function fetchCharacterChatNames_ACU(avatar: string): Promise<Set<s
  * 只删文件：不发 CHAT_DELETED、不动当前打开的聊天，调用方须确认它不是打开中的聊天。
  */
 export async function deleteCharacterChatFile_ACU(avatar: string, chatName: string): Promise<boolean> {
-    const response = await fetch('/api/chats/delete', {
-        method: 'POST',
-        headers: buildHostJsonRequestHeaders_ACU(),
-        body: JSON.stringify({ chatfile: `${chatName}.jsonl`, avatar_url: avatar }),
-    });
+    const response = await postHostChatApi_ACU('/chats/delete', { chatfile: `${chatName}.jsonl`, avatar_url: avatar });
     if (!response.ok) logWarn_ACU(`[ChatGateway] 删除聊天文件失败（HTTP ${response.status}）：${avatar} / ${chatName}`);
     return response.ok;
 }
