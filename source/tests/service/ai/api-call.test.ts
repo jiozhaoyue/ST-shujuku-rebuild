@@ -75,6 +75,7 @@ import {
   __clearPresetResolveCacheForTests_ACU,
 } from '../../../src/service/settings/api-preset-service';
 import { resolveContinuationApiPreset_ACU } from '../../../src/service/continuation/api-preset';
+import { EXTRA_PROMPT_DEFAULT_SELECTION_ACU, SAFETY_REVIEW_PROMPT_ACU, SCOPE_GUARD_DEFAULT_TARGETS_ACU, SCOPE_GUARD_PROMPT_ACU, setExtraPromptSelection_ACU, setScopeGuardPromptEnabled_ACU, setScopeGuardTargets_ACU } from '../../../src/service/ai/scope-guard-prompt';
 import { callContinuationInternalAi_ACU } from '../../../src/service/continuation/internal-ai-call';
 import {
   apiPresetDraftFromPreset,
@@ -92,6 +93,9 @@ beforeEach(() => {
   mockSettings.apiPresets = [];
   __clearPresetResolveCacheForTests_ACU();
   __clearComposeIncludeBodyCacheForTests_ACU();
+  setScopeGuardPromptEnabled_ACU(false);
+  setScopeGuardTargets_ACU(SCOPE_GUARD_DEFAULT_TARGETS_ACU);
+  setExtraPromptSelection_ACU(EXTRA_PROMPT_DEFAULT_SELECTION_ACU);
 });
 
 // ═══ resolveApiConfigByPreset_ACU memo ═══
@@ -292,6 +296,60 @@ describe('callAIWithPreset_ACU', () => {
 
 // ═══ buildCustomApiRequestBody_ACU ═══
 describe('buildCustomApiRequestBody_ACU', () => {
+  it('提示词额外要求（默认只勾执行边界）：关闭时消息逐字不变；开启后所有请求统一在开头 system 段之后附加一条', () => {
+    const messages = [{ role: 'SYSTEM', content: '你是助手' }, { role: 'USER', content: '填表' }, { role: 'assistant', content: '收到' }];
+    const off = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' });
+    expect(off.messages).toEqual([{ role: 'system', content: '你是助手' }, { role: 'user', content: '填表' }, { role: 'assistant', content: '收到' }]);
+
+    setScopeGuardPromptEnabled_ACU(true);
+    const on = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' }, { nonPrefillSupport: true, sessionNamespace: 'table-fill' });
+    expect(on.messages).toEqual([
+      { role: 'system', content: '你是助手' },
+      { role: 'system', content: SCOPE_GUARD_PROMPT_ACU },
+      { role: 'user', content: '填表' },
+      { role: 'user', content: '助手：\n收到' },
+    ]);
+    expect(messages).toHaveLength(3);
+
+    // 按功能勾选：默认只勾填表；未勾选的功能、不带功能标识的连接测试都不附加
+    const plotDefault = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' }, { sessionNamespace: 'plot' });
+    expect(plotDefault.messages).toHaveLength(3);
+    setScopeGuardTargets_ACU({ fill: false, plot: true });
+    const unchecked = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' }, { sessionNamespace: 'table-fill' });
+    expect(unchecked.messages).toHaveLength(3);
+    const noNamespace = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' });
+    expect(noNamespace.messages).toHaveLength(3);
+    const plot = buildCustomApiRequestBody_ACU(messages, { url: 'https://api.example.com', model: 'm', apiKey: 'k' }, { sessionNamespace: 'plot' });
+    expect(plot.messages[1]).toEqual({ role: 'system', content: SCOPE_GUARD_PROMPT_ACU });
+  });
+
+  it('提示词额外要求：勾上安全审查后【审核要求】排在【执行边界】后；只勾安全审查或都不勾时同样正确', () => {
+    const messages = [{ role: 'system', content: '你是助手' }, { role: 'user', content: '填表' }];
+    const body = { url: 'https://api.example.com', model: 'm', apiKey: 'k' };
+    setScopeGuardPromptEnabled_ACU(true);
+
+    setExtraPromptSelection_ACU({ safetyReview: true });
+    const both = buildCustomApiRequestBody_ACU(messages, body, { sessionNamespace: 'table-fill' });
+    expect(both.messages).toEqual([
+      { role: 'system', content: '你是助手' },
+      { role: 'system', content: SCOPE_GUARD_PROMPT_ACU },
+      { role: 'system', content: SAFETY_REVIEW_PROMPT_ACU },
+      { role: 'user', content: '填表' },
+    ]);
+
+    setExtraPromptSelection_ACU({ scopeGuard: false });
+    const reviewOnly = buildCustomApiRequestBody_ACU(messages, body, { sessionNamespace: 'table-fill' });
+    expect(reviewOnly.messages).toEqual([
+      { role: 'system', content: '你是助手' },
+      { role: 'system', content: SAFETY_REVIEW_PROMPT_ACU },
+      { role: 'user', content: '填表' },
+    ]);
+
+    setExtraPromptSelection_ACU({ safetyReview: false });
+    const none = buildCustomApiRequestBody_ACU(messages, body, { sessionNamespace: 'table-fill' });
+    expect(none.messages, '一个都不勾时请求逐字不变').toEqual(messages);
+  });
+
   it('插件请求一律标为后台请求：宿主把上游错误作为 502 返回，而不是包成一条「助手回复」', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],

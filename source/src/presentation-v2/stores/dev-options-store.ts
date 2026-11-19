@@ -17,6 +17,10 @@
  * - writePipelineEnabled：写库流水是否开始记录（出站提示词 → 响应正文 → 解析出的 SQL）。
  *   开关只控制**写库流水**这一段的记录；响应正文随提示词检查器一起开关（同属 prompt-observer）。
  *   默认关闭，同形态零开销。
+ * - scopeGuardPrompt：「提示词额外要求」总开关（旧名「执行边界提示词」，存储键沿用）。开启后按勾选附加固定提示词，默认关闭。
+ * - extraPrompts：附加哪些提示词（执行边界 / 安全审查，二选一或都选），缺省只勾执行边界。
+ * - scopeGuardTargets：提示词附加到哪些功能，缺省只勾填表。
+ *   服务层启动时自读持久化值（不打开面板也生效），本 store 只在切换 / refresh 时推送变化。
  *
  * 新 UI 自有持久化，物理隔离于 settings_ACU。
  */
@@ -24,6 +28,17 @@ import { defineStore } from 'pinia';
 import { setWarnLogEnabledByDevOption_ACU as applyWarnLogEnabled } from '../../shared/log-buffer';
 import { setPromptObservationEnabled_ACU as applyPromptObservationEnabled } from '../../service/ai/prompt-observer';
 import { setTableWriteObservationEnabled_ACU as applyTableWriteObservationEnabled } from '../../service/table/write-pipeline-observer';
+import {
+  EXTRA_PROMPT_DEFAULT_SELECTION_ACU,
+  EXTRA_PROMPT_KIND_KEYS_ACU,
+  SCOPE_GUARD_DEFAULT_TARGETS_ACU,
+  SCOPE_GUARD_TARGET_KEYS_ACU,
+  setExtraPromptSelection_ACU as applyExtraPromptSelection,
+  setScopeGuardPromptEnabled_ACU as applyScopeGuardPrompt,
+  setScopeGuardTargets_ACU as applyScopeGuardTargets,
+  type ExtraPromptKind_ACU,
+  type ScopeGuardTarget_ACU,
+} from '../../service/ai/scope-guard-prompt';
 import { readSection, writeSection } from './persistence';
 
 const SECTION_KEY = 'devOptions';
@@ -41,6 +56,12 @@ export interface DevOptionsState {
   promptInspectEnabled: boolean;
   /** 写库流水是否记录（提示词 → 正文 → SQL）。默认关闭；关闭时零开销。 */
   writePipelineEnabled: boolean;
+  /** 「提示词额外要求」总开关（旧名「执行边界提示词」）：开启后按勾选附加固定提示词。默认关闭。 */
+  scopeGuardPrompt: boolean;
+  /** 附加哪些提示词（执行边界 / 安全审查）；每项都有值，缺省按服务层默认（只勾执行边界）。 */
+  extraPrompts: Record<ExtraPromptKind_ACU, boolean>;
+  /** 提示词附加到哪些功能；每项都有值，缺省按服务层默认（只勾填表）。 */
+  scopeGuardTargets: Record<ScopeGuardTarget_ACU, boolean>;
 }
 
 interface PersistedShape {
@@ -50,6 +71,25 @@ interface PersistedShape {
   apiReconfirm?: unknown;
   promptInspectEnabled?: unknown;
   writePipelineEnabled?: unknown;
+  scopeGuardPrompt?: unknown;
+  extraPrompts?: unknown;
+  scopeGuardTargets?: unknown;
+}
+
+function normalizeScopeGuardTargets(raw: unknown): Record<ScopeGuardTarget_ACU, boolean> {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return Object.fromEntries(SCOPE_GUARD_TARGET_KEYS_ACU.map(key => [
+    key,
+    typeof source[key] === 'boolean' ? source[key] : SCOPE_GUARD_DEFAULT_TARGETS_ACU[key],
+  ])) as Record<ScopeGuardTarget_ACU, boolean>;
+}
+
+function normalizeExtraPrompts(raw: unknown): Record<ExtraPromptKind_ACU, boolean> {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return Object.fromEntries(EXTRA_PROMPT_KIND_KEYS_ACU.map(key => [
+    key,
+    typeof source[key] === 'boolean' ? source[key] : EXTRA_PROMPT_DEFAULT_SELECTION_ACU[key],
+  ])) as Record<ExtraPromptKind_ACU, boolean>;
 }
 
 function loadFromStorage(): DevOptionsState {
@@ -61,6 +101,9 @@ function loadFromStorage(): DevOptionsState {
     apiReconfirm: raw.apiReconfirm !== false,
     promptInspectEnabled: raw.promptInspectEnabled === true,
     writePipelineEnabled: raw.writePipelineEnabled === true,
+    scopeGuardPrompt: raw.scopeGuardPrompt === true,
+    extraPrompts: normalizeExtraPrompts(raw.extraPrompts),
+    scopeGuardTargets: normalizeScopeGuardTargets(raw.scopeGuardTargets),
   };
 }
 
@@ -72,6 +115,9 @@ function persist(state: DevOptionsState): void {
     apiReconfirm: state.apiReconfirm,
     promptInspectEnabled: state.promptInspectEnabled,
     writePipelineEnabled: state.writePipelineEnabled,
+    scopeGuardPrompt: state.scopeGuardPrompt,
+    extraPrompts: { ...state.extraPrompts },
+    scopeGuardTargets: { ...state.scopeGuardTargets },
   });
 }
 
@@ -111,6 +157,23 @@ export const useDevOptionsStore = defineStore('acu-v2-dev-options', {
       applyTableWriteObservationEnabled(this.writePipelineEnabled);
       persist(this.$state);
     },
+    setScopeGuardPrompt(enabled: boolean): void {
+      this.scopeGuardPrompt = !!enabled;
+      applyScopeGuardPrompt(this.scopeGuardPrompt);
+      persist(this.$state);
+    },
+    setExtraPromptKind(kind: ExtraPromptKind_ACU, enabled: boolean): void {
+      if (!EXTRA_PROMPT_KIND_KEYS_ACU.includes(kind)) return;
+      this.extraPrompts = { ...this.extraPrompts, [kind]: !!enabled };
+      applyExtraPromptSelection(this.extraPrompts);
+      persist(this.$state);
+    },
+    setScopeGuardTarget(target: ScopeGuardTarget_ACU, enabled: boolean): void {
+      if (!SCOPE_GUARD_TARGET_KEYS_ACU.includes(target)) return;
+      this.scopeGuardTargets = { ...this.scopeGuardTargets, [target]: !!enabled };
+      applyScopeGuardTargets(this.scopeGuardTargets);
+      persist(this.$state);
+    },
     refresh(): void {
       const next = loadFromStorage();
       this.developerOptionsEnabled = next.developerOptionsEnabled;
@@ -119,9 +182,15 @@ export const useDevOptionsStore = defineStore('acu-v2-dev-options', {
       this.apiReconfirm = next.apiReconfirm;
       this.promptInspectEnabled = next.promptInspectEnabled;
       this.writePipelineEnabled = next.writePipelineEnabled;
+      this.scopeGuardPrompt = next.scopeGuardPrompt;
+      this.extraPrompts = next.extraPrompts;
+      this.scopeGuardTargets = next.scopeGuardTargets;
       applyWarnLogEnabled(this.warnLogEnabled);
       applyPromptObservationEnabled(this.promptInspectEnabled);
       applyTableWriteObservationEnabled(this.writePipelineEnabled);
+      applyScopeGuardPrompt(this.scopeGuardPrompt);
+      applyExtraPromptSelection(this.extraPrompts);
+      applyScopeGuardTargets(this.scopeGuardTargets);
     },
   },
 });

@@ -82,6 +82,7 @@
         <UbRow label="API 密钥" stack>
           <UbInput v-model="draft.apiKey" type="password" autocomplete="off" aria-label="API 密钥" />
         </UbRow>
+        <OpencodeGoUsage :url="draft.url" :api-key="draft.apiKey" />
         <UbRow label="模型名" stack>
           <div class="ub-api__model">
             <UbInput v-model="draft.model" aria-label="模型名" />
@@ -247,6 +248,7 @@ import UbSection from '../ui/UbSection.vue';
 import UbSelect, { type UbSelectOption } from '../ui/UbSelect.vue';
 import UbSwitch from '../ui/UbSwitch.vue';
 import UbTextarea from '../ui/UbTextarea.vue';
+import OpencodeGoUsage from './OpencodeGoUsage.vue';
 
 withDefaults(defineProps<{ idPrefix?: string }>(), { idPrefix: 'api' });
 

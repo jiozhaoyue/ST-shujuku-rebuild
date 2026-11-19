@@ -9,7 +9,7 @@ const m = vi.hoisted(() => ({
   chatChanged: undefined as undefined | ((name: string) => Promise<void>),
   chatMutationHandler: undefined as undefined | ((data: any) => Promise<void>),
   messageDeletedHandler: undefined as undefined | ((data: any) => Promise<void>),
-  chatDeletedHandler: undefined as undefined | (() => void),
+  chatDeletedHandler: undefined as undefined | ((name?: any) => void),
   messageSentHandler: undefined as undefined | ((messageId: any) => void),
   generationStartedHandler: undefined as undefined | ((type: any, params: any, dryRun: any) => void),
   generationStoppedHandler: undefined as undefined | (() => void),
@@ -46,6 +46,10 @@ const m = vi.hoisted(() => ({
   orchestrate: vi.fn(),
   shouldProcessSummary: vi.fn(),
   captureVault: vi.fn(),
+  deletedChatVectorCleanup: vi.fn(async () => ({})),
+  noteChatSwitchForDeletion: vi.fn(),
+  takeDeletedOpenChat: vi.fn((_name: string): any => null),
+  redeleteResurrectedChat: vi.fn(async (_chat: any): Promise<string> => 'absent'),
   dormantAudit: vi.fn(),
   clearAutoFillDebounce: vi.fn(),
   cancelPendingAutoTasks: vi.fn(),
@@ -71,6 +75,11 @@ const m = vi.hoisted(() => ({
 vi.mock('../../../src/shared/host-api', () => ({ SillyTavern_API_ACU: m.api }));
 vi.mock('../../../src/shared/env', () => ({ topLevelWindow_ACU: { AutoCardUpdaterAPI: { _notifyTableUpdate: m.notify } } }));
 vi.mock('../../../src/presentation/theme/toast', () => ({ showToastr_ACU: vi.fn() }));
+vi.mock('../../../src/service/chat/deleted-chat-resurrection-guard', () => ({
+  noteChatSwitchForDeletionGuard_ACU: () => m.noteChatSwitchForDeletion(),
+  takeDeletedOpenChatCandidate_ACU: (name: string) => m.takeDeletedOpenChat(name),
+  redeleteResurrectedChat_ACU: (chat: any) => m.redeleteResurrectedChat(chat),
+}));
 vi.mock('../../../src/presentation/triggers/settings-ui-sync/settings-ui-connect', () => ({ attemptToLoadCoreApis_ACU: vi.fn(() => true), handleNewMessageDebounced_ACU: (...args: any[]) => m.handleNewMessage(...args), cancelPendingAutoTasks_ACU: (...args: any[]) => m.cancelPendingAutoTasks(...args) }));
 vi.mock('../../../src/service/runtime/helpers-remaining', () => ({ ensureInitialSeedCheckpoint_ACU: (...args: any[]) => m.ensureSeedCheckpoint(...args), handleChatCompletionReady_ACU: vi.fn(), loadPresetAndCleanCharacterData_ACU: m.loadPreset }));
 vi.mock('../../../src/service/table/runtime-only-pending-flush', () => ({ flushRuntimeOnlyPendingChanges_ACU: (...args: any[]) => m.runtimeOnlyFlush(...args) }));
@@ -142,6 +151,7 @@ vi.mock('../../../src/presentation/components/decision-recall-ui', () => ({
 vi.mock('../../../src/presentation/components/summary-vector-index-ui', () => ({ processSummaryVectorIndexBeforeGenerationWithUI_ACU: (...args: any[]) => m.processBeforeGen(...args), isSummaryVectorRecallFailure_ACU: (r: any) => !!r && r.success !== true && r.skipped !== true, SUMMARY_RECALL_FAILED_STOP_NOTICE_ACU: '召回失败已停止', shouldRebuildSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.shouldRebuild(...args), rebuildCurrentSummaryVectorIndexWithUI_ACU: (...args: any[]) => m.rebuild(...args) }));
 vi.mock('../../../src/service/vector/summary-vector-index-cache-service', () => ({ preloadSummaryVectorIndexCacheForCurrentChat_ACU: (...args: any[]) => m.preload(...args) }));
 vi.mock('../../../src/service/vector/summary-vector-index-flush-queue', () => ({ restoreSummaryVectorIndexFlushQueueForCurrentChat_ACU: (...args: any[]) => m.restoreFlush(...args) }));
+vi.mock('../../../src/service/vector/summary-vector-index-chat-deletion-gc', () => ({ cleanupSummaryVectorIndexForDeletedChat_ACU: (...args: any[]) => m.deletedChatVectorCleanup(...args), sweepOrphanSummaryVectorIndexFiles_ACU: vi.fn(async () => ({})) }));
 vi.mock('../../../src/service/vector/summary-vector-index-realign-state', () => ({ markSummaryVectorIndexDirtyForRealign_ACU: vi.fn() }));
 vi.mock('../../../src/service/table/table-fill-target-watch', () => ({ abortTableFillRequestsWithStaleTarget_ACU: (...args: any[]) => m.abortStaleFill(...args) }));
 vi.mock('../../../src/service/chat/checkpoint-delete-guard', () => ({ captureCheckpointVaultForCurrentChat_ACU: (...args: any[]) => m.captureVault(...args), installCheckpointDeleteGuard_ACU: vi.fn() }));
@@ -374,6 +384,74 @@ describe('mainInitialize_ACU 宿主事件桥接线注册', () => {
     expect(m.generationEndedHandler).toBeTypeOf('function');
     expect(m.afterCommandsHandler).toBeTypeOf('function');
     expect(m.settingsReadyHandler).toBeTypeOf('function');
+  });
+});
+
+describe('删除当前聊天后被存盘写回的补删接线', () => {
+  it('切换聊天时同步记下刚关掉的聊天（宿主随后才发删除事件）', () => {
+    void m.chatChanged!('');
+    expect(m.noteChatSwitchForDeletion).toHaveBeenCalledTimes(1);
+  });
+
+  it('删的是刚关掉的聊天：当场认领，2 秒后核对并补删；不是则什么都不做', async () => {
+    vi.useFakeTimers();
+    try {
+      m.chatDeletedHandler!('别的聊天');
+      expect(m.takeDeletedOpenChat).toHaveBeenCalledWith('别的聊天');
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(m.redeleteResurrectedChat).not.toHaveBeenCalled();
+
+      const chat = { avatar: 'aria.png', name: '旧聊天' };
+      m.takeDeletedOpenChat.mockReturnValueOnce(chat);
+      m.redeleteResurrectedChat.mockResolvedValueOnce('redeleted');
+      m.chatDeletedHandler!('旧聊天');
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(m.redeleteResurrectedChat).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(m.redeleteResurrectedChat).toHaveBeenCalledWith(chat);
+      const toast = vi.mocked((await import('../../../src/presentation/theme/toast')).showToastr_ACU);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('写回的聊天被酒馆重新打开、或补删没删成：提示用户再删一次', async () => {
+    const toast = vi.mocked((await import('../../../src/presentation/theme/toast')).showToastr_ACU);
+    vi.useFakeTimers();
+    try {
+      for (const outcome of ['reopened', 'delete_failed']) {
+        toast.mockClear();
+        m.takeDeletedOpenChat.mockReturnValueOnce({ avatar: 'aria.png', name: '旧聊天' });
+        m.redeleteResurrectedChat.mockResolvedValueOnce(outcome);
+        m.chatDeletedHandler!('旧聊天');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(toast).toHaveBeenCalledWith('warning', expect.stringContaining('再删一次'), expect.anything());
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('删除聊天后的向量外置存档清理', () => {
+  // D06-03：删除当刻的那次清理会因 10 分钟保护期跳过刚写的文件，本次运行内不再重试，
+  // 只能等下次启动的孤儿清扫（24h 节流）。保护期过后补一次清理，让这些文件当场收掉。
+  it('删除 5s 后清理一次；保护期过后再补一次', async () => {
+    vi.useFakeTimers();
+    try {
+      m.chatDeletedHandler!('旧聊天');
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(m.deletedChatVectorCleanup).toHaveBeenCalledTimes(1);
+      expect(m.deletedChatVectorCleanup).toHaveBeenLastCalledWith('旧聊天');
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(m.deletedChatVectorCleanup).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(m.deletedChatVectorCleanup).toHaveBeenCalledTimes(2);
+      expect(m.deletedChatVectorCleanup).toHaveBeenLastCalledWith('旧聊天');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -739,6 +817,15 @@ describe('mainInitialize_ACU 重新生成 / 删楼 / 切换版本作废排队中
     vi.useRealTimers();
   });
 
+  it('切聊天时同样中止目标楼层已失效的在途填表请求：还在组装提示词、没登记到全局中止表的也不再发出（D04-02）', async () => {
+    m.abortStaleFill.mockClear();
+    m.api.chat = [{ mes: 'active' }];
+    vi.useFakeTimers();
+    await m.chatChanged!('chat-b');
+    expect(m.abortStaleFill).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it('删楼、切换回复版本时当场中止目标楼层已失效的在途填表请求', async () => {
     m.abortStaleFill.mockClear();
     vi.useFakeTimers();
@@ -1000,6 +1087,25 @@ describe('mainInitialize_ACU init 链 running 占用补跑', () => {
     expect(m.loadMessages).toHaveBeenCalledTimes(2); // B 已补跑
     await vi.advanceTimersByTimeAsync(2400);
     expect(m.loadMessages).toHaveBeenCalledTimes(2); // 只补一次，无第三次
+    vi.useRealTimers();
+  });
+
+  it('上一聊天的切换处理卡在加载预设、新聊天先排好了重建：旧处理器回来后不再排程，新聊天的重建照常跑（D01-02）', async () => {
+    vi.useFakeTimers();
+    m.api.chat = [{ mes: 'active' }];
+    m.resetScript.mockImplementation(async (chatKey: string) => { m.currentChatKey = chatKey; });
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((resolve) => { releaseA = resolve; });
+    m.loadPreset.mockImplementationOnce(async () => { await gateA; });
+
+    const handlerA = m.chatChanged!('chat-a');  // 卡在加载预设
+    await vi.advanceTimersByTimeAsync(0);
+    await m.chatChanged!('chat-b');             // 新聊天排好重建
+    releaseA();
+    await handlerA;                             // 旧处理器回来
+
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(m.loadMessages).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 

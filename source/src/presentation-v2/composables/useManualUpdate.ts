@@ -587,13 +587,14 @@ export function useManualUpdate(): ManualUpdateState {
         : '手动填表完成。';
       // 表格已提交、只是世界书刷新失败：仍报完成，告警另起一行说明只需重试世界书同步。
       const postCommitWarningText = formatPostCommitWarnings_ACU(result.postCommitWarnings);
+      // 失败文案里 service 层已带上回滚说明，这里不再追加（D03-05）；终止时换成固定文案，才需要补上。
       const failureText = abortRequested
         ? `手动填表任务已由用户终止。${rollbackNote}`
-        : `${result.error || '手动填表失败。'}${rollbackNote}`;
+        : (result.error || '手动填表失败。');
       finishToast(
         result.success ? (result.checkpointWarning || result.rolledBackCleanup || postCommitWarningText ? 'warning' : 'success') : (abortRequested || result.error?.includes('终止') ? 'warning' : 'error'),
         result.success
-          ? `${successText}${result.rolledBackCleanup ? '' : rollbackNote}${result.checkpointWarning
+          ? `${successText}${result.checkpointWarning
                 ? ` 但 AI 楼层保留边界 checkpoint 建立失败：${result.checkpointWarning}`
                 : ''}${postCommitWarningText ? `\n${postCommitWarningText}` : ''}`
           : failureText,

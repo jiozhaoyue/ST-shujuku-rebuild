@@ -12,6 +12,7 @@ import { buildDefaultDecisionRecallSettings_ACU } from '../../shared/decision-re
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU } from '../../shared/defaults';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
+import { captureChatPositions_ACU } from '../../shared/chat-positions';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { logAutoFillSkip_ACU } from '../../shared/trigger-diagnostics';
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
@@ -652,10 +653,46 @@ export function abortOnChatMutation_ACU() {
 
 export function _set_currentAbortController_ACU(v: any) { currentAbortController_ACU = v; }
 export function _set_isAutoUpdatingCard_ACU(v: any) {
-  if (v && !isAutoUpdatingCard_ACU) fillRunSeq_ACU += 1;
+  if (v && !isAutoUpdatingCard_ACU) {
+    fillRunSeq_ACU += 1;
+    fillRunChatPositions_ACU = captureChatPositions_ACU(getChatArray_ACU() || []);
+  }
+  const runEnded = !v && !!isAutoUpdatingCard_ACU;
   // 本轮结束（「正在填表」被持有者放开）才解除终止锁存
-  if (!v) tableFillStopLatched_ACU = false;
+  if (!v) {
+    tableFillStopLatched_ACU = false;
+    fillRunChatPositions_ACU = null;
+  }
   isAutoUpdatingCard_ACU = v;
+  if (runEnded) notifyTableFillRunEnded_ACU();
+}
+
+// 一轮填表开始时记下的楼层：计划里只有楼号，切聊天（宿主复用同一个 chat 数组）或删楼后，
+// 后续组 / 批再按楼号读上下文、写结果，就会写到别的楼层甚至别的聊天。
+let fillRunChatPositions_ACU: ((lastIndex?: number) => boolean) | null = null;
+
+/**
+ * 本轮填表的后续批次开跑前核对：0..lastIndex 的楼号是否仍对应本轮开始时的那些消息（之后追加的新楼不算）。
+ * 对不上就停掉本轮剩余批次——下一轮自动填表会按历史缺口补上。不在填表中时恒为 true。
+ */
+export function fillRunTargetsStillInPlace_ACU(lastIndex: number): boolean {
+  return !fillRunChatPositions_ACU || fillRunChatPositions_ACU(lastIndex);
+}
+
+// 一轮填表结束的订阅（自动填表、手动填表、追平都经「正在填表」标志收口）。
+const tableFillRunEndedListeners_ACU = new Set<() => void>();
+
+/** 订阅「一轮填表结束」，返回取消订阅函数。 */
+export function onTableFillRunEnded_ACU(listener: () => void): () => void {
+  tableFillRunEndedListeners_ACU.add(listener);
+  return () => { tableFillRunEndedListeners_ACU.delete(listener); };
+}
+
+function notifyTableFillRunEnded_ACU(): void {
+  // 复位发生在编排器的 finally 里：订阅者出错不能打断收尾、改写填表结果
+  for (const listener of [...tableFillRunEndedListeners_ACU]) {
+    try { listener(); } catch (error) { logWarn_ACU('[状态管理] 填表结束订阅者出错:', error); }
+  }
 }
 
 // 「终止填表」锁存：wasStoppedByUser_ACU 会被新一轮填表开跑、宿主新生成复位，单靠它，被终止的那轮

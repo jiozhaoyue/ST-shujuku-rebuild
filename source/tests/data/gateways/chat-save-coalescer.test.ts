@@ -75,6 +75,23 @@ afterEach(() => {
   resetChatSaveCoalescerForTests_ACU();
 });
 
+describe('删楼守卫的保管库同步（D05-04）', () => {
+  it('窗口内暂缓存盘、只记下改动时也通知监听：删楼守卫要按内存里的新 checkpoint 备份，不能等整轮结束', async () => {
+    const { registerPostChatSaveListener_ACU } = await import('../../../src/data/gateways/chat-gateway');
+    const listener = vi.fn();
+    registerPostChatSaveListener_ACU(listener);
+    beginChatSaveCoalescing_ACU();
+
+    await saveChatToHostCoalesced_ACU();
+
+    expect(saveChat).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    await endChatSaveCoalescing_ACU();
+    expect(saveChat).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('窗口外：与直接存盘等价', () => {
   it('一次调用一次真存盘', async () => {
     await saveChatToHostCoalesced_ACU();
@@ -231,6 +248,21 @@ describe('聊天归属与页面隐藏', () => {
     expect(saveChat).not.toHaveBeenCalled();
     expect(hasPendingCoalescedChatSave_ACU()).toBe(false);
     expect(mockLogWarn).toHaveBeenCalled();
+  });
+
+  it('切聊天过渡期宿主 getCurrentChatId 返回空串：改看 chatId，仍能认出已切走，不把新聊天（此刻可能还是空数组）存一遍（D05-03）', async () => {
+    mockHost.currentChatId = 'chat-a';
+    beginChatSaveCoalescing_ACU();
+    await saveChatToHostCoalesced_ACU();
+    mockHost.currentChatId = '';
+    mockSillyTavern.chatId = 'chat-b';
+    try {
+      await endChatSaveCoalescing_ACU();
+    } finally {
+      delete mockSillyTavern.chatId;
+    }
+    expect(saveChat).not.toHaveBeenCalled();
+    expect(hasPendingCoalescedChatSave_ACU()).toBe(false);
   });
 
   it('页面转入后台时立即补存运行中记下的改动（手机切后台最容易被系统杀掉）', async () => {

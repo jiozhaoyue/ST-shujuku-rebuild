@@ -210,7 +210,7 @@ const EXTERNAL_MUTATION_SOURCES_ACU: ReadonlySet<TableMutationSourceV2_ACU> = ne
   'raw_sql_batch',
 ]);
 
-function resolvePendingScope_ACU(options: RunTableUpdateCommitOptions_ACU): { chatKey: string; isolationKey: string } {
+function resolveCommitScope_ACU(options: RunTableUpdateCommitOptions_ACU): { chatKey: string; isolationKey: string } {
   return {
     chatKey: String(options.chatKey ?? currentChatFileIdentifier_ACU ?? ''),
     isolationKey: String(options.isolationKey ?? getCurrentIsolationKey_ACU() ?? ''),
@@ -238,7 +238,7 @@ function markRuntimeOnlyPendingAfterSkipChatSave_ACU(
     ? { all: false, sheetKeys: postSheetKeys }
     : candidate;
   if (!pending.all && pending.sheetKeys.length === 0 && deletedSheetKeys.length === 0) return;
-  markRuntimeOnlyPendingSheets_ACU(resolvePendingScope_ACU(options), {
+  markRuntimeOnlyPendingSheets_ACU(resolveCommitScope_ACU(options), {
     ...pending,
     deletedSheetKeys,
   });
@@ -251,7 +251,7 @@ function markRuntimeOnlyPendingAfterSkipChatSave_ACU(
 async function flushRuntimeOnlyPendingBeforeCommit_ACU(options: RunTableUpdateCommitOptions_ACU): Promise<void> {
   if (options.skipChatSave || options.skipRuntimeOnlyPendingFlush) return;
   try {
-    await runRegisteredRuntimeOnlyPendingFlush_ACU(resolvePendingScope_ACU(options), options.reason);
+    await runRegisteredRuntimeOnlyPendingFlush_ACU(resolveCommitScope_ACU(options), options.reason);
   } catch (error) {
     logWarn_ACU(`[TableUpdateCommit] ${options.reason}: 运行时未落盘变更写回聊天失败，继续本次提交。`, error);
   }
@@ -268,7 +268,7 @@ async function restoreRuntimeKeepingPendingWrites_ACU(
   preApplySnapshot: TableDataObject_ACU | null,
 ): Promise<boolean> {
   if (!preApplySnapshot) return false;
-  const scope = resolvePendingScope_ACU(options);
+  const scope = resolveCommitScope_ACU(options);
   if (!hasRuntimeOnlyPendingSheets_ACU(scope)) return false;
   if (String(currentChatFileIdentifier_ACU ?? '') !== scope.chatKey || String(getCurrentIsolationKey_ACU() ?? '') !== scope.isolationKey) {
     return false;
@@ -305,6 +305,11 @@ function assertNoActiveFillForExternalMutation_ACU(options: RunTableUpdateCommit
   );
 }
 
+function commitScopeIsCurrent_ACU(options: RunTableUpdateCommitOptions_ACU): boolean {
+  return String(currentChatFileIdentifier_ACU || 'current-chat') === String(options.chatKey || 'current-chat')
+    && String(getCurrentIsolationKey_ACU() || '') === String(options.isolationKey || '');
+}
+
 function assertExpectedCommitScope_ACU(
   options: RunTableUpdateCommitOptions_ACU,
   phase: string,
@@ -316,12 +321,7 @@ function assertExpectedCommitScope_ACU(
       'precondition',
     );
   }
-  if (options.chatKey === undefined && options.isolationKey === undefined) return;
-  const currentChatKey = String(currentChatFileIdentifier_ACU || 'current-chat');
-  const expectedChatKey = String(options.chatKey ?? currentChatKey);
-  const currentIsolationKey = String(getCurrentIsolationKey_ACU() || '');
-  const expectedIsolationKey = String(options.isolationKey ?? currentIsolationKey);
-  if (currentChatKey !== expectedChatKey || currentIsolationKey !== expectedIsolationKey) {
+  if (!commitScopeIsCurrent_ACU(options)) {
     throw new TableUpdateCommitError_ACU(
       `[TableUpdateCommit] ${options.reason}: ${phase} 检测到聊天或隔离标识已切换，已拒绝提交。请在当前聊天重新执行填表。`,
       'precondition',
@@ -365,6 +365,9 @@ export async function runTableUpdateCommit_ACU<T>(
   options: RunTableUpdateCommitOptions_ACU,
   apply: (context: TableUpdateCommitApplyContext_ACU) => Promise<TableUpdateCommitApplyResult_ACU<T>> | TableUpdateCommitApplyResult_ACU<T>,
 ): Promise<RunTableUpdateCommitResult_ACU<T>> {
+  // 调用方没给聊天身份（外部 SQL / CRUD 等）时按提交开始那一刻的聊天钉住：后面每道 scope 复检
+  // 都拿它比对，迁移、等锁等 await 期间切了聊天就拒绝，而不是把旧聊天算出的结果写进新聊天（D05-05）。
+  options = { ...options, ...resolveCommitScope_ACU(options) };
   let requiresRuntimeReload = false;
   let preApplySnapshotForRollback: TableDataObject_ACU | null = null;
   try {
@@ -518,6 +521,13 @@ export async function runTableUpdateCommit_ACU<T>(
                 saveResult.error || `${options.reason}: persist failed`,
                 classifyPersistRejection_ACU(saveResult.error),
               );
+            }
+            if (!commitScopeIsCurrent_ACU(options)) {
+              // 结果已落进原聊天；存盘等待期间切了聊天，运行时已归新聊天：不写回、不报成功，
+              // 免得上层拿这份旧表刷新新聊天的运行时和世界书（D05-06 / D06-02）。回到原聊天会按文件重建。
+              const message = `[TableUpdateCommit] ${options.reason}: 已写进原聊天，但存盘期间切换了聊天，没有带进当前聊天的表格。`;
+              logWarn_ACU(message);
+              return { success: false, error: message, errorCategory: 'precondition' as const };
             }
             // 写库流水（第三段）：落盘成功后记录本次**实际提交**的 operations。
             // 取的是传给持久化层的同一份 operations（persistOptions 优先），因此与真实写入一致。

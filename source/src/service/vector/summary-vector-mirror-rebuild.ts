@@ -147,6 +147,8 @@ export type SummaryVectorMirrorRowRemovalSnapshot_ACU =
     | { kind: 'none' }
     | {
         kind: 'ready';
+        /** 拍快照时的聊天：发布按它定 scope、进事务核对，切了聊天就拒绝，不把这边的剩余行发到别的聊天（D06-01）。 */
+        chatKey: string;
         sourceTableKey: string;
         embedding: SummaryVectorEmbeddingIdentity_ACU;
         rows: Array<{ rowId: string; chunks: SummaryVectorChunkRef_ACU[] }>;
@@ -180,6 +182,7 @@ export async function snapshotSummaryVectorMirrorExcludingRows_ACU(options: {
     sourceTableKey?: string;
 }): Promise<SummaryVectorMirrorRowRemovalSnapshot_ACU> {
     const chat = getChatArray_ACU();
+    const chatKey = String(currentChatFileIdentifier_ACU || 'current-chat');
     const sourceTableKey = String(options.sourceTableKey || findSummaryTable_ACU()?.summaryKey || '').trim();
     if (!Array.isArray(chat) || !sourceTableKey) return { kind: 'none' };
 
@@ -198,6 +201,7 @@ export async function snapshotSummaryVectorMirrorExcludingRows_ACU(options: {
     const baseAtCapture = locateSummaryVectorMirrorBase_ACU(chat, getCurrentIsolationKey_ACU());
     return {
         kind: 'ready',
+        chatKey,
         sourceTableKey,
         embedding: { ...head.checkpoint.embedding },
         rows,
@@ -212,11 +216,14 @@ async function stripSummaryVectorMirrorFrames_ACU(
     chat: any[],
     isolationKey: string,
     sourceTableKey: string,
+    chatKey?: string,
 ): Promise<void> {
     await runTableWriteTransaction_ACU({
         source: 'vector_mirror',
         reason: 'summary_vector_mirror_strip',
         revisionImpact: 'derived_metadata',
+        chatKey,
+        guardChatSwitch: true,
         isolationKey,
         writeSet: [{ kind: 'sheet', sheetKey: sourceTableKey }],
         workingDataMode: 'none',
@@ -256,7 +263,7 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
 
     if (!isSummaryVectorEmbeddingIdentity_ACU(snapshot.embedding)) {
         try {
-            await stripSummaryVectorMirrorFrames_ACU(chat, isolationKey, snapshot.sourceTableKey);
+            await stripSummaryVectorMirrorFrames_ACU(chat, isolationKey, snapshot.sourceTableKey, snapshot.chatKey);
             return emptyResult_ACU({ success: true, skipped: false, reason: 'invalid_embedding_stripped' });
         } catch (error: any) {
             return emptyResult_ACU({
@@ -267,7 +274,7 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
     }
 
     const scope = normalizeSummaryVectorIndexScope_ACU({
-        chatKey: currentChatFileIdentifier_ACU,
+        chatKey: snapshot.chatKey,
         isolationKey,
         sourceTableKey: snapshot.sourceTableKey,
     });
@@ -334,6 +341,8 @@ export async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(
             source: 'vector_mirror',
             reason: 'summary_vector_mirror_row_removal',
             revisionImpact: 'derived_metadata',
+            chatKey: snapshot.chatKey,
+            guardChatSwitch: true,
             isolationKey,
             writeSet: [{ kind: 'sheet', sheetKey: snapshot.sourceTableKey }],
             workingDataMode: 'none',

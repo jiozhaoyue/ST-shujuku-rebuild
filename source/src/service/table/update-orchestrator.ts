@@ -4,7 +4,7 @@
  * service 层不驱动 UI，只返回结果/状态，presentation 层根据返回值自行决定 UI 操作。
  */
 
-import { currentChatFileIdentifier_ACU, getTableFillStopSeq_ACU, isAutoUpdatingCard_ACU, isTableFillStopRequested_ACU, latchTableFillStopRequestedSince_ACU, pendingFinalGenerationGreenlights_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
+import { currentChatFileIdentifier_ACU, fillRunTargetsStillInPlace_ACU, getTableFillStopSeq_ACU, isAutoUpdatingCard_ACU, isTableFillStopRequested_ACU, latchTableFillStopRequestedSince_ACU, pendingFinalGenerationGreenlights_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { callCustomOpenAI_ACU, RetryableAiResponseError_ACU } from '../ai/prompt-builder';
 import type { TableFillRetryTurn_ACU } from '../ai/prompt-builder/table-fill-retry';
@@ -63,25 +63,10 @@ import { showUiSurfaceToast_ACU } from '../../shared/ui-surface-registry';
 import { createLorebookReadContext_ACU, type LorebookReadContext_ACU } from '../worldbook/read-context';
 
 import { applyTableDelta_ACU, isDeltaTagData_ACU } from './table-delta';
-/**
- * 表名标准化：trim 后空串视为无效键
- */
-function normalizeTableNameForPresetLookup_ACU(name: any): string {
-    const trimmed = String(name ?? '').trim();
-    return trimmed;
-}
-
-/**
- * 根据起始表的名称，查找表级 API 预设覆盖
- * @returns 预设名称，空字符串表示使用全局 tableApiPreset
- */
+import { resolveTableApiPresetOverride_ACU as resolveTableApiPresetOverrideFrom_ACU } from '../../shared/table-api-preset-override';
+/** 按表名查表级 API 预设覆盖；空字符串表示使用全局 tableApiPreset。 */
 function resolveTableApiPresetOverride_ACU(tableName: any): string {
-    const normalizedName = normalizeTableNameForPresetLookup_ACU(tableName);
-    if (!normalizedName) return '';
-    const overrides = settings_ACU.tableApiPresetOverridesByName;
-    if (!overrides || typeof overrides !== 'object') return '';
-    const preset = overrides[normalizedName];
-    return (typeof preset === 'string' && preset.trim()) ? preset.trim() : '';
+    return resolveTableApiPresetOverrideFrom_ACU(settings_ACU.tableApiPresetOverridesByName, tableName);
 }
 import { checkIfFirstTimeInit_ACU, ensureLegacyStorageMigratedBeforeWrite_ACU } from './table-service';
 import { assertSingleActiveFullCheckpointV2_ACU, assertWriteTargetNotBeforeReplayRoot_ACU, hasAnyV2Checkpoint_ACU } from './storage-frame-v2-persist';
@@ -96,7 +81,7 @@ import { buildCompatReadonlyGuidance_ACU, hasStructuralReplayCompatibilityRepair
 import { ensureStorageProviderReady_ACU, getStorageProvider, reloadStorageProvider } from './table-storage-strategy';
 import { applySpecialIndexSequenceToSummaryTables_ACU } from '../runtime/helpers-remaining';
 import { isSameSheetHeader_ACU } from '../template/guide-metadata-overlay';
-import { captureTableRuntimeRevisionForWriteSet_ACU } from './table-write-transaction';
+import { captureTableRuntimeRevisionForWriteSet_ACU, TableWriteChatSwitchedError_ACU } from './table-write-transaction';
 import { runTableUpdateCommit_ACU, type TableUpdateCommitErrorCategory_ACU } from './table-update-commit';
 import { beginChatSaveCoalescing_ACU, endChatSaveCoalescing_ACU } from '../../data/gateways/chat-gateway';
 import { flushRuntimeOnlyPendingChanges_ACU } from './runtime-only-pending-flush';
@@ -1457,6 +1442,30 @@ type GroupFillCollectOptions_ACU = {
 };
 
 const STALE_FILL_TARGET_ERROR_ACU = '目标楼层已被删除、重新生成或切换了回复版本，已中止本次填表请求，结果不会写入。';
+const FILL_RUN_CHAT_CHANGED_ERROR_ACU = '本轮填表开始后聊天已改动（删楼或切换聊天），已停止剩余批次；下一轮自动填表会补上漏掉的楼层。';
+
+/**
+ * 取回复里 <tableEdit> 块的内容（标签大小写不敏感）；没有完整标签对返回 null，内容为空是合法语义（本轮无需更新）。
+ * lastPairOnly（「仅识别最后一对」，默认开）：取最后一个闭标签与它前面最近的开标签——AI 在思考里写过草稿块、
+ * 或结尾散文提到 "<tableEdit>" 字样时，取第一对会把草稿 SQL 当真执行（2026-08-16 线上问题，92c558d2 曾回归）。
+ * 与解析器 extractTableEditInner_ACU 取同一对，但不做它的文本规整（那会改动 SQL 字符串里的全角冒号等内容）。
+ */
+function extractTableEditBlockText_ACU(response: string, lastPairOnly: boolean): string | null {
+    const lower = response.toLowerCase();
+    const openTag = '<tableedit>';
+    const closeTag = '</tableedit>';
+    let openIdx: number;
+    let closeIdx: number;
+    if (lastPairOnly) {
+        closeIdx = lower.lastIndexOf(closeTag);
+        openIdx = closeIdx === -1 ? -1 : lower.lastIndexOf(openTag, closeIdx);
+    } else {
+        openIdx = lower.indexOf(openTag);
+        closeIdx = openIdx === -1 ? -1 : lower.indexOf(closeTag, openIdx);
+    }
+    if (openIdx === -1 || closeIdx === -1) return null;
+    return response.substring(openIdx + openTag.length, closeIdx).replace(/^﻿/, '').trim();
+}
 
 /**
  * 收集一组填表回复。目标楼层守卫判定失效（删楼 / 滑动 / 重新生成）时不发请求；
@@ -1647,12 +1656,11 @@ async function collectGroupFillResponseCore_ACU(
                 diagnoseResponse('response_below_threshold', attempt);
                 throw new ModelOutputRetryError_ACU(`AI回复过短 (${aiResponse.length} 字符)，低于阈值 (${minReplyLength} 字符)`);
             }
-            let tableEditText = '';
-            if (!aiResponse || !aiResponse.includes('<tableEdit>') || !aiResponse.includes('</tableEdit>')) {
+            const tableEditText = extractTableEditBlockText_ACU(aiResponse || '', settings_ACU.tableEditLastPairOnly !== false);
+            if (tableEditText === null) {
                 diagnoseResponse('table_edit_block_missing', attempt);
                 throw new ModelOutputRetryError_ACU('AI响应中未找到完整有效的 <tableEdit> 标签');
             }
-            tableEditText = (aiResponse.match(/<tableEdit>([\s\S]*?)<\/tableEdit>/i)?.[1] || '').trim();
             if (isSqliteMode() && tableEditText && isSqlContent(tableEditText)) {
                 try {
                     // 隐藏列保护使用请求前冻结的 live runtime schema 证据，而不是 baseSnapshot：
@@ -2264,7 +2272,7 @@ async function applyUnifiedGroupFillResponsesCore_ACU(
                 if (Array.isArray(parseResult.operations)) operations.push(...parseResult.operations);
             }
         } else {
-            parseResult = parseAndApplyTableEditsToData_ACU(response.aiResponse!, workingTableData, options.updateMode, options.isImportMode);
+            parseResult = parseAndApplyTableEditsToData_ACU(response.aiResponse!, workingTableData, options.updateMode);
         }
         const parseResultObject = typeof parseResult === 'object' && parseResult !== null ? parseResult : null;
         const parseSuccess = parseResultObject ? parseResultObject.success : !!parseResult;
@@ -2584,6 +2592,17 @@ async function processGroupedRuntimeChunkCore_ACU(
         await flushRuntimeOnlyChangesBeforeFill_ACU('processGroupedRuntimeChunk');
     }
 
+    // 下面一次性捕获本段全部分组的聊天身份与楼层：楼号得仍是本轮开始时那些楼层
+    const chunkLastIndex = Math.max(-1, ...groups.flatMap(group => group.indices));
+    if (!fillRunTargetsStillInPlace_ACU(chunkLastIndex)) {
+        return {
+            success: false,
+            failedGroups: groups.map(group => group.key),
+            error: FILL_RUN_CHAT_CHANGED_ERROR_ACU,
+            committedBucketCount: 0,
+            committedDataBucketCount: 0,
+        };
+    }
     const executionScope = await captureFillExecutionScope_ACU({
         runId: options.performanceRunId,
         parentSpanId: options.performanceParentSpanId,
@@ -3706,7 +3725,7 @@ export async function executeCardUpdateCore_ACU(
                     skipChatSave: isImportMode,
                 }, async ({ workingData }) => {
                     let workingTableData = (workingData || {}) as Record<string, any>;
-                    const parseResult: any = parseAndApplyTableEditsToData_ACU(aiResponse, workingTableData, updateMode, isImportMode);
+                    const parseResult: any = parseAndApplyTableEditsToData_ACU(aiResponse, workingTableData, updateMode);
 
                     let parseSuccess = false;
                     let parsedKeys: string[] = [];
@@ -3992,7 +4011,9 @@ export async function processUpdatesBatch_ACU(
 
         const chatHistory = getChatArray_ACU();
         const isAutoUpdateMode = mode && mode.startsWith('auto');
-        const isSilentMode = !!(isAutoUpdateMode && settings_ACU.toastMuteEnabled);
+        // 「静默提示框」只决定浮窗显不显示（由提示层按分类过滤，填表核心提示照常保留），
+        // 不再关掉填表进度、卡片前端的「开始填表」与每组完成通知（对齐上游 1128b549）。
+        const isSilentMode = false;
         // 此处刻意不接 replayEvidence：本循环每批 maxMessageIndex = 本批 saveTarget
         // 严格递增，evidence 复用要求 boundary 完全相同（v2-replay-session.ts），命中率恒为 0，
         // 而 replay 仍会为写回 evidence 多付一次全表深克隆 —— 纯亏。跨批复用属阶段 G2
@@ -4023,6 +4044,10 @@ export async function processUpdatesBatch_ACU(
             });
             if (!baseResult.data) {
                 return { success: false, failedBatch: batchNumber, error: baseResult.error || '无法构建合并基底，操作已终止。' };
+            }
+            // 本批下面按楼号取上下文、定写入目标（到捕获执行作用域为止都是同步）
+            if (!fillRunTargetsStillInPlace_ACU(lastMessageIndexOfBatch)) {
+                return { success: false, failedBatch: batchNumber, error: FILL_RUN_CHAT_CHANGED_ERROR_ACU };
             }
             const mergedBatchData = baseResult.data;
             let effectiveTargetSheetKeys = targetSheetKeys;
@@ -4477,6 +4502,9 @@ export async function orchestrateManualCatchUp_ACU(
     // runId 必须在 preflight 之前创建：staging run 与 bucket 提交共用同一个 runId，
     // 保证 run-scoped 隔离（staging 只认本 run 授权的目标表）。
     const runId = createManualCatchUpRunId_ACU();
+    // 追平所在的聊天：收尾的终态进度带着它提交，途中切了聊天由提交层拒绝，不把这一轮的进度写进新聊天（D03-02）。
+    const catchUpChatKey = String(currentChatFileIdentifier_ACU || 'current-chat');
+    const catchUpIsolationKey = getCurrentIsolationKey_ACU();
     // 跨 full checkpoint staging run 状态：冻结 scope 后在 bucket 循环内累积目标表
     // overlay，到达原 full 边界原子汇合。不能依赖全局状态——必须在 run 内显式跟踪。
     let boundaryPlan: TableFillBoundaryStagingPlan_ACU | null = null;
@@ -4749,7 +4777,6 @@ export async function orchestrateManualCatchUp_ACU(
             // terminal progress 是纯 metadata，必须写在当前 live chat 中能看到 full
             // checkpoint 的楼层。优先计划终点；聊天在运行期间变化时才退回最后一个已严格
             // 提交的 bucket，绝不能向无锚点楼层发起一次注定失败的写入。
-            const isolationKey = getCurrentIsolationKey_ACU();
             const safeTargetMessageIndex = resolveSafeTerminalTargetMessageIndex();
             if (safeTargetMessageIndex === undefined) {
                 return `手动追平终态 ${status} 未找到可见 full checkpoint。`;
@@ -4758,7 +4785,8 @@ export async function orchestrateManualCatchUp_ACU(
             const commitResult = await runTableUpdateCommit_ACU({
                 source: 'manual_fill',
                 reason: `orchestrateManualCatchUp:terminal:${status}`,
-                isolationKey,
+                chatKey: catchUpChatKey,
+                isolationKey: catchUpIsolationKey,
                 writeSet: buildWriteSetForSheetKeys_ACU(selectedSheetKeys, currentJsonTableData_ACU),
                 revisionWriteSet: [],
                 workingDataMode: 'none',
@@ -4818,7 +4846,8 @@ export async function orchestrateManualCatchUp_ACU(
     // must not silently cross inside a single persisted batch.
     const schemaBoundaries = collectV2SchemaBoundaryIndices_ACU(getChatArray_ACU(), getCurrentIsolationKey_ACU());
 
-    // 手动追平与填表同族（bucket 串行、每个 bucket 一次全量存盘）：同样开存盘合并窗口，finally 收口补存。
+    // 手动追平同样开存盘合并窗口、finally 收口补存。注意追平的 bucket 会替换旧增量，persist 对替换一律 strict 直存
+    // （要确认宿主真落盘，失败才能原位回滚），所以 bucket 自身不进合并；窗口只合并本轮期间其他走普通存盘的写入（D03-07）。
     beginChatSaveCoalescing_ACU();
     try {
         for (let waveIndex = 0; waveIndex < plan.waves.length; waveIndex += 1) {
@@ -5366,6 +5395,12 @@ export async function orchestrateManualUpdate_ACU(
             };
         } catch (error: any) {
             logError_ACU('[Manual Refill] 零提交后的清理回滚异常:', error);
+            if (error instanceof TableWriteChatSwitchedError_ACU) {
+                return {
+                    rolledBackCleanup: false,
+                    rollbackNote: '本次未写入任何数据；重填途中切换了聊天，原聊天里这次清空的表没能恢复——回到原聊天重新执行一次重填即可补回，或从聊天备份恢复',
+                };
+            }
             return {
                 rolledBackCleanup: false,
                 rollbackNote: `本次未写入任何数据，但回滚清理异常（${error?.message || String(error)}），请从聊天备份恢复`,
@@ -5559,6 +5594,9 @@ export async function orchestrateManualUpdate_ACU(
                 return { success: false, error: '表格运行时在确认期间发生变化，已取消本次手动填表，请确认后重试。' };
             }
         }
+        // 重填所在的聊天：清理、零提交回滚、最终提交都带着它进事务，等 AI 期间切了聊天由事务拒绝，
+        // 不会把这边的清理快照或重填结果写进新聊天（D03-01 / D03-04）。
+        const refillChatKey = String(currentChatFileIdentifier_ACU || 'current-chat');
         // 最终 commit 只能消费本次会话开始时解析出的模板，不能在 bucket 已写入后重新读取
         // chat override / profile 全局模板；后者在长事务期间变化会让 fallback 根与本次重填依据脱节。
         const frozenManualRefillTemplateData = manualRefillEnabled
@@ -5762,6 +5800,7 @@ export async function orchestrateManualUpdate_ACU(
                 // 外置向量文件删除同样被推迟——帧回滚后旧 manifest 必须仍能解析到文件。
                 refillCleanupStarted = true;
                 await clearManualRefillSheetDataInRange_ACU(contextScopeIndices, targetKeys, {
+                    chatKey: refillChatKey,
                     onRollbackSnapshot: (handle) => { refillRollbackHandle = handle; },
                     deferExternalVectorCleanup: (manifests) => { deferredRefillVectorManifests = manifests; },
                 });
@@ -6144,6 +6183,7 @@ export async function orchestrateManualUpdate_ACU(
             try {
                 const isolationKey = getCurrentIsolationKey_ACU();
                 const snapshotResult = await commitManualRefillSheetSnapshotInRangeAtomic_ACU({
+                    chatKey: refillChatKey,
                     isolationKey,
                     targetMessageIndices: contextScopeIndices,
                     targetSheetKeys: targetKeys,

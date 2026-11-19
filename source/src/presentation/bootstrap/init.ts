@@ -155,6 +155,12 @@ import {
   cleanupSummaryVectorIndexForDeletedChat_ACU,
   sweepOrphanSummaryVectorIndexFiles_ACU,
 } from '../../service/vector/summary-vector-index-chat-deletion-gc';
+import { SUMMARY_VECTOR_INDEX_SAFE_GC_GRACE_PERIOD_MS_ACU } from '../../service/vector/summary-vector-index-storage-service';
+import {
+  noteChatSwitchForDeletionGuard_ACU,
+  redeleteResurrectedChat_ACU,
+  takeDeletedOpenChatCandidate_ACU,
+} from '../../service/chat/deleted-chat-resurrection-guard';
 import {
   topLevelWindow_ACU
 } from '../../shared/env';
@@ -541,13 +547,21 @@ async function runChatChangedDelayedRebuild_ACU(chatFileName: string): Promise<v
  * - 延迟段：经 scheduleInitChainRun_ACU 互斥守卫入口排程（代次号 + running 标志，参照 chat-mutation-scheduler）。
  * 整体 try/catch 兜底，确保不再产生未处理 rejection。
  */
+// 每次 CHAT_CHANGED 处理开始时递增：处理过程中有 await，期间又切了聊天时，旧处理器回来后
+// 不得再排程——排程会推高代次，把新聊天已排好的重建判成过期（D01-02）。
+let chatChangedHandlerSeq_ACU = 0;
+
 async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
+  const handlerSeq = ++chatChangedHandlerSeq_ACU;
   try {
     logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
 
     // [中止] 切聊天时中止所有在飞的依赖楼层的 API 调用
     //（表格填表/生理追踪等），避免用旧上下文的结果写入当前状态。
     abortOnChatMutation_ACU();
+    // 还在组装提示词的填表请求没登记进上面的全局中止表；它们的目标楼层已换成新聊天的楼层，按目标守卫当场中止，
+    // 免得拿新聊天的世界书 / 角色数据拼进旧聊天的请求白花一次调用（D04-02）。
+    abortTableFillRequestsWithStaleTarget_ACU();
 
     // [跨聊填表守卫] 清掉上一聊天遗留的自动填表防抖定时器（500ms 窗口）。
     // 它原本只被下一次同类事件覆盖清除，CHAT_CHANGED 链不碰它：切聊天后到期的旧定时器
@@ -580,6 +594,10 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
 
     // [剧情推进] 切换聊天时加载预设
     await loadPresetAndCleanCharacterData_ACU();
+    if (handlerSeq !== chatChangedHandlerSeq_ACU) {
+      logDebug_ACU(`ACU CHAT_CHANGED: ${chatFileName} 的处理期间已切到别的聊天，交给新聊天的处理排程重建。`);
+      return;
+    }
     // Agent 世界书功能开关：只读开关、不扫描候选；失败只关本会话 Agent，剧情推进开跑前会再补读。
     void loadAgentWorldbookRuntimeControl_ACU(agentRuntimeRevision_ACU);
 
@@ -822,27 +840,57 @@ export   function mainInitialize_ACU() {
         // [L4] 与其余注册一致的 eventTypes 存在性守卫（eventSource/eventTypes 整体缺失已有外层守卫）。
         // [H2/M3] 处理体抽至模块级 handleChatChangedEvent_ACU：整体 try/catch，延迟链走互斥守卫入口。
         if (SillyTavern_API_ACU.eventTypes.CHAT_CHANGED) {
+          // 删除当前聊天的补删要知道「切换前开着的是哪个聊天」：先记下插件加载时已打开的那个。
+          noteChatSwitchForDeletionGuard_ACU();
           SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, (chatFileName: string) => {
             // 同步标记：宿主载入聊天时收起停止按钮派发的无配对 ENDED 只立新聊天基线，不误开自动链
             markChatChangedForEndedGate_ACU();
+            // 宿主删除打开中的聊天时先切走、再发删除事件：此刻同步记下刚关掉的聊天
+            noteChatSwitchForDeletionGuard_ACU();
             chatChangeEpoch_ACU += 1;
             void handleChatChangedEvent_ACU(chatFileName);
           });
         }
 
+        // 删除打开中的聊天时，插件存盘若落在宿主排空存盘队列之后、切走之前，宿主会把被删聊天原样写回。
+        // 删除事件到达时当场认领（下一次切换会覆盖记录），2s 后等写回落盘再核对：没被打开就补删，
+        // 被宿主当作接替聊天重新打开、或补删没删成，就请用户再删一次。
+        const handleChatDeletedForResurrection_ACU = (deletedChatName: unknown): void => {
+          const candidate = takeDeletedOpenChatCandidate_ACU(String(deletedChatName ?? '').trim());
+          if (!candidate) return;
+          setTimeout(() => {
+            void redeleteResurrectedChat_ACU(candidate).then(outcome => {
+              if (outcome === 'reopened' || outcome === 'delete_failed') {
+                showToastr_ACU('warning', `聊天「${candidate.name}」在删除途中被数据库存盘写回了，如仍要删除，请再删一次。`, '数据库');
+              } else if (outcome !== 'absent') {
+                logWarn_ACU(`[删除聊天] 「${candidate.name}」写回核对：${outcome === 'redeleted' ? '删除途中被存盘写回，已补删' : '聊天列表读取不全，未核对'}`);
+              }
+            }).catch((error: any) => {
+              logWarn_ACU('[删除聊天] 核对被删聊天是否被写回失败:', error?.message || error);
+            });
+          }, 2000);
+        };
+
         // P7：聊天被删除时清理其向量外置存档 / IDB 缓存 / flush 任务。
         // 延迟 5s 执行：等宿主完成删除后的状态收敛（characters[].chats、当前聊天切换）再枚举校验。
+        // 保护期内新写的文件第一次删不掉，保护期过后（留 60s 余量）再清一次；
+        // 清理本身每次重新核对存活聊天，重复执行无副作用。
         const handleChatDeletedForVectorCleanup_ACU = (deletedChatName: unknown): void => {
           const name = String(deletedChatName || '').trim();
           if (!name) return;
-          setTimeout(() => {
+          const runCleanup = (): void => {
             void cleanupSummaryVectorIndexForDeletedChat_ACU(name).catch((error: any) => {
               logWarn_ACU('[交火向量索引] 聊天删除清理失败（将由孤儿清扫兜底）:', error?.message || error);
             });
-          }, 5000);
+          };
+          setTimeout(runCleanup, 5000);
+          setTimeout(runCleanup, SUMMARY_VECTOR_INDEX_SAFE_GC_GRACE_PERIOD_MS_ACU + 60_000);
         };
         if (SillyTavern_API_ACU.eventTypes.CHAT_DELETED) {
-          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_DELETED, handleChatDeletedForVectorCleanup_ACU);
+          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_DELETED, (deletedChatName: unknown) => {
+            handleChatDeletedForResurrection_ACU(deletedChatName);
+            handleChatDeletedForVectorCleanup_ACU(deletedChatName);
+          });
           logDebug_ACU('[交火向量索引] 已注册 CHAT_DELETED 向量清理监听');
         }
         // GROUP_CHAT_DELETED 在本地 eventTypes 类型声明快照中缺失（运行时存在），用索引访问。

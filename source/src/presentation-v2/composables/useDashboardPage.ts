@@ -13,6 +13,7 @@ import {
   coreApisAreReady_ACU,
   currentChatFileIdentifier_ACU,
   getCurrentIsolationKey_ACU,
+  onTableFillRunEnded_ACU,
   settings_ACU,
 } from "../../service/runtime/state-manager";
 import {
@@ -406,10 +407,9 @@ function buildTableHealthItem(
     });
   }
   const activeRows = rows.filter((row) => !row.disabled);
-  const dueRows = activeRows.filter((row) => row.ready);
-  const initialDueRows = activeRows.filter(
-    (row) => !row.hasTrackedUpdate && row.effectiveUnrecorded >= row.frequency,
-  );
+  // 「就绪」也覆盖还没填过的表（下一轮自动填表会把它们一起补上），健康卡仍分开计数，各算一次。
+  const dueRows = activeRows.filter((row) => row.ready && row.hasTrackedUpdate);
+  const initialDueRows = activeRows.filter((row) => row.ready && !row.hasTrackedUpdate);
   if (dueRows.length || initialDueRows.length) {
     const maxOverdue = dueRows.reduce(
       (max, row) => Math.max(max, row.effectiveUnrecorded - row.frequency),
@@ -749,6 +749,7 @@ export function useDashboardPage(): DashboardPageState {
   const logRefreshTick = ref(0);
   let unsubscribeLogs: (() => void) | null = null;
   let unsubscribeLogsClear: (() => void) | null = null;
+  let unsubscribeFillRunEnded: (() => void) | null = null;
   let logRefreshQueued = false;
 
   const sheetKeys = computed(() => {
@@ -788,6 +789,8 @@ export function useDashboardPage(): DashboardPageState {
       );
 
       const totalAi = aiMessageCount.value;
+      // 没打开聊天时宿主消息数组里可能只剩欢迎页消息：不能算成待填楼层，不标「就绪」。
+      const hasActiveChat = hasActiveChatContext(chatFileIdentifier.value);
       const globalFrequency = normalizePositiveInteger_ACU(
         settings_ACU.autoUpdateFrequency,
         1,
@@ -860,21 +863,24 @@ export function useDashboardPage(): DashboardPageState {
           name: String(table.name || key),
           frequency,
           skip,
-          unrecorded: found ? Math.max(0, totalAi - lastFloor) : 0,
+          unrecorded: found ? Math.max(0, totalAi - lastFloor) : (hasActiveChat ? totalAi : 0),
           effectiveUnrecorded: effectiveInitialUnrecorded,
           lastUpdatedAiFloor: lastFloor,
           nextTriggerAiFloor,
           hasTrackedUpdate: found,
           hasAnyData: history.hasAnyData,
           frequencyLabel: String(frequency),
-          unrecordedLabel: found ? String(Math.max(0, totalAi - lastFloor)) : "—",
+          unrecordedLabel: found
+            ? String(Math.max(0, totalAi - lastFloor))
+            : (hasActiveChat ? String(totalAi) : "—"),
           lastUpdatedLabel: found
             ? String(lastFloor)
             : dashboardCopy.tableStatus.notInitialized,
           nextTriggerLabel: found
             ? String(lastFloor + frequency + skip)
             : dashboardCopy.tableStatus.pendingInitial,
-          ready: found && effectiveUnrecorded >= frequency,
+          // 与自动填表的触发判断同口径：还没填过的表，未记录楼数达到频率时这一轮同样会填，一样标「就绪」。
+          ready: hasActiveChat && effectiveInitialUnrecorded >= frequency,
           disabled: false,
         };
       });
@@ -1032,6 +1038,10 @@ export function useDashboardPage(): DashboardPageState {
     unsubscribeLogsClear = subscribeToClear(() => {
       logRefreshTick.value++;
     });
+    // 页面开着时一轮填表结束：表格状态当场从「就绪」变成新的上次更新楼层，不用切走再切回来。
+    unsubscribeFillRunEnded = onTableFillRunEnded_ACU(() => {
+      dataRefreshTick.value++;
+    });
   });
 
   onBeforeUnmount(() => {
@@ -1039,6 +1049,8 @@ export function useDashboardPage(): DashboardPageState {
     unsubscribeLogs = null;
     unsubscribeLogsClear?.();
     unsubscribeLogsClear = null;
+    unsubscribeFillRunEnded?.();
+    unsubscribeFillRunEnded = null;
   });
 
   async function refresh(): Promise<void> {

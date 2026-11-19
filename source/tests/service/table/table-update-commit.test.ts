@@ -149,6 +149,26 @@ describe('runTableUpdateCommit_ACU migration gate', () => {
     expect(mocks.setCurrentData).not.toHaveBeenCalled();
   });
 
+  it('调用方没传聊天身份（外部 SQL / CRUD 等）：按提交开始时的聊天核对，提交途中切聊天同样拒绝（D05-05）', async () => {
+    const apply = vi.fn();
+    mocks.currentChatKey = 'chat-a';
+    mocks.currentIsolationKey = 'scope-a';
+    mocks.migration.mockImplementation(async () => {
+      mocks.currentChatKey = 'chat-b';
+      return { success: true, migrated: false };
+    });
+
+    const result = await runTableUpdateCommit_ACU(options('test_scope_pinned_at_start'), apply);
+
+    expect(result).toMatchObject({
+      success: false,
+      errorCategory: 'precondition',
+      error: expect.stringContaining('聊天或隔离标识已切换'),
+    });
+    expect(apply).not.toHaveBeenCalled();
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
   it('AI 等待期间目标楼层换成了另一条回复（滑动 / 重新生成）：拒绝写回，不重试', async () => {
     const chat: any[] = [
       { is_user: true, mes: '你好' },
@@ -305,6 +325,32 @@ describe('runTableUpdateCommit_ACU migration gate', () => {
     }, async ({ workingData }) => ({ success: true, tableData: precomputedData, value: workingData }));
 
     expect(result).toMatchObject({ success: true, value: null, tableData: precomputedData });
+  });
+
+  it('存盘期间切了聊天：结果已落进原聊天，但不再写回运行时，也不报成功让上层拿旧表刷新当前聊天世界书（D05-06 / D06-02）', async () => {
+    const data: any = {
+      mate: { type: 'acu', version: 1 },
+      sheet_target: { uid: 'sheet_target', name: '目标表', content: [['row_id'], ['r1']] },
+    };
+    const rollback = vi.fn();
+    mocks.migration.mockResolvedValue({ success: true, migrated: false });
+    mocks.transaction.mockImplementation(async (_options: any, task: any) => task({ runCommit: async (commitTask: any) => commitTask() }, null));
+    mocks.persist.mockImplementation(async () => {
+      mocks.currentChatKey = 'chat-b';
+      return { saved: true, messageIndex: 1 };
+    });
+
+    const result = await runTableUpdateCommit_ACU({
+      ...options('test_switch_during_save'),
+      chatKey: 'chat-a',
+      targetSheetKeys: ['sheet_target'],
+    }, async () => ({ success: true, tableData: data, value: null, persist: { beforePersist: () => ({ rollback }) } }));
+
+    expect(mocks.persist).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: false, errorCategory: 'precondition', error: expect.stringContaining('已写进原聊天') });
+    expect(mocks.setCurrentData).not.toHaveBeenCalled();
+    expect(mocks.reload).not.toHaveBeenCalled();
+    expect(rollback).not.toHaveBeenCalled();
   });
 
   it('表格持久化失败时回滚同提交暂存的附属状态', async () => {
