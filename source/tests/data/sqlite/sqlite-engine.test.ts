@@ -3,6 +3,8 @@
  * SqliteEngine 单元测试 — 使用真实 sql.js 实例
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 vi.mock('../../../src/shared/utils', () => ({
   logDebug_ACU: vi.fn(),
@@ -58,6 +60,63 @@ describe('SqliteEngine', () => {
 
       // 底层只 throw：同一次失败不在引擎层刷 ERROR，避免与顶层重复。
       expect(logError_ACU).not.toHaveBeenCalled();
+    });
+
+    it('高频 query 不泄漏 sql.js 栈（成功/报错/readOnly 路径）', () => {
+      // sql.js 1.14.1 的 exec 每次 stackAlloc(4) 不归还栈指针，约 33 万次后 wasm 越界。
+      // 用 stackSave() 观测栈顶：修复后反复 exec，栈顶必须回到基线。
+      const runtime = (engine as any).sqlJs;
+      expect(typeof runtime?.stackSave).toBe('function');
+      expect(typeof runtime?.stackRestore).toBe('function');
+
+      engine.run('CREATE TABLE leak_probe (id INTEGER);');
+      engine.run('INSERT INTO leak_probe VALUES (1);');
+
+      const before = runtime.stackSave();
+      // 普通路径：1 万次小查询，结果稳定且栈顶不漂移。
+      for (let i = 0; i < 10000; i += 1) {
+        const r = engine.query('SELECT COUNT(*) FROM leak_probe;');
+        expect(r.values).toEqual([[1]]);
+      }
+      expect(runtime.stackSave()).toBe(before);
+
+      // readOnly 路径：_execReadOnly 内含两处 exec，也必须配对。
+      for (let i = 0; i < 1000; i += 1) {
+        engine.query('SELECT COUNT(*) FROM leak_probe;', undefined, { readOnly: true });
+      }
+      expect(runtime.stackSave()).toBe(before);
+
+      // 报错路径：finally 里 stackRestore 仍须执行。
+      for (let i = 0; i < 1000; i += 1) {
+        expect(() => engine.query('SELEC broken;', undefined, { suppressErrorLog: true })).toThrow();
+      }
+      expect(runtime.stackSave()).toBe(before);
+    });
+
+    it('loadFromBinary 失败路径也归还 sql.js 栈', async () => {
+      const runtime = (engine as any).sqlJs;
+      const before = runtime.stackSave();
+      for (let i = 0; i < 1000; i += 1) {
+        await engine.loadFromBinary(new TextEncoder().encode('not a sqlite db'.repeat(20))).catch(() => undefined);
+      }
+      expect(runtime.stackSave()).toBe(before);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 栈配对结构性断言
+  // ═══════════════════════════════════════════════════════════════
+  describe('SQLite exec 栈配对（源码结构）', () => {
+    it('sqlite-engine.ts 中 stackSave/stackRestore 成对出现', () => {
+      const src = readFileSync(
+        join(process.cwd(), 'src', 'data', 'sqlite', 'sqlite-engine.ts'),
+        'utf8',
+      );
+      // 只数真实调用点（排除类型声明 `stackSave?:`、typeof 检查与注释）。
+      const saves = src.match(/\.stackSave\(\)/g) ?? [];
+      const restores = src.match(/\.stackRestore!?\(/g) ?? [];
+      expect(saves.length).toBeGreaterThanOrEqual(2); // query + loadFromBinary
+      expect(restores.length).toBe(saves.length);
     });
   });
 

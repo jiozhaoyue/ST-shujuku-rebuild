@@ -224,6 +224,16 @@ export class SqliteEngine {
    */
   query(sql: string, params?: SqlJsBindParams, options: SqliteQueryOptions_ACU = {}): QueryResult {
     this._ensureDb();
+    // sql.js 1.14.1 的 Database.exec 每次 stackAlloc(4) 后不恢复栈指针；运行时为进程级单例，
+    // 泄漏跨 Database 累积，约 33 万次查询后 wasm 越界。由此处配对 stackSave/stackRestore。
+    // 移植上游 albus 5518792c；注意 readOnly 路径的 _execReadOnly 也走 exec，一并受保护。
+    const runtime = this.sqlJs as unknown as {
+      stackSave?: () => number;
+      stackRestore?: (pointer: number) => void;
+    } | null;
+    const stackPointer = typeof runtime?.stackSave === 'function' && typeof runtime.stackRestore === 'function'
+      ? runtime.stackSave()
+      : null;
     try {
       const results = options.readOnly === true ? this._execReadOnly(sql, params) : this.db!.exec(sql, params);
       if (results.length === 0) {
@@ -247,6 +257,8 @@ export class SqliteEngine {
         }
       }
       throw e;
+    } finally {
+      if (stackPointer !== null) runtime!.stackRestore!(stackPointer);
     }
   }
 
@@ -481,6 +493,14 @@ export class SqliteEngine {
     this.sqlJs = await this.initializeRuntime();
     // R1-07：先用新数据建库，成功后再释放旧库——坏数据抛错时旧库仍可用。
     const nextDb = new this.sqlJs.Database(data);
+    // exec 同样栈分配泄漏（见 query 注释）；loadFromBinary 不经 query，此处单独配对。
+    const runtime = this.sqlJs as unknown as {
+      stackSave?: () => number;
+      stackRestore?: (pointer: number) => void;
+    } | null;
+    const stackPointer = typeof runtime?.stackSave === 'function' && typeof runtime.stackRestore === 'function'
+      ? runtime.stackSave()
+      : null;
     try {
       nextDb.run('PRAGMA foreign_keys = ON;');
       // 打开不读文件头；读一次 schema 才能发现「file is not a database」。
@@ -488,6 +508,8 @@ export class SqliteEngine {
     } catch (error) {
       nextDb.close();
       throw error;
+    } finally {
+      if (stackPointer !== null) runtime!.stackRestore!(stackPointer);
     }
     this.dispose();
     this.db = nextDb;
