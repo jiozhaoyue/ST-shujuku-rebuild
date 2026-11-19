@@ -256,7 +256,29 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **公开 API 文档**：`source/docs/public-api.md`（命名空间总览 + 两个新能力语义 + 跨仓兼容性说明）；README 功能清单与上游同步段同步更新。
 
+## 4d. 第四次追平实况（2026-11-20 凌晨，`8c295ed3`，上游 `76ffdc81`）
+
+落后 20 提交（上游 11-08 ~ 11-18：DeepSeek 填表专项第三轮复审 8 提交、执行边界提示词→「提示词额外要求」4 提交、决策召回附加世界书 1、表格状态/静默提示框 3、OpenCode Go 用量 5）。`merge-tree` 预检与实merge一致：**真冲突 7 文件**，其余 30+ 全自动合并。
+
+| 文件 | 解决 |
+|---|---|
+| `index.js` | 按 G 类取我方，随后 `npm run build` 重建 |
+| `source/src/service/ai/api-call.ts` | import 并集；上游 `withScopeGuardPrompt_ACU` 接线并入 `buildCustomApiRequestBody_ACU`；我方观测/SSRF（allowUnsafe）/流式三套接线复核齐全，AI 出口守卫 2=2 成立 |
+| `source/src/service/table/table-update-commit.ts` | **并集**：上游 `commitScopeIsCurrent_ACU` 存盘期切聊天复检（D05-06/D06-02）+ 我方三埋点（saved/runtime_only/failed）与 `probeOversizedWrite_ACU`；`resolvePendingScope_ACU`→`resolveCommitScope_ACU` 跟随上游重命名，零残留 |
+| `source/src/presentation-v2/stores/dev-options-store.ts` | **并集**（8 hunk）：我方 `promptInspectEnabled`/`writePipelineEnabled` 两观测开关 + 上游 `scopeGuardPrompt`/`extraPrompts`/`scopeGuardTargets` 三新开关 |
+| `source/src/presentation-v2/composables/useDevOptions.ts` | 同上并集（2 hunk） |
+| `source/src/presentation-v3/pages/DeveloperPage.vue` | **并集**：我方五面板 import + 上游 scope-guard UI 段与 UbCheck |
+| `source/src/presentation-v2/composables/useManualUpdate.ts` | 取上游 D03-05 口径（service 层失败文案已含回滚说明，UI 失败路径不重复拼接），保留我方 `failureText` 变量结构 |
+
+**零触碰复核**：host-bridge.ts / canonical-row-normalizer.ts / prompt-api-call.ts（parseStreamResponse）/ manifest-identity / threshold-registry-guard / warm-app-graph 本轮上游全部 0 触碰；上游 20 提交**无删除文件、无 TavernDB_ACU_* 存储结构改动**（硬红线安全）；C2 复位函数合并后在位。上游 20 提交无新增/改名 AI 出口（scope-guard-prompt 与 opencode-go-usage 均非出口）。
+
+**质量门**：typecheck ✅ 0；vitest 全量 **8534 绿 / 2 红 / 8536**（新增用例 99 条并入）：① `pure-db-mode-compat` 结构守卫红——上游 feed4c59 在 `chat-gateway.ts:461` 引入直连 `fetch('/api/chats/delete')`（上游 TT-only 无此纪律），违反我方 D-03 宿主通道架构前提，**定性为 merge 回归，修源码不放松守卫**；② plot-page.test.ts:323 全量污染红（基线常驻，单跑绿）。两红均已派修。build ✅（产物 11.5MB 重建同步仓库根，`Luker·数据库` ×17 在位）；smoke ✅（挂载/菜单注入/0 错误）。
+
+**注意**：上游新增功能落点说明——「提示词额外要求」服务层自读持久化（不打开面板也生效），store 只做切换推送；「Go 用量」走裸 fetch 直连 `/inference/go/v1/usage`（非 AI 出口，无需响应观测）。
+
 ## 5. 同步纪律（每次追平照此执行）
+
+
 
 1. 先跑 §1 第 1 条确认落后量；为 0 说明同步正常，无需动作。
 2. 落后时用 `git merge-tree --write-tree --name-only`（只读）先量出冲突面，再决定是否人工介入。
