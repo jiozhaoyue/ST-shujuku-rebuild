@@ -12,7 +12,8 @@ import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normaliz
 import { DEFAULT_BUILTIN_PLOT_PRESETS_ACU, DEFAULT_CHAR_CARD_PROMPT_SQL_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_PROMPT_GROUP_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
 import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, DEFAULT_TABLE_FILL_MIN_RESPONSE_LENGTH_ACU, OVERSIZED_CELL_WARN_CHARS_DEFAULT_ACU, OVERSIZED_PAYLOAD_WARN_BYTES_DEFAULT_ACU, OVERSIZED_WRITE_WARNING_ENABLED_DEFAULT_ACU, SUMMARY_INDEX_V2_WRITER_FORCE_ENABLE_VERSION_ACU, TABLE_FILL_PROMPT_FORCE_DEFAULT_VERSION_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, TEMPLATE_ASSISTANT_PROMPT_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_PROFILE_FORCE_DEFAULT_VERSION_ACU, USER_PREFILL_VECTOR_FORCE_DEFAULT_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_RECALL_PARAM_KEYS_ACU, VECTOR_MEMORY_RECALL_PARAMS_FORCE_OVERRIDE_VERSION_ACU, buildDefaultAgentWorldbookControl_ACU, buildDefaultAgentWorldbookPromptTemplates_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, upgradeContentOptimizationDefaultPrompt_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
-import { backupProfileSettingsRawBeforeDegradation_ACU, backupProfileTemplateRawBeforeDegradation_ACU, globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
+import { backupProfileSettingsRawBeforeDegradation_ACU, backupProfileTemplateRawBeforeDegradation_ACU, globalMeta_ACU, listStoredProfileCodes_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, wasGlobalMetaMissingOnLoad_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
+import { getProfileRecoveryCodes_ACU, setProfileRecoveryCodes_ACU } from './profile-recovery-state';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { persistSettingsToStorage_ACU } from '../../data/storage/config-storage';
 import { getCurrentVectorMemoryConfig_ACU } from '../vector/vector-memory-config';
@@ -481,6 +482,26 @@ export function saveSettings_ACU(): SaveSettingsResult_ACU {
 }
 
 
+/**
+ * GlobalMeta 缺失且本次将回落到默认槽时，核对存储中是否仍有非默认配置档。
+ * 有则视为历史状态丢失：标识放入内存中的隔离历史与恢复提示，供用户手动选回。
+ *
+ * 与上游 albus 5518792c 的一处有意差异：上游还会 setGlobalMetaWriteSuspended_ACU(true) 暂停写入
+ * GlobalMeta，等用户在「选择配置档」UI 里选回后再恢复。本仓该切换 UI 已删除（G11 死代码清理），
+ * 若照搬暂停则所有设置保存都会失败且无恢复入口。故本仓只做「检测 + 提示 + 并入隔离历史」，
+ * 不暂停写入（backup 静默生效，用户无感）。移植自上游（配置防丢·namespace backup）。
+ */
+function syncProfileRecovery_ACU(activeCode: string): void {
+    const codes = wasGlobalMetaMissingOnLoad_ACU() && !activeCode ? listStoredProfileCodes_ACU() : [];
+    if (codes === null) logWarn_ACU('[Profile] 配置存储不支持枚举，无法核对已有配置档。');
+    const orphaned = (codes || []).filter(code => code);
+    setProfileRecoveryCodes_ACU(orphaned.length ? orphaned : null);
+    if (!orphaned.length) return;
+    const history = Array.isArray(globalMeta_ACU.isolationCodeList) ? globalMeta_ACU.isolationCodeList : [];
+    globalMeta_ACU.isolationCodeList = [...orphaned, ...history.filter((code: string) => !orphaned.includes(code))];
+    logWarn_ACU(`[Profile] 未找到全局元信息，但存储中仍有配置档（${orphaned.join('、')}），已并入隔离标识历史供手动恢复。`);
+}
+
 export   function loadSettings_ACU() {
       // 确保酒馆设置桥接已就绪（best-effort，不阻塞）
       void initTavernSettingsBridge_ACU();
@@ -544,6 +565,7 @@ export   function loadSettings_ACU() {
       const activeCode = normalizeIsolationCode_ACU(globalMeta_ACU.activeIsolationCode || legacyCode || '');
       globalMeta_ACU.activeIsolationCode = activeCode;
       if (activeCode) addDataIsolationHistory_ACU(activeCode, { save: false });
+      syncProfileRecovery_ACU(activeCode);
       normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
       saveGlobalMeta_ACU();
 
@@ -1159,6 +1181,8 @@ export   function buildDefaultSettings_ACU() {
           autoUpdateEnabled: true,
           standardizedTableFillEnabled: true, // [新增] 规范填表功能
           toastMuteEnabled: false,
+          // [配置防丢] 保存确认（写前确认）开关：默认关闭，保守上线；开启后在未落盘时提示用户确认。
+          saveConfirmEnabled: false,
           // [剧情推进] 设置
           plotSettings: cloneDefaultValue_ACU(DEFAULT_PLOT_SETTINGS_ACU),
           plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
@@ -1473,3 +1497,20 @@ export function applyCombinedSettingsImport_ACU(combinedData: any): string[] {
 // re-export data 层基础设施（供 presentation 层通过 service 层访问，避免 presentation→data 直接依赖）
 export { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
 export { saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
+// [配置防丢] service 门面：落盘状态/命名空间快照/保全写入器 + 恢复查找与应用 + 配置档恢复状态。
+export {
+    getSettingsPersistenceState_ACU,
+    getSettingsPersistenceSnapshot_ACU,
+    subscribeSettingsPersistence_ACU,
+    buildSettingsNamespaceBackup_ACU,
+    installSettingsRescueWriter_ACU,
+} from './settings-persistence-status';
+export {
+    findSettingsRescueCandidate_ACU,
+    restoreSettingsRescue_ACU,
+    declineSettingsRescue_ACU,
+} from './settings-rescue-service';
+export {
+    getProfileRecoveryCodes_ACU,
+    subscribeProfileRecovery_ACU,
+} from './profile-recovery-state';

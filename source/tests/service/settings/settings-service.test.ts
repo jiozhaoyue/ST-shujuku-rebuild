@@ -222,6 +222,11 @@ vi.mock('../../../src/data/repositories/profile-repo', () => ({
   writeProfileSettingsToStorage_ACU: mockWriteProfileSettings,
   writeProfileTemplateToStorage_ACU: mockWriteProfileTemplate,
   backupProfileTemplateRawBeforeDegradation_ACU: mockBackupProfileTemplate,
+  // [配置防丢] namespace-backup 恢复路径依赖的新导出（默认无缺失、无历史配置档）。
+  listStoredProfileCodes_ACU: () => [],
+  wasGlobalMetaMissingOnLoad_ACU: () => false,
+  setGlobalMetaWriteSuspended_ACU: () => undefined,
+  isGlobalMetaWriteSuspended_ACU: () => false,
 }));
 
 vi.mock('../../../src/shared/template-preset-utils', () => ({

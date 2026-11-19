@@ -239,3 +239,46 @@ export function isAcuTauriVersionOutdated(
   const compared = compareAcuVersions(version, required);
   return compared === null ? false : compared < 0;
 }
+
+// ═══ 配置防丢三件套所需的宿主能力探测（宿主差异只进本桥）═══
+
+/**
+ * 设置落盘确认所需的宿主事件通道。ST / TT / Luker 都经同一个
+ * SillyTavern.getContext() 暴露 eventSource 与 SETTINGS_UPDATED 事件名；
+ * 本桥负责探测并按宿主取 debounce 时长，业务层（settings-save-confirm）只消费结果。
+ * 探测失败一律返回 null——业务层据此静默降级为「无确认」，绝不自行探测宿主。
+ */
+export interface AcuSettingsConfirmBridge {
+  eventSource: { on: (type: string, handler: () => void) => void };
+  settingsUpdatedEventType: string;
+  /** 宿主 saveSettingsDebounced 的尾触发时长（ST/TT 的 relaxed 均为 1000ms）。 */
+  debounceMs: number;
+}
+
+export function probeSettingsConfirmBridge_ACU(): AcuSettingsConfirmBridge | null {
+  try {
+    const ctx = tauriWindow().SillyTavern?.getContext?.();
+    const source = ctx?.eventSource;
+    const eventType = ctx?.eventTypes?.SETTINGS_UPDATED ?? ctx?.event_types?.SETTINGS_UPDATED;
+    if (!source || typeof source.on !== 'function' || !eventType) return null;
+    return { eventSource: source, settingsUpdatedEventType: String(eventType), debounceMs: 1000 };
+  } catch {
+    return null;
+  }
+}
+
+/** TauriTavern 的 extension.store（setJson/tryGetJson）；非 TT、ABI 缺失或形态不符返回 null。 */
+export interface AcuTauriSettingsStore {
+  setJson: (arg: { namespace: string; key: string; value: unknown }) => Promise<unknown> | unknown;
+  tryGetJson: (arg: { namespace: string; key: string }) =>
+    Promise<{ found: boolean; value?: unknown }> | { found: boolean; value?: unknown };
+}
+
+export function getTauriSettingsStore_ACU(): AcuTauriSettingsStore | null {
+  try {
+    const store = tauriWindow().__TAURITAVERN__?.api?.extension?.store;
+    return store && typeof store.setJson === 'function' && typeof store.tryGetJson === 'function' ? store : null;
+  } catch {
+    return null;
+  }
+}

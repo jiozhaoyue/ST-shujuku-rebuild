@@ -513,6 +513,8 @@ export let settings_ACU: any = {
     autoUpdateEnabled: true,
     standardizedTableFillEnabled: true,
     toastMuteEnabled: false,
+    // [配置防丢] 保存确认（写前确认）开关：默认关闭，保守上线。
+    saveConfirmEnabled: false,
     plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
     plotPresetBindings: {},
     currentTemplatePresetName: '',

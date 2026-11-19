@@ -61,6 +61,8 @@ import {
   applyTemplateScopeForCurrentChat_ACU,
   loadSettings_ACU
 } from '../../service/settings/settings-service';
+import { installSettingsRescueWriter_ACU } from '../../service/settings/settings-persistence-status';
+import { installSettingsSaveConfirmNotice_ACU } from '../../service/settings/settings-save-confirm-notice';
 import {
   releaseAgentGreenlightsOfPreviousChat_ACU,
   resetScriptStateForNewChat_ACU
@@ -794,6 +796,13 @@ export   function mainInitialize_ACU() {
       void notifyAcuTauriVersionIfOutdated_ACU();
 
       loadSettings_ACU();
+      // [配置防丢] rescue / backup 静默生效：安装未落盘副本写入器与保存确认提示（后者默认关闭）。
+      try {
+        installSettingsRescueWriter_ACU();
+        installSettingsSaveConfirmNotice_ACU();
+      } catch (e) {
+        logWarn_ACU('[配置防丢] 保全写入器/确认提示安装失败（不影响主流程）:', e);
+      }
       // 数据体积软警告：service 层只负责测量与日志，toast 出口在这里注册（presentation 层）。
       registerOversizedWriteWarningSink_ACU((warnings) => {
         try {

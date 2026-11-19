@@ -7,6 +7,7 @@
 import { topLevelWindow_ACU, FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU, ALLOW_LEGACY_LOCALSTORAGE_MIGRATION_ACU, legacyLocalStorage_ACU, storage_ACU } from '../../shared/env';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { noteSettingsWrite_ACU, noteSettingsWriteFailed_ACU, getSettingsPersistenceState_ACU } from './settings-save-confirm';
 
 // ── 常量 ──
 import { idbRequestToPromise_ACU, isIndexedDbAvailable_ACU } from '../../shared/idb-import-temp';
@@ -14,6 +15,10 @@ import { idbRequestToPromise_ACU, isIndexedDbAvailable_ACU } from '../../shared/
 export const USE_TAVERN_SETTINGS_STORAGE_ACU = true;
 // 命名空间与下方 __userscripts 容器名沿用历史（油猴时代）键名：这是用户已落盘设置的存储位置，不能改。
 export const TAVERN_SETTINGS_NAMESPACE_ACU = `${SCRIPT_ID_PREFIX_ACU}__userscript_settings_v1`;
+/** 命名空间内的写入标记：每次请求宿主保存前写入本地时间戳，用于判断保全副本是否新于宿主配置。 */
+export const TAVERN_SETTINGS_WRITTEN_AT_KEY_ACU = '__acuSettingsWrittenAt';
+/** 本会话首次写入前命名空间里的写入标记，即宿主从磁盘加载的值；null 表示本会话尚未写入。 */
+let loadedSettingsWrittenAt_ACU: number | null = null;
 export let tavernSaveSettingsFn_ACU: any = null;
 export let tavernExtensionSettingsRoot_ACU: any = null;
 /** 是否已报告过「根对象不可用」（防止重复刷屏） */
@@ -81,33 +86,73 @@ export function getTavernSettingsNamespace_ACU(): any {
 
 export type TavernSettingsPersistStatus_ACU = 'saved' | 'memory' | 'failed';
 
+/** 读取命名空间快照中的写入标记；缺失或无效时为 0。 */
+export function readSettingsWrittenAt_ACU(entries: any): number {
+    const raw = entries && typeof entries === 'object' ? entries[TAVERN_SETTINGS_WRITTEN_AT_KEY_ACU] : undefined;
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function stampTavernSettingsWrittenAt_ACU(): void {
+    if (!tavernExtensionSettingsRoot_ACU) return;
+    const ns = getTavernSettingsNamespace_ACU();
+    if (!ns || typeof ns !== 'object') return;
+    const previous = readSettingsWrittenAt_ACU(ns);
+    if (loadedSettingsWrittenAt_ACU === null) loadedSettingsWrittenAt_ACU = previous;
+    ns[TAVERN_SETTINGS_WRITTEN_AT_KEY_ACU] = Math.max(Date.now(), previous + 1);
+}
+
+/** 宿主从磁盘加载的写入标记：本会话首次写入前捕获；尚未写入时读当前命名空间；酒馆设置不可用时为 null。 */
+export function getLoadedTavernSettingsWrittenAt_ACU(): number | null {
+    if (loadedSettingsWrittenAt_ACU !== null) return loadedSettingsWrittenAt_ACU;
+    // 本仓仅插件形态（R1-06）：根对象由 initTavernSettingsBridge_ACU 获取，不在此处再探测宿主。
+    if (!tavernExtensionSettingsRoot_ACU) return null;
+    const ns = getTavernSettingsNamespace_ACU();
+    return ns && typeof ns === 'object' ? readSettingsWrittenAt_ACU(ns) : null;
+}
+
 /**
  * 触发酒馆设置保存。同步宿主函数明确返回 false 或抛错时返回 failed；
  * 没有宿主保存函数时保留内存值但返回 memory，调用方不得把它当成已落盘。
- * 宿主异步 debounce 的 Promise 不能同步确认，按已调度保存处理。
+ * 每次请求保存前打写入标记并登记到 save-confirm（探测失败静默降级），返回状态保持原三态契约。
  */
 export function persistTavernSettings_ACU(): TavernSettingsPersistStatus_ACU {
     try {
+        stampTavernSettingsWrittenAt_ACU();
         const hostWindow = typeof window !== 'undefined' ? (window as any) : null;
+        let save: (() => unknown) | null = null;
+        let direct = false;
         if (typeof tavernSaveSettingsFn_ACU === 'function') {
-            return tavernSaveSettingsFn_ACU() === false ? 'failed' : 'saved';
+            const fn = tavernSaveSettingsFn_ACU;
+            save = () => fn();
+        } else if (typeof (topLevelWindow_ACU as any).saveSettingsDebounced === 'function') {
+            save = () => (topLevelWindow_ACU as any).saveSettingsDebounced();
+        } else if (typeof hostWindow?.saveSettingsDebounced === 'function') {
+            save = () => hostWindow.saveSettingsDebounced();
+        } else if (typeof (topLevelWindow_ACU as any).saveSettings === 'function') {
+            save = () => (topLevelWindow_ACU as any).saveSettings();
+            direct = true;
+        } else if (typeof hostWindow?.saveSettings === 'function') {
+            save = () => hostWindow.saveSettings();
+            direct = true;
         }
-        if (typeof (topLevelWindow_ACU as any).saveSettingsDebounced === 'function') {
-            return (topLevelWindow_ACU as any).saveSettingsDebounced() === false ? 'failed' : 'saved';
+        if (!save) {
+            logWarn_ACU('[TavernStorage] 找不到任何可用的 saveSettings 函数');
+            noteSettingsWriteFailed_ACU();
+            return 'memory';
         }
-        if (typeof hostWindow?.saveSettingsDebounced === 'function') {
-            return hostWindow.saveSettingsDebounced() === false ? 'failed' : 'saved';
+        // 先登记写入（事件监听须在调用宿主保存前装好，否则可能漏掉同步发出的 SETTINGS_UPDATED）。
+        noteSettingsWrite_ACU({ direct, resave: save });
+        const result = save();
+        if (result === false) {
+            // 宿主同步返回 false 视为失败：把该写入标记为失败，保持原契约。
+            noteSettingsWriteFailed_ACU();
+            return 'failed';
         }
-        if (typeof (topLevelWindow_ACU as any).saveSettings === 'function') {
-            return (topLevelWindow_ACU as any).saveSettings() === false ? 'failed' : 'saved';
-        }
-        if (typeof hostWindow?.saveSettings === 'function') {
-            return hostWindow.saveSettings() === false ? 'failed' : 'saved';
-        }
-        logWarn_ACU('[TavernStorage] 找不到任何可用的 saveSettings 函数');
-        return 'memory';
+        return 'saved';
     } catch (e) {
         logWarn_ACU('[TavernStorage] 持久化到酒馆设置失败, 回退到内存模式:', e);
+        noteSettingsWriteFailed_ACU();
         return 'failed';
     }
 }
@@ -235,7 +280,7 @@ export async function configIdbRemoveCached_ACU(key: string): Promise<void> {
 export function getConfigStorage_ACU(): any {
     const ns = USE_TAVERN_SETTINGS_STORAGE_ACU ? getTavernSettingsNamespace_ACU() : null;
     const hasTavern = !!ns;
-    return {
+    const storage: any = {
         getItem: (key: string) => {
             if (hasTavern && Object.prototype.hasOwnProperty.call(ns, key)) return ns[key];
             const cached = configIdbGetCached_ACU(key);
@@ -293,6 +338,25 @@ export function getConfigStorage_ACU(): any {
             return lastConfigPersistenceStatus_ACU;
         },
     };
+    /** 酒馆模式下内容未变且没有未落盘写入时跳过保存，避免加载期重复请求宿主；未落盘时照常写入以便重试。 */
+    storage.setItemIfChanged = (key: string, value: any): boolean => {
+        const v = String(value);
+        if (hasTavern && Object.prototype.hasOwnProperty.call(ns, key) && ns[key] === v) {
+            const state = getSettingsPersistenceState_ACU();
+            if (state === 'confirmed' || state === 'pending') return false;
+        }
+        storage.setItem(key, v);
+        return true;
+    };
+    /** 列出配置键，供 globalMeta 缺失时枚举已有配置档（宿主命名空间 ∪ 已加载的本地镜像）。 */
+    storage.keys = (): string[] => {
+        const keys = new Set<string>(hasTavern ? Object.keys(ns) : []);
+        for (const key of configIdbCache_ACU.keys()) {
+            if (!configIdbDeletedKeys_ACU.has(key)) keys.add(key);
+        }
+        return [...keys];
+    };
+    return storage;
 }
 
 export function migrateKeyToTavernStorageIfNeeded_ACU(key: string): boolean {
@@ -318,4 +382,5 @@ export function _resetTavernStorageState_ACU(): void {
     tavernSaveSettingsFn_ACU = null;
     lastConfigPersistenceStatus_ACU = 'other';
     tavernRootUnavailableWarnReported_ACU = false;
+    loadedSettingsWrittenAt_ACU = null;
 }
