@@ -375,9 +375,9 @@ describe('DataMgmtPage', () => {
     expect(text).not.toContain('删除当前交火索引');
     expect(text).not.toContain('清空临时缓存');
 
-    // 无混合存储决议 / 恢复诊断时四节，顺序：备份恢复 → 休眠数据 → 删除清理 → 写入体积提示（v3 移植批新增）
+    // 无混合存储决议 / 恢复诊断时五节，顺序：备份恢复 → 配置副本恢复 → 休眠数据 → 删除清理 → 写入体积提示（v3 移植批新增；配置副本恢复为 albus 防丢三件套 UI）
     const titles = Array.from(page!.querySelectorAll('.ub-section__title')).map(title => title.textContent?.trim());
-    expect(titles).toEqual(['备份与恢复', '休眠数据', '删除与清理', '写入体积提示']);
+    expect(titles).toEqual(['备份与恢复', '配置副本恢复', '休眠数据', '删除与清理', '写入体积提示']);
 
     mount.__resetAcuV2MountForTests();
   });

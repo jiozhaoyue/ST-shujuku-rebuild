@@ -25,6 +25,8 @@
       </UbRow>
     </UbSection>
 
+    <SettingsRescueSection id="dm-settings-rescue" />
+
     <UbSection v-if="flow.mixedStorageDecision.value" id="dm-mixed" title="混合存储决议" icon="fa-solid fa-code-merge" padded>
       <p class="ub-dm__text">
         当前聊天同时检测到 legacy-v1 与 V2 数据。决议：{{ flow.mixedStorageDecision.value.kind }}。
@@ -207,6 +209,7 @@ import { useDialogStore } from '../../presentation-v2/stores/dialog-store';
 import { useToastStore } from '../../presentation-v2/stores/toast-store';
 import type { MixedStorageCommitAction_ACU } from '../../shared/models/mixed-storage-commit-action';
 import DormantDataSection from '../parts/DormantDataSection.vue';
+import SettingsRescueSection from '../parts/SettingsRescueSection.vue';
 import UbButton from '../ui/UbButton.vue';
 import UbCallout from '../ui/UbCallout.vue';
 import UbCheck from '../ui/UbCheck.vue';
@@ -255,6 +258,7 @@ const sections = computed(() => [
   { id: 'dm-checkpoint', label: '备份与恢复' },
   ...(flow.mixedStorageDecision.value ? [{ id: 'dm-mixed', label: '混合存储' }] : []),
   ...(flow.v2RecoverySummary.value ? [{ id: 'dm-recovery', label: '恢复诊断' }] : []),
+  { id: 'dm-settings-rescue', label: '配置副本恢复' },
   { id: 'dm-dormant', label: '休眠数据' },
   { id: 'dm-cleanup', label: '删除与清理' },
 ]);
