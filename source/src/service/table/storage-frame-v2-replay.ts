@@ -29,6 +29,7 @@ import { getUiSurface_ACU, showUiSurfaceToast_ACU } from '../../shared/ui-surfac
 import { buildReplayOptionsFingerprint_ACU, computeReplayHeadRevisionDigest_ACU, validateV2ReplayEvidenceFresh_ACU } from './v2-replay-session';
 import { isAiFloor_ACU } from '../../shared/ai-floor';
 import { splitSqlStatements_ACU } from '../../shared/sql-statement-splitter';
+import { getTableReplayGeneration_ACU, registerOwnTableSaveListener_ACU } from '../../shared/table-replay-generation';
 
 interface V2FrameRef_ACU {
   messageIndex: number;
@@ -1028,30 +1029,247 @@ function applyScheduleEventWithRestoreDeclMax_ACU(
   }
 }
 
-function replayEventForState_ACU(event: Pick<TableMutationLogEntryV2_ACU, 'filledSheetKeys' | 'changedSheetKeys' | 'groupKeys'> | undefined, aiFloor: number): void {
+/**
+ * 一次回放对 independentTableStates_ACU 的 schedule 写入效果（sheetKey → lastUpdatedAiFloor）。
+ * 每次写入都是覆盖式赋值，因此按顺序记录到 Map 后再整体应用，与逐条直接赋值的最终状态完全一致。
+ */
+type ReplayScheduleWrites_ACU = Map<string, number>;
+
+function recordEventScheduleWrites_ACU(
+  writes: ReplayScheduleWrites_ACU,
+  event: Pick<TableMutationLogEntryV2_ACU, 'filledSheetKeys' | 'changedSheetKeys' | 'groupKeys'> | undefined,
+  aiFloor: number,
+): void {
   if (!event) return;
-
   const filledKeys = [...new Set([...(event.filledSheetKeys || []), ...(event.groupKeys || [])])];
-  for (const sheetKey of filledKeys) {
-    if (!independentTableStates_ACU[sheetKey]) independentTableStates_ACU[sheetKey] = {};
-    independentTableStates_ACU[sheetKey].lastUpdatedAiFloor = aiFloor;
-  }
-
+  for (const sheetKey of filledKeys) writes.set(sheetKey, aiFloor);
 }
 
-function replayCheckpointSchedule_ACU(checkpoint: TableCheckpointV2_ACU, fallbackAiFloor: number): void {
+function recordCheckpointScheduleWrites_ACU(
+  writes: ReplayScheduleWrites_ACU,
+  checkpoint: TableCheckpointV2_ACU,
+  fallbackAiFloor: number,
+): void {
   const summary = checkpoint.scheduleSummary || {};
   for (const [sheetKey, state] of Object.entries(summary)) {
     if (state.lastFilledAiFloor === undefined) continue;
-    if (!independentTableStates_ACU[sheetKey]) independentTableStates_ACU[sheetKey] = {};
-    independentTableStates_ACU[sheetKey].lastUpdatedAiFloor = state.lastFilledAiFloor;
+    writes.set(sheetKey, state.lastFilledAiFloor);
   }
-  replayEventForState_ACU(checkpoint.event, fallbackAiFloor);
+  recordEventScheduleWrites_ACU(writes, checkpoint.event, fallbackAiFloor);
+}
+
+function applyScheduleWrites_ACU(writes: ReadonlyMap<string, number>): void {
+  for (const [sheetKey, aiFloor] of writes) {
+    if (!independentTableStates_ACU[sheetKey]) independentTableStates_ACU[sheetKey] = {};
+    independentTableStates_ACU[sheetKey].lastUpdatedAiFloor = aiFloor;
+  }
+}
+
+function replayEventForState_ACU(event: Pick<TableMutationLogEntryV2_ACU, 'filledSheetKeys' | 'changedSheetKeys' | 'groupKeys'> | undefined, aiFloor: number): void {
+  const writes: ReplayScheduleWrites_ACU = new Map();
+  recordEventScheduleWrites_ACU(writes, event, aiFloor);
+  applyScheduleWrites_ACU(writes);
+}
+
+function replayCheckpointSchedule_ACU(checkpoint: TableCheckpointV2_ACU, fallbackAiFloor: number): void {
+  const writes: ReplayScheduleWrites_ACU = new Map();
+  recordCheckpointScheduleWrites_ACU(writes, checkpoint, fallbackAiFloor);
+  applyScheduleWrites_ACU(writes);
 }
 
 function replaceState_ACU(state: TableDataObject_ACU, next: TableDataObject_ACU): void {
   Object.keys(state).forEach(key => delete (state as any)[key]);
   Object.assign(state, deepClone_ACU(next));
+}
+
+/**
+ * 最新回放快照（仅内存，不持久化）。
+ *
+ * 严格 full_checkpoint 回放在「目标范围内倒数第二个帧」处理完毕时截取完整 state，下一次回放
+ * （含写前回放、写时严格探针、合并刷新）只需从该帧之后续放，不再从 checkpoint 整链回放。
+ * 最后一个帧（通常是正在写入的楼层）始终整帧重放，不做帧内部分续放。
+ *
+ * 复用条件：隔离键、外部改动代次、模板结构指纹一致；回放根仍是同一个 full checkpoint 帧；
+ * 根到快照边界之间的每一帧楼层位置、aiFloor、帧对象一致，且帧内容指纹（排除回放不读取的
+ * 纪要向量镜像）与该帧被回放消费时一致，原地改帧即不命中。候选聊天与宿主聊天共享未改动的
+ * 帧对象，因而写时严格探针也能命中。只截取无兼容修补、无同名表身份归并、无过渡根、
+ * 前缀不含 table_edit_dsl 的严格结果；续放抛错时由调用方回退冷回放。
+ */
+interface ReplaySnapshotFrame_ACU {
+  messageIndex: number;
+  aiFloor: number;
+  frame: TableStorageFrameV2_ACU;
+  /** 帧被回放消费时的内容指纹；无法序列化时为 null，所在前缀不截取快照。 */
+  contentDigest: string | null;
+}
+
+interface LatestReplaySnapshot_ACU {
+  isolationKey: string;
+  generation: number;
+  templateFingerprint: string;
+  aliasContextEnabled: boolean;
+  rootMessageIndex: number;
+  boundaryMessageIndex: number;
+  prefix: ReplaySnapshotFrame_ACU[];
+  data: TableDataObject_ACU;
+  scheduleWrites: ReplayScheduleWrites_ACU;
+}
+
+interface ReplaySnapshotRun_ACU {
+  allowContinue: boolean;
+  /** 本次回放实际续放的快照；续放抛错时调用方据此丢弃快照并冷回放。 */
+  continuedFrom: LatestReplaySnapshot_ACU | null;
+}
+
+const LATEST_REPLAY_SNAPSHOT_MAX_ENTRIES_ACU = 3;
+let latestReplaySnapshots_ACU: LatestReplaySnapshot_ACU[] = [];
+
+/** 测试隔离用：续放开始时抛错的注入钩子（正常恒为 null）。 */
+let replaySnapshotContinueFault_ACU: (() => void) | null = null;
+
+export function _setReplaySnapshotContinueFaultForTests_ACU(hook: (() => void) | null): void {
+  replaySnapshotContinueFault_ACU = hook;
+}
+
+interface ReplayCacheHasher_ACU {
+  update(text: string): void;
+  digest(): string;
+}
+
+/** 两路独立 32 位乘法散列 + 总长度，增量喂入，避免拼接出整份大字符串。 */
+function createReplayCacheHasher_ACU(): ReplayCacheHasher_ACU {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9747b28c;
+  let length = 0;
+  return {
+    update(text: string): void {
+      for (let index = 0; index < text.length; index += 1) {
+        const code = text.charCodeAt(index);
+        h1 = Math.imul(h1 ^ code, 16777619);
+        h2 = Math.imul(h2 ^ code, 2654435761);
+        h2 = (h2 << 13) | (h2 >>> 19);
+      }
+      length += text.length;
+    },
+    digest(): string {
+      return `${length.toString(36)}:${(h1 >>> 0).toString(36)}:${(h2 >>> 0).toString(36)}`;
+    },
+  };
+}
+
+function hashReplayCacheText_ACU(text: string): string {
+  const hasher = createReplayCacheHasher_ACU();
+  hasher.update(text);
+  return hasher.digest();
+}
+
+function omitVectorMirrorReplacer_ACU(key: string, value: unknown): unknown {
+  return key === 'summaryVectorIndexFrame' ? undefined : value;
+}
+
+/** 完整 header-only 结构序列化，作为快照的模板结构指纹输入。 */
+function serializeReplayStructureMapping_ACU(snapshot: TableDataObject_ACU | null): string {
+  return snapshot ? JSON.stringify(snapshot) : 'none';
+}
+
+function frameHasTableEditDslOperation_ACU(frame: TableStorageFrameV2_ACU): boolean {
+  const rawEntries = (frame as { logEntries?: unknown }).logEntries;
+  const entries = Array.isArray(rawEntries)
+    ? rawEntries
+    : (rawEntries && typeof rawEntries === 'object' ? [rawEntries] : []);
+  return entries.some((entry: any) => Array.isArray(entry?.operations)
+    && entry.operations.some((operation: any) => operation?.kind === 'table_edit_dsl'));
+}
+
+/** 帧内容指纹：与快照序列化口径一致，排除回放不读取的纪要向量镜像。 */
+function computeReplayFrameContentDigest_ACU(frame: TableStorageFrameV2_ACU): string | null {
+  try {
+    const serialized = JSON.stringify(frame, omitVectorMirrorReplacer_ACU);
+    return typeof serialized === 'string' ? hashReplayCacheText_ACU(serialized) : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureReplaySnapshotFrame_ACU(ref: V2FrameRef_ACU): ReplaySnapshotFrame_ACU {
+  return {
+    messageIndex: ref.messageIndex,
+    aiFloor: ref.aiFloor,
+    frame: ref.frame,
+    contentDigest: computeReplayFrameContentDigest_ACU(ref.frame),
+  };
+}
+
+/** 先逐帧比对位置与帧对象（廉价），全部一致后才重算内容指纹；同一次匹配内按帧对象复用指纹。 */
+function replaySnapshotPrefixMatches_ACU(
+  prefix: ReplaySnapshotFrame_ACU[],
+  frameRefs: V2FrameRef_ACU[],
+  rootPosition: number,
+  digestCache: Map<TableStorageFrameV2_ACU, string | null>,
+): boolean {
+  for (let offset = 0; offset < prefix.length; offset += 1) {
+    const recorded = prefix[offset];
+    const ref = frameRefs[rootPosition + offset];
+    if (!ref || ref.messageIndex !== recorded.messageIndex || ref.aiFloor !== recorded.aiFloor
+      || ref.frame !== recorded.frame || recorded.contentDigest === null) {
+      return false;
+    }
+  }
+  for (const recorded of prefix) {
+    let digest = digestCache.get(recorded.frame);
+    if (digest === undefined) {
+      digest = computeReplayFrameContentDigest_ACU(recorded.frame);
+      digestCache.set(recorded.frame, digest);
+    }
+    if (digest !== recorded.contentDigest) return false;
+  }
+  return true;
+}
+
+function matchLatestReplaySnapshot_ACU(
+  frameRefs: V2FrameRef_ACU[],
+  checkpointRef: V2FrameRef_ACU,
+  isolationKey: string,
+  templateFingerprint: string,
+  generation: number,
+  aliasContextEnabled: boolean,
+): LatestReplaySnapshot_ACU | null {
+  const rootPosition = frameRefs.indexOf(checkpointRef);
+  if (rootPosition < 0) return null;
+  const candidates = latestReplaySnapshots_ACU
+    .filter(snapshot => snapshot.isolationKey === isolationKey
+      && snapshot.generation === generation
+      && snapshot.templateFingerprint === templateFingerprint
+      && snapshot.aliasContextEnabled === aliasContextEnabled
+      && snapshot.rootMessageIndex === checkpointRef.messageIndex)
+    .sort((left, right) => right.boundaryMessageIndex - left.boundaryMessageIndex);
+  const digestCache = new Map<TableStorageFrameV2_ACU, string | null>();
+  return candidates.find(snapshot => replaySnapshotPrefixMatches_ACU(snapshot.prefix, frameRefs, rootPosition, digestCache))
+    ?? null;
+}
+
+function storeLatestReplaySnapshot_ACU(snapshot: LatestReplaySnapshot_ACU): void {
+  latestReplaySnapshots_ACU = latestReplaySnapshots_ACU.filter(existing => existing.isolationKey !== snapshot.isolationKey
+    || (existing.generation === snapshot.generation && existing.boundaryMessageIndex !== snapshot.boundaryMessageIndex));
+  latestReplaySnapshots_ACU.push(snapshot);
+  while (latestReplaySnapshots_ACU.length > LATEST_REPLAY_SNAPSHOT_MAX_ENTRIES_ACU) latestReplaySnapshots_ACU.shift();
+}
+
+function discardLatestReplaySnapshot_ACU(snapshot: LatestReplaySnapshot_ACU): void {
+  latestReplaySnapshots_ACU = latestReplaySnapshots_ACU.filter(existing => existing !== snapshot);
+}
+
+// 表格写入 / 向量镜像写入自身保存成功后：把保存前截取的快照改记到新代次。
+// 帧对象与内容指纹仍逐帧校验，写入替换或原地改写过的帧不会命中。
+registerOwnTableSaveListener_ACU((before, after) => {
+  for (const snapshot of latestReplaySnapshots_ACU) {
+    if (snapshot.generation === before) snapshot.generation = after;
+  }
+});
+
+/** 清空最新回放快照（测试隔离与诊断用；正确性不依赖主动清理）。 */
+export function clearLiveReplayCache_ACU(): void {
+  latestReplaySnapshots_ACU = [];
 }
 
 /**
@@ -2504,6 +2722,8 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
   chatArg?: any[],
   isolationKeyArg?: string,
   options: LoadTableStateFromFramesV2Options_ACU = {},
+  /** 最新回放快照的续放与截取控制；未传时完全按冷回放执行。 */
+  snapshotRun?: ReplaySnapshotRun_ACU,
 ): Promise<TableReplayResultV2_ACU | null> {
   if (typeof options.onEntryApplied === 'function' && options.updateRuntimeState !== false) {
     throw new Error('[V2 Replay] onEntryApplied 仅在 updateRuntimeState:false 的只读路径下允许。');
@@ -2523,6 +2743,8 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
   let state: TableDataObject_ACU;
   let replayStartMessageIndex: number;
   let replacementAnchorCursor: ReplacementAnchor_ACU | null = null;
+  const replayGeneration = getTableReplayGeneration_ACU();
+  const snapshotScheduleWrites: ReplayScheduleWrites_ACU | null = snapshotRun ? new Map() : null;
 
   if (transitionRef) {
     state = cloneSpv79TransitionData_ACU(transitionRef.checkpoint);
@@ -2565,6 +2787,7 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
     normalizeLegacyDuplicateCheckpointState_ACU(state);
     replayStartMessageIndex = checkpointRef.messageIndex;
     if (options.updateRuntimeState !== false) replayCheckpointSchedule_ACU(checkpoint, checkpointRef.aiFloor);
+    if (snapshotScheduleWrites) recordCheckpointScheduleWrites_ACU(snapshotScheduleWrites, checkpoint, checkpointRef.aiFloor);
   }
 
   const runtime: SqlReplayRuntime_ACU = {
@@ -2605,6 +2828,36 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
     // 解析失败 → null，列重绑退化为无 supplemental（仍 target-first fail closed）。
     headerOnlyTemplate = resolveHeaderOnlyTemplateSnapshot_ACU(chat, isolationKey);
     if (headerOnlyTemplate) headerOnlyTemplateFingerprint = getTableDataFingerprint_ACU(headerOnlyTemplate);
+    // 最新回放快照：截取点固定为目标范围内倒数第二个帧；命中可复用快照时从其边界之后续放。
+    // 模板键用完整 header-only 结构序列化（与快照序列化口径一致），覆盖列重绑与休眠表判定的全部输入。
+    const snapshotTemplateKey = snapshotRun
+      ? hashReplayCacheText_ACU(serializeReplayStructureMapping_ACU(headerOnlyTemplate ?? null))
+      : '';
+    let snapshotPrefix: ReplaySnapshotFrame_ACU[] = [];
+    let snapshotCaptureMessageIndex: number | null = null;
+    const snapshotRootPosition = snapshotRun && !transitionRef && baseKind === 'full_checkpoint' && checkpointRef
+      ? frameRefs.indexOf(checkpointRef) : -1;
+    if (snapshotRun && checkpointRef && snapshotRootPosition >= 0) {
+      const capturePosition = frameRefs.length - 2;
+      if (capturePosition >= snapshotRootPosition) snapshotCaptureMessageIndex = frameRefs[capturePosition].messageIndex;
+      const snapshot = snapshotRun.allowContinue
+        ? matchLatestReplaySnapshot_ACU(frameRefs, checkpointRef, isolationKey, snapshotTemplateKey, replayGeneration, aliasContext.enabled)
+        : null;
+      if (snapshot) {
+        snapshotRun.continuedFrom = snapshot;
+        if (replaySnapshotContinueFault_ACU) replaySnapshotContinueFault_ACU();
+        replaceState_ACU(state, snapshot.data);
+        replayStartMessageIndex = snapshot.boundaryMessageIndex + 1;
+        if (options.updateRuntimeState !== false) applyScheduleWrites_ACU(snapshot.scheduleWrites);
+        for (const [sheetKey, aiFloor] of snapshot.scheduleWrites) {
+          snapshotScheduleWrites?.set(sheetKey, aiFloor);
+        }
+        snapshotPrefix = [...snapshot.prefix];
+        if (snapshotCaptureMessageIndex !== null && snapshotCaptureMessageIndex <= snapshot.boundaryMessageIndex) {
+          snapshotCaptureMessageIndex = null;
+        }
+      }
+    }
     // 同名 sheetKey 接管上下文（严格语义）：模板侧 key 优先保留。
     const identity = createReplayIdentityMergeContext_ACU(headerOnlyTemplate);
     // 阶段 I：只读 replay 的取消检查点。
@@ -2643,6 +2896,9 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
     };
     for (const ref of frameRefs) {
       if (ref.messageIndex < replayStartMessageIndex) continue;
+      if (snapshotCaptureMessageIndex !== null && ref.messageIndex <= snapshotCaptureMessageIndex) {
+        snapshotPrefix.push(captureReplaySnapshotFrame_ACU(ref));
+      }
       throwIfReplayAborted_ACU();
       await yieldIfBudgetExceeded_ACU();
       metrics.frameCount += 1;
@@ -2677,6 +2933,7 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
           if (options.updateRuntimeState !== false) {
             replayEventForState_ACU(checkpoint.event, ref.aiFloor);
           }
+          if (snapshotScheduleWrites) recordEventScheduleWrites_ACU(snapshotScheduleWrites, checkpoint.event, ref.aiFloor);
           pendingIntroductions.splice(pendingIntroductions.indexOf(checkpoint), 1);
         }
       };
@@ -2801,6 +3058,9 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
           if (shouldReplayEntryEvent && options.updateRuntimeState !== false) {
             replayEventForState_ACU(entry, ref.aiFloor);
           }
+          if (shouldReplayEntryEvent && snapshotScheduleWrites) {
+            recordEventScheduleWrites_ACU(snapshotScheduleWrites, entry, ref.aiFloor);
+          }
           if (shouldReplayEntryEvent || appliedAnyOperation) {
             await notifyEntryApplied_ACU(entry);
           }
@@ -2839,6 +3099,35 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
         });
         captureBoundarySet.delete(ref.messageIndex);
       }
+      if (snapshotCaptureMessageIndex === ref.messageIndex && checkpointRef && snapshotScheduleWrites) {
+        snapshotCaptureMessageIndex = null;
+        // compatibilityMode:'disabled' 跳过补锚分支，前缀结果可能与常规模式不同，只续放不截取；
+        // 常规模式无补锚时两者执行路径完全一致，其快照可供严格探针续放。
+        if (options.compatibilityMode !== 'disabled'
+          && compatibilityRepairs.length === 0
+          && identity.merges.length === 0
+          && getTableReplayGeneration_ACU() === replayGeneration
+          && !snapshotPrefix.some(recorded => frameHasTableEditDslOperation_ACU(recorded.frame))
+          // 指纹在帧被消费前记录；回放期间若帧被原地改写，下次匹配重算指纹即不命中，
+          // 因此此处只要求前缀每帧都有有效指纹。
+          && snapshotPrefix.every(recorded => recorded.contentDigest !== null)) {
+          // 只导出不 dispose：本次回放沿用 SQLite 继续，快照取与 materialize 相同的导出结果。
+          const snapshotData = buildReplayCandidate_ACU(runtime, state);
+          if (mergeLegacySheetIdentities_ACU(snapshotData, identity.preferredKeys).remaps.length === 0) {
+            storeLatestReplaySnapshot_ACU({
+              isolationKey,
+              generation: replayGeneration,
+              templateFingerprint: snapshotTemplateKey,
+              aliasContextEnabled: aliasContext.enabled,
+              rootMessageIndex: checkpointRef.messageIndex,
+              boundaryMessageIndex: ref.messageIndex,
+              prefix: [...snapshotPrefix],
+              data: snapshotData,
+              scheduleWrites: new Map(snapshotScheduleWrites),
+            });
+          }
+        }
+      }
     }
 
     // replay 结束：SQLite 仍为权威状态时最后导出一次并 dispose，保持单 Database 峰值。
@@ -2857,6 +3146,37 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(
     };
   } finally {
     disposeSqlReplayRuntime_ACU(runtime);
+  }
+}
+
+function createReplaySnapshotRun_ACU(options: LoadTableStateFromFramesV2Options_ACU): ReplaySnapshotRun_ACU | null {
+  // 观察路径必须逐条经过全部 entry，不能从快照中途续放。
+  if (Array.isArray(options.captureBoundaries) && options.captureBoundaries.length > 0) return null;
+  if (typeof options.onEntryApplied === 'function') return null;
+  // 最新回放快照只服务「整链最新回放」的常规加载/刷新热路径。带 boundary 的 bounded
+  // 回放是多边界捕获/诊断路径，带 yieldBudgetMs 的回放是调用方私有的调度意图——
+  // 从快照续放会跳过本应逐帧让出的帧（yieldCount 归零）并改变各 boundary 的
+  // frameCount 契约。与 in-flight 去重的排除口径一致，这两类调用完全按冷回放执行。
+  if (options.maxMessageIndex !== undefined) return null;
+  if (Number(options.yieldBudgetMs) > 0) return null;
+  return { allowContinue: true, continuedFrom: null };
+}
+
+/** 带最新回放快照的核心回放：续放抛错时丢弃该快照并按冷回放重跑，错误以冷回放为准。 */
+async function runReplayCoreWithSnapshot_ACU(
+  chatArg: any[] | undefined,
+  isolationKeyArg: string | undefined,
+  options: LoadTableStateFromFramesV2Options_ACU,
+): Promise<TableReplayResultV2_ACU | null> {
+  const snapshotRun = createReplaySnapshotRun_ACU(options);
+  try {
+    return await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options, snapshotRun ?? undefined);
+  } catch (error) {
+    const continued = snapshotRun?.continuedFrom;
+    if (!continued || error instanceof V2ReplayAbortedError_ACU) throw error;
+    discardLatestReplaySnapshot_ACU(continued);
+    logWarn_ACU('[V2 Replay] 从最新回放快照续放失败，已丢弃该快照并改为冷回放。');
+    return loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options, { allowContinue: false, continuedFrom: null });
   }
 }
 
@@ -3084,7 +3404,7 @@ export async function loadTableStateFromFramesV2Detailed_ACU(
       ? (() => {
         const sharedPromise = (async (): Promise<TableReplayResultV2_ACU | null> => {
           try {
-            return await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options);
+            return await runReplayCoreWithSnapshot_ACU(chatArg, isolationKeyArg, options);
           } catch (error) {
             return await recoverWithLegacyTolerantReplay_ACU(chat, isolationKey, options, error);
           } finally {
@@ -3097,7 +3417,7 @@ export async function loadTableStateFromFramesV2Detailed_ACU(
       : null;
     const result = inflightStarted
       ? await inflightStarted
-      : await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options);
+      : await runReplayCoreWithSnapshot_ACU(chatArg, isolationKeyArg, options);
     // 传入了 evidence 却走到这里 = 判定失配并回退冷回放（fail-open）。
     // 首次调用（空 evidence 对象）同样计入失配，命中率才有分母意义。
     if (evidence && !evidenceReusable && result?.metrics) {

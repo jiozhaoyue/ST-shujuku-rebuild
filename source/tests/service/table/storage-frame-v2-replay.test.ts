@@ -19,7 +19,8 @@ vi.mock('../../../src/shared/ui-surface-registry', () => ({
   showUiSurfaceToast_ACU: (...args: any[]) => mockUiToast(...args),
 }));
 
-import { applyTableOperationV2_ACU, applyTablePatchV2_ACU, collectScheduleSummaryFromFramesV2_ACU, createCompatTransitionCheckpointFromTolerantReplay_ACU, deriveSheetLifecycleFromFramesV2_ACU, flushPendingCompatTransitionFixations_ACU, loadTableStateFromFramesV2_ACU, loadTableStateFromFramesV2Detailed_ACU, loadTableStatesAtBoundariesFromFramesV2Detailed_ACU, V2ReplayAbortedError_ACU } from '../../../src/service/table/storage-frame-v2-replay';
+import { applyTableOperationV2_ACU, applyTablePatchV2_ACU, clearLiveReplayCache_ACU, collectScheduleSummaryFromFramesV2_ACU, createCompatTransitionCheckpointFromTolerantReplay_ACU, deriveSheetLifecycleFromFramesV2_ACU, flushPendingCompatTransitionFixations_ACU, loadTableStateFromFramesV2_ACU, loadTableStateFromFramesV2Detailed_ACU, loadTableStatesAtBoundariesFromFramesV2Detailed_ACU, _setReplaySnapshotContinueFaultForTests_ACU, V2ReplayAbortedError_ACU } from '../../../src/service/table/storage-frame-v2-replay';
+import { _resetTableReplayGenerationForTests_ACU, bumpTableReplayGeneration_ACU } from '../../../src/shared/table-replay-generation';
 import { buildSheetSchemaMigrationOperation_ACU, buildSheetSchemaMigrationOperationV2_ACU } from '../../../src/service/table/table-schema-migration';
 import { applySqlEditsToTableDataSnapshot_ACU } from '../../../src/service/table/sql-table-service';
 import { _set_independentTableStates_ACU, independentTableStates_ACU } from '../../../src/service/runtime/state-manager';
@@ -6602,5 +6603,438 @@ describe('onEntryApplied', () => {
       '',
       { compatibilityMode: 'disabled' },
     )).rejects.toThrow(/no such column: no_such_column/);
+  });
+});
+
+/**
+ * 回放回归基线（B 节）：冷回放既有行为锚点（移植 #5 前置）。
+ *
+ * 目的：锁定「快照机制」将改写的三个入口的既有可观测行为——构造帧序列 → 整链冷回放 →
+ * 断言结果结构（baseKind/metrics）+ 表名/行数/单元格值快照；并断言同一帧序列多次冷回放
+ * 逐字节一致（幂等）。只在本文件末尾追加，不改动任何既有用例。
+ */
+describe('回放回归基线：冷回放既有行为锚点（移植 #5 前置）', () => {
+  function makeColdChat(): any[] {
+    return [
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData() },
+              logEntries: [],
+            },
+          },
+        },
+      },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              logEntries: [
+                {
+                  seq: 1, entryId: 'golden-upsert', createdAt: 2, source: 'auto_fill',
+                  targetMessageIndex: 1, aiFloor: 2,
+                  filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                  operations: [{ kind: 'row_upsert', sheetKey: 'sheet_0', rowId: '2', cells: ['2', '木剑'] }],
+                },
+                {
+                  seq: 2, entryId: 'golden-sql', createdAt: 3, source: 'auto_fill',
+                  targetMessageIndex: 1, aiFloor: 2,
+                  filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                  operations: [{
+                    kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+                    statements: ["UPDATE inventory SET name = '钢剑' WHERE row_id = 1"],
+                  }],
+                },
+              ],
+            },
+          },
+        },
+      },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            _acu_storage_version: 2,
+            storageFrame: {
+              version: 2,
+              logEntries: [
+                {
+                  seq: 3, entryId: 'golden-tail', createdAt: 4, source: 'auto_fill',
+                  targetMessageIndex: 2, aiFloor: 3,
+                  filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                  operations: [{ kind: 'row_upsert', sheetKey: 'sheet_0', rowId: '3', cells: ['3', '药水'] }],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  const GOLDEN_CONTENT = [
+    ['row_id', 'name'],
+    ['1', '钢剑'],
+    ['2', '木剑'],
+    ['3', '药水'],
+  ];
+
+  it('loadTableStateFromFramesV2Detailed_ACU：整链冷回放结果结构与单元格值锚点', async () => {
+    const result = await loadTableStateFromFramesV2Detailed_ACU(makeColdChat(), '', {
+      updateRuntimeState: false,
+      enableAliasContext: false,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.baseKind).toBe('full_checkpoint');
+    expect(Object.keys(result!.data).filter(key => key.startsWith('sheet_'))).toEqual(['sheet_0']);
+    expect(result!.data.sheet_0.name).toBe('inventory');
+    expect(result!.data.sheet_0.content).toEqual(GOLDEN_CONTENT);
+    expect(result!.data.sheet_0.content).toHaveLength(4);
+    expect(result!.metrics).toBeDefined();
+    expect(result!.metrics!.frameCount).toBe(3);
+  });
+
+  it('loadTableStateFromFramesV2Detailed_ACU：同一帧序列三次冷回放逐字节一致（幂等）', async () => {
+    const first = await loadTableStateFromFramesV2Detailed_ACU(makeColdChat(), '', {
+      updateRuntimeState: false, enableAliasContext: false,
+    });
+    const second = await loadTableStateFromFramesV2Detailed_ACU(makeColdChat(), '', {
+      updateRuntimeState: false, enableAliasContext: false,
+    });
+    const third = await loadTableStateFromFramesV2Detailed_ACU(makeColdChat(), '', {
+      updateRuntimeState: false, enableAliasContext: false,
+    });
+
+    expect(first).toEqual(second);
+    expect(second).toEqual(third);
+    expect(JSON.stringify(first!.data)).toBe(JSON.stringify(second!.data));
+    expect(JSON.stringify(second!.data)).toBe(JSON.stringify(third!.data));
+  });
+
+  it('loadTableStateFromFramesV2_ACU：整链冷回放单元格值锚点与幂等', async () => {
+    const first = await loadTableStateFromFramesV2_ACU(makeColdChat(), '', {
+      updateRuntimeState: false, enableAliasContext: false,
+    });
+    const second = await loadTableStateFromFramesV2_ACU(makeColdChat(), '', {
+      updateRuntimeState: false, enableAliasContext: false,
+    });
+
+    expect(first?.sheet_0.content).toEqual(GOLDEN_CONTENT);
+    expect(second?.sheet_0.content).toEqual(GOLDEN_CONTENT);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it('loadTableStatesAtBoundariesFromFramesV2Detailed_ACU：多边界回放结构与值锚点', async () => {
+    const results = await loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
+      makeColdChat(), '', [0, 1, 2],
+      { updateRuntimeState: false, enableAliasContext: false },
+    );
+
+    expect([...results.keys()]).toEqual([0, 1, 2]);
+    expect(results.get(0)!.baseKind).toBe('full_checkpoint');
+    expect(results.get(0)!.data.sheet_0.content).toEqual([['row_id', 'name'], ['1', '铁剑']]);
+    expect(results.get(1)!.data.sheet_0.content).toEqual([
+      ['row_id', 'name'], ['1', '钢剑'], ['2', '木剑'],
+    ]);
+    expect(results.get(2)!.data.sheet_0.content).toEqual(GOLDEN_CONTENT);
+  });
+
+  it('loadTableStatesAtBoundariesFromFramesV2Detailed_ACU：同一边界集合两次回放逐字节一致（幂等）', async () => {
+    const options = { updateRuntimeState: false, enableAliasContext: false };
+    const first = await loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
+      makeColdChat(), '', [0, 1, 2], options,
+    );
+    const second = await loadTableStatesAtBoundariesFromFramesV2Detailed_ACU(
+      makeColdChat(), '', [0, 1, 2], options,
+    );
+
+    expect([...first.keys()]).toEqual([...second.keys()]);
+    for (const boundary of [0, 1, 2]) {
+      expect(JSON.stringify(first.get(boundary)!.data)).toBe(JSON.stringify(second.get(boundary)!.data));
+      expect(first.get(boundary)!.baseKind).toBe(second.get(boundary)!.baseKind);
+    }
+  });
+
+  it('冷回放锚点：sql_batch 顺序回放（复刻 :196）结果结构与值锚点且幂等', async () => {
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData() },
+            logEntries: [
+              {
+                seq: 1, entryId: 'seq-sql-1', createdAt: 2, source: 'auto_fill',
+                targetMessageIndex: 0, aiFloor: 1,
+                filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                operations: [{ kind: 'sql_batch', statements: ["UPDATE inventory SET name = '钢剑' WHERE row_id = 1"] }],
+              },
+              {
+                seq: 2, entryId: 'seq-sql-2', createdAt: 3, source: 'auto_fill',
+                targetMessageIndex: 0, aiFloor: 1,
+                filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                operations: [{ kind: 'sql_batch', statements: ["INSERT INTO inventory VALUES (2, '药水')"] }],
+              },
+            ],
+          },
+        },
+      },
+    }];
+
+    const first = await loadTableStateFromFramesV2_ACU(chat, '');
+    const second = await loadTableStateFromFramesV2_ACU(chat, '');
+    expect(first?.sheet_0.content).toEqual([['row_id', 'name'], ['1', '钢剑'], ['2', '药水']]);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it('冷回放锚点：单表 checkpoint + 后续 sql_sheet_batch（复刻 :1303）结构与值锚点且幂等', async () => {
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: { kind: 'full', createdAt: 1, reason: 'init', data: makeCheckpointData() },
+            perSheetCheckpoints: {
+              sheet_0: {
+                kind: 'sheet_full', createdAt: 2, reason: 'schema_change', sheetKey: 'sheet_0',
+                data: {
+                  uid: 'inventory', name: 'inventory',
+                  content: [['row_id', 'name', 'note'], ['1', '铁剑', '初始']],
+                  sourceData: { ddl: 'CREATE TABLE inventory (row_id INTEGER PRIMARY KEY, name TEXT, note TEXT);' },
+                  updateConfig: {}, exportConfig: {}, orderNo: 0,
+                },
+              },
+            },
+            logEntries: [{
+              seq: 1, entryId: 'checkpoint-sql', createdAt: 3, source: 'auto_fill',
+              targetMessageIndex: 0, aiFloor: 1,
+              filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+              operations: [{
+                kind: 'sql_sheet_batch', sheetKey: 'sheet_0', tableName: 'inventory', reason: 'system',
+                statements: ["UPDATE inventory SET note = '已更新' WHERE row_id = 1"],
+              }],
+            }],
+          },
+        },
+      },
+    }];
+
+    const first = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+    const second = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+    expect(first?.data.sheet_0.name).toBe('inventory');
+    expect(first?.data.sheet_0.content).toEqual([['row_id', 'name', 'note'], ['1', '铁剑', '已更新']]);
+    expect(JSON.stringify(first?.data)).toBe(JSON.stringify(second?.data));
+  });
+
+  it('冷回放锚点：data_replace 降级 full + 后续 row_upsert（复刻 :2784）结构与值锚点且幂等', async () => {
+    const replacementData = {
+      mate: { type: 'acu', version: 1 },
+      sheet_0: {
+        uid: 'inventory', name: 'inventory',
+        content: [['row_id', 'name'], ['1', '盾']],
+        sourceData: {}, updateConfig: {}, exportConfig: {}, orderNo: 0,
+      },
+    } as any;
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            logEntries: [
+              {
+                seq: 0, entryId: 'downgraded-0', createdAt: 1, source: 'system',
+                targetMessageIndex: 0, aiFloor: 1,
+                filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                operations: [{ kind: 'data_replace', data: replacementData, reason: 'checkpoint_fallback' }],
+                writeSet: [{ kind: 'all' }],
+              },
+              {
+                seq: 1, entryId: 'after-replace', createdAt: 2, source: 'auto_fill',
+                targetMessageIndex: 0, aiFloor: 1,
+                filledSheetKeys: ['sheet_0'], changedSheetKeys: ['sheet_0'], groupKeys: [],
+                operations: [{ kind: 'row_upsert', sheetKey: 'sheet_0', rowId: '2', cells: ['2', '药水'] }],
+              },
+            ],
+          },
+        },
+      },
+    }];
+
+    const first = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+    const second = await loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+    expect(first?.baseKind).toBe('replacement_anchor');
+    expect(first?.data.sheet_0.content).toEqual([['row_id', 'name'], ['1', '盾'], ['2', '药水']]);
+    expect(JSON.stringify(first?.data)).toBe(JSON.stringify(second?.data));
+  });
+});
+
+/**
+ * 移植 #5 本体（albus fd9ba783）：最新回放快照续放。
+ * 只在本文件末尾追加，不改动任何既有用例。
+ */
+describe('最新回放快照续放（移植 #5）', () => {
+  const replay = (chat: any[]) => loadTableStateFromFramesV2Detailed_ACU(chat, '', { updateRuntimeState: false });
+
+  it('最新回放快照：写入末楼后下一次回放从快照续放，结果与整链冷回放一致', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+    const lastIndex = chat.length - 1;
+    const previousHostApi = SillyTavern_API_ACU;
+    _resetTableReplayGenerationForTests_ACU();
+    clearLiveReplayCache_ACU();
+    try {
+      _set_SillyTavern_API_ACU({ chat, saveChat: async () => undefined } as any);
+      const before = await replay(chat);
+      expect(before!.metrics!.frameCount).toBe(chat.length);
+      const operation = { kind: 'row_upsert' as const, sheetKey: 'sheet_0', rowId: '2', cells: ['2', '快照续放', 7] };
+      const afterData = structuredClone(before!.data);
+      await applyTableOperationV2_ACU(afterData, operation);
+      const persisted = await persistTableMutationLogV2_ACU({
+        targetMessageIndex: lastIndex,
+        source: 'auto_fill',
+        afterData,
+        filledSheetKeys: ['sheet_0'],
+        candidateChangedSheetKeys: ['sheet_0'],
+        operations: [operation],
+        transactionContext: {
+          baseRevision: 'test-latest-replay-snapshot',
+          writeSet: [{ kind: 'sheet', sheetKey: 'sheet_0' }],
+          assertFresh: () => undefined,
+          runCommit: async (task: () => Promise<any>) => task(),
+        },
+      });
+      expect(persisted.saved, JSON.stringify(persisted)).toBe(true);
+
+      // 写入只替换末楼帧，前缀帧对象与内容不变：自身保存吸收代次后仍从倒数第二帧快照续放。
+      const continued = await replay(chat);
+      expect(continued!.metrics!.frameCount).toBe(1);
+      expect(continued!.data.sheet_0.content.some((row: any[]) => row[1] === '快照续放')).toBe(true);
+
+      clearLiveReplayCache_ACU();
+      const cold = await replay(chat);
+      expect(cold!.metrics!.frameCount).toBe(chat.length);
+      expect(continued!.data).toEqual(cold!.data);
+    } finally {
+      _set_SillyTavern_API_ACU(previousHostApi);
+      _setReplaySnapshotContinueFaultForTests_ACU(null);
+      clearLiveReplayCache_ACU();
+    }
+  });
+
+  it('最新回放快照：前缀帧被原地改写后不命中，回退整链冷回放', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+    clearLiveReplayCache_ACU();
+    try {
+      const first = await replay(chat);
+      expect(first!.metrics!.frameCount).toBe(chat.length);
+      const reused = await replay(chat);
+      expect(reused!.metrics!.frameCount).toBe(1);
+      // 原地改写前缀帧内部字段（帧对象与 logEntries 引用均不变）。
+      chat[5].TavernDB_ACU_IsolatedData[''].storageFrame.logEntries[0].operations[4].cells[1] = '原地改写';
+      const afterMutation = await replay(chat);
+      expect(afterMutation!.metrics!.frameCount).toBe(chat.length);
+      clearLiveReplayCache_ACU();
+      const cold = await replay(chat);
+      expect(afterMutation!.data).toEqual(cold!.data);
+    } finally {
+      clearLiveReplayCache_ACU();
+    }
+  });
+
+  it('最新回放快照：代次递增后快照失效，回退整链冷回放', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+    _resetTableReplayGenerationForTests_ACU();
+    clearLiveReplayCache_ACU();
+    try {
+      const first = await replay(chat);
+      expect(first!.metrics!.frameCount).toBe(chat.length);
+      const reused = await replay(chat);
+      expect(reused!.metrics!.frameCount).toBe(1);
+      // 外部改动边界（宿主保存 / 删楼滑动 / 换聊天）递增代次，快照未改记即失效。
+      bumpTableReplayGeneration_ACU();
+      const afterBump = await replay(chat);
+      expect(afterBump!.metrics!.frameCount).toBe(chat.length);
+      clearLiveReplayCache_ACU();
+      const cold = await replay(chat);
+      expect(afterBump!.data).toEqual(cold!.data);
+    } finally {
+      _resetTableReplayGenerationForTests_ACU();
+      clearLiveReplayCache_ACU();
+    }
+  });
+
+  it('最新回放快照：templateFingerprint 变化后不命中，回退整链冷回放', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+    const previousHostApi = SillyTavern_API_ACU;
+    _resetTableReplayGenerationForTests_ACU();
+    clearLiveReplayCache_ACU();
+    try {
+      const templateA = makeCheckpointData();
+      chat[0].TavernDB_ACU_ScopedConfig = {
+        version: 1,
+        template: { '': { mode: 'chat_override', isolationKey: '', templateStr: JSON.stringify(templateA) } },
+      };
+      _set_SillyTavern_API_ACU({ chat, saveChat: async () => undefined } as any);
+      const first = await replay(chat);
+      expect(first!.metrics!.frameCount).toBe(chat.length);
+      const reused = await replay(chat);
+      expect(reused!.metrics!.frameCount).toBe(1);
+      // 模板结构变化（新增一张表）→ header-only 结构指纹不同 → 快照不命中。
+      const templateB = makeCheckpointData();
+      templateB.sheet_extra = {
+        uid: 'extra', name: 'extra', content: [['row_id', 'v']],
+        sourceData: { ddl: 'CREATE TABLE extra (row_id INTEGER PRIMARY KEY, v TEXT);' },
+        updateConfig: {}, exportConfig: {}, orderNo: 99,
+      };
+      chat[0].TavernDB_ACU_ScopedConfig.template[''].templateStr = JSON.stringify(templateB);
+      const afterChange = await replay(chat);
+      expect(afterChange!.metrics!.frameCount).toBe(chat.length);
+      clearLiveReplayCache_ACU();
+      const cold = await replay(chat);
+      expect(afterChange!.data).toEqual(cold!.data);
+    } finally {
+      _set_SillyTavern_API_ACU(previousHostApi);
+      _resetTableReplayGenerationForTests_ACU();
+      clearLiveReplayCache_ACU();
+    }
+  });
+
+  it('最新回放快照：续放抛错回退冷回放且数据不污染', async () => {
+    const { chat } = buildLongHistoryFixture_ACU();
+    _resetTableReplayGenerationForTests_ACU();
+    clearLiveReplayCache_ACU();
+    try {
+      const first = await replay(chat);
+      expect(first!.metrics!.frameCount).toBe(chat.length);
+      // 命中快照时注入一次性故障：续放抛错 → 丢弃快照 → 冷回放兜底。
+      _setReplaySnapshotContinueFaultForTests_ACU(() => {
+        _setReplaySnapshotContinueFaultForTests_ACU(null);
+        throw new Error('注入续放故障');
+      });
+      const recovered = await replay(chat);
+      // 回退冷回放：整链帧数，数据与冷回放逐字节一致（不被半截续放污染）。
+      expect(recovered!.metrics!.frameCount).toBe(chat.length);
+      clearLiveReplayCache_ACU();
+      const cold = await replay(chat);
+      expect(recovered!.data).toEqual(cold!.data);
+      expect(JSON.stringify(recovered!.data)).toBe(JSON.stringify(cold!.data));
+    } finally {
+      _setReplaySnapshotContinueFaultForTests_ACU(null);
+      _resetTableReplayGenerationForTests_ACU();
+      clearLiveReplayCache_ACU();
+    }
   });
 });

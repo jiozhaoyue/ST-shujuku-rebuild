@@ -22,6 +22,7 @@ import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { globalMeta_ACU } from '../../data/repositories/profile-repo';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU } from '../../service/runtime/state-manager';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { bumpTableReplayGeneration_ACU } from '../../shared/table-replay-generation';
 
 /** 连续事件停止后多久执行一轮；旧行为是 500ms。 */
 export const TRAILING_DELAY_MS_ACU = 1200;
@@ -51,6 +52,8 @@ export function scheduleChatMutationRefresh_ACU(reason: 'chat_modified_deleted' 
   latestReason_ACU = reason;
   if (reason === 'chat_modified_deleted') pendingDeletion_ACU = true;
   generation_ACU += 1;
+  // 删楼/滑动会原地改变楼层与帧：立即使最新回放快照失效，不等防抖轮次。
+  bumpTableReplayGeneration_ACU();
 
   const now = Date.now();
   if (firstRequestAt_ACU === 0) firstRequestAt_ACU = now;
@@ -75,6 +78,7 @@ export function cancelPendingChatMutationRefresh_ACU(): void {
   clearTimeout(chatMutationDebounceTimer_ACU);
   _set_chatMutationDebounceTimer_ACU(null);
   generation_ACU += 1; // 使已排队的 runMutationRound_ACU 变为过期代次
+  bumpTableReplayGeneration_ACU(); // 立即刷新同样是外部改动边界，快照失效
   firstRequestAt_ACU = 0;
   pendingDeletion_ACU = false; // 旧聊天的删楼不能在新聊天上做恢复
 }
@@ -110,6 +114,7 @@ function runMutationRound_ACU(options: { urgent?: boolean } = {}): Promise<void>
 async function executeMutationRound_ACU(urgent: boolean): Promise<void> {
   running_ACU = true;
   const startedGeneration = generation_ACU;
+  bumpTableReplayGeneration_ACU();
   firstRequestAt_ACU = 0;
   const roundHasDeletion = pendingDeletion_ACU;
   pendingDeletion_ACU = false;

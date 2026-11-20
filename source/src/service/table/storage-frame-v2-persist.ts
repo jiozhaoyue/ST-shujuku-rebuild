@@ -30,6 +30,7 @@ import { probeOversizedWrite_ACU } from './oversized-write-warning';
 import { isDataBearingMessage_ACU } from '../../shared/ai-floor';
 import { downgradeOtherFullCheckpoints_ACU } from './v2-full-checkpoint-downgrade';
 import { cloneChatWithTableFields_ACU } from './chat-table-field-swap';
+import { absorbOwnTableSave_ACU, getTableReplayGeneration_ACU } from '../../shared/table-replay-generation';
 
 // 保存时的只读校验回放按时间预算让出主线程（大表保存不卡界面）；仍持有提交锁，
 // 只在完整 frame/entry 边界让步、不跳过严格校验，同轮 replayEvidence 照常复用。
@@ -2819,6 +2820,7 @@ async function persistTableMutationLogV2Core_ACU(
       enabled: settings_ACU.dataIsolationEnabled,
       code: settings_ACU.dataIsolationCode,
     });
+    const generationBeforeSave = getTableReplayGeneration_ACU();
     // 临时基线升级会替换 orphan frame、清空日志并写 recoveryBackup，必须确认宿主真实落盘。
     if (options.strictSave || replacement || temporaryBaselineUpgrade || provisionalConvergenceReplay) {
       await saveChatToHostStrict_ACU();
@@ -2826,6 +2828,8 @@ async function persistTableMutationLogV2Core_ACU(
       // 填表批的普通存盘走合并调度：填表运行窗口内只记下改动，窗口结束补存一次；窗口外与直接存盘等价。
       await saveChatToHostCoalesced_ACU();
     }
+    // 本次保存与帧复核均通过：保存前截取的最新回放快照改记到新代次（未替换的帧仍逐帧校验）。
+    absorbOwnTableSave_ACU(generationBeforeSave);
   } catch (error) {
     for (const state of previousMessageState) {
       if (state.hadIsolatedData) state.message.TavernDB_ACU_IsolatedData = state.isolatedData;
@@ -3180,7 +3184,9 @@ async function persistTableMutationLogBatchV2Core_ACU(
         delete chat[index].TavernDB_ACU_Identity;
       }
     }
+    const generationBeforeSave = getTableReplayGeneration_ACU();
     await saveChatToHostStrict_ACU();
+    absorbOwnTableSave_ACU(generationBeforeSave);
   } catch (error) {
     for (const snapshot of snapshots) {
       if (snapshot.hadIsolatedData) snapshot.message.TavernDB_ACU_IsolatedData = snapshot.isolatedData;

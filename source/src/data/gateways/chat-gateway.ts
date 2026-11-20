@@ -10,6 +10,7 @@
 
 import { SillyTavern_API_ACU } from '../../shared/host-api';
 import { cleanChatName_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { bumpTableReplayGeneration_ACU } from '../../shared/table-replay-generation';
 import { getHostRequestHeaders_ACU } from './ai-gateway';
 
 /**
@@ -154,6 +155,8 @@ async function saveChatToHostRaw_ACU(): Promise<void> {
  * 内置存在性检查，saveChat 不可用时静默跳过
  */
 export async function saveChatToHost_ACU(): Promise<void> {
+    // 任何保存都可能携带原地改写的表格帧：先递增外部改动代次，使最新回放快照失效。
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         logWarn_ACU('[ChatGateway] saveChat 不可用，跳过保存');
         return;
@@ -212,6 +215,7 @@ export async function endChatSaveCoalescing_ACU(): Promise<void> {
  * - 其余情况 → 立即真存并等待完成；已有补存环在途时复用它（失败会抛给调用方，与直接存盘一致）。
  */
 export async function saveChatToHostCoalesced_ACU(): Promise<void> {
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         logWarn_ACU('[ChatGateway] saveChat 不可用，跳过保存');
         return;
@@ -310,6 +314,7 @@ export function resetChatSaveCoalescerForTests_ACU(): void {
  * 仅适用于后续会触发不可逆外置副作用的事务；宿主保存能力缺失时必须失败，不能静默跳过。
  */
 export async function saveChatToHostStrict_ACU(): Promise<void> {
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         throw new Error('宿主 saveChat 不可用，无法提交破坏性聊天数据变更。');
     }

@@ -6212,6 +6212,42 @@ async function createRerankScores_ACU(request) {
 }
 
 /**
+ * 聊天表格帧的外部改动代次（仅内存）。
+ *
+ * 宿主保存入口、楼层删除/滑动调度与聊天切换都会递增代次；最新回放快照只在代次未变时复用。
+ * 表格写入、纪要向量镜像写入在自身保存成功后调用 absorbOwnTableSave_ACU：保存期间若只有
+ * 这一次递增，快照模块把保存前截取的快照改记到新代次（帧对象与内容指纹仍逐帧校验）。
+ */
+let tableReplayGeneration_ACU = 0;
+const ownSaveListeners_ACU = [];
+function bumpTableReplayGeneration_ACU() {
+    tableReplayGeneration_ACU += 1;
+}
+function getTableReplayGeneration_ACU() {
+    return tableReplayGeneration_ACU;
+}
+function registerOwnTableSaveListener_ACU(listener) {
+    ownSaveListeners_ACU.push(listener);
+}
+function absorbOwnTableSave_ACU(generationBeforeSave) {
+    const current = tableReplayGeneration_ACU;
+    if (current !== generationBeforeSave + 1)
+        return;
+    for (const listener of ownSaveListeners_ACU) {
+        try {
+            listener(generationBeforeSave, current);
+        }
+        catch (_) {
+            // 快照改记是纯优化，失败只意味着下一次回放走冷路径。
+        }
+    }
+}
+/** 测试隔离用：重置代次（监听器保留，仍指向回放核心的快照改记逻辑）。 */
+function _resetTableReplayGenerationForTests_ACU() {
+    tableReplayGeneration_ACU = 0;
+}
+
+/**
  * data/gateways/ai-gateway.ts — AI 调用网关
  *
  * 封装 SillyTavern_API_ACU 的宿主调用方法。
@@ -6400,6 +6436,8 @@ async function saveChatToHostRaw_ACU() {
  * 内置存在性检查，saveChat 不可用时静默跳过
  */
 async function saveChatToHost_ACU() {
+    // 任何保存都可能携带原地改写的表格帧：先递增外部改动代次，使最新回放快照失效。
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         logWarn_ACU('[ChatGateway] saveChat 不可用，跳过保存');
         return;
@@ -6462,6 +6500,7 @@ async function endChatSaveCoalescing_ACU() {
  * - 其余情况 → 立即真存并等待完成；已有补存环在途时复用它（失败会抛给调用方，与直接存盘一致）。
  */
 async function saveChatToHostCoalesced_ACU() {
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         logWarn_ACU('[ChatGateway] saveChat 不可用，跳过保存');
         return;
@@ -6562,6 +6601,7 @@ function resetChatSaveCoalescerForTests_ACU() {
  * 仅适用于后续会触发不可逆外置副作用的事务；宿主保存能力缺失时必须失败，不能静默跳过。
  */
 async function saveChatToHostStrict_ACU() {
+    bumpTableReplayGeneration_ACU();
     if (typeof SillyTavern_API_ACU?.saveChat !== 'function') {
         throw new Error('宿主 saveChat 不可用，无法提交破坏性聊天数据变更。');
     }
@@ -47023,30 +47063,165 @@ function applyScheduleEventWithRestoreDeclMax_ACU(summary, event, aiFloor, resto
         summary[sheetKey].lastFilledAiFloor = prev === undefined ? effective : Math.max(prev, effective);
     }
 }
-function replayEventForState_ACU(event, aiFloor) {
+function recordEventScheduleWrites_ACU(writes, event, aiFloor) {
     if (!event)
         return;
     const filledKeys = [...new Set([...(event.filledSheetKeys || []), ...(event.groupKeys || [])])];
-    for (const sheetKey of filledKeys) {
+    for (const sheetKey of filledKeys)
+        writes.set(sheetKey, aiFloor);
+}
+function recordCheckpointScheduleWrites_ACU(writes, checkpoint, fallbackAiFloor) {
+    const summary = checkpoint.scheduleSummary || {};
+    for (const [sheetKey, state] of Object.entries(summary)) {
+        if (state.lastFilledAiFloor === undefined)
+            continue;
+        writes.set(sheetKey, state.lastFilledAiFloor);
+    }
+    recordEventScheduleWrites_ACU(writes, checkpoint.event, fallbackAiFloor);
+}
+function applyScheduleWrites_ACU(writes) {
+    for (const [sheetKey, aiFloor] of writes) {
         if (!independentTableStates_ACU[sheetKey])
             independentTableStates_ACU[sheetKey] = {};
         independentTableStates_ACU[sheetKey].lastUpdatedAiFloor = aiFloor;
     }
 }
+function replayEventForState_ACU(event, aiFloor) {
+    const writes = new Map();
+    recordEventScheduleWrites_ACU(writes, event, aiFloor);
+    applyScheduleWrites_ACU(writes);
+}
 function replayCheckpointSchedule_ACU(checkpoint, fallbackAiFloor) {
-    const summary = checkpoint.scheduleSummary || {};
-    for (const [sheetKey, state] of Object.entries(summary)) {
-        if (state.lastFilledAiFloor === undefined)
-            continue;
-        if (!independentTableStates_ACU[sheetKey])
-            independentTableStates_ACU[sheetKey] = {};
-        independentTableStates_ACU[sheetKey].lastUpdatedAiFloor = state.lastFilledAiFloor;
-    }
-    replayEventForState_ACU(checkpoint.event, fallbackAiFloor);
+    const writes = new Map();
+    recordCheckpointScheduleWrites_ACU(writes, checkpoint, fallbackAiFloor);
+    applyScheduleWrites_ACU(writes);
 }
 function replaceState_ACU(state, next) {
     Object.keys(state).forEach(key => delete state[key]);
     Object.assign(state, deepClone_ACU(next));
+}
+const LATEST_REPLAY_SNAPSHOT_MAX_ENTRIES_ACU = 3;
+let latestReplaySnapshots_ACU = [];
+/** 测试隔离用：续放开始时抛错的注入钩子（正常恒为 null）。 */
+let replaySnapshotContinueFault_ACU = null;
+function _setReplaySnapshotContinueFaultForTests_ACU(hook) {
+    replaySnapshotContinueFault_ACU = hook;
+}
+/** 两路独立 32 位乘法散列 + 总长度，增量喂入，避免拼接出整份大字符串。 */
+function createReplayCacheHasher_ACU() {
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9747b28c;
+    let length = 0;
+    return {
+        update(text) {
+            for (let index = 0; index < text.length; index += 1) {
+                const code = text.charCodeAt(index);
+                h1 = Math.imul(h1 ^ code, 16777619);
+                h2 = Math.imul(h2 ^ code, 2654435761);
+                h2 = (h2 << 13) | (h2 >>> 19);
+            }
+            length += text.length;
+        },
+        digest() {
+            return `${length.toString(36)}:${(h1 >>> 0).toString(36)}:${(h2 >>> 0).toString(36)}`;
+        },
+    };
+}
+function hashReplayCacheText_ACU(text) {
+    const hasher = createReplayCacheHasher_ACU();
+    hasher.update(text);
+    return hasher.digest();
+}
+function omitVectorMirrorReplacer_ACU(key, value) {
+    return key === 'summaryVectorIndexFrame' ? undefined : value;
+}
+/** 完整 header-only 结构序列化，作为快照的模板结构指纹输入。 */
+function serializeReplayStructureMapping_ACU(snapshot) {
+    return snapshot ? JSON.stringify(snapshot) : 'none';
+}
+function frameHasTableEditDslOperation_ACU(frame) {
+    const rawEntries = frame.logEntries;
+    const entries = Array.isArray(rawEntries)
+        ? rawEntries
+        : (rawEntries && typeof rawEntries === 'object' ? [rawEntries] : []);
+    return entries.some((entry) => Array.isArray(entry?.operations)
+        && entry.operations.some((operation) => operation?.kind === 'table_edit_dsl'));
+}
+/** 帧内容指纹：与快照序列化口径一致，排除回放不读取的纪要向量镜像。 */
+function computeReplayFrameContentDigest_ACU(frame) {
+    try {
+        const serialized = JSON.stringify(frame, omitVectorMirrorReplacer_ACU);
+        return typeof serialized === 'string' ? hashReplayCacheText_ACU(serialized) : null;
+    }
+    catch {
+        return null;
+    }
+}
+function captureReplaySnapshotFrame_ACU(ref) {
+    return {
+        messageIndex: ref.messageIndex,
+        aiFloor: ref.aiFloor,
+        frame: ref.frame,
+        contentDigest: computeReplayFrameContentDigest_ACU(ref.frame),
+    };
+}
+/** 先逐帧比对位置与帧对象（廉价），全部一致后才重算内容指纹；同一次匹配内按帧对象复用指纹。 */
+function replaySnapshotPrefixMatches_ACU(prefix, frameRefs, rootPosition, digestCache) {
+    for (let offset = 0; offset < prefix.length; offset += 1) {
+        const recorded = prefix[offset];
+        const ref = frameRefs[rootPosition + offset];
+        if (!ref || ref.messageIndex !== recorded.messageIndex || ref.aiFloor !== recorded.aiFloor
+            || ref.frame !== recorded.frame || recorded.contentDigest === null) {
+            return false;
+        }
+    }
+    for (const recorded of prefix) {
+        let digest = digestCache.get(recorded.frame);
+        if (digest === undefined) {
+            digest = computeReplayFrameContentDigest_ACU(recorded.frame);
+            digestCache.set(recorded.frame, digest);
+        }
+        if (digest !== recorded.contentDigest)
+            return false;
+    }
+    return true;
+}
+function matchLatestReplaySnapshot_ACU(frameRefs, checkpointRef, isolationKey, templateFingerprint, generation, aliasContextEnabled) {
+    const rootPosition = frameRefs.indexOf(checkpointRef);
+    if (rootPosition < 0)
+        return null;
+    const candidates = latestReplaySnapshots_ACU
+        .filter(snapshot => snapshot.isolationKey === isolationKey
+        && snapshot.generation === generation
+        && snapshot.templateFingerprint === templateFingerprint
+        && snapshot.aliasContextEnabled === aliasContextEnabled
+        && snapshot.rootMessageIndex === checkpointRef.messageIndex)
+        .sort((left, right) => right.boundaryMessageIndex - left.boundaryMessageIndex);
+    const digestCache = new Map();
+    return candidates.find(snapshot => replaySnapshotPrefixMatches_ACU(snapshot.prefix, frameRefs, rootPosition, digestCache))
+        ?? null;
+}
+function storeLatestReplaySnapshot_ACU(snapshot) {
+    latestReplaySnapshots_ACU = latestReplaySnapshots_ACU.filter(existing => existing.isolationKey !== snapshot.isolationKey
+        || (existing.generation === snapshot.generation && existing.boundaryMessageIndex !== snapshot.boundaryMessageIndex));
+    latestReplaySnapshots_ACU.push(snapshot);
+    while (latestReplaySnapshots_ACU.length > LATEST_REPLAY_SNAPSHOT_MAX_ENTRIES_ACU)
+        latestReplaySnapshots_ACU.shift();
+}
+function discardLatestReplaySnapshot_ACU(snapshot) {
+    latestReplaySnapshots_ACU = latestReplaySnapshots_ACU.filter(existing => existing !== snapshot);
+}
+// 表格写入 / 向量镜像写入自身保存成功后：把保存前截取的快照改记到新代次。
+// 帧对象与内容指纹仍逐帧校验，写入替换或原地改写过的帧不会命中。
+registerOwnTableSaveListener_ACU((before, after) => {
+    for (const snapshot of latestReplaySnapshots_ACU) {
+        if (snapshot.generation === before)
+            snapshot.generation = after;
+    }
+});
+/** 清空最新回放快照（测试隔离与诊断用；正确性不依赖主动清理）。 */
+function clearLiveReplayCache_ACU() {
+    latestReplaySnapshots_ACU = [];
 }
 /**
  * Repairs ordering metadata of a legacy timeline shard for this replay only.
@@ -48340,7 +48515,9 @@ function collectScheduleSummaryFromFramesV2_ACU(chatArg, isolationKey, options =
     }
     return summary;
 }
-async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options = {}) {
+async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options = {}, 
+/** 最新回放快照的续放与截取控制；未传时完全按冷回放执行。 */
+snapshotRun) {
     if (typeof options.onEntryApplied === 'function' && options.updateRuntimeState !== false) {
         throw new Error('[V2 Replay] onEntryApplied 仅在 updateRuntimeState:false 的只读路径下允许。');
     }
@@ -48359,6 +48536,8 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
     let state;
     let replayStartMessageIndex;
     let replacementAnchorCursor = null;
+    const replayGeneration = getTableReplayGeneration_ACU();
+    const snapshotScheduleWrites = snapshotRun ? new Map() : null;
     if (transitionRef) {
         state = cloneSpv79TransitionData_ACU(transitionRef.checkpoint);
         baseKind = transitionRef.source === 'compat' ? 'compat_transition_checkpoint' : 'spv79_transition_checkpoint';
@@ -48403,6 +48582,8 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
         replayStartMessageIndex = checkpointRef.messageIndex;
         if (options.updateRuntimeState !== false)
             replayCheckpointSchedule_ACU(checkpoint, checkpointRef.aiFloor);
+        if (snapshotScheduleWrites)
+            recordCheckpointScheduleWrites_ACU(snapshotScheduleWrites, checkpoint, checkpointRef.aiFloor);
     }
     const runtime = {
         engine: new SqliteEngine(),
@@ -48440,6 +48621,39 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
         headerOnlyTemplate = resolveHeaderOnlyTemplateSnapshot_ACU(chat, isolationKey);
         if (headerOnlyTemplate)
             headerOnlyTemplateFingerprint = getTableDataFingerprint_ACU(headerOnlyTemplate);
+        // 最新回放快照：截取点固定为目标范围内倒数第二个帧；命中可复用快照时从其边界之后续放。
+        // 模板键用完整 header-only 结构序列化（与快照序列化口径一致），覆盖列重绑与休眠表判定的全部输入。
+        const snapshotTemplateKey = snapshotRun
+            ? hashReplayCacheText_ACU(serializeReplayStructureMapping_ACU(headerOnlyTemplate ?? null))
+            : '';
+        let snapshotPrefix = [];
+        let snapshotCaptureMessageIndex = null;
+        const snapshotRootPosition = snapshotRun && !transitionRef && baseKind === 'full_checkpoint' && checkpointRef
+            ? frameRefs.indexOf(checkpointRef) : -1;
+        if (snapshotRun && checkpointRef && snapshotRootPosition >= 0) {
+            const capturePosition = frameRefs.length - 2;
+            if (capturePosition >= snapshotRootPosition)
+                snapshotCaptureMessageIndex = frameRefs[capturePosition].messageIndex;
+            const snapshot = snapshotRun.allowContinue
+                ? matchLatestReplaySnapshot_ACU(frameRefs, checkpointRef, isolationKey, snapshotTemplateKey, replayGeneration, aliasContext.enabled)
+                : null;
+            if (snapshot) {
+                snapshotRun.continuedFrom = snapshot;
+                if (replaySnapshotContinueFault_ACU)
+                    replaySnapshotContinueFault_ACU();
+                replaceState_ACU(state, snapshot.data);
+                replayStartMessageIndex = snapshot.boundaryMessageIndex + 1;
+                if (options.updateRuntimeState !== false)
+                    applyScheduleWrites_ACU(snapshot.scheduleWrites);
+                for (const [sheetKey, aiFloor] of snapshot.scheduleWrites) {
+                    snapshotScheduleWrites?.set(sheetKey, aiFloor);
+                }
+                snapshotPrefix = [...snapshot.prefix];
+                if (snapshotCaptureMessageIndex !== null && snapshotCaptureMessageIndex <= snapshot.boundaryMessageIndex) {
+                    snapshotCaptureMessageIndex = null;
+                }
+            }
+        }
         // 同名 sheetKey 接管上下文（严格语义）：模板侧 key 优先保留。
         const identity = createReplayIdentityMergeContext_ACU(headerOnlyTemplate);
         // 阶段 I：只读 replay 的取消检查点。
@@ -48481,6 +48695,9 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
         for (const ref of frameRefs) {
             if (ref.messageIndex < replayStartMessageIndex)
                 continue;
+            if (snapshotCaptureMessageIndex !== null && ref.messageIndex <= snapshotCaptureMessageIndex) {
+                snapshotPrefix.push(captureReplaySnapshotFrame_ACU(ref));
+            }
             throwIfReplayAborted_ACU();
             await yieldIfBudgetExceeded_ACU();
             metrics.frameCount += 1;
@@ -48510,6 +48727,8 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
                     if (options.updateRuntimeState !== false) {
                         replayEventForState_ACU(checkpoint.event, ref.aiFloor);
                     }
+                    if (snapshotScheduleWrites)
+                        recordEventScheduleWrites_ACU(snapshotScheduleWrites, checkpoint.event, ref.aiFloor);
                     pendingIntroductions.splice(pendingIntroductions.indexOf(checkpoint), 1);
                 }
             };
@@ -48626,6 +48845,9 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
                     if (shouldReplayEntryEvent && options.updateRuntimeState !== false) {
                         replayEventForState_ACU(entry, ref.aiFloor);
                     }
+                    if (shouldReplayEntryEvent && snapshotScheduleWrites) {
+                        recordEventScheduleWrites_ACU(snapshotScheduleWrites, entry, ref.aiFloor);
+                    }
                     if (shouldReplayEntryEvent || appliedAnyOperation) {
                         await notifyEntryApplied_ACU(entry);
                     }
@@ -48665,6 +48887,35 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
                 });
                 captureBoundarySet.delete(ref.messageIndex);
             }
+            if (snapshotCaptureMessageIndex === ref.messageIndex && checkpointRef && snapshotScheduleWrites) {
+                snapshotCaptureMessageIndex = null;
+                // compatibilityMode:'disabled' 跳过补锚分支，前缀结果可能与常规模式不同，只续放不截取；
+                // 常规模式无补锚时两者执行路径完全一致，其快照可供严格探针续放。
+                if (options.compatibilityMode !== 'disabled'
+                    && compatibilityRepairs.length === 0
+                    && identity.merges.length === 0
+                    && getTableReplayGeneration_ACU() === replayGeneration
+                    && !snapshotPrefix.some(recorded => frameHasTableEditDslOperation_ACU(recorded.frame))
+                    // 指纹在帧被消费前记录；回放期间若帧被原地改写，下次匹配重算指纹即不命中，
+                    // 因此此处只要求前缀每帧都有有效指纹。
+                    && snapshotPrefix.every(recorded => recorded.contentDigest !== null)) {
+                    // 只导出不 dispose：本次回放沿用 SQLite 继续，快照取与 materialize 相同的导出结果。
+                    const snapshotData = buildReplayCandidate_ACU(runtime, state);
+                    if (mergeLegacySheetIdentities_ACU(snapshotData, identity.preferredKeys).remaps.length === 0) {
+                        storeLatestReplaySnapshot_ACU({
+                            isolationKey,
+                            generation: replayGeneration,
+                            templateFingerprint: snapshotTemplateKey,
+                            aliasContextEnabled: aliasContext.enabled,
+                            rootMessageIndex: checkpointRef.messageIndex,
+                            boundaryMessageIndex: ref.messageIndex,
+                            prefix: [...snapshotPrefix],
+                            data: snapshotData,
+                            scheduleWrites: new Map(snapshotScheduleWrites),
+                        });
+                    }
+                }
+            }
         }
         // replay 结束：SQLite 仍为权威状态时最后导出一次并 dispose，保持单 Database 峰值。
         await materializeSqlRuntimeToState_ACU(runtime, state, { metrics });
@@ -48683,6 +48934,37 @@ async function loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyA
     }
     finally {
         disposeSqlReplayRuntime_ACU(runtime);
+    }
+}
+function createReplaySnapshotRun_ACU(options) {
+    // 观察路径必须逐条经过全部 entry，不能从快照中途续放。
+    if (Array.isArray(options.captureBoundaries) && options.captureBoundaries.length > 0)
+        return null;
+    if (typeof options.onEntryApplied === 'function')
+        return null;
+    // 最新回放快照只服务「整链最新回放」的常规加载/刷新热路径。带 boundary 的 bounded
+    // 回放是多边界捕获/诊断路径，带 yieldBudgetMs 的回放是调用方私有的调度意图——
+    // 从快照续放会跳过本应逐帧让出的帧（yieldCount 归零）并改变各 boundary 的
+    // frameCount 契约。与 in-flight 去重的排除口径一致，这两类调用完全按冷回放执行。
+    if (options.maxMessageIndex !== undefined)
+        return null;
+    if (Number(options.yieldBudgetMs) > 0)
+        return null;
+    return { allowContinue: true, continuedFrom: null };
+}
+/** 带最新回放快照的核心回放：续放抛错时丢弃该快照并按冷回放重跑，错误以冷回放为准。 */
+async function runReplayCoreWithSnapshot_ACU(chatArg, isolationKeyArg, options) {
+    const snapshotRun = createReplaySnapshotRun_ACU(options);
+    try {
+        return await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options, snapshotRun ?? undefined);
+    }
+    catch (error) {
+        const continued = snapshotRun?.continuedFrom;
+        if (!continued || error instanceof V2ReplayAbortedError_ACU)
+            throw error;
+        discardLatestReplaySnapshot_ACU(continued);
+        logWarn_ACU('[V2 Replay] 从最新回放快照续放失败，已丢弃该快照并改为冷回放。');
+        return loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options, { allowContinue: false, continuedFrom: null });
     }
 }
 /** Tier-1 兼容结果的 schedule 尽力应用：失败只告警，不阻塞数据可用。 */
@@ -48887,7 +49169,7 @@ async function loadTableStateFromFramesV2Detailed_ACU(chatArg, isolationKeyArg, 
             ? (() => {
                 const sharedPromise = (async () => {
                     try {
-                        return await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options);
+                        return await runReplayCoreWithSnapshot_ACU(chatArg, isolationKeyArg, options);
                     }
                     catch (error) {
                         return await recoverWithLegacyTolerantReplay_ACU(chat, isolationKey, options, error);
@@ -48902,7 +49184,7 @@ async function loadTableStateFromFramesV2Detailed_ACU(chatArg, isolationKeyArg, 
             : null;
         const result = inflightStarted
             ? await inflightStarted
-            : await loadTableStateFromFramesV2DetailedCore_ACU(chatArg, isolationKeyArg, options);
+            : await runReplayCoreWithSnapshot_ACU(chatArg, isolationKeyArg, options);
         // 传入了 evidence 却走到这里 = 判定失配并回退冷回放（fail-open）。
         // 首次调用（空 evidence 对象）同样计入失配，命中率才有分母意义。
         if (evidence && !evidenceReusable && result?.metrics) {
@@ -50629,7 +50911,10 @@ async function commitVectorMetadataPatch_ACU(message, isolationKey, patch, optio
         if (!result.changed)
             return false;
         options?.additionalMutate?.(message);
+        // 向量 metadata / 镜像帧不参与表格回放：吸收本次保存代次，表格快照仍逐帧校验内容指纹。
+        const generationBeforeSave = getTableReplayGeneration_ACU();
         await saveChatToHostStrict_ACU();
+        absorbOwnTableSave_ACU(generationBeforeSave);
         return true;
     }
     catch (error) {
@@ -50685,7 +50970,9 @@ async function commitVectorMetadataPatchesBatch_ACU(entries, options) {
         }
         if (!changed)
             return false;
+        const generationBeforeSave = getTableReplayGeneration_ACU();
         await saveChatToHostStrict_ACU();
+        absorbOwnTableSave_ACU(generationBeforeSave);
         return true;
     }
     catch (error) {
@@ -58702,7 +58989,10 @@ async function flushSummaryVectorMirrorNow_ACU(options = {}) {
                 }
                 if (writtenDeltaCount === 0)
                     return;
+                // 镜像帧不参与表格回放：自身保存成功后吸收代次，表格回放快照仍按帧内容指纹校验。
+                const generationBeforeSave = getTableReplayGeneration_ACU();
                 await saveChatToHostStrict_ACU();
+                absorbOwnTableSave_ACU(generationBeforeSave);
             });
         });
     }
@@ -59024,7 +59314,10 @@ async function stripSummaryVectorMirrorFrames_ACU(chat, isolationKey, sourceTabl
                     delete ref.frame.summaryVectorIndexFrame;
                 }
             }
+            // 只删除镜像帧：表格回放快照按帧内容指纹（排除镜像）校验，吸收本次保存的代次。
+            const generationBeforeSave = getTableReplayGeneration_ACU();
             await saveChatToHostStrict_ACU();
+            absorbOwnTableSave_ACU(generationBeforeSave);
         });
     });
 }
@@ -59154,7 +59447,9 @@ async function publishSummaryVectorMirrorRowRemovalSnapshot_ACU(snapshot) {
                 const violation = assertSummaryVectorMirrorFrameInvariantsV2_ACU(chat, isolationKey, 'publishSummaryVectorMirrorRowRemoval');
                 if (violation)
                     throw new Error(violation);
+                const generationBeforeSave = getTableReplayGeneration_ACU();
                 await saveChatToHostStrict_ACU();
+                absorbOwnTableSave_ACU(generationBeforeSave);
             });
         });
     }
@@ -59483,7 +59778,9 @@ async function rebuildSummaryVectorMirror_ACU(options) {
                 const violation = assertSummaryVectorMirrorFrameInvariantsV2_ACU(chat, isolationKey, 'rebuildSummaryVectorMirror');
                 if (violation)
                     throw new Error(violation);
+                const generationBeforeSave = getTableReplayGeneration_ACU();
                 await saveChatToHostStrict_ACU();
+                absorbOwnTableSave_ACU(generationBeforeSave);
             });
         });
     }
@@ -63855,6 +64152,7 @@ async function persistTableMutationLogV2Core_ACU(options) {
             enabled: settings_ACU.dataIsolationEnabled,
             code: settings_ACU.dataIsolationCode,
         });
+        const generationBeforeSave = getTableReplayGeneration_ACU();
         // 临时基线升级会替换 orphan frame、清空日志并写 recoveryBackup，必须确认宿主真实落盘。
         if (options.strictSave || replacement || temporaryBaselineUpgrade || provisionalConvergenceReplay) {
             await saveChatToHostStrict_ACU();
@@ -63863,6 +64161,8 @@ async function persistTableMutationLogV2Core_ACU(options) {
             // 填表批的普通存盘走合并调度：填表运行窗口内只记下改动，窗口结束补存一次；窗口外与直接存盘等价。
             await saveChatToHostCoalesced_ACU();
         }
+        // 本次保存与帧复核均通过：保存前截取的最新回放快照改记到新代次（未替换的帧仍逐帧校验）。
+        absorbOwnTableSave_ACU(generationBeforeSave);
     }
     catch (error) {
         for (const state of previousMessageState) {
@@ -64182,7 +64482,9 @@ async function persistTableMutationLogBatchV2Core_ACU(options) {
                 delete chat[index].TavernDB_ACU_Identity;
             }
         }
+        const generationBeforeSave = getTableReplayGeneration_ACU();
         await saveChatToHostStrict_ACU();
+        absorbOwnTableSave_ACU(generationBeforeSave);
     }
     catch (error) {
         for (const snapshot of snapshots) {
@@ -98136,7 +98438,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * shared/build-info.ts — 构建期注入信息的唯一读取口
  *
  * rollup 打包时把版本写进 `"Unbirth A.D. 6386"`（与 manifest.json / source/package.json
- * 同值），构建时间戳写进 `"20261119-1753"`。源码直跑、测试环境或注入失败时读不到，
+ * 同值），构建时间戳写进 `"20261120-1938"`。源码直跑、测试环境或注入失败时读不到，
  * 一律回退到固定字面量（不猜、不抛）。
  *
  * 之所以单独一个模块：此前 useDebugPanel 与 plot-entry 各写了一份同样的 try/catch 读取，
@@ -98155,7 +98457,7 @@ function readAcuBuildVersion_ACU() {
 /** 构建时间戳；读不到返回 'dev'（与构建徽章的既有回退一致）。 */
 function readAcuBuildStamp_ACU() {
     try {
-        const stamp = "20261119-1753";
+        const stamp = "20261120-1938";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -98814,12 +99116,24 @@ async function initializeJsonTableInChatHistory_ACU() {
     }
     return { initialized: true };
 }
-/**
- * 从聊天记录加载或创建表格数据到内存。
- * 返回 { loaded: boolean, source: 'merged'|'initialized'|'empty', error?: string }
- * 注意：不再内部调用 refreshMergedDataAndNotify，调用方按需自行刷新。
- */
-async function loadOrCreateJsonTableFromChatHistory_ACU() {
+let jsonTableLoadFlight_ACU = null;
+function loadOrCreateJsonTableFromChatHistory_ACU() {
+    const flight = loadOrCreateJsonTableFromChatHistoryCore_ACU().finally(() => {
+        if (jsonTableLoadFlight_ACU === flight)
+            jsonTableLoadFlight_ACU = null;
+    });
+    jsonTableLoadFlight_ACU = flight;
+    return flight;
+}
+/** 等待进行中的聊天表格加载（含其间新发起的加载）全部结束；加载失败不向等待方抛出。 */
+async function waitForJsonTableLoadIdle_ACU() {
+    let flight = jsonTableLoadFlight_ACU;
+    while (flight) {
+        await flight.catch(() => undefined);
+        flight = jsonTableLoadFlight_ACU;
+    }
+}
+async function loadOrCreateJsonTableFromChatHistoryCore_ACU() {
     const initialChat = getChatArray_ACU();
     const initialChatKey = String(currentChatFileIdentifier_ACU || '');
     const initialIsolationKey = String(getCurrentIsolationKey_ACU() || '');
@@ -124681,6 +124995,8 @@ function scheduleChatMutationRefresh_ACU(reason) {
     if (reason === 'chat_modified_deleted')
         pendingDeletion_ACU = true;
     generation_ACU += 1;
+    // 删楼/滑动会原地改变楼层与帧：立即使最新回放快照失效，不等防抖轮次。
+    bumpTableReplayGeneration_ACU();
     const now = Date.now();
     if (firstRequestAt_ACU === 0)
         firstRequestAt_ACU = now;
@@ -124702,6 +125018,7 @@ function cancelPendingChatMutationRefresh_ACU() {
     clearTimeout(chatMutationDebounceTimer_ACU);
     _set_chatMutationDebounceTimer_ACU(null);
     generation_ACU += 1; // 使已排队的 runMutationRound_ACU 变为过期代次
+    bumpTableReplayGeneration_ACU(); // 立即刷新同样是外部改动边界，快照失效
     firstRequestAt_ACU = 0;
     pendingDeletion_ACU = false; // 旧聊天的删楼不能在新聊天上做恢复
 }
@@ -124736,6 +125053,7 @@ function runMutationRound_ACU(options = {}) {
 async function executeMutationRound_ACU(urgent) {
     running_ACU$1 = true;
     const startedGeneration = generation_ACU;
+    bumpTableReplayGeneration_ACU();
     firstRequestAt_ACU = 0;
     const roundHasDeletion = pendingDeletion_ACU;
     pendingDeletion_ACU = false;
@@ -154506,6 +154824,8 @@ async function handleChatChangedEvent_ACU(chatFileName) {
         // [中止] 切聊天时中止所有在飞的依赖楼层的 API 调用
         //（表格填表/生理追踪等），避免用旧上下文的结果写入当前状态。
         abortOnChatMutation_ACU();
+        // 换聊天：最新回放快照立即失效（帧对象身份校验之外的显式代次边界）。
+        bumpTableReplayGeneration_ACU();
         // 还在组装提示词的填表请求没登记进上面的全局中止表；它们的目标楼层已换成新聊天的楼层，按目标守卫当场中止，
         // 免得拿新聊天的世界书 / 角色数据拼进旧聊天的请求白花一次调用（D04-02）。
         abortTableFillRequestsWithStaleTarget_ACU();
@@ -156171,9 +156491,17 @@ function findTargetSheet(tableName) {
  * 写前加入现有 readiness flight，随后重新读取 canonical 数据并以 active provider
  * 的 owner-aware mapper 解析目标。commit 内仍会再次检查 readiness 和 revision；
  * 这里仅消除「还没等运行时就先找不到模板表」的时序窗口。
+ * 原生模式下内存表为空（聊天重载窗口）时同样先加入 readiness flight，并等待进行中的
+ * 聊天表格加载结束，再解析目标表。
  */
 async function prepareTableMutationTarget_ACU(tableName) {
-    await ensureStorageProviderReady_ACU();
+    if (isSqliteMode()) {
+        await ensureStorageProviderReady_ACU();
+    }
+    else if (!currentJsonTableData_ACU) {
+        await ensureStorageProviderReady_ACU();
+        await waitForJsonTableLoadIdle_ACU();
+    }
     const latestData = currentJsonTableData_ACU;
     if (!latestData)
         return null;
@@ -156260,7 +156588,13 @@ function isRowIdColumn_ACU(englishColName, rawColName) {
 function parseMutationOptions_ACU(options, rowData) {
     const skipChatSave = toBooleanOption_ACU$1(firstDefined_ACU$1(options?.skipChatSave, options?.skipSave, options?.isImportMode, rowData?.isImportMode));
     const skipNotify = toBooleanOption_ACU$1(firstDefined_ACU$1(options?.skipNotify, options?.silent, options?.isSilent, options?.suppressNotify, options?.suppressNotification, rowData?.skipNotify, rowData?.silent));
-    return { skipChatSave, skipNotify, ...(options?.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}) };
+    const skipRefresh = skipNotify && toBooleanOption_ACU$1(firstDefined_ACU$1(options?.skipRefresh, options?.deferRefresh));
+    return {
+        skipChatSave,
+        skipNotify,
+        ...(skipRefresh ? { skipRefresh: true } : {}),
+        ...(options?.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}),
+    };
 }
 function parseUpdateCellArgs_ACU(tableNameOrOptions, rowIndex, colIdentifier, value) {
     const options = isPlainObjectArg_ACU$1(tableNameOrOptions) ? tableNameOrOptions : null;
@@ -156379,9 +156713,15 @@ async function finalizeTableEditAfterCommit_ACU(tableName, sourceTableKey, metho
     let didNotifyThroughRefresh = false;
     // S2-1：skipChatSave 提交只改运行时未写聊天帧，通知回调时以 persisted=false 明示未落盘
     const notifyMeta = { persisted: !options.skipChatSave };
-    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: options.skipNotify, notifyMeta, ...(options.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}) });
-    didNotifyThroughRefresh = !options.skipNotify;
-    logDebug_ACU(`${methodName}: Worldbook refreshed after saving [${tableName}]`);
+    if (options.skipRefresh) {
+        // 提交已更新运行时表格；合并刷新与世界书重写由调用方批末 refreshDataAndWorldbook 统一完成。
+        logDebug_ACU(`${methodName}: Deferred merged refresh after saving [${tableName}] (skipRefresh).`);
+    }
+    else {
+        await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: options.skipNotify, notifyMeta, ...(options.awaitFrontendReadback === false ? { awaitFrontendReadback: false } : {}) });
+        didNotifyThroughRefresh = !options.skipNotify;
+        logDebug_ACU(`${methodName}: Worldbook refreshed after saving [${tableName}]`);
+    }
     await syncSummaryVectorIndexAfterTableEdit_ACU(tableName, sourceTableKey, methodName, tableLatestFloorIndex, options.skipChatSave);
     if (!options.skipNotify && !didNotifyThroughRefresh) {
         topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate(notifyMeta);
@@ -156486,7 +156826,7 @@ function createTableCrudApi(ctx) {
                 });
                 if (!result.success)
                     return false;
-                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'updateCell', tableLatestFloorIndex, { skipChatSave, skipNotify, awaitFrontendReadback: args.awaitFrontendReadback });
+                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'updateCell', tableLatestFloorIndex, { skipChatSave, skipNotify, skipRefresh: args.skipRefresh, awaitFrontendReadback: args.awaitFrontendReadback });
                 return true;
             }
             catch (e) {
@@ -156579,7 +156919,7 @@ function createTableCrudApi(ctx) {
                 });
                 if (!result.success)
                     return false;
-                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'updateRow', tableLatestFloorIndex, { skipChatSave, skipNotify, awaitFrontendReadback: args.awaitFrontendReadback });
+                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'updateRow', tableLatestFloorIndex, { skipChatSave, skipNotify, skipRefresh: args.skipRefresh, awaitFrontendReadback: args.awaitFrontendReadback });
                 return true;
             }
             catch (e) {
@@ -156658,7 +156998,7 @@ function createTableCrudApi(ctx) {
                 });
                 if (!result.success || typeof result.value !== 'number')
                     return -1;
-                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'insertRow', tableLatestFloorIndex, { skipChatSave, skipNotify, awaitFrontendReadback: args.awaitFrontendReadback });
+                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'insertRow', tableLatestFloorIndex, { skipChatSave, skipNotify, skipRefresh: args.skipRefresh, awaitFrontendReadback: args.awaitFrontendReadback });
                 return result.value;
             }
             catch (e) {
@@ -156725,7 +157065,7 @@ function createTableCrudApi(ctx) {
                 });
                 if (!result.success)
                     return false;
-                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'deleteRow', tableLatestFloorIndex, { skipChatSave, skipNotify, awaitFrontendReadback: args.awaitFrontendReadback });
+                await finalizeTableEditAfterCommit_ACU(targetSheet.name, targetSheetKey, 'deleteRow', tableLatestFloorIndex, { skipChatSave, skipNotify, skipRefresh: args.skipRefresh, awaitFrontendReadback: args.awaitFrontendReadback });
                 return true;
             }
             catch (e) {
@@ -159848,10 +160188,11 @@ function createWorldbookAiApi(_ctx) {
                 return false;
             }
         },
-        // 强制刷新数据并重新注入世界书
-        refreshDataAndWorldbook: async function () {
+        // 强制刷新数据并重新注入世界书；awaitFrontendReadback:false 时照常通知前端但不等待回读窗口
+        refreshDataAndWorldbook: async function (options) {
             try {
-                await refreshMergedDataAndNotifyWithUI_ACU();
+                await refreshMergedDataAndNotifyWithUI_ACU(options && typeof options === 'object' && options.awaitFrontendReadback === false
+                    ? { awaitFrontendReadback: false } : {});
                 logDebug_ACU('refreshDataAndWorldbook: Data refreshed and worldbook updated successfully.');
                 return true;
             }
@@ -160881,7 +161222,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261119-1753";
+        const stamp = "20261120-1938";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -216596,7 +216937,7 @@ var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_ren
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261119-1753";
+        const stamp = "20261120-1938";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {

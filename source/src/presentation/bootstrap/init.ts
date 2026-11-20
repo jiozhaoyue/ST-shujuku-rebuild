@@ -103,6 +103,7 @@ import {
 } from '../../data/gateways/chat-gateway';
 import { scanAiFloorSignature_ACU, toAiFloorSignatureEx_ACU } from '../../service/table/auto-fill-echo-guard';
 import { abortTableFillRequestsWithStaleTarget_ACU } from '../../service/table/table-fill-target-watch';
+import { bumpTableReplayGeneration_ACU } from '../../shared/table-replay-generation';
 import { notifyAcuTauriVersionIfOutdated_ACU } from './tauri-version-gate';
 import {
   refreshMergedDataAndNotifyWithUI_ACU
@@ -561,6 +562,8 @@ async function handleChatChangedEvent_ACU(chatFileName: string): Promise<void> {
     // [中止] 切聊天时中止所有在飞的依赖楼层的 API 调用
     //（表格填表/生理追踪等），避免用旧上下文的结果写入当前状态。
     abortOnChatMutation_ACU();
+    // 换聊天：最新回放快照立即失效（帧对象身份校验之外的显式代次边界）。
+    bumpTableReplayGeneration_ACU();
     // 还在组装提示词的填表请求没登记进上面的全局中止表；它们的目标楼层已换成新聊天的楼层，按目标守卫当场中止，
     // 免得拿新聊天的世界书 / 角色数据拼进旧聊天的请求白花一次调用（D04-02）。
     abortTableFillRequestsWithStaleTarget_ACU();
