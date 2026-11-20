@@ -41,7 +41,8 @@
       全部优雅返回结构化结果，无未捕获异常（pageerror clean）。**公开 API 是扁平对象**（组名只是
       开发者页自描述索引），自动化时不要按 `api['worldbook-ai'].xxx` 寻址。
 - [ ] auto_update 安全：manifest `homePage` 指向本仓库，宿主自动更新不会拉回上游 rebuild 产物
-      （2026-10-31 静态核对：homePage=`https://github.com/jiozhaoyue/ST-shujuku-rebuild`、version=9.7.5、auto_update=true ✓）
+      （2026-10-31 静态核对：homePage=`https://github.com/jiozhaoyue/ST-shujuku-rebuild`、version=9.7.5、auto_update=true ✓
+       2026-11-21 复核：version 已随上游演进出 9.7.5→Unbirth A.D. 6386（manifest.json:9 = source/package.json:3），homePage/auto_update 不变 ✓）
 
 ## 0.6 开发者页的两个新面（2026-09-28）
 
@@ -133,6 +134,27 @@
       环境事实 / 可调用 API 分组 / 持久化通道四类齐全，「复制总览给 AI」产出脱敏文本。
 - [ ] **模板切换去冗余（上游 8f1fb759 行为变化）**：模板切换确认弹窗每类风险只出现一道关卡；
       回滚后新聊天不再残留旧聊天的模板配置。
+
+## 0.10 albus 移植批真机核验（2026-11-21 班，Dev ST 8001 + Dev Luker 8003 自动化实证）
+
+> 实例产物 = HEAD 最新构建（品牌栏戳 20261119-1753，含任务 H 恢复面板；root 三件套 md5=cad20617/6846ffc4/6b0f91e4 双实例一致）。
+
+- [x] **配置副本恢复面板分区渲染**：数据管理页「配置副本恢复」分节两实例渲染正常（页内胶囊导航
+      备份与恢复→配置副本恢复→休眠数据→删除与清理→写入体积提示，顺序一致），空态「暂无待恢复的配置副本。」。
+      注：UI 为单分节按 rescue-service 状态切换三态呈现（findings 列表+恢复/忽略），非三个独立面板——设计如此，非缺陷。
+- [x] **SQL 引擎真执行（SQLite exec 栈配对修复的降级证据）**：`SELECT name FROM sqlite_master WHERE type='table';`
+      双实例均返回 16 行（首行 `_acu_sheet_meta`），ST 204.3ms / Luker 24.5ms，SQLite 模式徽章与成功 toast 正常。
+      「长会话不崩」完整场景留待人工长会话复测。
+- [x] **Luker 开聊天读库**：`/go 原始人？` 后 `getTableHistoryContext()` 返回完整
+      `{version:1, chatId:"原始人？…Branch #1", characterId:"8", groupId:null, isolationKey:""}`；
+      填表工作台渲染 15 张表全带数据（25 条 AI 回复，完整存档第 18 条 AI 回复）。
+- [ ] **ST `getTableHistoryContext()` 恒 null（环境现象，非插件渲染问题）**：`/go 原始人？` slash 执行成功、
+      复验截图可见 15 张表名全部渲染（未初始/待初始），但宿主 `getContext().chatId` 16 次采样全程 null——
+      ST Dev 实例宿主绑定特征，按 `table-history-api.ts:42` 守卫返回 null。留待人工在 ST 真机环境核验。
+- [ ] **配置防丢三件套 TT 语义**（TT extension.store / SETTINGS_UPDATED 事件）：TT 实例本班未起，留待。
+- [x] **compat:probe luker FAIL 定性**：注入 true / API 116 / 宿主全局 luker 命中，但 V2 根节点探测时
+      `page.evaluate: Target page, context or browser has been closed` 三连一致；同窗口 e2e:shots luker 4/4 全绿
+      ——实例与插件正常，probe 脚本与 Luker 2.9.0-rc.2（本班起由 2.8.0 升级）的页面存活时序不适配，待后续排查脚本。
 
 ## 1. 启动与核心（不依赖酒馆助手）
 

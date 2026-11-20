@@ -294,6 +294,22 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **硬红线全程核查**：UNIQUE_SCRIPT_ID / TavernDB_ACU_* 存储结构 / host-bridge 单口纪律 / 模板 JSON 同构性均未触碰（各任务报告 + 主代理 grep 复核）。
 
+## 4e. 本班差量（2026-11-21 测试班 + 开发后续班，基线 `bcca0970`）
+
+> 四路 scout 调查开局；真机双实例（Dev ST 8001 / Dev Luker 8003）；四门全绿收官。总计划见 `docs/superpowers/plans/2026-11-21-test-and-dev-followup.md`。
+
+| 类别 | 差量 | 说明 | 验证 |
+|---|---|---|---|
+| 分支纪律 | 删除全部非 master 分支 | 本地 5 分支（dev/luker-adapt、legacy/private-history、release/v9.2.0~v9.4.0）+ origin/worktree-phase0-upstream-catchup；`git cherry` 证实功能已进 master 演进形态（差量注入 f6b1c6ec、逐楼解析 0b50b88e 等），5 分支打 `archive/*` tag（已推 origin）后删除——防旧快照 merge 回退 master | 终态：本地仅 master，origin 我方侧仅 master |
+| 清红① | `continuation-page.test.ts:824` 全量偶发红——**用例时序**非组件泄漏：`vi.getTimerCount()` 实含未刷新微任务 job 数，卸载竞态下已入队清理未落地即断言 | 测试侧 unmount 后补 `await nextTick() + advanceTimersByTimeAsync(0)`（:822-829，+6/-2）；`toBe(0)` 断言原样保留守卫真实泄漏；组件零改动（stopCountdownTimer 为初版既有，git blame 证实） | 目标 20/20 绿；双 agent 交叉印证 |
+| 移植#5 前置 | 回放回归基线：6 零覆盖导出补锚 + 冷回放 golden 锚点 | 新建 `tests/service/table/storage-frame-v2-replay-exports-baseline.test.ts`（16 例）+ 主套件追加 8 例（纯追加 276 行） | 合并 198/198 绿 |
+| 移植#5 | 回放快照续放（albus `fd9ba783`，16 文件 497+/18-）：新建 `shared/table-replay-generation.ts` 代次模块；核心 `storage-frame-v2-replay.ts` +332/-12（指纹/前缀/代次三重校验 + LRU=3 + 续放抛错冷回放兜底）；12 外围文件接 bump/absorb 代次 | **主代理裁定**：接受保守收窄——快照续放只服务常规最新回放（排除 maxMessageIndex/yieldBudgetMs/观察回调路径）；依据：albus 原版已排除观察路径，既有用例锁定的诊断/bounded 语义不可改；放开属后续（需连用例语义一起更新） | 回放全套 249/249（基线 244+新 5）；其他域 124/124；bench 1/1；tsc 0 |
+| 真机验证批 | TESTING.md 新增 0.10 节 + :44 版本复核（9.7.5→Unbirth A.D. 6386）；e2e 截图巡游 st 4/4 · luker 4/4 + 多模态逐张读图；专项三项 | 恢复面板分区渲染双实例 PASS；SQL 真执行 16 行（栈修复降级证据，ST 204.3ms/Luker 24.5ms）；Luker 读库 PASS。ST context 绑定 null（环境现象）与 TT 语义如实留白；probe luker FAIL 定性为脚本与 Luker 2.9.0-rc.2 时序（宿主本班由 2.8.0 升级），非插件问题 | TESTING.md 0.10 节逐项如实勾选 |
+| 部署 | 双实例插件副本同步 HEAD 产物（品牌栏戳 20261119-1753） | ST 真实加载路径为 `public/scripts/extensions/third-party/shujuku-rebuild`（690b44bd 旧 → cad20617 新）；Luker 走 `data/default-user/extensions/`（4b5174c4 → cad20617）；ST data 侧误建冗余目录已改名归档 | 三件套 md5 双实例与 root 全 SAME |
+
+**发版门禁（2026-11-21 终验）**：typecheck exit 0；vitest **522 文件 / 8717 例全绿**（8688 基线 → +29，零回退）；build ✓；smoke ✓（acuAppV2Mounted / menuItemInjected / errorCount=0）。
+
+**硬红线全程核查**：UNIQUE_SCRIPT_ID / TavernDB_ACU_* 存储结构 / host-bridge 单口纪律 / 模板 JSON 同构性均未触碰（移植#5 逐文件核查：三埋点 3 处、超大写入探测 2 处、C2 复位、onDelta 契约、in-flight 去重、Tier-1 降级全部保留）。
 
 ## 5. 同步纪律（每次追平照此执行）
 

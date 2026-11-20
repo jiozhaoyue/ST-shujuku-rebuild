@@ -55,6 +55,7 @@ https://github.com/jiozhaoyue/ST-shujuku-rebuild
 
 - 本仓库基于上游 fork 点 v9.1.9（`760ba68`）构建；2026-11-07 追平上游 `Unbirth A.D. 6386`（145 提交并入，我方功能全部移植进新版界面 v3），2026-11-08 再追平 `8f1fb759`（模板切换去冗余），2026-11-20 追平 `76ffdc81`（DeepSeek 填表专项第三轮复审 8 提交、提示词额外要求、决策召回世界书、Go 用量，冲突 7 文件按台账口径并集解决）
 - **AlbusKen/shujuku（更上游）差量处置**：由上游 shuiyue 作筛选吸收层；未被吸收且对我方有价值的差量按「化为功能写进去」口径移植——已移植 PR #66/#67（历史来源身份 / 写入回读等待），PR #70 已随上游 `26e453e6` 同主题实现进树，PR #65 回退（`597ef6ea`）三树终态一致零影响；2026-11-20 依功能面比对移植四件：SQLite exec 栈泄漏修复（`5518792c`）、JSON 清洗保留字符串正文（`c45d50ee`）、配置防丢三件套（`5518792c`，含 host-bridge 探测收口）、SSE 规范事件解析器（`c45d50ee`）；albus 自有子系统（世界模拟/桌宠/零层世界等）系 shuiyue 层的取舍，不在本仓范围
+- **2026-11-21 班**：移植 albus `fd9ba783` 回放快照续放（代次/指纹/前缀三重校验 + 冷回放兜底，常规最新回放路径，16 文件；整套回放回归基线 24 例先行就位）；分支纪律归一（全部历史分支归档为 `archive/*` tag 后删除，仓库仅 master）；真机双实例验证批（e2e 巡游 8/8 + 恢复面板/SQL 真执行/Luker 读库 PASS，TESTING.md 0.10 节）；全量 8717 例零回退
 - **自动同步已停用（2026-11-07 裁定）**：每日定时拉取与自动开 issue 的 CI 已关闭，同步改为手动触发（`Upstream Sync` workflow 仅 `workflow_dispatch`），追平前按差量台账（`docs/superpowers/specs/2026-09-27-fork-delta-ledger.md`）人工评估
 - 上游仓库：https://github.com/shuiyue-cmyk/shujuku-rebuild （更上游：https://github.com/AlbusKen/shujuku ，本仓数据面与两者保持同构）
 
