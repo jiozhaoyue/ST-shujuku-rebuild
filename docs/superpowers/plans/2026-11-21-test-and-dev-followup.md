@@ -87,7 +87,7 @@
 - 04:15 真机专项三项 × 双实例：恢复面板/SQL 真执行/Luker 读库 PASS；ST context null 环境现象如实留白；TESTING.md 0.10 节落盘。
 - 04:20 移植#5 完成（16 文件，回放全套 249 绿 + 其他域 124 绿 + bench 1/1 + tsc 0；收窄裁定已录）；修红完成（用例时序根因，双 agent 交叉印证，其全量 8717 绿）。
 - 04:30 正式四门禁：typecheck exit 0 ✓；vitest **522 文件 / 8717 例全绿** ✓（143.75s）；build ✓；smoke ✓（挂载/菜单/0 错误）。
-- 04:40 收尾：台账 §4e 落盘、README 同步段更新、本交接节；分批提交推 origin。
+- 04:40 收尾：台账 §4e 落盘、README 同步段更新、本交接节；分批提交推 origin——**ac1d18ee feat（移植#5+基线+产物）/ 70763cca fix（清红）/ f02e87e3 docs（台账 §4e+TESTING 0.10+README+计划终稿）**，origin/master bcca0970→f02e87e3，工作树清零；双实例产物随后同步至 HEAD 终态（ec35cb38 含移植#5）。
 
 ## 交接节（2026-11-21 04:40 收尾）
 
