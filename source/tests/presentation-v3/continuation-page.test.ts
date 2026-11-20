@@ -819,8 +819,12 @@ describe('ContinuationPage', () => {
       expect(el.textContent).toContain('倒计时 未设置');
       expect(intervalSpy).toHaveBeenCalledTimes(1);
 
-      // 卸载后不留悬挂定时器。
+      // 卸载后不留悬挂定时器。卸载钩子里同步清理心跳，但 watcher 的微任务刷新、
+      // 以及防抖保存的冲刷可能排在下一次微任务/定时器轮次才落地；先让这些已入队的
+      // 清理跑完再断言，避免把「尚未刷新的清理」误判成泄漏。真实泄漏仍会被 toBe(0) 抓到。
       app.unmount();
+      await nextTick();
+      await vi.advanceTimersByTimeAsync(0);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       intervalSpy.mockRestore();
