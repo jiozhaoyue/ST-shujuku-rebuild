@@ -13,12 +13,14 @@
       v-if="decisionRecallStore.taskModeActive"
       id="plot-decision-recall"
       title="决策召回"
-      description="决策召回的用法是「替换剧情推进的任务」；Key、模型与召回条数在决策召回页设置。"
+      description="召回用法在决策召回页设置。"
+      description-detail="决策召回的用法是「替换剧情推进的任务」；Key、模型与召回条数在决策召回页设置。"
       icon="fa-solid fa-ranking-star"
     >
       <UbRow
         label="由决策召回执行 recall 任务"
-        hint="开启后自动匹配当前预设里「标签摘取」只有 recall 的任务，不调模型，改由决策召回给纪要打分挑选；只启用了一个任务的预设不替换（停用的任务不算）。关着时照常由剧情推进调模型召回。"
+        hint="开启后由决策召回替换模型召回。"
+        hint-detail="开启后自动匹配当前预设里「标签摘取」只有 recall 的任务，不调模型，改由决策召回给纪要打分挑选；只启用了一个任务的预设不替换，停用的任务不算。关着时照常由剧情推进调模型召回。"
       >
         <UbSwitch
           :model-value="decisionRecallStore.settings.replacePlotRecallTasks"
@@ -39,7 +41,8 @@
     >
       <UbRow
         label="伪装发送楼层"
-        hint="开启后，剧情推进、纪要召回与决策召回等待期间在聊天区显示伪装的用户楼层与“思考中”楼层，并拦截重复发送；关闭则消息停在输入框直到规划完成。剧情推进暂停时这一项照样生效。"
+        hint="等待时在聊天区显示伪装楼层。"
+        hint-detail="开启后，剧情推进、纪要召回与决策召回等待期间在聊天区显示伪装的用户楼层与思考中楼层，并拦截重复发送；关闭则消息停在输入框直到规划完成。剧情推进暂停时照样生效。"
       >
         <UbSwitch
           :model-value="plotPresetStore.pendingDisguiseEnabled"

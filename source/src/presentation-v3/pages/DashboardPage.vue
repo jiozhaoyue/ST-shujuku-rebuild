@@ -202,7 +202,7 @@ watch(useTemplateRuntimeChangeTick(), () => void refreshAll());
   gap: var(--ub-s3);
   min-width: 0;
   padding: var(--ub-s4);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-card);
   background: var(--ub-panel);
   box-shadow: var(--ub-card-shadow);

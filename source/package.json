@@ -13,7 +13,8 @@
     "compat:probe": "node scripts/host-compat-probe.mjs",
     "e2e:shots": "node scripts/e2e-screenshot-tour.mjs",
     "e2e:sql": "node scripts/e2e-sql-console-check.mjs",
-    "drift": "node scripts/upstream-drift.mjs"
+    "drift": "node scripts/upstream-drift.mjs",
+    "check:guards": "node scripts/guards/run-all.mjs"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.2",

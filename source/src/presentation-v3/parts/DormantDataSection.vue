@@ -2,7 +2,8 @@
   <UbSection
     :id="id"
     title="休眠数据"
-    description="切换模板时未被新模板包含的表和列会进入休眠：数据保留在聊天历史并跟随 checkpoint 迁移，但不参与填表。可以在这里查看并唤醒。"
+    description="未被新模板包含的数据会休眠。"
+    description-detail="切换模板时未被新模板包含的表和列会进入休眠：数据保留在聊天历史并跟随 checkpoint 迁移，但不参与填表。可以在这里查看并唤醒。"
     icon="fa-solid fa-moon"
   >
     <template #actions>

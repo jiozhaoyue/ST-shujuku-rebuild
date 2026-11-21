@@ -26,7 +26,8 @@
 
     <UbSection
       title="Agent 任务控制"
-      description="描述与触发条件是 Agent 判断任务是否执行、是否串联及先后顺序的依据。全部留空且未启用 Agent 控制时，按启用状态、阶段号和顺序执行。"
+      description="描述与触发条件决定任务执行方式。"
+      description-detail="描述与触发条件是 Agent 判断任务是否执行、是否串联及先后顺序的依据。全部留空且未启用 Agent 控制时，按启用状态、阶段号和顺序执行。"
     >
       <UbRow label="任务描述" hint="说明这个推进任务负责什么。留空时不参与 Agent Skill 判断。" stack>
         <UbTextarea

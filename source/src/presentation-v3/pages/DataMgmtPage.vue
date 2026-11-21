@@ -2,17 +2,17 @@
   <UbPage :sections="sections">
     <UbCallout v-if="flow.message.value" :kind="flow.message.value.kind">{{ flow.message.value.text }}</UbCallout>
 
-    <UbSection id="dm-checkpoint" title="备份与恢复" description="Checkpoint 用于完整备份 / 恢复当前聊天当前标识的表格、模板与指导表。表格数据按 AI 楼层共享：同一楼层的所有 swipe 分支共用同一份表格历史。" icon="fa-solid fa-shield-halved">
+    <UbSection id="dm-checkpoint" title="备份与恢复" description="按当前标识备份表格与模板。" description-detail="Checkpoint 用于完整备份或恢复当前聊天当前标识的表格、模板与指导表。表格数据按 AI 楼层共享：同一楼层的所有 swipe 分支共用同一份表格历史。" icon="fa-solid fa-shield-halved">
       <UbRow label="导出 Checkpoint" hint="导出当前隔离标识的表格、聊天模板和指导表。">
         <UbButton size="sm" icon="fa-solid fa-upload" :disabled="busy" @click="flow.exportTableCheckpoint">导出</UbButton>
       </UbRow>
       <UbRow label="导入 Checkpoint">
         <template #hint>
-          导入会清空当前聊天全部 AI 楼层、所有隔离标识的本地表格数据，只在当前隔离键的最新 AI 楼层重建；当前聊天表格模板切换为文件模板。<strong class="ub-dm__strong">全局模板和聊天正文不变。</strong>
+          <span title="导入会清空当前聊天全部 AI 楼层、所有隔离标识的本地表格数据，只在当前隔离键的最新 AI 楼层重建；当前聊天表格模板切换为文件模板。全局模板和聊天正文不变。">导入会清空本地表格数据并重建。</span> <strong class="ub-dm__strong">全局模板与正文不变。</strong>
         </template>
         <UbFileButton size="sm" variant="danger" icon="fa-solid fa-download" accept=".json,application/json" :disabled="busy" @file="onImportTableCheckpoint">导入</UbFileButton>
       </UbRow>
-      <UbRow label="历史恢复诊断" hint="填表或模板操作提示「请在数据管理中检查并恢复历史」时使用：只读检查当前聊天的表格历史，发现可修复的问题会在下方给出恢复选项。">
+      <UbRow label="历史恢复诊断" hint="只读检查表格历史。" hint-detail="填表或模板操作提示「请在数据管理中检查并恢复历史」时使用：只读检查当前聊天的表格历史，发现可修复的问题会在下方给出恢复选项。">
         <UbButton
           size="sm"
           icon="fa-solid fa-stethoscope"

@@ -6,7 +6,7 @@
           <i v-if="icon" :class="[icon, 'ub-section__icon']" aria-hidden="true"></i>
           {{ title }}
         </h2>
-        <p v-if="description" class="ub-section__desc">{{ description }}</p>
+        <p v-if="description" class="ub-section__desc" :title="descriptionDetail || undefined">{{ description }}</p>
       </div>
       <div v-if="$slots.actions" class="ub-section__actions"><slot name="actions" /></div>
     </header>
@@ -26,6 +26,8 @@ withDefaults(defineProps<{
   id?: string;
   title?: string;
   description?: string;
+  /** 详细说明，收敛到 tooltip；不显示，仅 title 悬浮。 */
+  descriptionDetail?: string;
   icon?: string;
   padded?: boolean;
   bare?: boolean;
@@ -33,6 +35,7 @@ withDefaults(defineProps<{
   id: undefined,
   title: undefined,
   description: undefined,
+  descriptionDetail: undefined,
   icon: undefined,
   padded: false,
   bare: false,
@@ -97,7 +100,7 @@ withDefaults(defineProps<{
 
 .ub-section__card {
   min-width: 0;
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-card);
   background: var(--ub-panel);
   box-shadow: var(--ub-card-shadow);

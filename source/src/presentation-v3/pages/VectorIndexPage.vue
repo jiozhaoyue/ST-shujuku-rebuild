@@ -1,5 +1,5 @@
 <template>
-  <UbPage lead="向量召回增强记忆。发送前：关键词生成（可关）→ 用户输入与关键词合并向量化 → 向量与 BM25 混合召回 → 可选重排 → 按纪要原顺序写入索引条目。" :sections="sections">
+  <UbPage lead="发送前混合召回纪要并写入索引。" lead-detail="向量召回增强记忆。发送前：关键词生成（可关）、用户输入与关键词合并向量化、向量与 BM25 混合召回、可选重排，最后按纪要原顺序写入索引条目。" :sections="sections">
     <UbSection id="vi-status" :title="copy.panels.status.title" :description="copy.panels.status.description" icon="fa-solid fa-signal">
       <template #actions>
         <UbBadge :variant="vector.statusVariant.value">{{ vector.statusLabel.value }}</UbBadge>
@@ -22,7 +22,7 @@
         </UbButton>
         <UbButton :disabled="vector.maintenanceBusy.value || vector.buildBusy.value" icon="fa-solid fa-broom" @click="vector.clearIndexCache">清空临时缓存</UbButton>
         <UbButton variant="danger" :disabled="vector.maintenanceBusy.value || vector.buildBusy.value" icon="fa-solid fa-trash-can" @click="onDeleteCurrentIndex">删除当前索引</UbButton>
-        <p class="ub-vi__note">检测到旧向量方案时会提示「向量方案已优化，需要重建」。链冲突与 checkpoint 指纹不匹配会自动修复，不弹确认。</p>
+        <p class="ub-vi__note" title="检测到旧向量方案时会提示向量方案已优化、需要重建。链冲突与 checkpoint 指纹不匹配会自动修复，不弹确认。">旧方案会提示重建，冲突自动修复。</p>
       </div>
     </UbSection>
 
@@ -75,7 +75,7 @@
     </UbSection>
 
     <UbSection id="vi-keyword" :title="copy.panels.keyword.title" :description="copy.panels.keyword.description" icon="fa-solid fa-key">
-      <UbRow label="AI 补充关键词" hint="开启时每次发送前多调用一次 AI 生成检索关键词；关闭后只用用户输入做召回，省一次往返。">
+        <UbRow label="AI 补充关键词" hint="发送前多调用一次 AI 生成关键词。" hint-detail="开启时每次发送前多调用一次 AI 生成检索关键词；关闭后只用用户输入做召回，省一次往返。">
         <UbSwitch
           :model-value="vector.form.keywordGenerationEnabled"
           aria-label="发送前用 AI 补充检索关键词"
@@ -153,7 +153,7 @@
     </UbSection>
 
     <UbSection id="vi-archive" :title="copy.panels.archive.title" :description="copy.panels.archive.description" icon="fa-solid fa-boxes-stacked">
-      <UbRow label="按句切分纪要正文" hint="默认关闭：每行一个向量。开启后按句数切分，召回更细但分片成倍增加；改动后需重建索引。">
+        <UbRow label="按句切分纪要正文" hint="按句切分可提升召回粒度。" hint-detail="默认关闭，每行一个向量。开启后按句数切分，召回更细但分片成倍增加；改动后需重建索引。">
         <UbSwitch
           :model-value="vector.form.summaryIndexChunkChronicleBySentence"
           aria-label="切分纪要正文为多个分片"

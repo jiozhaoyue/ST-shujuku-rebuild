@@ -311,6 +311,51 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 
 **硬红线全程核查**：UNIQUE_SCRIPT_ID / TavernDB_ACU_* 存储结构 / host-bridge 单口纪律 / 模板 JSON 同构性均未触碰（移植#5 逐文件核查：三埋点 3 处、超大写入探测 2 处、C2 复位、onDelta 契约、in-flight 去重、Tier-1 降级全部保留）。
 
+## 4f. 本班差量（2026-11-21 下午班 · 十路调查 + 文档同步，基线 `70474e18`）
+
+> 本班性质：**调查先行 + 文档同步班**，本班仅改 4 份文档；工作树另有同班并发写入的 tracked 修改（含 `source/package.json` 与 20+ Vue SFC、`source/scripts/guards/` 守卫族草稿），非本班所改（会话起点与收尾实跑 `git status --short` 均显示 35 行，含 33 个 tracked 修改 + `?? scratch/` + `?? source/scripts/guards/`）。十路 scout 产出在 `scratch/swarm-1121b/00..10-*.md`（scout 工作副本，不入库）；总计划 `00-MASTER-PLAN.md`；本章把结论摘要与待裁定项固化到台账，便于丢弃上下文后续跑。
+
+### 十路调查结论摘要
+
+| # | scout | 结论摘要（出处） |
+|---|---|---|
+| 1 | framework-status | 已实质引入 Vue 3.5.33 + Pinia 2.3，全量内联进根 `index.js`；99 SFC 用 script setup；路由为自研 Pinia store（刻意不引 vue-router）；无组件库、无体积报告（`01:122-124`） |
+| 2 | transfer-adoptables | 报告声称「已落地」的守卫族 / qa-static / docs-sync / 治理文档 / CI 四 workflow 全是 **chatfilesys 仓**事实，本仓**不存在**；364 条 ADOPT 重筛 A≈60 / B≈90 / C≈214；守卫族若采纳＝**新建**（`02:36,167`） |
+| 3 | test-guard-ci | 522 测试文件；CI 仅 smoke 经脚本、tsc/vitest/build 直调；Release Gate 自 2026-09-06 未见新运行、当前无 `v*` tag（`03:43,70,170`） |
+| 4 | ui-style-status | Vue SFC 在 `presentation-v3/`（69 个），非 v2；D-02 双前缀合规，G-16 文案系统性不达标，G-18 残留 82 处 1px 描边；零 TODO（`04:146-165`） |
+| 5 | dev-instances | 8003 Luker 就绪（HTTPS 302，三件套 md5＝仓根）；8001 ST 就绪；8899 无服务（`05:102-106`） |
+| 6 | upstream-gap | HEAD 落后 `upstream/master`＝0、领先 117；`upstream/master`=`76ffdc81` 为直系祖先；albus 分叉无共同祖先 550/1097；两侧版本均 `Unbirth A.D. 6386`（`06:14-23,76`） |
+| 7 | plans-handoff | 总计划 L46 / L74-78 复选框未勾，但据日志与 TESTING.md 判定实际完成，属收尾未回勾残留，已由本班据证据回勾（`07:48`） |
+| 8 | chatfilesys-scan | 报告实为 pack-transfer→chatfilesys 的转移报告；本仓无任何静态守卫；`qa-static.mjs`（动态收集＋独立进程＋30s 超时＋失败清单）是最有价值的「胶水」资产（`08:5,102-106`） |
+| 9 | e2e-infra | 「4 宿」＝4 个测试 profile 非运行时类型，`generic` 不是可选 target；probe / shots 各自用完即关，串行仅属推断非脚本强制（`09:56,155`） |
+| 10 | framework-candidates | 框架已引入，待决只是否再加 UI 组件库；外部权威来源（Chrome content scripts / naive-ui / element-plus 等）多超时或 404，未取到，结论仅据本仓实现（`10:7,80`） |
+
+### 立项五项（尚未正式立项，列候选供主人裁定）
+
+- **事实标注（不臆造）**：主计划阶段二立项表在 `scratch/swarm-1121b/00-MASTER-PLAN.md:39` 仍为「待回填」，AskUserQuestion 裁定未在本批 scratch 留痕；全量 `grep '立项五项'` 在 scratch 内**无命中**。故下列为**调查浮现的五个候选方向**，不是已批准立项；每项附出处与验收建议，待主人裁定后方可动。
+1. **框架 / 组件库选型**：现状 Vue3+Pinia 已满足「引入框架」，待决是否加组件库；若加须走 `sfc-style-runtime` 注入 host document 并对齐 `--acu-*`、D-02 双前缀（`01:124,128-129` / `10:7,54`）。验收＝构建通过 + D-02 不破 + 体积评估留数字。
+2. **G-16 UI 文案治理**：拆分长句、去括号说明与说明性副标题，首改 `DecisionRecallPage.vue:170` / `ApiPresetEditor.vue:57` / `DeveloperPage.vue:25` / `AdvancedToolsPage.vue:44,208`（`04:160`）。验收＝G-16 扫描无 ≥22 字可见行 + 截图检查。
+3. **静态守卫族采纳（草稿已在树，待裁定是否正式采纳）**：scout 结论为「本仓不存在、若采纳须新建」（`02:146` / `08:102-106`）；但本班收尾实跑 `ls -la source/scripts/guards/` 与 `git diff -- source/package.json` 证实，工作树已存在 6 个未提交守卫草稿（`control-consumer.mjs` / `copy-audit.mjs` / `css-scope.mjs` / `docs-privacy.mjs` / `dom-injection.mjs` / `run-all.mjs`），且 `source/package.json:17` 已接入 `"check:guards": "node scripts/guards/run-all.mjs"`。这些为同班并发写入、非本班所改。待主人裁定是否正式采纳与补齐单测 / `--self-check` 反证，勿重复"从零新建"。验收＝各守卫单测 + `--self-check` 反证非恒真。
+4. **E2E 纪律 + 端口守卫补强**：probe 无运行时端口白名单断言、误连 Real 端口防护仅靠写死 URL（`09:169`）；可借鉴参照仓 `port-guard.cjs` 白名单 / 拒 Real / 无默认值纪律（`08:50`）。验收＝负例测试验证 Real 端口被拒。
+5. **治理文档 / 隐私脱敏补全**：新建 `CONTRIBUTING.md` / `SECURITY.md` / `CODE_OF_CONDUCT.md` + `source/scripts/desensitize.mjs`（纯 Node 零依赖，兑现 G-11）（`02:136-138`）。验收＝隐私扫描零命中 + 文档不绑业务数据。
+
+### 守卫族落地占位（scout 时不存在，本班收尾已出现未提交草稿，待裁定）
+
+- scout 时点结论：报告声称的 15 个 `scripts/guards/*.mjs`、`qa-static.mjs`、`docs-sync.mjs` + manifest、CI 四 workflow、治理文档，经 scout 全仓实测在**本仓全部不存在**（`02:16-36` / `08:73-95`）；本仓 `.github/workflows/` 仅 `release-gate.yml` + `upstream-sync.yml`，`source/scripts/` 当时全是 E2E / 兼容 / 构建探针，无静态守卫（`03:49-70`）。**本班收尾更正**：该结论仅在 scout 时点成立；收尾实跑 `ls -la source/scripts/guards/` 显示已有 6 个守卫草稿（见上方第 3 项），`source/package.json:17` 已接入 `check:guards`，会话起点 `git status --short` 即显示 `?? source/scripts/guards/`，非本班所写。
+- 占位口径（据 scout 时点）：拟在 `source/scripts/guards/` 新建守卫族 + `qa-static.mjs` 串跑入口，按本仓 Vue SFC / theme / 运行时模板守卫重写，不照搬 chatfilesys 口径。**本班收尾更正**：该目录下的 6 个守卫草稿与 `check:guards` 接入已实际存在于工作树（非本班所写，属同班并发写入），并非「未创建任何文件」；是否正式采纳、是否补齐单测 / 反证，仍待主人对「立项五项」裁定，勿重复裁定「从零新建」。
+- 相邻既有能力（勿重复造轮）：`release-gate.yml`（构建态门禁）、`source/src/shared/untrusted-template-guard.ts`（运行时模板守卫）、`manifest-identity.test.ts`（版本一致性钉子）。
+
+### 版本口径偏离（待主人裁定，本班不改版本）
+
+- **事实**：`manifest.json:9` 与 `source/package.json:3` 均为 `Unbirth A.D. 6386`（实跑 `grep -n '"version"' manifest.json source/package.json` 证实，两侧一致）；而 `AGENTS.md:34` 的版本口径段仍写「追平上游后 version 跟随上游（**当前 9.7.5**）」。
+- **偏离性质**：9.7.5 是 2026-09-27 确立时的历史快照，此后上游发版为 `Unbirth A.D. 6386`（`76ffdc81`，`06:65`），两侧版本已演进，文档口径段未同步更新。**本班如实记录，不擅改任何版本号**（改版本＝换存储身份，见硬红线）。
+- **待裁定项**：请主人裁定是否把 `AGENTS.md:34` 的「当前 9.7.5」更新为「当前 Unbirth A.D. 6386」（纯文档口径同步，不涉及代码/版本值）。裁定前维持现状。
+
+### 本班核证备注
+
+- 提交 `70474e18` 标题引用了哈希 `ec35cb38`；实跑 `git cat-file -t ec35cb38` 报 `fatal: Not a valid object name ec35cb38`，`git log --oneline --all | grep ec35cb38` 仅命中该标题本身——该哈希在本仓**不是有效对象**，标题所指「双实例 HEAD 终态产物同步记录」无对应本地提交对象，如实登记，待主人核对其来源（可能为外部实例侧提交）。
+- 本班自测命令与结果：`git log --oneline -8`（三批提交链 ac1d18ee/70763cca/f02e87e3 在列）；`git rev-parse origin/master HEAD`（同为 `70474e18b5a162e8a1a7fb9b9883c6125e2ad092`）；`git rev-list --count HEAD..origin/master`（0）；`git branch -a`（本地仅 `master`，其余为 upstream/albus 外部引用）；`git status --short`（本班实跑为 35 行：33 个 tracked 修改 + `?? scratch/` + `?? source/scripts/guards/`；tracked 修改属同班并发写入，非本班所改，本班仅改 4 份文档）。
+
 ## 5. 同步纪律（每次追平照此执行）
 
 

@@ -1,7 +1,7 @@
 <template>
-  <UbPage lead="发送前让决策模型给纪要打分，挑出与接下来剧情最相关的几条，连同最新几条按表号顺序带进本轮输入。" :sections="sections">
+  <UbPage lead="发送前按剧情相关性挑选纪要带入本轮输入。" lead-detail="发送前让决策模型给纪要打分，挑出与接下来剧情最相关的几条，连同最新几条按表号顺序带进本轮输入。" :sections="sections">
     <UbSection id="dr-mode" title="用法" description="总开关在仪表盘的进阶开关里；两种用法共用下面的模型与召回设置。" icon="fa-solid fa-toggle-on">
-      <UbRow label="用法" :hint="modeHint">
+      <UbRow label="用法" hint="选择召回的运行方式。" :hint-detail="modeHint">
         <UbSegmented :options="modeOptions" :model-value="store.settings.mode" aria-label="决策召回用法" @update:model-value="setMode" />
       </UbRow>
       <UbCallout v-if="store.settings.mode === 'plot_task'" :kind="store.replaceStatus.kind">
@@ -15,8 +15,8 @@
       </UbCallout>
     </UbSection>
 
-    <UbSection id="dr-model" title="决策模型" description="与正文替换的「替换前判定」各自独立；默认自己填接口地址、Key 与模型，也可以选三家预设。各家的设置各存各的，切换不会丢掉另一家的设置。" icon="fa-solid fa-scale-balanced">
-      <UbRow label="服务商" :hint="providerView.providerHint">
+    <UbSection id="dr-model" title="决策模型" description="与正文替换各自独立，可填接口或选预设。" description-detail="与正文替换的「替换前判定」各自独立；默认自己填接口地址、Key 与模型，也可以选三家预设。各家的设置各存各的，切换不会丢掉另一家的设置。" icon="fa-solid fa-scale-balanced">
+      <UbRow label="服务商" hint="选择决策模型服务商。" :hint-detail="providerView.providerHint">
         <UbSelect :options="providerOptions" :model-value="store.settings.provider" aria-label="决策召回服务商" @update:model-value="setProvider" />
       </UbRow>
       <UbCallout v-if="store.endpoint.missing" kind="warning">
@@ -25,7 +25,8 @@
       <UbRow
         v-if="store.settings.provider === 'custom'"
         label="接口地址"
-        hint="填完整的决策接口地址，请求格式同硅基流动 /v1/systemone、OpenRouter /api/alpha/decisions（例如中转站提供的地址）。"
+        hint="填完整的决策接口地址。"
+        hint-detail="请求格式同硅基流动 /v1/systemone、OpenRouter /api/alpha/decisions，例如中转站提供的地址。"
         stack
       >
         <UbInput
@@ -74,11 +75,11 @@
       </UbRow>
     </UbSection>
 
-    <UbSection id="dr-rule" title="召回规则" :description="ruleDescription" icon="fa-solid fa-list-ol">
+    <UbSection id="dr-rule" title="召回规则" :description="`参考${contextLabel}，按相关性打分`" :description-detail="ruleDescription" icon="fa-solid fa-list-ol">
       <UbRow label="打分时看什么" hint="只看概要更省、更快；加上纪要正文判断更准，但每组输入多好几倍。">
         <UbSegmented :options="scoringOptions" :model-value="store.settings.scoringContent" aria-label="打分时看什么" @update:model-value="store.patch({ scoringContent: $event })" />
       </UbRow>
-      <UbRow label="失败重试次数" :hint="`一组打分失败后再试几次（0–${maxRetries}）；Key 无效、没余额、超时这类重试也没用的错误不重试。整次召回最多 ${totalSeconds} 秒，仍失败或到时没打完的组跳过，从其余纪要里选，不会停掉发送。`">
+        <UbRow label="失败重试次数" :hint="`失败重试，整次召回最多 ${totalSeconds} 秒`" :hint-detail="`一组打分失败后再试几次（0–${maxRetries}）；Key 无效、没余额、超时这类重试也没用的错误不重试。整次召回最多 ${totalSeconds} 秒内完成，超时未打完的组跳过，从其余纪要里选。`">
         <UbInput
           :key="`retry-${inputKey}`"
           :model-value="store.settings.maxRetries"
@@ -101,7 +102,7 @@
         <UbBadge :variant="advancedCustomized ? 'accent' : 'neutral'">{{ advancedCustomized ? '自定义' : '默认' }}</UbBadge>
       </button>
       <template v-if="advancedOpen">
-        <UbRow label="召回条数" :hint="`打分后挑选几条（1–${maxCount}），另外固定带上最新 ${fixedCount} 条，合计最多 ${maxTotal} 条。相关的不够时用分数低的补满。`">
+        <UbRow label="召回条数" hint="挑选并固定带上最新若干条。" :hint-detail="`打分后挑选几条（1–${maxCount}），另外固定带上最新 ${fixedCount} 条，合计最多 ${maxTotal} 条。相关的不够时用分数低的补满。`">
           <UbInput
             :key="`count-${inputKey}`"
             :model-value="store.settings.recallCount"
@@ -113,7 +114,7 @@
             @change="setNumber('recallCount', $event)"
           />
         </UbRow>
-        <UbRow label="参考最近 AI 回复" :hint="`打分时带上最近几楼 AI 回复（0–${maxContextFloors}），另带用户最新输入。0 表示只看用户输入；楼数越多，每个请求的输入越长。`">
+        <UbRow label="参考最近 AI 回复" hint="打分时附带最近的 AI 回复。" :hint-detail="`打分时带上最近几楼 AI 回复（0–${maxContextFloors}），另带用户最新输入。0 表示只看用户输入，楼数越多输入越长。`">
           <UbInput
             :key="`contextAiFloors-${inputKey}`"
             :model-value="store.settings.contextAiFloors"
@@ -125,7 +126,7 @@
             @change="setNumber('contextAiFloors', $event)"
           />
         </UbRow>
-        <UbRow label="每组条数" :hint="`每次请求里放几条纪要（1–${maxBatchSize}）。条数少，模型看得更仔细，但请求更多，前文每次都要重发一遍。`">
+        <UbRow label="每组条数" hint="每次请求放入的纪要条数。" :hint-detail="`每次请求里放几条纪要（1–${maxBatchSize}）。条数少，模型看得更仔细，但请求更多，前文每次都要重发一遍。`">
           <UbInput
             :key="`batchSize-${inputKey}`"
             :model-value="store.settings.batchSize"
@@ -137,7 +138,7 @@
             @change="setNumber('batchSize', $event)"
           />
         </UbRow>
-        <UbRow label="判定次数" :hint="`同一组让决策模型判定几次，每条纪要取平均分（1–${maxJudgeRuns}）。次数越多越稳，请求数也成倍增加；失败的那几次不计入平均。`">
+        <UbRow label="判定次数" hint="同一组让模型判定几次。" :hint-detail="`同一组让决策模型判定几次，每条纪要取平均分（1–${maxJudgeRuns}）。次数越多越稳，请求数也成倍增加；失败的那几次不计入平均。`">
           <UbInput
             :key="`judgeRuns-${inputKey}`"
             :model-value="store.settings.judgeRuns"
@@ -149,7 +150,7 @@
             @change="setNumber('judgeRuns', $event)"
           />
         </UbRow>
-        <UbRow label="并发数" :hint="`决策召回自己同时发出几个请求（1–${maxConcurrency}），与其它功能无关。硅基流动等按每分钟 token 数限流的服务商并发太高会被限流。`">
+        <UbRow label="并发数" hint="同时发出的请求数。" :hint-detail="`决策召回自己同时发出几个请求（1–${maxConcurrency}），与其它功能无关。硅基流动等按每分钟 token 数限流的服务商并发太高会被限流。`">
           <UbInput
             :key="`concurrency-${inputKey}`"
             :model-value="store.settings.concurrency"
@@ -167,14 +168,15 @@
     <UbSection
       id="dr-worldbook"
       title="附加世界书条目"
-      description="打分时附加给决策模型参考的世界书条目，选法同填表的「附加世界书条目」，与填表各存各的、按角色卡保存。默认「正文接收」：正文能收到的世界书里，蓝灯条目都带上，绿灯条目按前文与本轮输入的关键词触发，另外勾选的条目一定带上。这些条目会随每个打分请求一起发送，条目多时输入会明显变长（测试召回的结果里会写出附带了多少字）；不想带世界书时选「手动选择」且一本都不选。"
+      description="打分时参考的世界书条目，按角色卡保存。"
+      description-detail="选法同填表的「附加世界书条目」，与填表各存各的。默认「正文接收」：蓝灯条目全带，绿灯条目按关键词触发，额外勾选的条目必带。条目随每个打分请求发送，越多输入越长（测试召回会写出附带字数）；不想带世界书时选「手动选择」且不勾选。"
       icon="fa-solid fa-book"
       padded
     >
       <WorldbookEntriesPanel id-prefix="dr" :get-config="getCurrentDecisionRecallWorldbookConfig_ACU" />
     </UbSection>
 
-    <UbSection id="dr-directive" title="注入指令" description="只用于单独召回：选中的编码写进本轮输入时用这段文字包裹。替换剧情推进任务时用预设自己的最终注入指令。" icon="fa-solid fa-quote-left" padded>
+    <UbSection id="dr-directive" title="注入指令" description="单独召回时的编码包裹文本。" description-detail="只用于单独召回：选中的编码写进本轮输入时用这段文字包裹。替换剧情推进任务时用预设自己的最终注入指令。" icon="fa-solid fa-quote-left" padded>
       <template #actions>
         <UbBadge v-if="directiveDirty" variant="accent">未保存</UbBadge>
       </template>
@@ -194,7 +196,7 @@
       </div>
     </UbSection>
 
-    <UbSection id="dr-test" title="测试召回" :description="`用下面这句输入${store.settings.contextAiFloors > 0 ? `、当前聊天最近 ${store.settings.contextAiFloors} 楼 AI 回复` : ''}和所选的世界书条目跑一次完整打分，只显示结果，不写进聊天。会按所选服务商实际计费。`" icon="fa-solid fa-flask-vial" padded>
+    <UbSection id="dr-test" title="测试召回" :description="`跑一次完整打分${store.settings.contextAiFloors > 0 ? `，带最近 ${store.settings.contextAiFloors} 楼 AI 回复` : ''}`" :description-detail="`用下面这句输入${store.settings.contextAiFloors > 0 ? `、当前聊天最近 ${store.settings.contextAiFloors} 楼 AI 回复` : ''}和所选的世界书条目跑一次完整打分，只显示结果，不写进聊天。会按所选服务商实际计费。`" icon="fa-solid fa-flask-vial" padded>
       <UbTextarea
         :model-value="store.testInput"
         :rows="3"
@@ -392,7 +394,7 @@ function setMode(value: string): void {
   routerStore.syncFeatureGatesFromSettings();
   toastStore.info(value === 'standalone'
     ? '已改为单独召回：剧情推进暂停。'
-    : '已改为替换剧情推进的任务：剧情推进恢复运行，到剧情推进页打开「由决策召回执行 recall 任务」后才替换。');
+    : '剧情推进已恢复。到剧情推进页开启「由决策召回执行 recall 任务」后才会替换。');
 }
 
 const directiveDraft = ref(store.settings.directive);

@@ -163,7 +163,7 @@ onBeforeUnmount(() => acuClearTimeout(leaveTimer));
   width: min(440px, 100%);
   max-height: 100%;
   padding: var(--ub-s5);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-card);
   background: var(--ub-panel);
   box-shadow: var(--ub-overlay-shadow);

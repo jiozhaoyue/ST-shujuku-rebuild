@@ -438,8 +438,9 @@ describe('theme-injector', () => {
     m.injector.applyTheme(dark);
     const css = document.getElementById(STYLE_NODE_ID)!.textContent!;
     const rule = css.slice(css.indexOf(`.${m.injector.HOST_SURFACE_CLASS}`));
-    expect(rule).toContain(`--acu-bg-1: ${dark.tokens.bg1};`);
-    expect(rule).toContain(`--acu-accent: ${dark.tokens.accent};`);
+    // bg1/accent 改为锚定宿主变量的派生值（同源明暗，杜绝白底配浅字）
+    expect(rule).toContain('--acu-bg-1: color-mix(in srgb, var(--SmartThemeChatTintColor, #15181C) 95%,');
+    expect(rule).toContain('--acu-accent: var(--SmartThemeEmColor, #BAC2CB);');
     expect(css).toContain(`.${m.injector.HOST_SURFACE_CLASS} {\n  color-scheme: dark;`);
   });
 
@@ -493,7 +494,7 @@ describe('theme-injector', () => {
     const style3 = document.getElementById(STYLE_NODE_ID) as HTMLStyleElement | null;
     expect(style3).toBe(style1);
     expect(style3!.textContent).toContain('#F2E8DA'); // 奶油风的 bg-0
-    expect(style3!.textContent).toContain('#5A7A44'); // 奶油风的 accent
+    expect(style3!.textContent).toContain('--acu-accent: var(--SmartThemeEmColor, #6B5844);'); // 奶油风强调色锚定宿主，fallback 取其 text2
     expect(style3!.textContent).toContain('rgba(116, 91, 62, 0.08)'); // 奶油风的 hover overlay
   });
 
@@ -512,5 +513,60 @@ describe('theme-injector', () => {
     store.setTheme('default-dark');
     m.injector.applyTheme(store.activeTheme);
     expect(root.style.colorScheme).toBe('dark');
+  });
+
+  // 红队回归：var(--SmartTheme*) 包裹正确性曾被临时脚本验证后删除，
+  // 这里固化为永久断言——误删 var() 或改错宿主变量名都会让本用例变红。
+  it('注入的宿主继承 token 均形如 var(--SmartThemeX, fallback)，且变量名与映射一致', async () => {
+    const m = await freshImport();
+    m.pinia.setActivePinia(m.pinia.createPinia());
+    const store = m.themeStore.useThemeStore();
+    const theme = store.activeTheme;
+    m.injector.applyTheme(theme);
+    const css = document.getElementById(STYLE_NODE_ID)!.textContent!;
+
+    const direct: Array<[string, string, string]> = [
+      ['--acu-bg-0', '--SmartThemeChatTintColor', theme.tokens.bg0],
+      ['--acu-sidebar-bg', '--SmartThemeBlurTintColor', theme.tokens.sidebarBg],
+      ['--acu-text-1', '--SmartThemeBodyColor', theme.tokens.text1],
+      ['--acu-text-2', '--SmartThemeEmColor', theme.tokens.text2],
+      ['--acu-accent', '--SmartThemeEmColor', theme.tokens.text2],
+    ];
+    for (const [cssVar, hostVar, fallback] of direct) {
+      expect(css, cssVar).toContain(`${cssVar}: var(${hostVar}, ${fallback});`);
+    }
+  });
+
+  // 红队回归：注入后的 CSS 必须同明暗体系（杜绝白字落白底卡片），
+  // 且两级边框保持不同强度（G-18），不能因宿主定义 --SmartThemeBorderColor 而塌陷同色。
+  it('注入后 CSS 的同源明暗与分级边框断言', async () => {    const m = await freshImport();
+    m.pinia.setActivePinia(m.pinia.createPinia());
+    const store = m.themeStore.useThemeStore();
+    m.injector.applyTheme(store.activeTheme);
+    const css = document.getElementById(STYLE_NODE_ID)!.textContent!;
+
+    // bg1 卡底与 text1 同锚宿主正文色体系：卡底朝正文色混合，正文色不落回 acu 固定值
+    expect(css).toMatch(/--acu-bg-1: color-mix\(in srgb, var\(--SmartThemeChatTintColor,[^;]+, var\(--SmartThemeBodyColor,[^;]+\)\);/);
+    expect(css).toContain('--acu-text-1: var(--SmartThemeBodyColor,');
+    // text3 由宿主正文色派生，不会停留在 acu 固定值
+    expect(css).toMatch(/--acu-text-3: color-mix\(in srgb, var\(--SmartThemeBodyColor,[^;]+ 62%, transparent\);/);
+    // 两级边框：同一宿主变量、不同比例，宿主有值时仍有强度差
+    expect(css).toMatch(/--acu-border: color-mix\(in srgb, var\(--SmartThemeBorderColor,[^;]+ 12%, transparent\);/);
+    expect(css).toMatch(/--acu-border-2: color-mix\(in srgb, var\(--SmartThemeBorderColor,[^;]+ 20%, transparent\);/);
+    const border = css.match(/--acu-border: ([^;]+);/)?.[1];
+    const border2 = css.match(/--acu-border-2: ([^;]+);/)?.[1];
+    expect(border).toBeDefined();
+    expect(border2).toBeDefined();
+    expect(border).not.toBe(border2);
+  });
+
+  // Claude 风格是刻意独立的自带配色（陶土 accent），不能被宿主 --SmartTheme* 覆盖。
+  it('Claude 自带配色跳过宿主继承，accent 保留陶土原值', async () => {
+    const m = await freshImport();
+    const { CLAUDE_STYLE_THEME_LIGHT } = await import('../../../src/presentation-v2/theme/effective-theme');
+    const css = m.injector.buildThemeCss(CLAUDE_STYLE_THEME_LIGHT);
+    expect(css).toContain('--acu-accent: #d97757;');
+    expect(css).toContain('--acu-bg-1: #ffffff;');
+    expect(css).not.toContain('var(--SmartThemeEmColor');
   });
 });

@@ -73,7 +73,7 @@ async function runAction(item: ToastItem): Promise<void> {
   align-items: center;
   gap: var(--ub-s2);
   padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s3);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: 14px;
   background: var(--ub-toast-bg);
   color: var(--ub-text);

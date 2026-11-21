@@ -1,5 +1,5 @@
 <template>
-  <UbPage lead="正文生成后自动检查并润色 AI 回复。下面从上到下依次是：调用参数、替换方式、提示词、标签筛选与手动测试。" :sections="sections">
+  <UbPage lead="正文生成后自动检查并润色 AI 回复。" lead-detail="正文生成后自动检查并润色 AI 回复。下面从上到下依次是调用参数、替换方式、提示词、标签筛选与手动测试。" :sections="sections">
     <UbCallout v-if="store.message" :kind="store.message.kind">{{ store.message.text }}</UbCallout>
 
     <UbSection id="cr-basic" :title="copy.panels.basic.title" :description="copy.panels.basic.description" icon="fa-solid fa-sliders">
@@ -41,7 +41,7 @@
           重新优化
         </UbButton>
       </UbRow>
-      <UbRow label="在当前正文上再优化" hint="对最新一条 AI 回复现在显示的正文再优化一次，可以叠加多次；替换前的原文仍保留，之后照样能从原文重来。">
+      <UbRow label="在当前正文上再优化" hint="在显示正文上再优化一次。" hint-detail="对最新一条 AI 回复现在显示的正文再优化一次，可以叠加多次。替换前的原文仍保留，之后照样能从原文重来。">
         <UbButton
           size="sm"
           icon="fa-solid fa-wand-magic-sparkles"

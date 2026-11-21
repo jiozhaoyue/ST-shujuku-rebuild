@@ -193,7 +193,7 @@ function select(value: string): void {
   flex-direction: column;
   width: min(420px, 100%);
   max-height: min(560px, 100%);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-card);
   background: var(--ub-panel);
   box-shadow: var(--ub-overlay-shadow);

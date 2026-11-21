@@ -42,7 +42,8 @@
         <UbRow
           v-if="savedEndpoints.length"
           label="已保存的端点"
-          hint="复用已保存预设里用过的端点，只填端点；接口协议、API 密钥和模型名按所用模型自己选填。用新地址时选「手填」。"
+          hint="复用已保存的端点。"
+          hint-detail="复用已保存预设里用过的端点，只填端点；接口协议、API 密钥和模型名按所用模型自己选填。用新地址时选「手填」。"
           stack
         >
           <UbSelect
@@ -54,7 +55,8 @@
         </UbRow>
         <UbRow
           label="发送方式"
-          hint="经酒馆转接发送：由酒馆后端代发，兼容性最好，一般选这个。数据库直接发送：数据库在浏览器里直接请求端点，不经酒馆改写，消息按原顺序和角色发出；要求服务商允许网页直接访问（跨域），否则会报连不上。直接发送时「提示词后处理」「保留多个 system 消息」不生效，客户端伪装里浏览器不允许改的请求头（如 User-Agent）也不会带上。"
+          hint="选择请求由谁发出。"
+          hint-detail="经酒馆转接发送：由酒馆后端代发，兼容性最好。数据库直接发送：浏览器直接请求端点，消息按原顺序和角色发出，要求服务商允许跨域；直接发送时「提示词后处理」「保留多个 system 消息」不生效，浏览器禁改的请求头也不会带上。"
           stack
         >
           <UbSelect
@@ -66,7 +68,8 @@
         </UbRow>
         <UbRow
           label="接口协议"
-          hint="决定请求变形与上游端点：OpenAI→/chat/completions；OpenAI Responses→/responses；Claude Messages→/messages；Gemini Interactions→/interactions（自动补 /v1beta）。默认兼容 OpenAI。纯原生端点下「加载模型」可能失败，可手填模型名。"
+          hint="决定请求变形与上游端点。"
+          hint-detail="OpenAI→/chat/completions；OpenAI Responses→/responses；Claude Messages→/messages；Gemini Interactions→/interactions（自动补 /v1beta）。默认兼容 OpenAI。纯原生端点下「加载模型」可能失败，可手填模型名。"
           stack
         >
           <UbSelect
@@ -101,7 +104,7 @@
         <!-- 按钮放右侧、上下居中（与其它行的控件同位）；结果跟在左侧说明下面，不挤占按钮 -->
         <UbRow label="测试连接">
           <template #hint>
-            用上面填写的内容（不用先保存）发一条很短的测试消息，看能不能收到模型回复。会按所选的发送方式、接口协议和请求改写发出，消耗少量额度。
+            <span title="用上面填写的内容发一条很短的测试消息，按所选发送方式、接口协议和请求改写发出，消耗少量额度。">用当前填写内容发测试消息，消耗少量额度。</span>
             <span v-if="connectionResult" class="ub-api__test-result" :class="connectionResult.ok ? 'is-ok' : 'is-error'" role="status">
               <template v-if="connectionResult.ok">
                 连接成功（{{ formatElapsed(connectionResult.elapsedMs) }}）<template v-if="connectionResult.reply">：{{ truncateReply(connectionResult.reply) }}</template>
@@ -145,13 +148,13 @@
         <UbRow label="非预填充支持" hint="把 assistant 消息改写为 user，并在首行加「助手：」前缀。用于不支持 assistant 预填充的模型/接口。">
           <UbSwitch v-model="draft.nonPrefillSupport" aria-label="非预填充支持" />
         </UbRow>
-        <UbRow label="公益站兼容" hint="限速：每分钟最多 3 次请求（各预设独立计数），超出自动排队。用于有频率限制的公益站/共享接口。">
+        <UbRow label="公益站兼容" hint="超出限速自动排队。" hint-detail="限速：每分钟最多 3 次请求，各预设独立计数，超出自动排队。用于有频率限制的公益站或共享接口。">
           <UbSwitch v-model="draft.publicServiceMode" aria-label="公益站兼容" />
         </UbRow>
-        <UbRow label="需要时格式化输出" hint="需要返回 JSON 的调用（正文替换 / Skill 化 / 决策 / 改表助手 / 续写 Agent）会附加 response_format json_object。后端不支持时请勿开启，或在「排除主体参数」填 response_format。">
+        <UbRow label="需要时格式化输出" hint="按需附加 JSON 输出参数。" hint-detail="需要返回 JSON 的调用会附加 response_format json_object，包括正文替换、Skill 化、决策、改表助手与续写 Agent。后端不支持时请勿开启，或在「排除主体参数」填 response_format。">
           <UbSwitch v-model="draft.jsonFormatOutput" aria-label="需要时格式化输出" />
         </UbRow>
-        <UbRow label="保留多个 system 消息" hint="默认开启。提示词后处理为严格/半严格时，中部 system 仍保留角色；关闭后按后处理模式改写。仅经酒馆转接发送时生效。">
+        <UbRow label="保留多个 system 消息" hint="默认开启。" hint-detail="提示词后处理为严格或半严格时，中部 system 仍保留角色；关闭后按后处理模式改写。仅经酒馆转接发送时生效。">
           <UbSwitch v-model="draft.preserveMultipleSystem" :disabled="draft.sendChannel === 'direct'" aria-label="保留多个 system 消息" />
         </UbRow>
       </UbSection>
@@ -165,7 +168,8 @@
         </UbRow>
         <UbRow
           label="提示词后处理"
-          hint="默认严格（与旧版一致）；未选择＝原样透传，可保留中部 system 段角色。分组只决定消息改写策略，不剥离 tools 字段。仅经酒馆转接发送时生效。"
+          hint="选择消息改写策略。"
+          hint-detail="默认严格，与旧版一致；未选择则原样透传，可保留中部 system 段角色。分组只决定消息改写策略，不剥离 tools 字段。仅经酒馆转接发送时生效。"
           stack
         >
           <UbSelect
@@ -179,8 +183,8 @@
         </UbRow>
         <UbRow label="客户端伪装" stack>
           <template #hint>
-            选择客户端身份后，其特征请求头会合并进下方附加请求标头（受管身份键统一替换，其余行保留），用于部分屏蔽第三方客户端的供应商。
-            <strong class="ub-api__danger-hint">不清楚用途请不要选择；启用后的风险自行评估，后果自担。</strong>
+            <span title="选择客户端身份后，其特征请求头会合并进下方附加请求标头，用于部分屏蔽第三方客户端的供应商。用途不明请不要选择，风险自行评估。">伪装客户端身份以兼容部分供应商。</span>
+            <strong class="ub-api__danger-hint">不清楚用途请不要选择；启用后的风险自行评估，后果自担</strong>
           </template>
           <UbSelect
             :options="clientPresetOptions"

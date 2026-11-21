@@ -52,7 +52,8 @@
       <UbRow
         v-if="config.isSQLite.value"
         label="填表发送数据模板"
-        hint="高级：只替换发给填表 AI 的“当前数据”部分。建议 SELECT row_id 和需要的字段，多列结果会展开成“字段: 值”。留空则按“发送最新行数”。"
+        hint="自定义发给填表 AI 的数据部分。"
+        hint-detail="高级：只替换发给填表 AI 的当前数据部分。建议 SELECT row_id 和需要的字段，多列结果会展开成「字段: 值」。留空则按发送最新行数。"
         stack
       >
         <UbTextarea

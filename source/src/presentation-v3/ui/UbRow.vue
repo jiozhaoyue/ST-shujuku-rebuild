@@ -4,7 +4,7 @@
       <div v-if="label || $slots.label" class="ub-row__label">
         <slot name="label">{{ label }}</slot>
       </div>
-      <div v-if="hint || $slots.hint" class="ub-row__hint">
+      <div v-if="hint || $slots.hint" class="ub-row__hint" :title="hintDetail || undefined">
         <slot name="hint">{{ hint }}</slot>
       </div>
     </div>
@@ -22,11 +22,14 @@
 withDefaults(defineProps<{
   label?: string;
   hint?: string;
+  /** 说明详情，收敛到 tooltip；不显示，仅 title 悬浮。 */
+  hintDetail?: string;
   stack?: boolean;
   flagged?: boolean;
 }>(), {
   label: undefined,
   hint: undefined,
+  hintDetail: undefined,
   stack: false,
   flagged: false,
 });

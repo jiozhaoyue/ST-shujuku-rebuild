@@ -475,7 +475,7 @@ watch(rowCount, () => {
 
 .ub-vcard {
   min-width: 0;
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-card);
   background: var(--ub-panel);
   box-shadow: var(--ub-card-shadow);

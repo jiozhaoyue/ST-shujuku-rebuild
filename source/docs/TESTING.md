@@ -151,7 +151,9 @@
 - [ ] **ST `getTableHistoryContext()` 恒 null（环境现象，非插件渲染问题）**：`/go 原始人？` slash 执行成功、
       复验截图可见 15 张表名全部渲染（未初始/待初始），但宿主 `getContext().chatId` 16 次采样全程 null——
       ST Dev 实例宿主绑定特征，按 `table-history-api.ts:42` 守卫返回 null。留待人工在 ST 真机环境核验。
+      （2026-11-21 下午班复核：本班未起 ST 实例、未做人工核验，维持 `[ ]` 留白，不写已验证。）
 - [ ] **配置防丢三件套 TT 语义**（TT extension.store / SETTINGS_UPDATED 事件）：TT 实例本班未起，留待。
+      （2026-11-21 下午班复核：TT 桌面壳未起，TT 事件语义仍未实测，维持 `[ ]` 留白，不写已验证。）
 - [x] **compat:probe luker FAIL 定性**：注入 true / API 116 / 宿主全局 luker 命中，但 V2 根节点探测时
       `page.evaluate: Target page, context or browser has been closed` 三连一致；同窗口 e2e:shots luker 4/4 全绿
       ——实例与插件正常，probe 脚本与 Luker 2.9.0-rc.2（本班起由 2.8.0 升级）的页面存活时序不适配，待后续排查脚本。

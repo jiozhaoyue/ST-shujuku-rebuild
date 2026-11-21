@@ -9,8 +9,8 @@
 
     <div v-if="clearPending" class="ub-cm__confirm" role="alert">
       <p>
-        清空会删除当前续写任务、主 Agent 的会话记录与本地资料快照（伏笔、信息差、长期约束、故事总纲、年代学、百科资料库、用户要求）。
-        小说正文楼层不受影响，清空后可以从当前剧情重新开始规划。
+        清空会删除续写任务、会话记录与本地资料快照。
+        小说正文楼层不受影响，可从当前剧情重新开始规划。
       </p>
       <div class="ub-cm__actions">
         <UbButton size="sm" variant="ghost" @click="clearPending = false">取消</UbButton>
@@ -128,8 +128,8 @@
 
     <!-- 本地资料 -->
     <div v-else-if="activeTab === 'modules'" class="ub-cm__pane">
-      <p class="ub-cm__meta">
-        本地资料由子代理结算写入，也可在这里分模块手动修正。保存走与子代理相同的结构校验并推进修订号；每个模块独立保存，只提交本模块数据。
+      <p class="ub-cm__meta" title="本地资料由子代理结算写入，也可分模块手动修正。保存走相同结构校验并推进修订号，各模块独立保存。">
+        资料由子代理写入，也可手动修正。
       </p>
 
       <div class="ub-cm__status-grid">
@@ -144,7 +144,7 @@
 
       <section v-if="repairableModules.length" class="ub-cm__box">
         <div class="ub-cm__box-title">定向补足</div>
-        <p class="ub-cm__meta">只开放所选待补模块的程序级写集；已完成模块不会被重写。历史状态未知的模块必须在此显式选择。</p>
+        <p class="ub-cm__meta" title="只开放所选待补模块的程序级写集，已完成模块不会被重写。历史状态未知的模块必须在此显式选择。">只开放待补模块的写集。</p>
         <div class="ub-cm__checks">
           <UbCheck
             v-for="module in repairableModules"
@@ -177,9 +177,10 @@
           修订号 {{ materials.snapshot.value.revisions.hooks }}/{{ materials.snapshot.value.revisions.infoGap }}/{{ materials.snapshot.value.revisions.constraints }}/{{ materials.snapshot.value.revisions.chronology }}
         </p>
         <p class="ub-cm__meta">
-          <template v-if="materials.diagnostics.value.adoptedIndex === null">
-            当前聊天没有任何楼层带有资料快照。快照由子代理结算后写到当时的末楼并跟着该楼层走：该楼被删除、重新生成或 swipe 时，资料会回退到更早楼层的快照；若此前只写过一次，就会回到空。
-          </template>
+           <template v-if="materials.diagnostics.value.adoptedIndex === null">
+             当前聊天没有资料快照。快照随写入楼层的删除或重新生成回退。
+             <span title="快照由子代理结算后写到当时的末楼并跟着该楼层走。该楼被删除、重新生成或 swipe 时，资料会回退到更早楼层的快照；若此前只写过一次，就会回到空。">悬停了解回退规则</span>
+           </template>
           <template v-else>
             资料来源：楼层 {{ materials.diagnostics.value.adoptedIndex }}<template v-if="materials.diagnostics.value.salvaged">（该楼快照未通过严格校验，已按宽容模式读取，损坏记录已丢弃）</template>。
             <template v-if="invalidCandidates.length">
@@ -193,7 +194,7 @@
 
       <details class="ub-cm__history">
         <summary>逐栏记录 · {{ fieldRecordTotal }} 条</summary>
-        <p class="ub-cm__meta">「部分」条目还没写齐必填栏，不进入完整资料；「旧快照条目」来自旧整条快照，来源不可逐栏拆分。这里只列栏目名与修订身份。</p>
+        <p class="ub-cm__meta" title="「部分」条目还没写齐必填栏，不进入完整资料；「旧快照条目」来自旧整条快照，来源不可逐栏拆分。这里只列栏目名与修订身份。">这里只列栏目名与修订身份。</p>
         <p v-if="!fieldRecordGroups.length" class="ub-cm__empty">还没有逐栏写入记录。</p>
         <details v-for="group in fieldRecordGroups" :key="group.module" class="ub-cm__history ub-cm__history--inner">
           <summary>{{ group.label }} · {{ group.records.length }} 条</summary>
@@ -264,7 +265,7 @@
 
       <section class="ub-cm__module">
         <div class="ub-cm__module-head">故事年代学账本 <span>{{ materials.snapshot.value?.chronology.length ?? 0 }} 条</span></div>
-        <p v-if="!materials.snapshot.value?.chronology.length" class="ub-cm__empty">还没有已结算的故事时间记录。时间事实由结算维护代理依据真实正文登记；大纲里的时间字段是计划。</p>
+        <p v-if="!materials.snapshot.value?.chronology.length" class="ub-cm__empty" title="时间事实由结算维护代理依据真实正文登记，大纲里的时间字段只是计划。">还没有故事时间记录。</p>
         <div v-else class="ub-cm__cards">
           <div v-for="entry in materials.snapshot.value.chronology" :key="entry.id" class="ub-cm__card" :class="{ 'is-retired': entry.retired }">
             <div class="ub-cm__node-head">
@@ -284,7 +285,7 @@
 
     <!-- 故事总纲 -->
     <div v-else-if="activeTab === 'storyArc'" class="ub-cm__pane">
-      <p class="ub-cm__meta">故事总纲由 arc-architect 子代理维护：全书方向一条 + 若干卷台阶。也可在这里手动修正，保存走同一套结构校验并推进修订号。</p>
+      <p class="ub-cm__meta" title="故事总纲由 arc-architect 子代理维护：全书方向一条加若干卷台阶。也可手动修正，保存走同一套结构校验。">故事总纲由子代理维护，也可手动修正。</p>
       <p v-if="materials.snapshot.value" class="ub-cm__meta">总纲 {{ materials.snapshot.value.storyArc.length }} 条 · 修订号 {{ materials.snapshot.value.revisions.storyArc }}</p>
       <p v-if="materials.loadError.value" class="ub-cm__error">{{ materials.loadError.value }}</p>
       <p v-if="!materials.snapshot.value?.storyArc.length" class="ub-cm__empty">还没有故事总纲。开始规划后主 Agent 会先派工 arc-architect 立总纲。</p>
@@ -309,14 +310,14 @@
     <!-- 百科资料 -->
     <div v-else-if="activeTab === 'webRefs'" class="ub-cm__pane">
       <p class="ub-cm__meta">
-        百科资料库由 web-researcher 子代理从萌娘百科、维基百科或 SearXNG 查到后写入，按实体分条。每条固定只有「名称 + 一句话简介」，详情自由格式。
+        百科资料由 web-researcher 按实体分条写入。每条含名称与一句话简介。
         它记录的是原作/公开设定，不是本故事已发生的事实；与世界书或正文冲突时以后者为准。
       </p>
       <p v-if="materials.snapshot.value" class="ub-cm__meta">
         条目 {{ materials.snapshot.value.webRefs.length }} 条（活跃 {{ materials.snapshot.value.webRefs.filter(entry => !entry.retired).length }}）· 修订号 {{ materials.snapshot.value.revisions.webRefs }}
       </p>
       <p v-if="materials.loadError.value" class="ub-cm__error">{{ materials.loadError.value }}</p>
-      <p v-if="!materials.snapshot.value?.webRefs.length" class="ub-cm__empty">还没有百科资料。在续写设置里打开「开场百科检索」后，新任务第一次规划前会自动检索；主 Agent 之后也可按需派工 web-researcher。</p>
+      <p v-if="!materials.snapshot.value?.webRefs.length" class="ub-cm__empty" title="在续写设置里打开「开场百科检索」后，新任务第一次规划前会自动检索；主 Agent 之后也可按需派工 web-researcher。">还没有百科资料，开启检索后自动获取。</p>
       <div v-else class="ub-cm__cards">
         <details v-for="ref in materials.snapshot.value.webRefs" :key="ref.id" class="ub-cm__card" :class="{ 'is-retired': ref.retired }">
           <summary class="ub-cm__node-head">
@@ -351,7 +352,7 @@
       <p v-if="materials.snapshot.value" class="ub-cm__meta">条目 {{ materials.snapshot.value.userRequirements.length }} 条 · 修订号 {{ materials.snapshot.value.revisions.userRequirements }}</p>
       <p v-if="materials.loadError.value" class="ub-cm__error">{{ materials.loadError.value }}</p>
       <p v-if="materials.snapshot.value && !materials.snapshot.value.userRequirements.length" class="ub-cm__empty">
-        还没有用户要求条目。创建任务后会写入初始要求；之后在会话里补充的实质要求会在历史压缩后合并进来。也可以手动新增。
+        还没有用户要求条目，可手动新增。
       </p>
       <div class="ub-cm__reqs">
         <div v-for="(item, index) in requirementItems" :key="index" class="ub-cm__req">
@@ -821,18 +822,19 @@ defineExpose({ reload });
   flex-direction: column;
   gap: var(--ub-s1);
   padding: var(--ub-s2) var(--ub-s3);
-  border-left: 3px solid var(--ub-line);
-  border-radius: 0 6px 6px 0;
+  border: 0;
+  border-radius: 6px;
   background: var(--ub-input-bg);
+  box-shadow: inset 3px 0 0 var(--ub-line);
 }
 
 .ub-cm__turns li.is-done {
-  border-left-color: var(--ub-ok);
+  box-shadow: inset 3px 0 0 var(--ub-ok);
   opacity: 0.6;
 }
 
 .ub-cm__turns li.is-current {
-  border-left-color: var(--ub-accent);
+  box-shadow: inset 3px 0 0 var(--ub-accent);
   background: var(--ub-accent-soft);
 }
 
@@ -948,9 +950,10 @@ defineExpose({ reload });
   gap: var(--ub-s1);
   min-width: 0;
   padding: var(--ub-s3);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-control);
   background: var(--ub-panel);
+  box-shadow: var(--ub-card-shadow);
 }
 
 .ub-cm__card.is-retired {

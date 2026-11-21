@@ -87,6 +87,7 @@ export function showCustomConfirm_ACU(
   `;
 
   // 挂载到主窗口（与窗口系统一致），而非当前 iframe
+  // dom-injection:allow —— html 由上方 escapeHtml_ACU 转义 + renderHostDialog* 构造，全可信
   targetDoc.body.insertAdjacentHTML('beforeend', html);
 
   // 在主窗口 document 中查找元素

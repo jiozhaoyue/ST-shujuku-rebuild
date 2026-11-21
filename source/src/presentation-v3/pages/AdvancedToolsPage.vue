@@ -40,8 +40,8 @@
 
         <div class="ub-at__result" aria-label="SQL 执行结果">
           <p v-if="sqlFlow.result.value.kind === 'idle'" class="ub-at__empty">执行 SQL 后结果会显示在这里</p>
-          <p v-if="sqlFlow.multiStatementCount.value > 0" class="ub-at__note">
-            输入包含 {{ sqlFlow.multiStatementCount.value }} 条语句：多条语句不会逐条展示结果/影响（只读查询请逐条执行），批量变更由提交机制统一处理。
+          <p v-if="sqlFlow.multiStatementCount.value > 0" class="ub-at__note" title="多条语句不会逐条展示结果，只读查询请逐条执行。">
+            输入包含 {{ sqlFlow.multiStatementCount.value }} 条语句，批量变更由提交机制统一处理。
           </p>
           <UbCallout v-else-if="sqlFlow.result.value.kind === 'mutation'" kind="success">
             执行成功，{{ sqlFlow.result.value.changes }} 行受影响，耗时 {{ sqlFlow.result.value.elapsedMs }}ms。
@@ -102,7 +102,7 @@
         </div>
 
         <UbDisclosure label="常用语句" :meta="`${sqlFlow.snippets.value.length} 条`" :expanded="snippetsOpen" max-height="220px" @toggle="snippetsOpen = !snippetsOpen">
-          <p v-if="!sqlFlow.snippets.value.length" class="ub-at__empty">还没有常用语句：编辑器写好后点「存为常用」收藏（跨聊天可用，点击仅填入编辑器、绝不自动执行）</p>
+          <p v-if="!sqlFlow.snippets.value.length" class="ub-at__empty" title="编辑器写好后点「存为常用」收藏，跨聊天可用，点击仅填入编辑器，绝不自动执行。">还没有常用语句，点「存为常用」收藏</p>
           <div v-else class="ub-at__snippets" aria-label="常用语句">
             <span
               v-for="(snippet, snippetIndex) in sqlFlow.snippets.value"
@@ -169,8 +169,9 @@
             <UbSwitch :model-value="logFlow.autoScroll.value" aria-label="自动滚动" @update:model-value="logFlow.autoScroll.value = $event" />
           </label>
         </div>
-        <p class="ub-at__hint">
-          最多保留最近 50000 条；列表只渲染最近 {{ logFlow.windowSizeLimit }} 条（{{ logFlow.hiddenByWindow.value ? `已折叠较早的 ${logFlow.hiddenByWindow.value} 条，` : '' }}当前显示 {{ logFlow.filteredCount.value }} / {{ logFlow.totalCount.value }} 条，导出仍取全部）。{{ logFlow.pendingCount.value ? `${logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : '' }}
+        <p class="ub-at__hint" :title="logHintDetail">
+          日志保留上限 50000 条，仅渲染最近 {{ logFlow.windowSizeLimit }} 条。
+          <template v-if="logFlow.pendingCount.value">{{ logFlow.pendingCount.value }} 条暂停期间新增日志等待显示。</template>
         </p>
         <div ref="logListRef" class="ub-at__loglist" role="log" aria-live="polite">
           <p v-if="!logFlow.visibleLogs.value.length" class="ub-at__empty">暂无匹配日志</p>
@@ -205,7 +206,8 @@
         <li>点「开始 Debug」（补开 debug / warn 采集，之前攒下的报错会一起保留导出）</li>
         <li>复现问题</li>
         <li>点「导出 Debug 数据」生成 .json 文件</li>
-        <li>点「前往 GitHub 提交 issue」把文件作为附件提交；附件传不上时，先把文件传到你常用的网盘，再把分享链接（含提取码）贴进 issue。排查完记得「停止 Debug」。</li>
+        <li>点「前往 GitHub 提交 issue」提交附件。附件传不上时，先传网盘再把分享链接贴进 issue。</li>
+        <li>排查完记得「停止 Debug」。</li>
       </ol>
       <div class="ub-at__row">
         <UbButton :variant="debugFlow.active.value ? 'danger' : 'primary'" :icon="debugFlow.active.value ? 'fa-solid fa-stop' : 'fa-solid fa-bug'" @click="debugFlow.toggleDebug">
@@ -225,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { buildDebugIssueUrl_ACU } from '../../presentation-v2/composables/debug-issue-link';
 import { resolveLogErrorHint, type LogErrorHint } from '../../presentation-v2/composables/log-error-hints';
 import { watchChatChanged_ACU } from '../../presentation-v2/composables/useChatChangedListener';
@@ -253,6 +255,16 @@ const debugIssueUrl = buildDebugIssueUrl_ACU();
 const logListRef = ref<HTMLElement | null>(null);
 const historyOpen = ref(false);
 const snippetsOpen = ref(false);
+
+/** 日志说明的完整细节收敛到 tooltip，正文只显示短句。 */
+const logHintDetail = computed(() => {
+  const parts = ['最多保留最近 50000 条，导出仍取全部。当前显示 '
+    + `${logFlow.filteredCount.value} / ${logFlow.totalCount.value} 条。`];
+  if (logFlow.hiddenByWindow.value > 0) {
+    parts.push(`已折叠较早的 ${logFlow.hiddenByWindow.value} 条。`);
+  }
+  return parts.join('');
+});
 
 const sections = [
   { id: 'at-sql', label: copy.nav.sql },
@@ -295,7 +307,7 @@ function formatSqlCell(value: string | number | Uint8Array | null): string {
 function cellHoverTitle(value: string | number | Uint8Array | null): string {
   const text = formatSqlCell(value);
   const shown = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
-  return `${shown}\n点击复制为 SQL 字面量（可直接粘进 WHERE / SET）`;
+  return `${shown}\n点击复制为 SQL 字面量，可粘进 WHERE 或 SET`;
 }
 
 function logLevelVariant(level: LogLevel): UbBadgeVariant {
@@ -463,9 +475,10 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   gap: var(--ub-s1);
   max-width: 100%;
   padding: var(--ub-s1) var(--ub-s2);
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: 999px;
   background: var(--ub-sunken);
+  box-shadow: var(--ub-card-shadow);
   cursor: pointer;
 }
 
@@ -495,9 +508,9 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   width: 100%;
   padding: var(--ub-s2);
   border: 0;
-  border-left: 3px solid var(--ub-ok);
   border-radius: 6px;
   background: var(--ub-sunken);
+  box-shadow: inset 3px 0 0 var(--ub-ok);
   color: var(--ub-text);
   font: inherit;
   text-align: left;
@@ -505,7 +518,7 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
 }
 
 .ub-at__history.is-fail {
-  border-left-color: var(--ub-danger);
+  box-shadow: inset 3px 0 0 var(--ub-danger);
 }
 
 .ub-at__history-meta {
@@ -554,15 +567,14 @@ watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post
   gap: 2px;
   padding: var(--ub-s2) var(--ub-s3);
   border-bottom: 1px solid var(--ub-line-soft);
-  border-left: 3px solid transparent;
 }
 
 .ub-at__log.is-error {
-  border-left-color: var(--ub-danger);
+  box-shadow: inset 3px 0 0 var(--ub-danger);
 }
 
 .ub-at__log.is-warn {
-  border-left-color: var(--ub-warn);
+  box-shadow: inset 3px 0 0 var(--ub-warn);
 }
 
 .ub-at__log-meta {

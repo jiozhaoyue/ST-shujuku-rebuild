@@ -1,5 +1,5 @@
 <template>
-  <UbPage lead="上手只需要这一页。按顺序配好 API、更新节奏、表格模板与剧情推进就能开始；需要更多功能时切到「高手模式」。" :sections="sections">
+  <UbPage lead="按顺序配好基础项即可开始。" lead-detail="上手只需要这一页。按顺序配好 API、更新节奏、表格模板与剧情推进就能开始；需要更多功能时切到「高手模式」。" :sections="sections">
     <ApiPresetEditor id-prefix="basic-api" />
     <UpdateSettingsSection id="basic-update" :show-advanced="false" />
     <TableTemplateSection id="basic-table" />

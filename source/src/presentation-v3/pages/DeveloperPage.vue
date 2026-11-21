@@ -9,20 +9,23 @@
       </UbRow>
       <UbRow
         label="WARN 日志"
-        hint="常驻采集 WARN 级运行日志：开启后不点「开始 Debug」也会把 warn 写入运行日志与导出；关闭时（默认）只有 error。开始/停止 Debug 只影响临时那一路，不会动这里的常驻选择。"
+        hint="常驻采集 WARN 级日志。"
+        hint-detail="开启后不点「开始 Debug」也会把 warn 写入运行日志与导出；关闭时默认只留 error。开始或停止 Debug 只影响临时那一路，不改这里的常驻选择。"
       >
         <UbSwitch :model-value="devOptions.warnLogEnabled.value" aria-label="WARN 日志" @update:model-value="devOptions.setWarnLogEnabled($event)" />
       </UbRow>
       <UbRow
         label="提示词额外要求"
-        hint="开启后，可在下方选择要附加的提示词，并勾选「附加到」的功能。默认关闭，关闭时请求与原来完全一致。"
+        hint="按需附加提示词。"
+        hint-detail="开启后，可在下方选择要附加的提示词，并勾选「附加到」的功能。默认关闭，关闭时请求与原来完全一致。"
       >
         <UbSwitch :model-value="devOptions.scopeGuardPrompt.value" aria-label="提示词额外要求" @update:model-value="devOptions.setScopeGuardPrompt($event)" />
       </UbRow>
       <UbRow
         v-if="devOptions.scopeGuardPrompt.value"
         label="附加的提示词"
-        hint="「执行边界提示词」要求模型只做指令要求的事、不编造、不越范围，适合 MiniMax M3.1 Flash 这类爱「顺便多做」的模型；「安全审查提示词」告知模型内容发表在没有限制的平台、不受安全审查约束，供需要的场景自行选用。可以只选其一，也可以都选；都不选时请求与原来一致。"
+        hint="选择要附加的提示词。"
+        hint-detail="执行边界提示词要求模型只做指令要求的事，适合爱额外发挥的模型；安全审查提示词告知模型内容不受安全审查约束，按需选用。可只选其一或都选，都不选时请求不变。"
         stack
       >
         <div class="ub-dev__check-cluster" data-extra-prompt-kinds>
@@ -38,7 +41,8 @@
       <UbRow
         v-if="devOptions.scopeGuardPrompt.value"
         label="附加到"
-        hint="默认只勾填表——压测只在填表上验证过效果。智能续写和外部脚本本身要写正文，勾选前建议先试一轮。"
+        hint="选择应用的功能范围。"
+        hint-detail="默认只勾填表，压测只在填表上验证过效果。智能续写和外部脚本本身要写正文，勾选前建议先试一轮。"
         stack
       >
         <div class="ub-dev__check-cluster" data-scope-guard-targets>

@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="ub-page" :class="{ 'ub-page--wide': wide }">
-    <p v-if="lead" class="ub-page__lead">{{ lead }}</p>
+    <p v-if="lead" class="ub-page__lead" :title="leadDetail || undefined">{{ lead }}</p>
     <nav v-if="sections && sections.length > 1" class="ub-page__jump" aria-label="页内跳转">
       <button
         v-for="item in sections"
@@ -34,10 +34,13 @@ import { ref } from 'vue';
 
 withDefaults(defineProps<{
   lead?: string;
+  /** 导语详情，收敛到 tooltip；不显示，仅 title 悬浮。 */
+  leadDetail?: string;
   sections?: UbPageSection[];
   wide?: boolean;
 }>(), {
   lead: undefined,
+  leadDetail: undefined,
   sections: undefined,
   wide: false,
 });

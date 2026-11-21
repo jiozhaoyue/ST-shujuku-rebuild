@@ -3,7 +3,8 @@
     <UbSection
       id="cont-session"
       title="Agent 会话"
-      description="像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字。"
+      description="按需派工，最终正文由酒馆生成。"
+      description-detail="像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字。"
       icon="fa-solid fa-comments"
     >
       <ContinuationChat
@@ -40,7 +41,7 @@
       </div>
     </UbSection>
 
-    <UbSection id="cont-materials" title="已有资料" description="阶段大纲与本地资料都能直接编辑保存；一键清空只丢任务、会话记录与本地资料，不动小说正文。" icon="fa-solid fa-folder-open">
+    <UbSection id="cont-materials" title="已有资料" description="资料可直接编辑保存。" description-detail="阶段大纲与本地资料都能直接编辑保存；一键清空只丢任务、会话记录与本地资料，不动小说正文。" icon="fa-solid fa-folder-open">
       <ContinuationMaterials
         ref="materialsPanel"
         :task="runtime.task.value"
@@ -57,7 +58,8 @@
       v-if="settingsDraft"
       id="cont-settings"
       title="续写设置"
-      description="修改后自动保存；任务运行中也能改，改动在本轮空档落盘、下一轮生效。默认值已能满足大多数场景。"
+      description="修改后自动保存，默认值已够用。"
+      description-detail="修改后自动保存；任务运行中也能改，改动在本轮空档落盘、下一轮生效。默认值已能满足大多数场景。"
       icon="fa-solid fa-sliders"
     >
       <template #actions>
@@ -112,7 +114,7 @@
 
       <div class="ub-cont__groups">
         <UbDisclosure label="固定工作流" :meta="workflowGroupMeta" :expanded="isGroupExpanded('workflow')" @toggle="toggleGroup('workflow')">
-          <p class="ub-cont__meta">主会话每轮只做开局决策。结算、策划、条件审查、容错提交、自动修复和写作指令由程序按固定顺序执行。这里只改配置，提示词在下方各角色分组里改。</p>
+          <p class="ub-cont__meta" title="结算、策划、条件审查、容错提交、自动修复和写作指令由程序按固定顺序执行，这里只改配置。">主会话每轮只做开局决策，提示词在各角色分组里改。</p>
           <UbRow label="自动修复次数上限" hint="同一模块连续失败达该次数后停修，交主会话。范围 1–10。">
             <UbInput v-model="settingsDraft.workflow.autoFixMaxAttempts" type="number" :min="1" :max="10" aria-label="自动修复次数上限" />
           </UbRow>
@@ -143,7 +145,7 @@
           <UbRow label="重试延迟（秒）" hint="失败后等待多久再重试；遇到 429 限流可适当调大。">
             <UbInput v-model="settingsDraft.retryDelaySeconds" type="number" :min="0" aria-label="重试延迟（秒）" />
           </UbRow>
-          <UbRow label="连续高压轮上限" hint="跨阶段累计多少轮没有日常/余波轮就强制安排一轮，0 为不作要求。只兜底极端情况。">
+          <UbRow label="连续高压轮上限" hint="无日常轮时强制安排一轮。" hint-detail="跨阶段累计多少轮没有日常或余波轮就强制安排一轮，0 为不作要求。只兜底极端情况。">
             <UbInput v-model="settingsDraft.maxConsecutivePressureTurns" type="number" :min="0" :max="maxConsecutivePressureTurnsMax" aria-label="连续高压轮上限" />
           </UbRow>
           <UbRow label="循环标签" hint="逗号分隔；正文缺少任一标签就视为失败并重试。留空不检查。" stack>
@@ -158,7 +160,7 @@
           <UbRow label="正文目录尾部全文楼数" hint="最近几楼直接注入全文作承接锚点，其余窗口内楼层只进目录按需调阅。">
             <UbInput v-model="settingsDraft.storyTailFloors" type="number" :min="0" aria-label="正文目录尾部全文楼数" />
           </UbRow>
-          <UbRow label="会话自动总结阈值（token）" hint="按主 Agent 实际读取的完整上下文统计，超过后把最早轮次浓缩成交接报告；0 为不总结。">
+          <UbRow label="会话自动总结阈值（token）" hint="超过阈值浓缩早期轮次。" hint-detail="按主 Agent 实际读取的完整上下文统计，超过后把最早轮次浓缩成交接报告；0 为不总结。">
             <UbInput v-model="settingsDraft.agentHistoryTokenBudget" type="number" :min="0" aria-label="会话自动总结阈值" />
           </UbRow>
           <UbRow label="单批次读取上限" hint="一次 read/search 批次最多注入多少 token；填正整数或形如 20% 的百分比（按总结阈值折算）。">
@@ -201,7 +203,7 @@
         </UbDisclosure>
 
         <UbDisclosure label="网页检索" :meta="webResearchGroupMeta" :expanded="isGroupExpanded('webResearch')" @toggle="toggleGroup('webResearch')">
-          <p class="ub-cont__meta">开启后，新任务第一次规划前会派工 web-researcher 从勾选的百科查清原作设定并写进「百科资料」。TT 下萌娘百科与维基百科可直连；通用搜索只支持 SearXNG（需填写实例地址）；百度百科、DuckDuckGo、Serper/Tavily 需酒馆服务器转发，TT 暂不支持。</p>
+          <p class="ub-cont__meta" title="新任务第一次规划前会派工 web-researcher 从勾选的百科查清原作设定并写进「百科资料」。TT 下萌娘百科与维基百科可直连，通用搜索只支持 SearXNG；百度百科、DuckDuckGo、Serper/Tavily 需酒馆服务器转发，TT 暂不支持。">开启后按勾选来源检索原作设定。TT 下部分来源不可直连。</p>
           <div class="ub-cont__checks">
             <UbCheck v-model="settingsDraft.webResearch.sources.moegirl" label="萌娘百科（直连）" />
             <UbCheck v-model="settingsDraft.webResearch.sources.wikipediaZh" label="中文维基百科（直连）" />
@@ -229,7 +231,7 @@
         </UbDisclosure>
 
         <UbDisclosure label="各 Agent 渠道" :meta="channelGroupMeta" :expanded="isGroupExpanded('channels')" @toggle="toggleGroup('channels')">
-          <p class="ub-cont__meta">给不同 Agent 分配不同 API 预设：例如主 Agent 用强模型，审查类子代理用便宜快速的模型。「跟随全局默认」即使用上方的 API 预设。</p>
+          <p class="ub-cont__meta" title="例如主 Agent 用强模型，审查类子代理用便宜快速的模型。「跟随全局默认」即使用上方的 API 预设。">给不同 Agent 分配 API 预设。</p>
           <UbRow v-for="channel in agentChannelRoles" :key="channel.role" :label="channel.label">
             <UbSelect
               :options="agentChannelOptions"
@@ -241,7 +243,7 @@
         </UbDisclosure>
 
         <UbDisclosure label="上下文提取与排除规则" :meta="rulesGroupMeta" :expanded="isGroupExpanded('rules')" @toggle="toggleGroup('rules')">
-          <p class="ub-cont__meta">提取规则只保留正文中匹配「起始–结束」标记之间的内容；排除规则把匹配段落剔除。两者都为空时使用完整正文。</p>
+          <p class="ub-cont__meta" title="提取规则只保留正文中匹配「起始–结束」标记之间的内容；排除规则把匹配段落剔除。两者都为空时使用完整正文。">按规则提取或排除正文段落。</p>
           <UbRulePairs v-model="settingsDraft.contextExtractRules" label="上下文提取规则" />
           <UbRulePairs v-model="settingsDraft.contextExcludeRules" label="上下文排除规则" />
         </UbDisclosure>
@@ -291,11 +293,11 @@
         </UbDisclosure>
         <UbDisclosure label="占位符速查" meta="参考" :expanded="isGroupExpanded('prompt:reference')" @toggle="toggleGroup('prompt:reference')">
           <h4 class="ub-cont__subhead">大纲子代理</h4>
-          <p class="ub-cont__meta">$USER_REQUIREMENTS（用户累计要求）、$ORIGIN_INSTRUCTION（创建任务时的初始要求原文）、$1、$STORY_OVERVIEW（事件概览）、$STORY_TAIL（尾部楼层全文）、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC（故事总纲）、$STAGE_WORD_BUDGET（本阶段字数容量）、$PACING_CONTEXT（跨阶段节奏状态）、$VALIDATION_ERRORS。</p>
+          <p class="ub-cont__meta" title="$USER_REQUIREMENTS、$ORIGIN_INSTRUCTION、$1、$STORY_OVERVIEW、$STORY_TAIL、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC、$STAGE_WORD_BUDGET、$PACING_CONTEXT、$VALIDATION_ERRORS。">大纲子代理可用的占位符，悬停查看</p>
           <h4 class="ub-cont__subhead">主 Agent</h4>
-          <p class="ub-cont__meta">$HISTORY_ANCHOR 标记主 Agent 会话记录的插入位置，该段本身不发送；删掉它会让会话记录退回到序列最前面。正文三层注入：$STORY_OVERVIEW、$STORY_TAIL、$STORY_CATALOG（楼层索引）。目录与状态：$OUTLINE_STATE、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS、$AGENT_READ_CATALOG。其余：$USER_REQUIREMENTS、$USER_INTENT、$CURRENT_TURN_GOAL、$CURRENT_TURN_PACING、$STORY_ARC_STATE、$HISTORY_UNSETTLED、$AGENT_CATALOG、$MODULE_CATALOG、$TABLE_CATALOG、$BUDGET；旧版 $OUTLINE_WINDOW、$ACTIVE_CONSTRAINTS、$TOOL_RESULTS 仍可在自定义提示词中使用。</p>
+          <p class="ub-cont__meta" title="$HISTORY_ANCHOR 标记主 Agent 会话记录的插入位置，该段本身不发送。正文三层注入 $STORY_OVERVIEW、$STORY_TAIL、$STORY_CATALOG；目录与状态用 $OUTLINE_STATE、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS、$AGENT_READ_CATALOG；其余变量及旧版占位符见提示词文档。">主 Agent 可用的占位符，悬停查看</p>
           <h4 class="ub-cont__subhead">各子代理</h4>
-          <p class="ub-cont__meta">$USER_REQUIREMENTS、$AGENT_READ_MATERIALS（派工种子读集解析出的资料）、$AGENT_TASK、$AGENT_WRITE_SCOPE、$AGENT_READ_CATALOG、$STORY_OVERVIEW / $STORY_TAIL / $HISTORY_UNSETTLED、$HOOKS_LEDGER / $INFO_GAP / $ACTIVE_CONSTRAINTS / $STORY_ARC / $CHRONOLOGY / $WEB_REFS（$WEB_REFS 只给名称 + 一句话简介）、$STORY_CATALOG、$TABLE_CATALOG、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS；网页检索子代理另有 $WEB_TOOL_CATALOG。固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查、终审与用户要求维护固定获得 $OUTLINE_WINDOW 或任务段中的 $USER_REQUIREMENTS；大纲代理默认使用 $USER_REQUIREMENTS，自定义段仍可使用 $ORIGIN_INSTRUCTION；伏笔与认知维护代理不再注入初始要求原文，只接收累计用户要求清单，避免计划污染事实结算。</p>
+          <p class="ub-cont__meta" title="各子代理可用 $USER_REQUIREMENTS、$AGENT_READ_MATERIALS、$AGENT_TASK、$AGENT_WRITE_SCOPE、$AGENT_READ_CATALOG、$STORY_OVERVIEW、$STORY_TAIL、$HOOKS_LEDGER、$INFO_GAP、$ACTIVE_CONSTRAINTS、$STORY_ARC、$CHRONOLOGY、$WEB_REFS、$STORY_CATALOG、$TABLE_CATALOG 等，网页检索子代理另有 $WEB_TOOL_CATALOG。">各子代理可用的占位符，悬停查看</p>
         </UbDisclosure>
       </div>
     </UbSection>

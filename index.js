@@ -98438,7 +98438,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * shared/build-info.ts — 构建期注入信息的唯一读取口
  *
  * rollup 打包时把版本写进 `"Unbirth A.D. 6386"`（与 manifest.json / source/package.json
- * 同值），构建时间戳写进 `"20261120-1938"`。源码直跑、测试环境或注入失败时读不到，
+ * 同值），构建时间戳写进 `"20261121-1553"`。源码直跑、测试环境或注入失败时读不到，
  * 一律回退到固定字面量（不猜、不抛）。
  *
  * 之所以单独一个模块：此前 useDebugPanel 与 plot-entry 各写了一份同样的 try/catch 读取，
@@ -98457,7 +98457,7 @@ function readAcuBuildVersion_ACU() {
 /** 构建时间戳；读不到返回 'dev'（与构建徽章的既有回退一致）。 */
 function readAcuBuildStamp_ACU() {
     try {
-        const stamp = "20261120-1938";
+        const stamp = "20261121-1553";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -116344,6 +116344,7 @@ function showCustomConfirm_ACU(title, message, options = {}) {
     </div>
   `;
     // 挂载到主窗口（与窗口系统一致），而非当前 iframe
+    // dom-injection:allow —— html 由上方 escapeHtml_ACU 转义 + renderHostDialog* 构造，全可信
     targetDoc.body.insertAdjacentHTML('beforeend', html);
     // 在主窗口 document 中查找元素
     const $ok = targetDoc.getElementById(`${confirmId}-ok`);
@@ -161222,7 +161223,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261120-1938";
+        const stamp = "20261121-1553";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -188206,8 +188207,8 @@ var _sfc_main$18 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-segs[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: var(--ub-s2);\n}\n.ub-segs__add[data-v-f68c779d] {\r\n  align-self: flex-start;\n}\n.ub-segs__list[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-segs__item[data-v-f68c779d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-left: 3px solid var(--ub-seg-tone, var(--ub-line));\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-segs__item--system[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-accent);\n}\n.ub-segs__item--user[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-ok);\n}\n.ub-segs__item--assistant[data-v-f68c779d] {\r\n  --ub-seg-tone: var(--ub-warn);\n}\n.ub-segs__head[data-v-f68c779d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  flex-wrap: wrap;\n}\n.ub-segs__index[data-v-f68c779d] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  min-width: 1.8em;\r\n  height: 1.8em;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-segs__role[data-v-f68c779d] {\r\n  width: calc(var(--ub-u) * 130);\n}\n.ub-segs__slot[data-v-f68c779d] {\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-segs__spacer[data-v-f68c779d] {\r\n  flex: 1 1 auto;\n}\n.ub-segs__item.is-disabled[data-v-f68c779d] >  .ub-textarea {\r\n  opacity: 0.5;\n}\n.ub-segs__enabled[data-v-f68c779d] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-segs__empty[data-v-f68c779d] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPromptSegments.vue#style-0-f68c779d");
-var UbPromptSegments_vue_vue_type_style_index_0_scoped_f68c779d_lang = null;
+injectSfcStyle("\n.ub-segs[data-v-3c9ba1c8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  align-items: stretch;\r\n  gap: var(--ub-s2);\n}\n.ub-segs__add[data-v-3c9ba1c8] {\r\n  align-self: flex-start;\n}\n.ub-segs__list[data-v-3c9ba1c8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-segs__item[data-v-3c9ba1c8] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\r\n  box-shadow: inset 3px 0 0 var(--ub-seg-tone, var(--ub-line)), var(--ub-card-shadow);\n}\n.ub-segs__item--system[data-v-3c9ba1c8] {\r\n  --ub-seg-tone: var(--ub-accent);\n}\n.ub-segs__item--user[data-v-3c9ba1c8] {\r\n  --ub-seg-tone: var(--ub-ok);\n}\n.ub-segs__item--assistant[data-v-3c9ba1c8] {\r\n  --ub-seg-tone: var(--ub-warn);\n}\n.ub-segs__head[data-v-3c9ba1c8] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  flex-wrap: wrap;\n}\n.ub-segs__index[data-v-3c9ba1c8] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  min-width: 1.8em;\r\n  height: 1.8em;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-segs__role[data-v-3c9ba1c8] {\r\n  width: calc(var(--ub-u) * 130);\n}\n.ub-segs__slot[data-v-3c9ba1c8] {\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-segs__spacer[data-v-3c9ba1c8] {\r\n  flex: 1 1 auto;\n}\n.ub-segs__item.is-disabled[data-v-3c9ba1c8] >  .ub-textarea {\r\n  opacity: 0.5;\n}\n.ub-segs__enabled[data-v-3c9ba1c8] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-segs__empty[data-v-3c9ba1c8] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPromptSegments.vue#style-0-3c9ba1c8");
+var UbPromptSegments_vue_vue_type_style_index_0_scoped_3c9ba1c8_lang = null;
 
 const _hoisted_1$12 = { class: "ub-segs" };
 const _hoisted_2$V = { class: "ub-segs__list" };
@@ -188387,7 +188388,7 @@ function _sfc_render$17(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	]);
 }
-var UbPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$17], ["__scopeId", "data-v-f68c779d"]]);
+var UbPromptSegments = /* @__PURE__ */ _export_sfc(_sfc_main$18, [["render", _sfc_render$17], ["__scopeId", "data-v-3c9ba1c8"]]);
 
 var _sfc_main$17 = /*@__PURE__*/ defineComponent({
     __name: 'PromptSegmentsSheet',
@@ -188622,8 +188623,8 @@ var _sfc_main$15 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-disc[data-v-8841c368] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-disc--flat[data-v-8841c368] {\r\n  border: 0;\r\n  border-radius: 0;\r\n  background: transparent;\n}\n.ub-disc__head[data-v-8841c368] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-disc__head[data-v-8841c368]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-disc__chevron[data-v-8841c368] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.is-open > .ub-disc__head .ub-disc__chevron[data-v-8841c368] {\r\n  transform: rotate(90deg);\n}\n.ub-disc__label[data-v-8841c368] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-disc__meta[data-v-8841c368] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 500;\n}\n.ub-disc__body[data-v-8841c368] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) var(--ub-s3) var(--ub-s3);\n}\r\n", "src/presentation-v3/ui/UbDisclosure.vue#style-0-8841c368");
-var UbDisclosure_vue_vue_type_style_index_0_scoped_8841c368_lang = null;
+injectSfcStyle("\n.ub-disc[data-v-b52870b0] {\r\n  min-width: 0;\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\n}\n.ub-disc--flat[data-v-b52870b0] {\r\n  border: 0;\r\n  border-radius: 0;\r\n  background: transparent;\r\n  box-shadow: none;\n}\n.ub-disc__head[data-v-b52870b0] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-disc__head[data-v-b52870b0]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-disc__chevron[data-v-b52870b0] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.is-open > .ub-disc__head .ub-disc__chevron[data-v-b52870b0] {\r\n  transform: rotate(90deg);\n}\n.ub-disc__label[data-v-b52870b0] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-disc__meta[data-v-b52870b0] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 500;\n}\n.ub-disc__body[data-v-b52870b0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) var(--ub-s3) var(--ub-s3);\n}\r\n", "src/presentation-v3/ui/UbDisclosure.vue#style-0-b52870b0");
+var UbDisclosure_vue_vue_type_style_index_0_scoped_b52870b0_lang = null;
 
 const _hoisted_1$10 = ["aria-expanded", "aria-controls"];
 const _hoisted_2$T = { class: "ub-disc__label" };
@@ -188683,7 +188684,7 @@ function _sfc_render$14(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var UbDisclosure = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$14], ["__scopeId", "data-v-8841c368"]]);
+var UbDisclosure = /* @__PURE__ */ _export_sfc(_sfc_main$15, [["render", _sfc_render$14], ["__scopeId", "data-v-b52870b0"]]);
 
 var _sfc_main$14 = /*@__PURE__*/ defineComponent({
     __name: 'VizAssistantView',
@@ -189352,6 +189353,7 @@ var _sfc_main$12 = /*@__PURE__*/ defineComponent({
     props: {
         label: { default: undefined },
         hint: { default: undefined },
+        hintDetail: { default: undefined },
         stack: { type: Boolean, default: false },
         flagged: { type: Boolean, default: false }
     },
@@ -189367,8 +189369,8 @@ var _sfc_main$12 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-row[data-v-085151b3] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3) var(--ub-s4);\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-row + .ub-row[data-v-085151b3] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-row--stack[data-v-085151b3] {\r\n  flex-direction: column;\r\n  align-items: stretch;\n}\n.ub-row--flag[data-v-085151b3] {\r\n  background: var(--ub-warn-soft);\r\n  box-shadow: inset 3px 0 0 var(--ub-warn);\n}\n.ub-row__text[data-v-085151b3] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-row__label[data-v-085151b3] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.ub-row__hint[data-v-085151b3] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.55;\n}\n.ub-row__control[data-v-085151b3] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  /* 控件区不随长说明按比例收缩（否则说明越长按钮越窄、只剩图标）；宽度上限交给 max-width */\r\n  flex: 0 0 auto;\r\n  min-width: 0;\r\n  max-width: 62%;\n}\n.ub-row--stack .ub-row__control[data-v-085151b3] {\r\n  justify-content: stretch;\r\n  max-width: none;\r\n  width: 100%;\n}\n.ub-row--stack .ub-row__control[data-v-085151b3] >  * {\r\n  flex: 1 1 auto;\n}\n@media (max-width: 560px) {\n.ub-row:not(.ub-row--stack) .ub-row__control[data-v-085151b3] {\r\n    max-width: 55%;\n}\n}\r\n", "src/presentation-v3/ui/UbRow.vue#style-0-085151b3");
-var UbRow_vue_vue_type_style_index_0_scoped_085151b3_lang = null;
+injectSfcStyle("\n.ub-row[data-v-8ac92c04] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3) var(--ub-s4);\r\n  min-width: 0;\r\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-row + .ub-row[data-v-8ac92c04] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-row--stack[data-v-8ac92c04] {\r\n  flex-direction: column;\r\n  align-items: stretch;\n}\n.ub-row--flag[data-v-8ac92c04] {\r\n  background: var(--ub-warn-soft);\r\n  box-shadow: inset 3px 0 0 var(--ub-warn);\n}\n.ub-row__text[data-v-8ac92c04] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-row__label[data-v-8ac92c04] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 600;\r\n  line-height: 1.35;\n}\n.ub-row__hint[data-v-8ac92c04] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.55;\n}\n.ub-row__control[data-v-8ac92c04] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  /* 控件区不随长说明按比例收缩（否则说明越长按钮越窄、只剩图标）；宽度上限交给 max-width */\r\n  flex: 0 0 auto;\r\n  min-width: 0;\r\n  max-width: 62%;\n}\n.ub-row--stack .ub-row__control[data-v-8ac92c04] {\r\n  justify-content: stretch;\r\n  max-width: none;\r\n  width: 100%;\n}\n.ub-row--stack .ub-row__control[data-v-8ac92c04] >  * {\r\n  flex: 1 1 auto;\n}\n@media (max-width: 560px) {\n.ub-row:not(.ub-row--stack) .ub-row__control[data-v-8ac92c04] {\r\n    max-width: 55%;\n}\n}\r\n", "src/presentation-v3/ui/UbRow.vue#style-0-8ac92c04");
+var UbRow_vue_vue_type_style_index_0_scoped_8ac92c04_lang = null;
 
 const _hoisted_1$Z = ["data-ub-row"];
 const _hoisted_2$R = {
@@ -189379,10 +189381,7 @@ const _hoisted_3$L = {
 	key: 0,
 	class: "ub-row__label"
 };
-const _hoisted_4$F = {
-	key: 1,
-	class: "ub-row__hint"
-};
+const _hoisted_4$F = ["title"];
 const _hoisted_5$B = {
 	key: 1,
 	class: "ub-row__control"
@@ -189398,13 +189397,17 @@ function _sfc_render$11(_ctx, _cache, $props, $setup, $data, $options) {
 		toDisplayString($props.label),
 		1
 		/* TEXT */
-	)], true)])) : createCommentVNode("v-if", true), $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", _hoisted_4$F, [renderSlot(_ctx.$slots, "hint", {}, () => [createTextVNode(
+	)], true)])) : createCommentVNode("v-if", true), $props.hint || _ctx.$slots.hint ? (openBlock(), createElementBlock("div", {
+		key: 1,
+		class: "ub-row__hint",
+		title: $props.hintDetail || undefined
+	}, [renderSlot(_ctx.$slots, "hint", {}, () => [createTextVNode(
 		toDisplayString($props.hint),
 		1
 		/* TEXT */
-	)], true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("div", _hoisted_5$B, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$Z);
+	)], true)], 8, _hoisted_4$F)) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true), _ctx.$slots.default ? (openBlock(), createElementBlock("div", _hoisted_5$B, [renderSlot(_ctx.$slots, "default", {}, undefined, true)])) : createCommentVNode("v-if", true)], 10, _hoisted_1$Z);
 }
-var UbRow = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$11], ["__scopeId", "data-v-085151b3"]]);
+var UbRow = /* @__PURE__ */ _export_sfc(_sfc_main$12, [["render", _sfc_render$11], ["__scopeId", "data-v-8ac92c04"]]);
 
 var _sfc_main$11 = /*@__PURE__*/ defineComponent({
     __name: 'UbSection',
@@ -189412,6 +189415,7 @@ var _sfc_main$11 = /*@__PURE__*/ defineComponent({
         id: { default: undefined },
         title: { default: undefined },
         description: { default: undefined },
+        descriptionDetail: { default: undefined },
         icon: { default: undefined },
         padded: { type: Boolean, default: false },
         bare: { type: Boolean, default: false }
@@ -189428,8 +189432,8 @@ var _sfc_main$11 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-section[data-v-ce2a775d] {\r\n  min-width: 0;\r\n  scroll-margin-top: var(--ub-s5);\n}\n.ub-section__head[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: flex-end;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s3);\r\n  margin: 0 var(--ub-s1) var(--ub-s2);\n}\n.ub-section__titles[data-v-ce2a775d] {\r\n  min-width: 0;\n}\n.ub-section__title[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\r\n  line-height: 1.3;\r\n  letter-spacing: -0.01em;\n}\n.ub-section__icon[data-v-ce2a775d] {\r\n  color: var(--ub-accent-ink);\r\n  font-size: 0.9em;\n}\n.ub-section__desc[data-v-ce2a775d] {\r\n  margin: var(--ub-s1) 0 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-section__actions[data-v-ce2a775d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  flex: 0 0 auto;\n}\n.ub-section__lead[data-v-ce2a775d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin-bottom: var(--ub-s2);\n}\n.ub-section__card[data-v-ce2a775d] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  overflow: hidden;\n}\n.ub-section__card.is-padded[data-v-ce2a775d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  overflow: visible;\n}\n.ub-section__card.is-bare[data-v-ce2a775d] {\r\n  border: 0;\r\n  background: transparent;\r\n  box-shadow: none;\r\n  overflow: visible;\n}\r\n", "src/presentation-v3/ui/UbSection.vue#style-0-ce2a775d");
-var UbSection_vue_vue_type_style_index_0_scoped_ce2a775d_lang = null;
+injectSfcStyle("\n.ub-section[data-v-c523cba1] {\r\n  min-width: 0;\r\n  scroll-margin-top: var(--ub-s5);\n}\n.ub-section__head[data-v-c523cba1] {\r\n  display: flex;\r\n  align-items: flex-end;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s3);\r\n  margin: 0 var(--ub-s1) var(--ub-s2);\n}\n.ub-section__titles[data-v-c523cba1] {\r\n  min-width: 0;\n}\n.ub-section__title[data-v-c523cba1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\r\n  line-height: 1.3;\r\n  letter-spacing: -0.01em;\n}\n.ub-section__icon[data-v-c523cba1] {\r\n  color: var(--ub-accent-ink);\r\n  font-size: 0.9em;\n}\n.ub-section__desc[data-v-c523cba1] {\r\n  margin: var(--ub-s1) 0 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-section__actions[data-v-c523cba1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  flex: 0 0 auto;\n}\n.ub-section__lead[data-v-c523cba1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin-bottom: var(--ub-s2);\n}\n.ub-section__card[data-v-c523cba1] {\r\n  min-width: 0;\r\n  border: 0;\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  overflow: hidden;\n}\n.ub-section__card.is-padded[data-v-c523cba1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  overflow: visible;\n}\n.ub-section__card.is-bare[data-v-c523cba1] {\r\n  border: 0;\r\n  background: transparent;\r\n  box-shadow: none;\r\n  overflow: visible;\n}\r\n", "src/presentation-v3/ui/UbSection.vue#style-0-c523cba1");
+var UbSection_vue_vue_type_style_index_0_scoped_c523cba1_lang = null;
 
 const _hoisted_1$Y = ["id", "data-ub-section"];
 const _hoisted_2$Q = {
@@ -189441,10 +189445,7 @@ const _hoisted_4$E = {
 	key: 0,
 	class: "ub-section__title"
 };
-const _hoisted_5$A = {
-	key: 1,
-	class: "ub-section__desc"
-};
+const _hoisted_5$A = ["title"];
 const _hoisted_6$x = {
 	key: 0,
 	class: "ub-section__actions"
@@ -189473,13 +189474,11 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 			" " + toDisplayString($props.title),
 			1
 			/* TEXT */
-		)])) : createCommentVNode("v-if", true), $props.description ? (openBlock(), createElementBlock(
-			"p",
-			_hoisted_5$A,
-			toDisplayString($props.description),
-			1
-			/* TEXT */
-		)) : createCommentVNode("v-if", true)]), _ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_6$x, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true),
+		)])) : createCommentVNode("v-if", true), $props.description ? (openBlock(), createElementBlock("p", {
+			key: 1,
+			class: "ub-section__desc",
+			title: $props.descriptionDetail || undefined
+		}, toDisplayString($props.description), 9, _hoisted_5$A)) : createCommentVNode("v-if", true)]), _ctx.$slots.actions ? (openBlock(), createElementBlock("div", _hoisted_6$x, [renderSlot(_ctx.$slots, "actions", {}, undefined, true)])) : createCommentVNode("v-if", true)])) : createCommentVNode("v-if", true),
 		_ctx.$slots.lead ? (openBlock(), createElementBlock("div", _hoisted_7$t, [renderSlot(_ctx.$slots, "lead", {}, undefined, true)])) : createCommentVNode("v-if", true),
 		createBaseVNode(
 			"div",
@@ -189493,7 +189492,7 @@ function _sfc_render$10(_ctx, _cache, $props, $setup, $data, $options) {
 		)
 	], 8, _hoisted_1$Y);
 }
-var UbSection = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$10], ["__scopeId", "data-v-ce2a775d"]]);
+var UbSection = /* @__PURE__ */ _export_sfc(_sfc_main$11, [["render", _sfc_render$10], ["__scopeId", "data-v-c523cba1"]]);
 
 var _sfc_main$10 = /*@__PURE__*/ defineComponent({
     __name: 'VizPlacement',
@@ -189656,8 +189655,8 @@ var _sfc_main$$ = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-vconf[data-v-2658197b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-vconf__cols[data-v-2658197b] {\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vconf__col[data-v-2658197b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-vconf__col + .ub-vconf__col[data-v-2658197b] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vconf__col[data-v-2658197b] >  .ub-field {\r\n  flex: 1 1 auto;\n}\n.ub-vconf__col-no[data-v-2658197b] {\r\n  flex: 0 0 auto;\r\n  min-width: 1.6em;\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: right;\n}\n.ub-vconf__empty[data-v-2658197b],\r\n.ub-vconf__muted[data-v-2658197b] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vconf__empty[data-v-2658197b] {\r\n  padding: var(--ub-s4);\n}\n.ub-vconf__num[data-v-2658197b] {\r\n  display: block;\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-vconf__modes[data-v-2658197b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-vconf__mode[data-v-2658197b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-vconf__mode[data-v-2658197b] >  .ub-select {\r\n  flex: 0 1 calc(var(--ub-u) * 220);\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizConfigView.vue#style-0-2658197b");
-var VizConfigView_vue_vue_type_style_index_0_scoped_2658197b_lang = null;
+injectSfcStyle("\n.ub-vconf[data-v-e8586234] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-vconf__cols[data-v-e8586234] {\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vconf__col[data-v-e8586234] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-vconf__col + .ub-vconf__col[data-v-e8586234] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vconf__col[data-v-e8586234] >  .ub-field {\r\n  flex: 1 1 auto;\n}\n.ub-vconf__col-no[data-v-e8586234] {\r\n  flex: 0 0 auto;\r\n  min-width: 1.6em;\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-align: right;\n}\n.ub-vconf__empty[data-v-e8586234],\r\n.ub-vconf__muted[data-v-e8586234] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vconf__empty[data-v-e8586234] {\r\n  padding: var(--ub-s4);\n}\n.ub-vconf__num[data-v-e8586234] {\r\n  display: block;\r\n  width: calc(var(--ub-u) * 110);\n}\n.ub-vconf__modes[data-v-e8586234] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-vconf__mode[data-v-e8586234] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-vconf__mode[data-v-e8586234] >  .ub-select {\r\n  flex: 0 1 calc(var(--ub-u) * 220);\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizConfigView.vue#style-0-e8586234");
+var VizConfigView_vue_vue_type_style_index_0_scoped_e8586234_lang = null;
 
 const _hoisted_1$W = {
 	class: "ub-vconf",
@@ -189797,7 +189796,8 @@ function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 			)), $setup.config.isSQLite.value ? (openBlock(), createBlock($setup["UbRow"], {
 				key: 0,
 				label: "填表发送数据模板",
-				hint: "高级：只替换发给填表 AI 的“当前数据”部分。建议 SELECT row_id 和需要的字段，多列结果会展开成“字段: 值”。留空则按“发送最新行数”。",
+				hint: "自定义发给填表 AI 的数据部分。",
+				"hint-detail": "高级：只替换发给填表 AI 的当前数据部分。建议 SELECT row_id 和需要的字段，多列结果会展开成「字段: 值」。留空则按发送最新行数。",
 				stack: ""
 			}, {
 				default: withCtx(() => [createVNode($setup["UbTextarea"], {
@@ -190138,7 +190138,7 @@ function _sfc_render$_(_ctx, _cache, $props, $setup, $data, $options) {
 		})) : createCommentVNode("v-if", true)
 	]);
 }
-var VizConfigView = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$_], ["__scopeId", "data-v-2658197b"]]);
+var VizConfigView = /* @__PURE__ */ _export_sfc(_sfc_main$$, [["render", _sfc_render$_], ["__scopeId", "data-v-e8586234"]]);
 
 /** 数据库编辑器（v3）数据视图的纯布局计算：短字段并排、分页窗口。 */
 const VIZ_PAGE_SIZE = 30;
@@ -190431,8 +190431,8 @@ var _sfc_main$_ = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-vdata[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-vdata__bar[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vdata__range[data-v-80ab025b] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-vdata__pager[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vdata__pager-input[data-v-80ab025b] {\r\n  width: calc(var(--ub-u) * 64);\n}\n.ub-vdata__pager-text[data-v-80ab025b] {\r\n  white-space: nowrap;\n}\n.ub-vdata__empty[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-vdata__cards[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vcard[data-v-80ab025b] {\r\n  min-width: 0;\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  scroll-margin: var(--ub-s4);\n}\n.ub-vcard.is-locked[data-v-80ab025b] {\r\n  border-color: color-mix(in srgb, var(--ub-accent) 45%, var(--ub-line-soft));\n}\n.ub-vcard__head[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-vcard__no[data-v-80ab025b] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\n.ub-vcard__spacer[data-v-80ab025b] {\r\n  flex: 1 1 auto;\n}\n.ub-vcard__fields[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n}\n.ub-vcard__line[data-v-80ab025b] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-vcard__line.is-wide[data-v-80ab025b] {\r\n  grid-template-columns: minmax(0, 1fr);\n}\n.ub-vfield[data-v-80ab025b] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\n}\n.ub-vfield__label[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vfield__name[data-v-80ab025b] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vfield.is-locked .ub-vfield__name[data-v-80ab025b] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-vfield__locks[data-v-80ab025b] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 2px;\r\n  flex: 0 0 auto;\n}\n.ub-vfield__value[data-v-80ab025b],\r\n.ub-vfield__editor[data-v-80ab025b] {\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: calc(var(--ub-u) * 7) var(--ub-s3);\r\n  border: 1px solid transparent;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\r\n  white-space: pre-wrap;\n}\n.ub-vfield__value[data-v-80ab025b] {\r\n  cursor: text;\r\n  transition: border-color 0.14s ease, background 0.14s ease;\n}\n.ub-vfield__value[data-v-80ab025b]:hover {\r\n  border-color: var(--ub-line);\n}\n.ub-vfield__value[data-v-80ab025b]:focus-visible {\r\n  border-color: var(--ub-accent);\r\n  outline: none;\n}\n.ub-vfield__value.is-empty[data-v-80ab025b] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-vfield__editor[data-v-80ab025b] {\r\n  display: block;\r\n  resize: none;\r\n  overflow: hidden;\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-input-bg);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\r\n  outline: none;\n}\n.ub-vdata__add[data-v-80ab025b] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 48);\r\n  border: 1.5px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 650;\r\n  cursor: pointer;\r\n  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;\n}\n.ub-vdata__add[data-v-80ab025b]:hover {\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n@media (max-width: 560px) {\n.ub-vcard__fields[data-v-80ab025b] {\r\n    padding: var(--ub-s3);\n}\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizDataView.vue#style-0-80ab025b");
-var VizDataView_vue_vue_type_style_index_0_scoped_80ab025b_lang = null;
+injectSfcStyle("\n.ub-vdata[data-v-4da84c6f] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-vdata__bar[data-v-4da84c6f] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2) var(--ub-s3);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vdata__range[data-v-4da84c6f] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  font-variant-numeric: tabular-nums;\n}\n.ub-vdata__pager[data-v-4da84c6f] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-vdata__pager-input[data-v-4da84c6f] {\r\n  width: calc(var(--ub-u) * 64);\n}\n.ub-vdata__pager-text[data-v-4da84c6f] {\r\n  white-space: nowrap;\n}\n.ub-vdata__empty[data-v-4da84c6f] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-vdata__cards[data-v-4da84c6f] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-vcard[data-v-4da84c6f] {\r\n  min-width: 0;\r\n  border: 0;\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\r\n  scroll-margin: var(--ub-s4);\n}\n.ub-vcard.is-locked[data-v-4da84c6f] {\r\n  border-color: color-mix(in srgb, var(--ub-accent) 45%, var(--ub-line-soft));\n}\n.ub-vcard__head[data-v-4da84c6f] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-vcard__no[data-v-4da84c6f] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\n.ub-vcard__spacer[data-v-4da84c6f] {\r\n  flex: 1 1 auto;\n}\n.ub-vcard__fields[data-v-4da84c6f] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n}\n.ub-vcard__line[data-v-4da84c6f] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-vcard__line.is-wide[data-v-4da84c6f] {\r\n  grid-template-columns: minmax(0, 1fr);\n}\n.ub-vfield[data-v-4da84c6f] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\n}\n.ub-vfield__label[data-v-4da84c6f] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: var(--ub-control-h-sm);\n}\n.ub-vfield__name[data-v-4da84c6f] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-vfield.is-locked .ub-vfield__name[data-v-4da84c6f] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-vfield__locks[data-v-4da84c6f] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 2px;\r\n  flex: 0 0 auto;\n}\n.ub-vfield__value[data-v-4da84c6f],\r\n.ub-vfield__editor[data-v-4da84c6f] {\r\n  width: 100%;\r\n  min-height: var(--ub-control-h);\r\n  padding: calc(var(--ub-u) * 7) var(--ub-s3);\r\n  border: 1px solid transparent;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\r\n  white-space: pre-wrap;\n}\n.ub-vfield__value[data-v-4da84c6f] {\r\n  cursor: text;\r\n  transition: border-color 0.14s ease, background 0.14s ease;\n}\n.ub-vfield__value[data-v-4da84c6f]:hover {\r\n  border-color: var(--ub-line);\n}\n.ub-vfield__value[data-v-4da84c6f]:focus-visible {\r\n  border-color: var(--ub-accent);\r\n  outline: none;\n}\n.ub-vfield__value.is-empty[data-v-4da84c6f] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-vfield__editor[data-v-4da84c6f] {\r\n  display: block;\r\n  resize: none;\r\n  overflow: hidden;\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-input-bg);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\r\n  outline: none;\n}\n.ub-vdata__add[data-v-4da84c6f] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-height: calc(var(--ub-u) * 48);\r\n  border: 1.5px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 650;\r\n  cursor: pointer;\r\n  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;\n}\n.ub-vdata__add[data-v-4da84c6f]:hover {\r\n  border-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n@media (max-width: 560px) {\n.ub-vcard__fields[data-v-4da84c6f] {\r\n    padding: var(--ub-s3);\n}\n}\r\n", "src/presentation-v3/surfaces/visualizer/VizDataView.vue#style-0-4da84c6f");
+var VizDataView_vue_vue_type_style_index_0_scoped_4da84c6f_lang = null;
 
 const _hoisted_1$V = { class: "ub-vdata__bar" };
 const _hoisted_2$N = { class: "ub-vdata__range" };
@@ -190732,7 +190732,7 @@ function _sfc_render$Z(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_HYDRATION, NEED_PATCH */
 	);
 }
-var VizDataView = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$Z], ["__scopeId", "data-v-80ab025b"]]);
+var VizDataView = /* @__PURE__ */ _export_sfc(_sfc_main$_, [["render", _sfc_render$Z], ["__scopeId", "data-v-4da84c6f"]]);
 
 var _sfc_main$Z = /*@__PURE__*/ defineComponent({
     __name: 'VizManageView',
@@ -193581,6 +193581,7 @@ var _sfc_main$W = /*@__PURE__*/ defineComponent({
     __name: 'UbPage',
     props: {
         lead: { default: undefined },
+        leadDetail: { default: undefined },
         sections: { default: undefined },
         wide: { type: Boolean, default: false }
     },
@@ -193608,13 +193609,10 @@ var _sfc_main$W = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-page[data-v-2ff73a0a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s4);\r\n  width: 100%;\r\n  max-width: var(--ub-page-max);\r\n  min-width: 0;\r\n  margin: 0 auto;\r\n  padding: var(--ub-s2) var(--ub-page-pad) calc(var(--ub-s8) + var(--ub-safe-bottom));\n}\n.ub-page--wide[data-v-2ff73a0a] {\r\n  max-width: var(--ub-page-max-wide);\n}\n.ub-page__lead[data-v-2ff73a0a] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\n}\n.ub-page__jump[data-v-2ff73a0a] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 5;\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  margin: 0 calc(var(--ub-page-pad) * -1);\r\n  padding: var(--ub-s2) var(--ub-page-pad);\r\n  overflow-x: auto;\r\n  background: linear-gradient(var(--ub-bg) 78%, transparent);\r\n  scrollbar-width: none;\n}\n.ub-page__jump[data-v-2ff73a0a]::-webkit-scrollbar {\r\n  display: none;\n}\n.ub-page__chip[data-v-2ff73a0a] {\r\n  flex: 0 0 auto;\r\n  padding: var(--ub-s1) var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  cursor: pointer;\r\n  transition: color 0.14s ease, border-color 0.14s ease;\n}\n.ub-page__chip[data-v-2ff73a0a]:hover {\r\n  border-color: var(--ub-accent);\r\n  color: var(--ub-accent-ink);\n}\n.ub-page__body[data-v-2ff73a0a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\r\n", "src/presentation-v3/ui/UbPage.vue#style-0-2ff73a0a");
-var UbPage_vue_vue_type_style_index_0_scoped_2ff73a0a_lang = null;
+injectSfcStyle("\n.ub-page[data-v-ee64cddb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s4);\r\n  width: 100%;\r\n  max-width: var(--ub-page-max);\r\n  min-width: 0;\r\n  margin: 0 auto;\r\n  padding: var(--ub-s2) var(--ub-page-pad) calc(var(--ub-s8) + var(--ub-safe-bottom));\n}\n.ub-page--wide[data-v-ee64cddb] {\r\n  max-width: var(--ub-page-max-wide);\n}\n.ub-page__lead[data-v-ee64cddb] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\n}\n.ub-page__jump[data-v-ee64cddb] {\r\n  position: sticky;\r\n  top: 0;\r\n  z-index: 5;\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  margin: 0 calc(var(--ub-page-pad) * -1);\r\n  padding: var(--ub-s2) var(--ub-page-pad);\r\n  overflow-x: auto;\r\n  background: linear-gradient(var(--ub-bg) 78%, transparent);\r\n  scrollbar-width: none;\n}\n.ub-page__jump[data-v-ee64cddb]::-webkit-scrollbar {\r\n  display: none;\n}\n.ub-page__chip[data-v-ee64cddb] {\r\n  flex: 0 0 auto;\r\n  padding: var(--ub-s1) var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-panel);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\r\n  cursor: pointer;\r\n  transition: color 0.14s ease, border-color 0.14s ease;\n}\n.ub-page__chip[data-v-ee64cddb]:hover {\r\n  border-color: var(--ub-accent);\r\n  color: var(--ub-accent-ink);\n}\n.ub-page__body[data-v-ee64cddb] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\r\n", "src/presentation-v3/ui/UbPage.vue#style-0-ee64cddb");
+var UbPage_vue_vue_type_style_index_0_scoped_ee64cddb_lang = null;
 
-const _hoisted_1$R = {
-	key: 0,
-	class: "ub-page__lead"
-};
+const _hoisted_1$R = ["title"];
 const _hoisted_2$J = {
 	key: 1,
 	class: "ub-page__jump",
@@ -193630,13 +193628,11 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 			class: normalizeClass(["ub-page", { "ub-page--wide": $props.wide }])
 		},
 		[
-			$props.lead ? (openBlock(), createElementBlock(
-				"p",
-				_hoisted_1$R,
-				toDisplayString($props.lead),
-				1
-				/* TEXT */
-			)) : createCommentVNode("v-if", true),
+			$props.lead ? (openBlock(), createElementBlock("p", {
+				key: 0,
+				class: "ub-page__lead",
+				title: $props.leadDetail || undefined
+			}, toDisplayString($props.lead), 9, _hoisted_1$R)) : createCommentVNode("v-if", true),
 			$props.sections && $props.sections.length > 1 ? (openBlock(), createElementBlock("nav", _hoisted_2$J, [(openBlock(true), createElementBlock(
 				Fragment,
 				null,
@@ -193657,7 +193653,7 @@ function _sfc_render$V(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var UbPage = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$V], ["__scopeId", "data-v-2ff73a0a"]]);
+var UbPage = /* @__PURE__ */ _export_sfc(_sfc_main$W, [["render", _sfc_render$V], ["__scopeId", "data-v-ee64cddb"]]);
 
 var _sfc_main$V = /*@__PURE__*/ defineComponent({
     __name: 'AdvancedToolsPage',
@@ -193671,6 +193667,15 @@ var _sfc_main$V = /*@__PURE__*/ defineComponent({
         const logListRef = ref(null);
         const historyOpen = ref(false);
         const snippetsOpen = ref(false);
+        /** 日志说明的完整细节收敛到 tooltip，正文只显示短句。 */
+        const logHintDetail = computed(() => {
+            const parts = ['最多保留最近 50000 条，导出仍取全部。当前显示 '
+                    + `${logFlow.filteredCount.value} / ${logFlow.totalCount.value} 条。`];
+            if (logFlow.hiddenByWindow.value > 0) {
+                parts.push(`已折叠较早的 ${logFlow.hiddenByWindow.value} 条。`);
+            }
+            return parts.join('');
+        });
         const sections = [
             { id: 'at-sql', label: advancedToolsCopy.nav.sql },
             { id: 'at-logs', label: advancedToolsCopy.nav.logs },
@@ -193711,7 +193716,7 @@ var _sfc_main$V = /*@__PURE__*/ defineComponent({
         function cellHoverTitle(value) {
             const text = formatSqlCell(value);
             const shown = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
-            return `${shown}\n点击复制为 SQL 字面量（可直接粘进 WHERE / SET）`;
+            return `${shown}\n点击复制为 SQL 字面量，可粘进 WHERE 或 SET`;
         }
         function logLevelVariant(level) {
             if (level === 'error')
@@ -193734,14 +193739,14 @@ var _sfc_main$V = /*@__PURE__*/ defineComponent({
             sqlFlow.clearHistory();
         });
         watch(() => logFlow.visibleLogs.value.length, scrollLogListToTop, { flush: 'post' });
-        const __returned__ = { sqlFlow, logFlow, debugFlow, debugIssueUrl, logListRef, historyOpen, snippetsOpen, sections, hintCache, hintFor, onSqlEditorKeydown, formatTime, formatSqlCell, cellHoverTitle, logLevelVariant, scrollLogListToTop, get copy() { return advancedToolsCopy; }, UbBadge, UbButton, UbCallout, UbDisclosure, UbInput, UbPage, UbSection, UbSelect, UbSwitch, UbTextarea };
+        const __returned__ = { sqlFlow, logFlow, debugFlow, debugIssueUrl, logListRef, historyOpen, snippetsOpen, logHintDetail, sections, hintCache, hintFor, onSqlEditorKeydown, formatTime, formatSqlCell, cellHoverTitle, logLevelVariant, scrollLogListToTop, get copy() { return advancedToolsCopy; }, UbBadge, UbButton, UbCallout, UbDisclosure, UbInput, UbPage, UbSection, UbSelect, UbSwitch, UbTextarea };
         Object.defineProperty(__returned__, '__isScriptSetup', { enumerable: false, value: true });
         return __returned__;
     }
 });
 
-injectSfcStyle("\n.ub-at__sql[data-v-8872d3e1],\r\n.ub-at__logs[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-at__row[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-at__spacer[data-v-8872d3e1] {\r\n  flex: 1 1 auto;\n}\n.ub-at__hint[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__status[data-v-8872d3e1] {\r\n  margin-left: auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__status.is-success[data-v-8872d3e1] {\r\n  color: var(--ub-ok);\n}\n.ub-at__status.is-error[data-v-8872d3e1] {\r\n  color: var(--ub-danger);\n}\n.ub-at__result[data-v-8872d3e1] {\r\n  min-width: 0;\n}\n.ub-at__empty[data-v-8872d3e1] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-at__error[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\n}\n.ub-at__table-wrap[data-v-8872d3e1] {\r\n  max-height: calc(var(--ub-u) * 420);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  overflow: auto;\n}\n.ub-at__table[data-v-8872d3e1] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__table th[data-v-8872d3e1],\r\n.ub-at__table td[data-v-8872d3e1] {\r\n  max-width: 320px;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  text-align: left;\r\n  vertical-align: top;\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__table th[data-v-8872d3e1] {\r\n  position: sticky;\r\n  top: 0;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__table td.is-null[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-at__meta[data-v-8872d3e1] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__note[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__sort[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 4px;\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: inherit;\r\n  font: inherit;\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-at__cell[data-v-8872d3e1] {\r\n  cursor: copy;\n}\n.ub-at__snippets[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-at__snippet[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  max-width: 100%;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  cursor: pointer;\n}\n.ub-at__snippet code[data-v-8872d3e1] {\r\n  max-width: 320px;\r\n  overflow: hidden;\r\n  color: var(--ub-text-2);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-at__snippet-remove[data-v-8872d3e1] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__snippet-remove[data-v-8872d3e1]:hover {\r\n  color: var(--ub-danger);\n}\n.ub-at__history[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  width: 100%;\r\n  padding: var(--ub-s2);\r\n  border: 0;\r\n  border-left: 3px solid var(--ub-ok);\r\n  border-radius: 6px;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-at__history.is-fail[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-danger);\n}\n.ub-at__history-meta[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__history code[data-v-8872d3e1] {\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-all;\n}\n.ub-at__filters[data-v-8872d3e1] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);\r\n  gap: var(--ub-s2);\n}\n.ub-at__switch[data-v-8872d3e1] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__loglist[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  max-height: calc(var(--ub-u) * 520);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  overflow-y: auto;\n}\n.ub-at__log[data-v-8872d3e1] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  border-left: 3px solid transparent;\n}\n.ub-at__log.is-error[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-danger);\n}\n.ub-at__log.is-warn[data-v-8872d3e1] {\r\n  border-left-color: var(--ub-warn);\n}\n.ub-at__log-meta[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__log-tag[data-v-8872d3e1] {\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__log-msg[data-v-8872d3e1] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__log-hint[data-v-8872d3e1] {\r\n  margin-top: var(--ub-s1);\r\n  padding: var(--ub-s2);\r\n  border-radius: 6px;\r\n  background: var(--ub-warn-soft);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__log-hint summary[data-v-8872d3e1] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  cursor: pointer;\r\n  list-style: none;\n}\n.ub-at__log-hint summary i[data-v-8872d3e1] {\r\n  color: var(--ub-warn);\n}\n.ub-at__log-hint-toggle[data-v-8872d3e1] {\r\n  margin-left: auto;\r\n  color: var(--ub-accent-ink);\r\n  font-weight: 700;\n}\n.ub-at__log-hint ol[data-v-8872d3e1] {\r\n  margin: var(--ub-s2) 0 0;\r\n  padding-left: 1.4em;\n}\n.ub-at__steps[data-v-8872d3e1] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.8;\n}\n@media (max-width: 640px) {\n.ub-at__filters[data-v-8872d3e1] {\r\n    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n}\n.ub-at__filters[data-v-8872d3e1] > :last-child {\r\n    grid-column: 1 / -1;\n}\n}\r\n", "src/presentation-v3/pages/AdvancedToolsPage.vue#style-0-8872d3e1");
-var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_8872d3e1_lang = null;
+injectSfcStyle("\n.ub-at__sql[data-v-fe0bf8bf],\r\n.ub-at__logs[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-at__row[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-at__spacer[data-v-fe0bf8bf] {\r\n  flex: 1 1 auto;\n}\n.ub-at__hint[data-v-fe0bf8bf] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__status[data-v-fe0bf8bf] {\r\n  margin-left: auto;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__status.is-success[data-v-fe0bf8bf] {\r\n  color: var(--ub-ok);\n}\n.ub-at__status.is-error[data-v-fe0bf8bf] {\r\n  color: var(--ub-danger);\n}\n.ub-at__result[data-v-fe0bf8bf] {\r\n  min-width: 0;\n}\n.ub-at__empty[data-v-fe0bf8bf] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-at__error[data-v-fe0bf8bf] {\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\n}\n.ub-at__table-wrap[data-v-fe0bf8bf] {\r\n  max-height: calc(var(--ub-u) * 420);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  overflow: auto;\n}\n.ub-at__table[data-v-fe0bf8bf] {\r\n  width: 100%;\r\n  border-collapse: collapse;\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__table th[data-v-fe0bf8bf],\r\n.ub-at__table td[data-v-fe0bf8bf] {\r\n  max-width: 320px;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-bottom: 1px solid var(--ub-line-soft);\r\n  text-align: left;\r\n  vertical-align: top;\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__table th[data-v-fe0bf8bf] {\r\n  position: sticky;\r\n  top: 0;\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__table td.is-null[data-v-fe0bf8bf] {\r\n  color: var(--ub-text-3);\r\n  font-style: italic;\n}\n.ub-at__meta[data-v-fe0bf8bf] {\r\n  margin-top: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__note[data-v-fe0bf8bf] {\r\n  margin: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-warn-soft);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__sort[data-v-fe0bf8bf] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: 4px;\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: inherit;\r\n  font: inherit;\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-at__cell[data-v-fe0bf8bf] {\r\n  cursor: copy;\n}\n.ub-at__snippets[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-at__snippet[data-v-fe0bf8bf] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  max-width: 100%;\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: 999px;\r\n  background: var(--ub-sunken);\r\n  box-shadow: var(--ub-card-shadow);\r\n  cursor: pointer;\n}\n.ub-at__snippet code[data-v-fe0bf8bf] {\r\n  max-width: 320px;\r\n  overflow: hidden;\r\n  color: var(--ub-text-2);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-at__snippet-remove[data-v-fe0bf8bf] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__snippet-remove[data-v-fe0bf8bf]:hover {\r\n  color: var(--ub-danger);\n}\n.ub-at__history[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  width: 100%;\r\n  padding: var(--ub-s2);\r\n  border: 0;\r\n  border-radius: 6px;\r\n  background: var(--ub-sunken);\r\n  box-shadow: inset 3px 0 0 var(--ub-ok);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-at__history.is-fail[data-v-fe0bf8bf] {\r\n  box-shadow: inset 3px 0 0 var(--ub-danger);\n}\n.ub-at__history-meta[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__history code[data-v-fe0bf8bf] {\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-all;\n}\n.ub-at__filters[data-v-fe0bf8bf] {\r\n  display: grid;\r\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);\r\n  gap: var(--ub-s2);\n}\n.ub-at__switch[data-v-fe0bf8bf] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-at__loglist[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  max-height: calc(var(--ub-u) * 520);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  overflow-y: auto;\n}\n.ub-at__log[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: 2px;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-at__log.is-error[data-v-fe0bf8bf] {\r\n  box-shadow: inset 3px 0 0 var(--ub-danger);\n}\n.ub-at__log.is-warn[data-v-fe0bf8bf] {\r\n  box-shadow: inset 3px 0 0 var(--ub-warn);\n}\n.ub-at__log-meta[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-2xs);\n}\n.ub-at__log-tag[data-v-fe0bf8bf] {\r\n  color: var(--ub-text-2);\r\n  font-weight: 700;\n}\n.ub-at__log-msg[data-v-fe0bf8bf] {\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  white-space: pre-wrap;\r\n  word-break: break-word;\n}\n.ub-at__log-hint[data-v-fe0bf8bf] {\r\n  margin-top: var(--ub-s1);\r\n  padding: var(--ub-s2);\r\n  border-radius: 6px;\r\n  background: var(--ub-warn-soft);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-at__log-hint summary[data-v-fe0bf8bf] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  cursor: pointer;\r\n  list-style: none;\n}\n.ub-at__log-hint summary i[data-v-fe0bf8bf] {\r\n  color: var(--ub-warn);\n}\n.ub-at__log-hint-toggle[data-v-fe0bf8bf] {\r\n  margin-left: auto;\r\n  color: var(--ub-accent-ink);\r\n  font-weight: 700;\n}\n.ub-at__log-hint ol[data-v-fe0bf8bf] {\r\n  margin: var(--ub-s2) 0 0;\r\n  padding-left: 1.4em;\n}\n.ub-at__steps[data-v-fe0bf8bf] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.8;\n}\n@media (max-width: 640px) {\n.ub-at__filters[data-v-fe0bf8bf] {\r\n    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n}\n.ub-at__filters[data-v-fe0bf8bf] > :last-child {\r\n    grid-column: 1 / -1;\n}\n}\r\n", "src/presentation-v3/pages/AdvancedToolsPage.vue#style-0-fe0bf8bf");
+var AdvancedToolsPage_vue_vue_type_style_index_0_scoped_fe0bf8bf_lang = null;
 
 const _hoisted_1$Q = { class: "ub-at__sql" };
 const _hoisted_2$I = { class: "ub-at__row" };
@@ -193756,7 +193761,8 @@ const _hoisted_5$u = {
 };
 const _hoisted_6$r = {
 	key: 1,
-	class: "ub-at__note"
+	class: "ub-at__note",
+	title: "多条语句不会逐条展示结果，只读查询请逐条执行。"
 };
 const _hoisted_7$n = {
 	key: 3,
@@ -193781,7 +193787,8 @@ const _hoisted_18$5 = {
 };
 const _hoisted_19$5 = {
 	key: 0,
-	class: "ub-at__empty"
+	class: "ub-at__empty",
+	title: "编辑器写好后点「存为常用」收藏，跨聊天可用，点击仅填入编辑器，绝不自动执行。"
 };
 const _hoisted_20$5 = {
 	key: 1,
@@ -193804,7 +193811,7 @@ const _hoisted_26$2 = { class: "ub-at__logs" };
 const _hoisted_27$1 = { class: "ub-at__filters" };
 const _hoisted_28$1 = { class: "ub-at__row" };
 const _hoisted_29$1 = { class: "ub-at__switch" };
-const _hoisted_30$1 = { class: "ub-at__hint" };
+const _hoisted_30$1 = ["title"];
 const _hoisted_31$1 = {
 	ref: "logListRef",
 	class: "ub-at__loglist",
@@ -193950,7 +193957,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 					createBaseVNode("div", _hoisted_4$w, [$setup.sqlFlow.result.value.kind === "idle" ? (openBlock(), createElementBlock("p", _hoisted_5$u, "执行 SQL 后结果会显示在这里")) : createCommentVNode("v-if", true), $setup.sqlFlow.multiStatementCount.value > 0 ? (openBlock(), createElementBlock(
 						"p",
 						_hoisted_6$r,
-						" 输入包含 " + toDisplayString($setup.sqlFlow.multiStatementCount.value) + " 条语句：多条语句不会逐条展示结果/影响（只读查询请逐条执行），批量变更由提交机制统一处理。 ",
+						" 输入包含 " + toDisplayString($setup.sqlFlow.multiStatementCount.value) + " 条语句，批量变更由提交机制统一处理。 ",
 						1
 						/* TEXT */
 					)) : $setup.sqlFlow.result.value.kind === "mutation" ? (openBlock(), createBlock($setup["UbCallout"], {
@@ -194121,7 +194128,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 						"max-height": "220px",
 						onToggle: _cache[1] || (_cache[1] = ($event) => $setup.snippetsOpen = !$setup.snippetsOpen)
 					}, {
-						default: withCtx(() => [!$setup.sqlFlow.snippets.value.length ? (openBlock(), createElementBlock("p", _hoisted_19$5, "还没有常用语句：编辑器写好后点「存为常用」收藏（跨聊天可用，点击仅填入编辑器、绝不自动执行）")) : (openBlock(), createElementBlock("div", _hoisted_20$5, [(openBlock(true), createElementBlock(
+						default: withCtx(() => [!$setup.sqlFlow.snippets.value.length ? (openBlock(), createElementBlock("p", _hoisted_19$5, "还没有常用语句，点「存为常用」收藏")) : (openBlock(), createElementBlock("div", _hoisted_20$5, [(openBlock(true), createElementBlock(
 							Fragment,
 							null,
 							renderList($setup.sqlFlow.snippets.value, (snippet, snippetIndex) => {
@@ -194298,13 +194305,24 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 							"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => $setup.logFlow.autoScroll.value = $event)
 						}, null, 8, ["model-value"])])
 					]),
-					createBaseVNode(
-						"p",
-						_hoisted_30$1,
-						" 最多保留最近 50000 条；列表只渲染最近 " + toDisplayString($setup.logFlow.windowSizeLimit) + " 条（" + toDisplayString($setup.logFlow.hiddenByWindow.value ? `已折叠较早的 ${$setup.logFlow.hiddenByWindow.value} 条，` : "") + "当前显示 " + toDisplayString($setup.logFlow.filteredCount.value) + " / " + toDisplayString($setup.logFlow.totalCount.value) + " 条，导出仍取全部）。" + toDisplayString($setup.logFlow.pendingCount.value ? `${$setup.logFlow.pendingCount.value} 条暂停期间新增日志等待显示。` : ""),
+					createBaseVNode("p", {
+						class: "ub-at__hint",
+						title: $setup.logHintDetail
+					}, [createTextVNode(
+						" 日志保留上限 50000 条，仅渲染最近 " + toDisplayString($setup.logFlow.windowSizeLimit) + " 条。 ",
 						1
 						/* TEXT */
-					),
+					), $setup.logFlow.pendingCount.value ? (openBlock(), createElementBlock(
+						Fragment,
+						{ key: 0 },
+						[createTextVNode(
+							toDisplayString($setup.logFlow.pendingCount.value) + " 条暂停期间新增日志等待显示。",
+							1
+							/* TEXT */
+						)],
+						64
+						/* STABLE_FRAGMENT */
+					)) : createCommentVNode("v-if", true)], 8, _hoisted_30$1),
 					createBaseVNode(
 						"div",
 						_hoisted_31$1,
@@ -194440,7 +194458,8 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 						createBaseVNode("li", null, "点「开始 Debug」（补开 debug / warn 采集，之前攒下的报错会一起保留导出）"),
 						createBaseVNode("li", null, "复现问题"),
 						createBaseVNode("li", null, "点「导出 Debug 数据」生成 .json 文件"),
-						createBaseVNode("li", null, "点「前往 GitHub 提交 issue」把文件作为附件提交；附件传不上时，先把文件传到你常用的网盘，再把分享链接（含提取码）贴进 issue。排查完记得「停止 Debug」。")
+						createBaseVNode("li", null, "点「前往 GitHub 提交 issue」提交附件。附件传不上时，先传网盘再把分享链接贴进 issue。"),
+						createBaseVNode("li", null, "排查完记得「停止 Debug」。")
 					],
 					-1
 					/* CACHED */
@@ -194492,7 +194511,7 @@ function _sfc_render$U(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$U], ["__scopeId", "data-v-8872d3e1"]]);
+var AdvancedToolsPage = /* @__PURE__ */ _export_sfc(_sfc_main$V, [["render", _sfc_render$U], ["__scopeId", "data-v-fe0bf8bf"]]);
 
 function buildWorldbookSnapshotEntryIndexByBook_ACU(snapshot) {
     const result = new Map();
@@ -197604,8 +197623,8 @@ var _sfc_main$R = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-agent__mode[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-agent__config[data-v-f0fd1638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-agent__actions[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\n}\n.ub-agent__current[data-v-f0fd1638] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  overflow-wrap: anywhere;\n}\n.ub-agent__current strong[data-v-f0fd1638] {\r\n  color: var(--ub-text);\n}\n.ub-agent-fav[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-agent-fav__list[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  padding: var(--ub-s1);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\n}\n.ub-agent-fav__item[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) 0;\n}\n.ub-agent-fav__item + .ub-agent-fav__item[data-v-f0fd1638] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-agent-fav__check[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex: 1 1 calc(var(--ub-u) * 120);\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  min-height: var(--ub-control-h-sm);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: calc(var(--ub-r-control) - 3px);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: left;\r\n  cursor: pointer;\r\n  overflow-wrap: anywhere;\n}\n.ub-agent-fav__check[data-v-f0fd1638]:hover:not(:disabled) {\r\n  background: var(--ub-hover);\n}\n.ub-agent-fav__check[data-v-f0fd1638]:disabled {\r\n  cursor: not-allowed;\r\n  opacity: 0.6;\n}\n.ub-agent-fav__check.is-on[data-v-f0fd1638] {\r\n  color: var(--ub-text);\r\n  font-weight: 600;\n}\n.ub-agent-fav__check.is-on i[data-v-f0fd1638] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-agent-fav__add[data-v-f0fd1638],\r\n.ub-agent-fav__mount[data-v-f0fd1638] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-agent-fav__add[data-v-f0fd1638] > :first-child {\r\n  flex: 1 1 calc(var(--ub-u) * 140);\r\n  min-width: 0;\n}\n.ub-agent-fav__mount .ub-agent__current[data-v-f0fd1638] {\r\n  flex: 1 1 auto;\n}\r\n", "src/presentation-v3/pages/AgentPage.vue#style-0-f0fd1638");
-var AgentPage_vue_vue_type_style_index_0_scoped_f0fd1638_lang = null;
+injectSfcStyle("\n.ub-agent__mode[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-agent__config[data-v-d53d9d37] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-agent__actions[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\n}\n.ub-agent__current[data-v-d53d9d37] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  overflow-wrap: anywhere;\n}\n.ub-agent__current strong[data-v-d53d9d37] {\r\n  color: var(--ub-text);\n}\n.ub-agent-fav[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\n}\n.ub-agent-fav__list[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  padding: var(--ub-s1);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\n}\n.ub-agent-fav__item[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s1) 0;\n}\n.ub-agent-fav__item + .ub-agent-fav__item[data-v-d53d9d37] {\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-agent-fav__check[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex: 1 1 calc(var(--ub-u) * 120);\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-width: 0;\r\n  min-height: var(--ub-control-h-sm);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border: 0;\r\n  border-radius: calc(var(--ub-r-control) - 3px);\r\n  background: transparent;\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: left;\r\n  cursor: pointer;\r\n  overflow-wrap: anywhere;\n}\n.ub-agent-fav__check[data-v-d53d9d37]:hover:not(:disabled) {\r\n  background: var(--ub-hover);\n}\n.ub-agent-fav__check[data-v-d53d9d37]:disabled {\r\n  cursor: not-allowed;\r\n  opacity: 0.6;\n}\n.ub-agent-fav__check.is-on[data-v-d53d9d37] {\r\n  color: var(--ub-text);\r\n  font-weight: 600;\n}\n.ub-agent-fav__check.is-on i[data-v-d53d9d37] {\r\n  color: var(--ub-accent-ink);\n}\n.ub-agent-fav__add[data-v-d53d9d37],\r\n.ub-agent-fav__mount[data-v-d53d9d37] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-agent-fav__add[data-v-d53d9d37] > :first-child {\r\n  flex: 1 1 calc(var(--ub-u) * 140);\r\n  min-width: 0;\n}\n.ub-agent-fav__mount .ub-agent__current[data-v-d53d9d37] {\r\n  flex: 1 1 auto;\n}\r\n", "src/presentation-v3/pages/AgentPage.vue#style-0-d53d9d37");
+var AgentPage_vue_vue_type_style_index_0_scoped_d53d9d37_lang = null;
 
 const _hoisted_1$M = { class: "ub-agent__mode" };
 const _hoisted_2$F = { class: "ub-agent__config" };
@@ -197844,7 +197863,8 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "agent-favorites",
 				title: "常用世界书",
-				description: "把常用的 Skill 世界书放进来，换新角色卡时勾选几本，一键复制成「角色卡名-原书名」并挂成这张卡的附加世界书。副本与原书互不影响。",
+				description: "集中管理常用 Skill 世界书。",
+				"description-detail": "把常用的 Skill 世界书放进来，换新角色卡时勾选几本，一键复制成「角色卡名-原书名」并挂成这张卡的附加世界书。副本与原书互不影响。",
 				icon: "fa-solid fa-star",
 				padded: ""
 			}, {
@@ -198053,7 +198073,7 @@ function _sfc_render$Q(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$Q], ["__scopeId", "data-v-f0fd1638"]]);
+var AgentPage = /* @__PURE__ */ _export_sfc(_sfc_main$R, [["render", _sfc_render$Q], ["__scopeId", "data-v-d53d9d37"]]);
 
 const apiCopy = {
     panels: {
@@ -198452,8 +198472,8 @@ var _sfc_main$Q = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-picker[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker__trigger[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-picker__trigger[data-v-2ea232e6]:hover:not(:disabled) {\r\n  border-color: var(--ub-line-strong);\n}\n.ub-picker__trigger[data-v-2ea232e6]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.ub-picker__star-mark[data-v-2ea232e6] {\r\n  color: var(--ub-warn);\r\n  font-size: 0.85em;\n}\n.ub-picker__value[data-v-2ea232e6] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker__value.is-placeholder[data-v-2ea232e6] {\r\n  color: var(--ub-text-3);\r\n  font-weight: 500;\n}\n.ub-picker__caret[data-v-2ea232e6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-layer[data-v-2ea232e6] {\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9350;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  padding: max(var(--ub-safe-top), 16px) 16px max(var(--ub-safe-bottom), 16px);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.14s ease-out both;\n}\n.ub-picker-panel[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  width: min(420px, 100%);\r\n  max-height: min(560px, 100%);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  overflow: hidden;\r\n  animation: ub-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.ub-picker-panel__head[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-picker-panel__title[data-v-2ea232e6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 700;\n}\n.ub-picker-panel__hint[data-v-2ea232e6] {\r\n  margin: 0;\r\n  padding: 0 var(--ub-s4) var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-panel__list[data-v-2ea232e6] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  margin: 0;\r\n  padding: var(--ub-s1) var(--ub-s2) var(--ub-s2);\r\n  list-style: none;\r\n  overflow-y: auto;\n}\n.ub-picker-panel__item[data-v-2ea232e6] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: calc(var(--ub-control-h) + 6px);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-radius: var(--ub-r-control);\r\n  cursor: pointer;\n}\n.ub-picker-panel__item[data-v-2ea232e6]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-picker-panel__item.is-active[data-v-2ea232e6] {\r\n  background: var(--ub-accent-soft);\n}\n.ub-picker-panel__check[data-v-2ea232e6] {\r\n  display: inline-flex;\r\n  justify-content: center;\r\n  width: 1.2em;\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-picker-panel__main[data-v-2ea232e6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker-panel__name[data-v-2ea232e6] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__meta[data-v-2ea232e6] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__star[data-v-2ea232e6] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  width: var(--ub-control-h-sm);\r\n  height: var(--ub-control-h-sm);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-3);\r\n  cursor: pointer;\n}\n.ub-picker-panel__star[data-v-2ea232e6]:hover {\r\n  background: var(--ub-hover-strong);\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__star.is-default[data-v-2ea232e6] {\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__empty[data-v-2ea232e6] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPresetPicker.vue#style-0-2ea232e6");
-var UbPresetPicker_vue_vue_type_style_index_0_scoped_2ea232e6_lang = null;
+injectSfcStyle("\n.ub-picker[data-v-bcd893b7] {\r\n  display: flex;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker__trigger[data-v-bcd893b7] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  min-width: 0;\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-picker__trigger[data-v-bcd893b7]:hover:not(:disabled) {\r\n  border-color: var(--ub-line-strong);\n}\n.ub-picker__trigger[data-v-bcd893b7]:disabled {\r\n  opacity: 0.5;\r\n  cursor: not-allowed;\n}\n.ub-picker__star-mark[data-v-bcd893b7] {\r\n  color: var(--ub-warn);\r\n  font-size: 0.85em;\n}\n.ub-picker__value[data-v-bcd893b7] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  overflow: hidden;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker__value.is-placeholder[data-v-bcd893b7] {\r\n  color: var(--ub-text-3);\r\n  font-weight: 500;\n}\n.ub-picker__caret[data-v-bcd893b7] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-layer[data-v-bcd893b7] {\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9350;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  padding: max(var(--ub-safe-top), 16px) 16px max(var(--ub-safe-bottom), 16px);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.14s ease-out both;\n}\n.ub-picker-panel[data-v-bcd893b7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  width: min(420px, 100%);\r\n  max-height: min(560px, 100%);\r\n  border: 0;\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  overflow: hidden;\r\n  animation: ub-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.ub-picker-panel__head[data-v-bcd893b7] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s3) var(--ub-s2) var(--ub-s4);\n}\n.ub-picker-panel__title[data-v-bcd893b7] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 700;\n}\n.ub-picker-panel__hint[data-v-bcd893b7] {\r\n  margin: 0;\r\n  padding: 0 var(--ub-s4) var(--ub-s2);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-picker-panel__list[data-v-bcd893b7] {\r\n  flex: 1 1 auto;\r\n  min-height: 0;\r\n  margin: 0;\r\n  padding: var(--ub-s1) var(--ub-s2) var(--ub-s2);\r\n  list-style: none;\r\n  overflow-y: auto;\n}\n.ub-picker-panel__item[data-v-bcd893b7] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  min-height: calc(var(--ub-control-h) + 6px);\r\n  padding: var(--ub-s1) var(--ub-s2);\r\n  border-radius: var(--ub-r-control);\r\n  cursor: pointer;\n}\n.ub-picker-panel__item[data-v-bcd893b7]:hover {\r\n  background: var(--ub-hover);\n}\n.ub-picker-panel__item.is-active[data-v-bcd893b7] {\r\n  background: var(--ub-accent-soft);\n}\n.ub-picker-panel__check[data-v-bcd893b7] {\r\n  display: inline-flex;\r\n  justify-content: center;\r\n  width: 1.2em;\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-picker-panel__main[data-v-bcd893b7] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-picker-panel__name[data-v-bcd893b7] {\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__meta[data-v-bcd893b7] {\r\n  overflow: hidden;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-picker-panel__star[data-v-bcd893b7] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  width: var(--ub-control-h-sm);\r\n  height: var(--ub-control-h-sm);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: transparent;\r\n  color: var(--ub-text-3);\r\n  cursor: pointer;\n}\n.ub-picker-panel__star[data-v-bcd893b7]:hover {\r\n  background: var(--ub-hover-strong);\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__star.is-default[data-v-bcd893b7] {\r\n  color: var(--ub-warn);\n}\n.ub-picker-panel__empty[data-v-bcd893b7] {\r\n  padding: var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/ui/UbPresetPicker.vue#style-0-bcd893b7");
+var UbPresetPicker_vue_vue_type_style_index_0_scoped_bcd893b7_lang = null;
 
 const _hoisted_1$L = ["disabled", "aria-expanded"];
 const _hoisted_2$E = {
@@ -198609,7 +198629,7 @@ function _sfc_render$P(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	);
 }
-var UbPresetPicker = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$P], ["__scopeId", "data-v-2ea232e6"]]);
+var UbPresetPicker = /* @__PURE__ */ _export_sfc(_sfc_main$Q, [["render", _sfc_render$P], ["__scopeId", "data-v-bcd893b7"]]);
 
 // service/ai/opencode-go-usage.ts — OpenCode Go 订阅用量（5 小时 / 本周 / 本月）
 //
@@ -199110,8 +199130,8 @@ var _sfc_main$O = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-api[data-v-63d5ce83],\r\n.ub-api__form[data-v-63d5ce83] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-api__picker[data-v-63d5ce83] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-api__empty[data-v-63d5ce83] {\r\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n.ub-api__model[data-v-63d5ce83] {\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\n}\n.ub-api__model[data-v-63d5ce83] > :first-child {\r\n  flex: 1 1 auto;\n}\n.ub-api__error[data-v-63d5ce83] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-api__test-result[data-v-63d5ce83] {\r\n  display: block;\r\n  margin-top: var(--ub-s2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 500;\r\n  overflow-wrap: anywhere;\n}\n.ub-api__test-result.is-ok[data-v-63d5ce83] {\r\n  color: var(--ub-ok);\n}\n.ub-api__test-result.is-error[data-v-63d5ce83] {\r\n  color: var(--ub-danger);\n}\n.ub-api__test-note[data-v-63d5ce83] {\r\n  display: block;\r\n  color: var(--ub-text-2);\n}\n.ub-api__danger-hint[data-v-63d5ce83] {\r\n  color: var(--ub-danger);\r\n  font-weight: 600;\n}\n.ub-api__savebar[data-v-63d5ce83] {\r\n  position: sticky;\r\n  bottom: var(--ub-s3);\r\n  z-index: 4;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-toast-bg);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  backdrop-filter: blur(12px);\r\n  -webkit-backdrop-filter: blur(12px);\n}\n.ub-api__savebar[data-v-63d5ce83]:not(.is-dirty) {\r\n  box-shadow: none;\n}\n.ub-api__savebar-text[data-v-63d5ce83] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-api__savebar.is-dirty .ub-api__savebar-text[data-v-63d5ce83] {\r\n  color: var(--ub-warn);\n}\n.ub-api__savebar-text.is-error[data-v-63d5ce83] {\r\n  color: var(--ub-danger) !important;\n}\n@media (max-width: 560px) {\n.ub-api__savebar[data-v-63d5ce83] {\r\n    flex-wrap: wrap;\r\n    border-radius: var(--ub-r-card);\n}\n.ub-api__savebar-text[data-v-63d5ce83] {\r\n    flex-basis: 100%;\n}\n}\r\n", "src/presentation-v3/parts/ApiPresetEditor.vue#style-0-63d5ce83");
-var ApiPresetEditor_vue_vue_type_style_index_0_scoped_63d5ce83_lang = null;
+injectSfcStyle("\n.ub-api[data-v-9d6d369d],\r\n.ub-api__form[data-v-9d6d369d] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s6);\r\n  min-width: 0;\n}\n.ub-api__picker[data-v-9d6d369d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\n}\n.ub-api__empty[data-v-9d6d369d] {\r\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n.ub-api__model[data-v-9d6d369d] {\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\n}\n.ub-api__model[data-v-9d6d369d] > :first-child {\r\n  flex: 1 1 auto;\n}\n.ub-api__error[data-v-9d6d369d] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-api__test-result[data-v-9d6d369d] {\r\n  display: block;\r\n  margin-top: var(--ub-s2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 500;\r\n  overflow-wrap: anywhere;\n}\n.ub-api__test-result.is-ok[data-v-9d6d369d] {\r\n  color: var(--ub-ok);\n}\n.ub-api__test-result.is-error[data-v-9d6d369d] {\r\n  color: var(--ub-danger);\n}\n.ub-api__test-note[data-v-9d6d369d] {\r\n  display: block;\r\n  color: var(--ub-text-2);\n}\n.ub-api__danger-hint[data-v-9d6d369d] {\r\n  color: var(--ub-danger);\r\n  font-weight: 600;\n}\n.ub-api__savebar[data-v-9d6d369d] {\r\n  position: sticky;\r\n  bottom: var(--ub-s3);\r\n  z-index: 4;\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 999px;\r\n  background: var(--ub-toast-bg);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  backdrop-filter: blur(12px);\r\n  -webkit-backdrop-filter: blur(12px);\n}\n.ub-api__savebar[data-v-9d6d369d]:not(.is-dirty) {\r\n  box-shadow: none;\n}\n.ub-api__savebar-text[data-v-9d6d369d] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-api__savebar.is-dirty .ub-api__savebar-text[data-v-9d6d369d] {\r\n  color: var(--ub-warn);\n}\n.ub-api__savebar-text.is-error[data-v-9d6d369d] {\r\n  color: var(--ub-danger) !important;\n}\n@media (max-width: 560px) {\n.ub-api__savebar[data-v-9d6d369d] {\r\n    flex-wrap: wrap;\r\n    border-radius: var(--ub-r-card);\n}\n.ub-api__savebar-text[data-v-9d6d369d] {\r\n    flex-basis: 100%;\n}\n}\r\n", "src/presentation-v3/parts/ApiPresetEditor.vue#style-0-9d6d369d");
+var ApiPresetEditor_vue_vue_type_style_index_0_scoped_9d6d369d_lang = null;
 
 const _hoisted_1$J = { class: "ub-api" };
 const _hoisted_2$C = { class: "ub-api__picker" };
@@ -199215,7 +199235,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					$setup.savedEndpoints.length ? (openBlock(), createBlock($setup["UbRow"], {
 						key: 0,
 						label: "已保存的端点",
-						hint: "复用已保存预设里用过的端点，只填端点；接口协议、API 密钥和模型名按所用模型自己选填。用新地址时选「手填」。",
+						hint: "复用已保存的端点。",
+						"hint-detail": "复用已保存预设里用过的端点，只填端点；接口协议、API 密钥和模型名按所用模型自己选填。用新地址时选「手填」。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSelect"], {
@@ -199228,7 +199249,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					})) : createCommentVNode("v-if", true),
 					createVNode($setup["UbRow"], {
 						label: "发送方式",
-						hint: "经酒馆转接发送：由酒馆后端代发，兼容性最好，一般选这个。数据库直接发送：数据库在浏览器里直接请求端点，不经酒馆改写，消息按原顺序和角色发出；要求服务商允许网页直接访问（跨域），否则会报连不上。直接发送时「提示词后处理」「保留多个 system 消息」不生效，客户端伪装里浏览器不允许改的请求头（如 User-Agent）也不会带上。",
+						hint: "选择请求由谁发出。",
+						"hint-detail": "经酒馆转接发送：由酒馆后端代发，兼容性最好。数据库直接发送：浏览器直接请求端点，消息按原顺序和角色发出，要求服务商允许跨域；直接发送时「提示词后处理」「保留多个 system 消息」不生效，浏览器禁改的请求头也不会带上。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSelect"], {
@@ -199241,7 +199263,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "接口协议",
-						hint: "决定请求变形与上游端点：OpenAI→/chat/completions；OpenAI Responses→/responses；Claude Messages→/messages；Gemini Interactions→/interactions（自动补 /v1beta）。默认兼容 OpenAI。纯原生端点下「加载模型」可能失败，可手填模型名。",
+						hint: "决定请求变形与上游端点。",
+						"hint-detail": "OpenAI→/chat/completions；OpenAI Responses→/responses；Claude Messages→/messages；Gemini Interactions→/interactions（自动补 /v1beta）。默认兼容 OpenAI。纯原生端点下「加载模型」可能失败，可手填模型名。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSelect"], {
@@ -199322,8 +199345,10 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createCommentVNode(" 按钮放右侧、上下居中（与其它行的控件同位）；结果跟在左侧说明下面，不挤占按钮 "),
 					createVNode($setup["UbRow"], { label: "测试连接" }, {
-						hint: withCtx(() => [_cache[26] || (_cache[26] = createTextVNode(
-							" 用上面填写的内容（不用先保存）发一条很短的测试消息，看能不能收到模型回复。会按所选的发送方式、接口协议和请求改写发出，消耗少量额度。 ",
+						hint: withCtx(() => [_cache[26] || (_cache[26] = createBaseVNode(
+							"span",
+							{ title: "用上面填写的内容发一条很短的测试消息，按所选发送方式、接口协议和请求改写发出，消耗少量额度。" },
+							"用当前填写内容发测试消息，消耗少量额度。",
 							-1
 							/* CACHED */
 						)), $setup.connectionResult ? (openBlock(), createElementBlock(
@@ -199487,7 +199512,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "公益站兼容",
-						hint: "限速：每分钟最多 3 次请求（各预设独立计数），超出自动排队。用于有频率限制的公益站/共享接口。"
+						hint: "超出限速自动排队。",
+						"hint-detail": "限速：每分钟最多 3 次请求，各预设独立计数，超出自动排队。用于有频率限制的公益站或共享接口。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							modelValue: $setup.draft.publicServiceMode,
@@ -199498,7 +199524,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "需要时格式化输出",
-						hint: "需要返回 JSON 的调用（正文替换 / Skill 化 / 决策 / 改表助手 / 续写 Agent）会附加 response_format json_object。后端不支持时请勿开启，或在「排除主体参数」填 response_format。"
+						hint: "按需附加 JSON 输出参数。",
+						"hint-detail": "需要返回 JSON 的调用会附加 response_format json_object，包括正文替换、Skill 化、决策、改表助手与续写 Agent。后端不支持时请勿开启，或在「排除主体参数」填 response_format。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							modelValue: $setup.draft.jsonFormatOutput,
@@ -199509,7 +199536,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "保留多个 system 消息",
-						hint: "默认开启。提示词后处理为严格/半严格时，中部 system 仍保留角色；关闭后按后处理模式改写。仅经酒馆转接发送时生效。"
+						hint: "默认开启。",
+						"hint-detail": "提示词后处理为严格或半严格时，中部 system 仍保留角色；关闭后按后处理模式改写。仅经酒馆转接发送时生效。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							modelValue: $setup.draft.preserveMultipleSystem,
@@ -199561,7 +199589,8 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "提示词后处理",
-						hint: "默认严格（与旧版一致）；未选择＝原样透传，可保留中部 system 段角色。分组只决定消息改写策略，不剥离 tools 字段。仅经酒馆转接发送时生效。",
+						hint: "选择消息改写策略。",
+						"hint-detail": "默认严格，与旧版一致；未选择则原样透传，可保留中部 system 段角色。分组只决定消息改写策略，不剥离 tools 字段。仅经酒馆转接发送时生效。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSelect"], {
@@ -199578,14 +199607,16 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 						label: "客户端伪装",
 						stack: ""
 					}, {
-						hint: withCtx(() => [..._cache[28] || (_cache[28] = [createTextVNode(
-							" 选择客户端身份后，其特征请求头会合并进下方附加请求标头（受管身份键统一替换，其余行保留），用于部分屏蔽第三方客户端的供应商。 ",
+						hint: withCtx(() => [..._cache[28] || (_cache[28] = [createBaseVNode(
+							"span",
+							{ title: "选择客户端身份后，其特征请求头会合并进下方附加请求标头，用于部分屏蔽第三方客户端的供应商。用途不明请不要选择，风险自行评估。" },
+							"伪装客户端身份以兼容部分供应商。",
 							-1
 							/* CACHED */
 						), createBaseVNode(
 							"strong",
 							{ class: "ub-api__danger-hint" },
-							"不清楚用途请不要选择；启用后的风险自行评估，后果自担。",
+							"不清楚用途请不要选择；启用后的风险自行评估，后果自担",
 							-1
 							/* CACHED */
 						)])]),
@@ -199688,7 +199719,7 @@ function _sfc_render$N(_ctx, _cache, $props, $setup, $data, $options) {
 		/* NEED_HYDRATION */
 	)) : createCommentVNode("v-if", true)]);
 }
-var ApiPresetEditor = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$N], ["__scopeId", "data-v-63d5ce83"]]);
+var ApiPresetEditor = /* @__PURE__ */ _export_sfc(_sfc_main$O, [["render", _sfc_render$N], ["__scopeId", "data-v-9d6d369d"]]);
 
 var _sfc_main$N = /*@__PURE__*/ defineComponent({
     __name: 'ApiPage',
@@ -200528,8 +200559,8 @@ var _sfc_main$L = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-pte[data-v-5bbd16c6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s5);\n}\n.ub-pte__segs[data-v-5bbd16c6] {\r\n  padding: var(--ub-s3);\n}\n.ub-pte__empty[data-v-5bbd16c6] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/parts/PlotTaskEditor.vue#style-0-5bbd16c6");
-var PlotTaskEditor_vue_vue_type_style_index_0_scoped_5bbd16c6_lang = null;
+injectSfcStyle("\n.ub-pte[data-v-7613e705] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s5);\n}\n.ub-pte__segs[data-v-7613e705] {\r\n  padding: var(--ub-s3);\n}\n.ub-pte__empty[data-v-7613e705] {\r\n  padding: var(--ub-s5);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-card);\r\n  color: var(--ub-text-3);\r\n  text-align: center;\n}\r\n", "src/presentation-v3/parts/PlotTaskEditor.vue#style-0-7613e705");
+var PlotTaskEditor_vue_vue_type_style_index_0_scoped_7613e705_lang = null;
 
 const _hoisted_1$H = {
 	key: 0,
@@ -200635,7 +200666,8 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 		}),
 		createVNode($setup["UbSection"], {
 			title: "Agent 任务控制",
-			description: "描述与触发条件是 Agent 判断任务是否执行、是否串联及先后顺序的依据。全部留空且未启用 Agent 控制时，按启用状态、阶段号和顺序执行。"
+			description: "描述与触发条件决定任务执行方式。",
+			"description-detail": "描述与触发条件是 Agent 判断任务是否执行、是否串联及先后顺序的依据。全部留空且未启用 Agent 控制时，按启用状态、阶段号和顺序执行。"
 		}, {
 			default: withCtx(() => [
 				createVNode($setup["UbRow"], {
@@ -200803,7 +200835,7 @@ function _sfc_render$K(_ctx, _cache, $props, $setup, $data, $options) {
 		})
 	])) : (openBlock(), createElementBlock("p", _hoisted_3$u, "请先在上方选择一个任务。"));
 }
-var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$K], ["__scopeId", "data-v-5bbd16c6"]]);
+var PlotTaskEditor = /* @__PURE__ */ _export_sfc(_sfc_main$L, [["render", _sfc_render$K], ["__scopeId", "data-v-7613e705"]]);
 
 var _sfc_main$K = /*@__PURE__*/ defineComponent({
     __name: 'PlotPresetSheet',
@@ -202674,8 +202706,8 @@ var _sfc_main$H = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-tpl[data-v-4bb4a8a2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-tpl__facts[data-v-4bb4a8a2] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s2);\r\n  margin: 0;\n}\n.ub-tpl__facts > div[data-v-4bb4a8a2] {\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-tpl__facts dt[data-v-4bb4a8a2] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-tpl__facts dd[data-v-4bb4a8a2] {\r\n  margin: 2px 0 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-tpl__tools[data-v-4bb4a8a2] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\r\n  margin: 0 calc(var(--ub-s2) * -1);\n}\r\n", "src/presentation-v3/parts/TableTemplateSection.vue#style-0-4bb4a8a2");
-var TableTemplateSection_vue_vue_type_style_index_0_scoped_4bb4a8a2_lang = null;
+injectSfcStyle("\n.ub-tpl[data-v-a58d691a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-tpl__facts[data-v-a58d691a] {\r\n  display: grid;\r\n  grid-template-columns: repeat(2, minmax(0, 1fr));\r\n  gap: var(--ub-s2);\r\n  margin: 0;\n}\n.ub-tpl__facts > div[data-v-a58d691a] {\r\n  min-width: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-tpl__facts dt[data-v-a58d691a] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 700;\n}\n.ub-tpl__facts dd[data-v-a58d691a] {\r\n  margin: 2px 0 0;\r\n  overflow: hidden;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-overflow: ellipsis;\r\n  white-space: nowrap;\n}\n.ub-tpl__tools[data-v-a58d691a] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\r\n  margin: 0 calc(var(--ub-s2) * -1);\n}\r\n", "src/presentation-v3/parts/TableTemplateSection.vue#style-0-a58d691a");
+var TableTemplateSection_vue_vue_type_style_index_0_scoped_a58d691a_lang = null;
 
 const _hoisted_1$D = { class: "ub-tpl" };
 const _hoisted_2$w = { class: "ub-tpl__facts" };
@@ -202684,7 +202716,8 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: $setup.tableCopy.panels.templatePreset.title,
-		description: "下拉切换当前聊天使用的表格模板，星标设为全局默认。内置默认预设不能直接修改，请用「从默认新建」。",
+		description: "切换模板并设全局默认。",
+		"description-detail": "下拉切换当前聊天使用的表格模板，星标设为全局默认。内置默认预设不能直接修改，请用「从默认新建」。",
 		icon: "fa-solid fa-table-cells"
 	}, {
 		actions: withCtx(() => [createVNode($setup["UbBadge"], { variant: $setup.templates.isChatOverridden.value ? "accent" : "neutral" }, {
@@ -202879,7 +202912,7 @@ function _sfc_render$G(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["id", "title"]);
 }
-var TableTemplateSection = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$G], ["__scopeId", "data-v-4bb4a8a2"]]);
+var TableTemplateSection = /* @__PURE__ */ _export_sfc(_sfc_main$H, [["render", _sfc_render$G], ["__scopeId", "data-v-a58d691a"]]);
 
 const NUMBER_FIELD_META = [
     {
@@ -203795,7 +203828,8 @@ var _sfc_main$F = /*@__PURE__*/ defineComponent({
 
 function _sfc_render$E(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
-		lead: "上手只需要这一页。按顺序配好 API、更新节奏、表格模板与剧情推进就能开始；需要更多功能时切到「高手模式」。",
+		lead: "按顺序配好基础项即可开始。",
+		"lead-detail": "上手只需要这一页。按顺序配好 API、更新节奏、表格模板与剧情推进就能开始；需要更多功能时切到「高手模式」。",
 		sections: $setup.sections
 	}, {
 		default: withCtx(() => [
@@ -204832,8 +204866,8 @@ var _sfc_main$E = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-cr__preset[data-v-1c918263] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ub-s3);\n  padding: var(--ub-s4);\n}\n.ub-cr__meta[data-v-1c918263] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__meta strong[data-v-1c918263] {\n  color: var(--ub-text);\n}\n.ub-cr__picker[data-v-1c918263] {\n  display: flex;\n  align-items: center;\n  gap: var(--ub-s2);\n}\n.ub-cr__test-actions[data-v-1c918263] {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ub-s2);\n}\n.ub-cr__output[data-v-1c918263] {\n  max-height: calc(var(--ub-u) * 360);\n  margin: 0;\n  padding: var(--ub-s3);\n  border-radius: var(--ub-r-control);\n  background: var(--ub-sunken);\n  color: var(--ub-text);\n  font-family: var(--ub-mono);\n  font-size: var(--ub-fs-xs);\n  line-height: 1.6;\n  white-space: pre-wrap;\n  overflow: auto;\n}\n.ub-cr__list[data-v-1c918263] {\n  margin: 0;\n  padding: 0;\n  border: 1px solid var(--ub-line-soft);\n  border-radius: var(--ub-r-card);\n  background: var(--ub-panel);\n  list-style: none;\n  overflow: hidden;\n}\n.ub-cr__list-item[data-v-1c918263] {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-cr__list-item + .ub-cr__list-item[data-v-1c918263] {\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cr__list-info[data-v-1c918263] {\n  display: flex;\n  flex-direction: column;\n  flex: 1 1 auto;\n  min-width: 0;\n}\n.ub-cr__list-name[data-v-1c918263] {\n  overflow: hidden;\n  color: var(--ub-text);\n  font-size: var(--ub-fs-sm);\n  font-weight: 600;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.ub-cr__list-meta[data-v-1c918263] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders[data-v-1c918263] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ub-s1);\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders code[data-v-1c918263] {\n  padding: 1px 6px;\n  border-radius: 6px;\n  background: var(--ub-sunken);\n  color: var(--ub-accent-ink);\n  font-family: var(--ub-mono);\n}\n", "src/presentation-v3/pages/ContentReplacePage.vue#style-0-1c918263");
-var ContentReplacePage_vue_vue_type_style_index_0_scoped_1c918263_lang = null;
+injectSfcStyle("\n.ub-cr__preset[data-v-ef1a0be2] {\n  display: flex;\n  flex-direction: column;\n  gap: var(--ub-s3);\n  padding: var(--ub-s4);\n}\n.ub-cr__meta[data-v-ef1a0be2] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__meta strong[data-v-ef1a0be2] {\n  color: var(--ub-text);\n}\n.ub-cr__picker[data-v-ef1a0be2] {\n  display: flex;\n  align-items: center;\n  gap: var(--ub-s2);\n}\n.ub-cr__test-actions[data-v-ef1a0be2] {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: var(--ub-s2);\n}\n.ub-cr__output[data-v-ef1a0be2] {\n  max-height: calc(var(--ub-u) * 360);\n  margin: 0;\n  padding: var(--ub-s3);\n  border-radius: var(--ub-r-control);\n  background: var(--ub-sunken);\n  color: var(--ub-text);\n  font-family: var(--ub-mono);\n  font-size: var(--ub-fs-xs);\n  line-height: 1.6;\n  white-space: pre-wrap;\n  overflow: auto;\n}\n.ub-cr__list[data-v-ef1a0be2] {\n  margin: 0;\n  padding: 0;\n  border: 1px solid var(--ub-line-soft);\n  border-radius: var(--ub-r-card);\n  background: var(--ub-panel);\n  list-style: none;\n  overflow: hidden;\n}\n.ub-cr__list-item[data-v-ef1a0be2] {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s4);\n}\n.ub-cr__list-item + .ub-cr__list-item[data-v-ef1a0be2] {\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cr__list-info[data-v-ef1a0be2] {\n  display: flex;\n  flex-direction: column;\n  flex: 1 1 auto;\n  min-width: 0;\n}\n.ub-cr__list-name[data-v-ef1a0be2] {\n  overflow: hidden;\n  color: var(--ub-text);\n  font-size: var(--ub-fs-sm);\n  font-weight: 600;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.ub-cr__list-meta[data-v-ef1a0be2] {\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders[data-v-ef1a0be2] {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: var(--ub-s1);\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-cr__placeholders code[data-v-ef1a0be2] {\n  padding: 1px 6px;\n  border-radius: 6px;\n  background: var(--ub-sunken);\n  color: var(--ub-accent-ink);\n  font-family: var(--ub-mono);\n}\n", "src/presentation-v3/pages/ContentReplacePage.vue#style-0-ef1a0be2");
+var ContentReplacePage_vue_vue_type_style_index_0_scoped_ef1a0be2_lang = null;
 
 const _hoisted_1$B = { class: "ub-cr__picker" };
 const _hoisted_2$v = { class: "ub-cr__preset" };
@@ -204858,7 +204892,8 @@ const _hoisted_11$8 = {
 const _hoisted_12$7 = { class: "ub-cr__placeholders" };
 function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
-		lead: "正文生成后自动检查并润色 AI 回复。下面从上到下依次是：调用参数、替换方式、提示词、标签筛选与手动测试。",
+		lead: "正文生成后自动检查并润色 AI 回复。",
+		"lead-detail": "正文生成后自动检查并润色 AI 回复。下面从上到下依次是调用参数、替换方式、提示词、标签筛选与手动测试。",
 		sections: $setup.sections
 	}, {
 		default: withCtx(() => [
@@ -205017,7 +205052,8 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["hint"]),
 					createVNode($setup["UbRow"], {
 						label: "在当前正文上再优化",
-						hint: "对最新一条 AI 回复现在显示的正文再优化一次，可以叠加多次；替换前的原文仍保留，之后照样能从原文重来。"
+						hint: "在显示正文上再优化一次。",
+						"hint-detail": "对最新一条 AI 回复现在显示的正文再优化一次，可以叠加多次。替换前的原文仍保留，之后照样能从原文重来。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbButton"], {
 							size: "sm",
@@ -205456,7 +205492,7 @@ function _sfc_render$D(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$D], ["__scopeId", "data-v-1c918263"]]);
+var ContentReplacePage = /* @__PURE__ */ _export_sfc(_sfc_main$E, [["render", _sfc_render$D], ["__scopeId", "data-v-ef1a0be2"]]);
 
 /** 连续高压轮上限的可配置上界。页面是 .vue，不能直接 import 服务层常量，由本组合式函数中转。 */
 const CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_UI_ACU = CONTINUATION_MAX_CONSECUTIVE_PRESSURE_TURNS_MAX_ACU;
@@ -207199,8 +207235,8 @@ var _sfc_main$A = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-cm[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-cm__bar[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-cm__spacer[data-v-77fa46d6] {\r\n  flex: 1 1 auto;\n}\n.ub-cm__confirm[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s3) var(--ub-s4) 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__pane[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-cm__actions[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__empty[data-v-77fa46d6] {\r\n  padding: var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-cm__meta[data-v-77fa46d6] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__body[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__error[data-v-77fa46d6] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cm__tags[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\n}\n.ub-cm__hero[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s4);\r\n  border-radius: var(--ub-r-card);\r\n  background: linear-gradient(140deg, var(--ub-accent-soft), transparent 70%), var(--ub-sunken);\n}\n.ub-cm__hero-title[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 800;\n}\n.ub-cm__progress[data-v-77fa46d6] {\r\n  height: 6px;\r\n  border-radius: 999px;\r\n  background: var(--ub-line-soft);\r\n  overflow: hidden;\n}\n.ub-cm__progress span[data-v-77fa46d6] {\r\n  display: block;\r\n  height: 100%;\r\n  border-radius: inherit;\r\n  background: var(--ub-accent);\n}\n.ub-cm__node[data-v-77fa46d6] {\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__node-head[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__turns[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s2) 0 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-cm__turns li[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-left: 3px solid var(--ub-line);\r\n  border-radius: 0 6px 6px 0;\r\n  background: var(--ub-input-bg);\n}\n.ub-cm__turns li.is-done[data-v-77fa46d6] {\r\n  border-left-color: var(--ub-ok);\r\n  opacity: 0.6;\n}\n.ub-cm__turns li.is-current[data-v-77fa46d6] {\r\n  border-left-color: var(--ub-accent);\r\n  background: var(--ub-accent-soft);\n}\n.ub-cm__turn-goal[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__history[data-v-77fa46d6] {\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  padding: var(--ub-s2) var(--ub-s3);\n}\n.ub-cm__history > summary[data-v-77fa46d6] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-cm__history--inner[data-v-77fa46d6] {\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__history-body[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__list[data-v-77fa46d6] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__status-grid[data-v-77fa46d6] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__status[data-v-77fa46d6] {\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-cm__status.is-bad[data-v-77fa46d6] {\r\n  background: var(--ub-danger-soft);\n}\n.ub-cm__box[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__box.is-warn[data-v-77fa46d6] {\r\n  border-color: color-mix(in srgb, var(--ub-warn) 45%, var(--ub-line-soft));\r\n  background: var(--ub-warn-soft);\n}\n.ub-cm__box-title[data-v-77fa46d6],\r\n.ub-cm__module-head[data-v-77fa46d6] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 800;\n}\n.ub-cm__module-head span[data-v-77fa46d6] {\r\n  margin-left: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cm__checks[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-cm__fix + .ub-cm__fix[data-v-77fa46d6] {\r\n  padding-top: var(--ub-s2);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__module[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding-top: var(--ub-s3);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__cards[data-v-77fa46d6] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__card[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\n}\n.ub-cm__card.is-retired[data-v-77fa46d6] {\r\n  opacity: 0.55;\n}\ndetails.ub-cm__card > summary[data-v-77fa46d6] {\r\n  cursor: pointer;\n}\n.ub-cm__reqs[data-v-77fa46d6] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req[data-v-77fa46d6] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req-index[data-v-77fa46d6] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: 1.8em;\r\n  height: 1.8em;\r\n  margin-top: 6px;\r\n  border-radius: 50%;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 800;\n}\r\n", "src/presentation-v3/parts/ContinuationMaterials.vue#style-0-77fa46d6");
-var ContinuationMaterials_vue_vue_type_style_index_0_scoped_77fa46d6_lang = null;
+injectSfcStyle("\n.ub-cm[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  min-width: 0;\n}\n.ub-cm__bar[data-v-28353086] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border-bottom: 1px solid var(--ub-line-soft);\n}\n.ub-cm__spacer[data-v-28353086] {\r\n  flex: 1 1 auto;\n}\n.ub-cm__confirm[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s3) var(--ub-s4) 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__pane[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\n}\n.ub-cm__actions[data-v-28353086] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__empty[data-v-28353086] {\r\n  padding: var(--ub-s4);\r\n  border: 1px dashed var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-cm__meta[data-v-28353086] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__body[data-v-28353086] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.6;\r\n  overflow-wrap: anywhere;\n}\n.ub-cm__error[data-v-28353086] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cm__tags[data-v-28353086] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s1);\n}\n.ub-cm__hero[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s4);\r\n  border-radius: var(--ub-r-card);\r\n  background: linear-gradient(140deg, var(--ub-accent-soft), transparent 70%), var(--ub-sunken);\n}\n.ub-cm__hero-title[data-v-28353086] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 800;\n}\n.ub-cm__progress[data-v-28353086] {\r\n  height: 6px;\r\n  border-radius: 999px;\r\n  background: var(--ub-line-soft);\r\n  overflow: hidden;\n}\n.ub-cm__progress span[data-v-28353086] {\r\n  display: block;\r\n  height: 100%;\r\n  border-radius: inherit;\r\n  background: var(--ub-accent);\n}\n.ub-cm__node[data-v-28353086] {\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__node-head[data-v-28353086] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__turns[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: var(--ub-s2) 0 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-cm__turns li[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  border-radius: 6px;\r\n  background: var(--ub-input-bg);\r\n  box-shadow: inset 3px 0 0 var(--ub-line);\n}\n.ub-cm__turns li.is-done[data-v-28353086] {\r\n  box-shadow: inset 3px 0 0 var(--ub-ok);\r\n  opacity: 0.6;\n}\n.ub-cm__turns li.is-current[data-v-28353086] {\r\n  box-shadow: inset 3px 0 0 var(--ub-accent);\r\n  background: var(--ub-accent-soft);\n}\n.ub-cm__turn-goal[data-v-28353086] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\n}\n.ub-cm__history[data-v-28353086] {\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\r\n  padding: var(--ub-s2) var(--ub-s3);\n}\n.ub-cm__history > summary[data-v-28353086] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-cm__history--inner[data-v-28353086] {\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__history-body[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  margin-top: var(--ub-s2);\n}\n.ub-cm__list[data-v-28353086] {\r\n  margin: 0;\r\n  padding-left: 1.4em;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cm__status-grid[data-v-28353086] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__status[data-v-28353086] {\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\n}\n.ub-cm__status.is-bad[data-v-28353086] {\r\n  background: var(--ub-danger-soft);\n}\n.ub-cm__box[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-control);\n}\n.ub-cm__box.is-warn[data-v-28353086] {\r\n  border-color: color-mix(in srgb, var(--ub-warn) 45%, var(--ub-line-soft));\r\n  background: var(--ub-warn-soft);\n}\n.ub-cm__box-title[data-v-28353086],\r\n.ub-cm__module-head[data-v-28353086] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\r\n  font-weight: 800;\n}\n.ub-cm__module-head span[data-v-28353086] {\r\n  margin-left: var(--ub-s1);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cm__checks[data-v-28353086] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-cm__fix + .ub-cm__fix[data-v-28353086] {\r\n  padding-top: var(--ub-s2);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__module[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding-top: var(--ub-s3);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cm__cards[data-v-28353086] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));\r\n  gap: var(--ub-s2);\n}\n.ub-cm__card[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  min-width: 0;\r\n  padding: var(--ub-s3);\r\n  border: 0;\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\n}\n.ub-cm__card.is-retired[data-v-28353086] {\r\n  opacity: 0.55;\n}\ndetails.ub-cm__card > summary[data-v-28353086] {\r\n  cursor: pointer;\n}\n.ub-cm__reqs[data-v-28353086] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req[data-v-28353086] {\r\n  display: flex;\r\n  align-items: flex-start;\r\n  gap: var(--ub-s2);\n}\n.ub-cm__req-index[data-v-28353086] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: 1.8em;\r\n  height: 1.8em;\r\n  margin-top: 6px;\r\n  border-radius: 50%;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 800;\n}\r\n", "src/presentation-v3/parts/ContinuationMaterials.vue#style-0-28353086");
+var ContinuationMaterials_vue_vue_type_style_index_0_scoped_28353086_lang = null;
 
 const _hoisted_1$x = { class: "ub-cm" };
 const _hoisted_2$r = { class: "ub-cm__bar" };
@@ -207331,7 +207367,8 @@ const _hoisted_71 = { class: "ub-cm__module" };
 const _hoisted_72 = { class: "ub-cm__module-head" };
 const _hoisted_73 = {
 	key: 0,
-	class: "ub-cm__empty"
+	class: "ub-cm__empty",
+	title: "时间事实由结算维护代理依据真实正文登记，大纲里的时间字段只是计划。"
 };
 const _hoisted_74 = {
 	key: 1,
@@ -207382,7 +207419,8 @@ const _hoisted_93 = {
 };
 const _hoisted_94 = {
 	key: 2,
-	class: "ub-cm__empty"
+	class: "ub-cm__empty",
+	title: "在续写设置里打开「开场百科检索」后，新任务第一次规划前会自动检索；主 Agent 之后也可按需派工 web-researcher。"
 };
 const _hoisted_95 = {
 	key: 3,
@@ -207467,7 +207505,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 		$setup.clearPending ? (openBlock(), createElementBlock("div", _hoisted_3$m, [_cache[29] || (_cache[29] = createBaseVNode(
 			"p",
 			null,
-			" 清空会删除当前续写任务、主 Agent 的会话记录与本地资料快照（伏笔、信息差、长期约束、故事总纲、年代学、百科资料库、用户要求）。 小说正文楼层不受影响，清空后可以从当前剧情重新开始规划。 ",
+			" 清空会删除续写任务、会话记录与本地资料快照。 小说正文楼层不受影响，可从当前剧情重新开始规划。 ",
 			-1
 			/* CACHED */
 		)), createBaseVNode("div", _hoisted_4$i, [createVNode($setup["UbButton"], {
@@ -207953,10 +207991,13 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 			Fragment,
 			{ key: 2 },
 			[createCommentVNode(" 本地资料 "), createBaseVNode("div", _hoisted_28, [
-				_cache[42] || (_cache[42] = createBaseVNode(
+				_cache[44] || (_cache[44] = createBaseVNode(
 					"p",
-					{ class: "ub-cm__meta" },
-					" 本地资料由子代理结算写入，也可在这里分模块手动修正。保存走与子代理相同的结构校验并推进修订号；每个模块独立保存，只提交本模块数据。 ",
+					{
+						class: "ub-cm__meta",
+						title: "本地资料由子代理结算写入，也可分模块手动修正。保存走相同结构校验并推进修订号，各模块独立保存。"
+					},
+					" 资料由子代理写入，也可手动修正。 ",
 					-1
 					/* CACHED */
 				)),
@@ -208007,8 +208048,11 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					)),
 					_cache[34] || (_cache[34] = createBaseVNode(
 						"p",
-						{ class: "ub-cm__meta" },
-						"只开放所选待补模块的程序级写集；已完成模块不会被重写。历史状态未知的模块必须在此显式选择。",
+						{
+							class: "ub-cm__meta",
+							title: "只开放所选待补模块的程序级写集，已完成模块不会被重写。历史状态未知的模块必须在此显式选择。"
+						},
+						"只开放待补模块的写集。",
 						-1
 						/* CACHED */
 					)),
@@ -208113,7 +208157,17 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					), createBaseVNode("p", _hoisted_40, [$setup.materials.diagnostics.value.adoptedIndex === null ? (openBlock(), createElementBlock(
 						Fragment,
 						{ key: 0 },
-						[createTextVNode(" 当前聊天没有任何楼层带有资料快照。快照由子代理结算后写到当时的末楼并跟着该楼层走：该楼被删除、重新生成或 swipe 时，资料会回退到更早楼层的快照；若此前只写过一次，就会回到空。 ")],
+						[_cache[36] || (_cache[36] = createTextVNode(
+							" 当前聊天没有资料快照。快照随写入楼层的删除或重新生成回退。 ",
+							-1
+							/* CACHED */
+						)), _cache[37] || (_cache[37] = createBaseVNode(
+							"span",
+							{ title: "快照由子代理结算后写到当时的末楼并跟着该楼层走。该楼被删除、重新生成或 swipe 时，资料会回退到更早楼层的快照；若此前只写过一次，就会回到空。" },
+							"悬停了解回退规则",
+							-1
+							/* CACHED */
+						))],
 						64
 						/* STABLE_FRAGMENT */
 					)) : (openBlock(), createElementBlock(
@@ -208132,7 +208186,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 								64
 								/* STABLE_FRAGMENT */
 							)) : createCommentVNode("v-if", true),
-							_cache[36] || (_cache[36] = createTextVNode(
+							_cache[38] || (_cache[38] = createTextVNode(
 								"。 ",
 								-1
 								/* CACHED */
@@ -208184,10 +208238,13 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 						1
 						/* TEXT */
 					),
-					_cache[37] || (_cache[37] = createBaseVNode(
+					_cache[39] || (_cache[39] = createBaseVNode(
 						"p",
-						{ class: "ub-cm__meta" },
-						"「部分」条目还没写齐必填栏，不进入完整资料；「旧快照条目」来自旧整条快照，来源不可逐栏拆分。这里只列栏目名与修订身份。",
+						{
+							class: "ub-cm__meta",
+							title: "「部分」条目还没写齐必填栏，不进入完整资料；「旧快照条目」来自旧整条快照，来源不可逐栏拆分。这里只列栏目名与修订身份。"
+						},
+						"这里只列栏目名与修订身份。",
 						-1
 						/* CACHED */
 					)),
@@ -208267,7 +208324,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					))
 				]),
 				createBaseVNode("section", _hoisted_49, [
-					createBaseVNode("div", _hoisted_50, [_cache[38] || (_cache[38] = createTextVNode(
+					createBaseVNode("div", _hoisted_50, [_cache[40] || (_cache[40] = createTextVNode(
 						"伏笔账本 ",
 						-1
 						/* CACHED */
@@ -208383,7 +208440,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					)
 				]),
 				createBaseVNode("section", _hoisted_56, [
-					createBaseVNode("div", _hoisted_57, [_cache[39] || (_cache[39] = createTextVNode(
+					createBaseVNode("div", _hoisted_57, [_cache[41] || (_cache[41] = createTextVNode(
 						"认知与信息差 ",
 						-1
 						/* CACHED */
@@ -208516,7 +208573,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					)
 				]),
 				createBaseVNode("section", _hoisted_64, [
-					createBaseVNode("div", _hoisted_65, [_cache[40] || (_cache[40] = createTextVNode(
+					createBaseVNode("div", _hoisted_65, [_cache[42] || (_cache[42] = createTextVNode(
 						"长期约束 ",
 						-1
 						/* CACHED */
@@ -208582,7 +208639,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					)
 				]),
 				createBaseVNode("section", _hoisted_71, [
-					createBaseVNode("div", _hoisted_72, [_cache[41] || (_cache[41] = createTextVNode(
+					createBaseVNode("div", _hoisted_72, [_cache[43] || (_cache[43] = createTextVNode(
 						"故事年代学账本 ",
 						-1
 						/* CACHED */
@@ -208593,7 +208650,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 						1
 						/* TEXT */
 					)]),
-					!$setup.materials.snapshot.value?.chronology.length ? (openBlock(), createElementBlock("p", _hoisted_73, "还没有已结算的故事时间记录。时间事实由结算维护代理依据真实正文登记；大纲里的时间字段是计划。")) : (openBlock(), createElementBlock("div", _hoisted_74, [(openBlock(true), createElementBlock(
+					!$setup.materials.snapshot.value?.chronology.length ? (openBlock(), createElementBlock("p", _hoisted_73, "还没有故事时间记录。")) : (openBlock(), createElementBlock("div", _hoisted_74, [(openBlock(true), createElementBlock(
 						Fragment,
 						null,
 						renderList($setup.materials.snapshot.value.chronology, (entry) => {
@@ -208696,10 +208753,13 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 			Fragment,
 			{ key: 3 },
 			[createCommentVNode(" 故事总纲 "), createBaseVNode("div", _hoisted_80, [
-				_cache[43] || (_cache[43] = createBaseVNode(
+				_cache[45] || (_cache[45] = createBaseVNode(
 					"p",
-					{ class: "ub-cm__meta" },
-					"故事总纲由 arc-architect 子代理维护：全书方向一条 + 若干卷台阶。也可在这里手动修正，保存走同一套结构校验并推进修订号。",
+					{
+						class: "ub-cm__meta",
+						title: "故事总纲由 arc-architect 子代理维护：全书方向一条加若干卷台阶。也可手动修正，保存走同一套结构校验。"
+					},
+					"故事总纲由子代理维护，也可手动修正。",
 					-1
 					/* CACHED */
 				)),
@@ -208840,10 +208900,10 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 			Fragment,
 			{ key: 4 },
 			[createCommentVNode(" 百科资料 "), createBaseVNode("div", _hoisted_91, [
-				_cache[44] || (_cache[44] = createBaseVNode(
+				_cache[46] || (_cache[46] = createBaseVNode(
 					"p",
 					{ class: "ub-cm__meta" },
-					" 百科资料库由 web-researcher 子代理从萌娘百科、维基百科或 SearXNG 查到后写入，按实体分条。每条固定只有「名称 + 一句话简介」，详情自由格式。 它记录的是原作/公开设定，不是本故事已发生的事实；与世界书或正文冲突时以后者为准。 ",
+					" 百科资料由 web-researcher 按实体分条写入。每条含名称与一句话简介。 它记录的是原作/公开设定，不是本故事已发生的事实；与世界书或正文冲突时以后者为准。 ",
 					-1
 					/* CACHED */
 				)),
@@ -208861,7 +208921,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					1
 					/* TEXT */
 				)) : createCommentVNode("v-if", true),
-				!$setup.materials.snapshot.value?.webRefs.length ? (openBlock(), createElementBlock("p", _hoisted_94, "还没有百科资料。在续写设置里打开「开场百科检索」后，新任务第一次规划前会自动检索；主 Agent 之后也可按需派工 web-researcher。")) : (openBlock(), createElementBlock("div", _hoisted_95, [(openBlock(true), createElementBlock(
+				!$setup.materials.snapshot.value?.webRefs.length ? (openBlock(), createElementBlock("p", _hoisted_94, "还没有百科资料，开启检索后自动获取。")) : (openBlock(), createElementBlock("div", _hoisted_95, [(openBlock(true), createElementBlock(
 					Fragment,
 					null,
 					renderList($setup.materials.snapshot.value.webRefs, (ref) => {
@@ -209025,7 +209085,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 			Fragment,
 			{ key: 5 },
 			[createCommentVNode(" 用户要求 "), createBaseVNode("div", _hoisted_102, [
-				_cache[49] || (_cache[49] = createBaseVNode(
+				_cache[51] || (_cache[51] = createBaseVNode(
 					"p",
 					{ class: "ub-cm__meta" },
 					"用户要求由 requirements-maintainer 在会话历史压缩后整理，创建任务时会把初始要求写成首条；每个标签是一条要求。",
@@ -209046,7 +209106,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 					1
 					/* TEXT */
 				)) : createCommentVNode("v-if", true),
-				$setup.materials.snapshot.value && !$setup.materials.snapshot.value.userRequirements.length ? (openBlock(), createElementBlock("p", _hoisted_105, " 还没有用户要求条目。创建任务后会写入初始要求；之后在会话里补充的实质要求会在历史压缩后合并进来。也可以手动新增。 ")) : createCommentVNode("v-if", true),
+				$setup.materials.snapshot.value && !$setup.materials.snapshot.value.userRequirements.length ? (openBlock(), createElementBlock("p", _hoisted_105, " 还没有用户要求条目，可手动新增。 ")) : createCommentVNode("v-if", true),
 				createBaseVNode("div", _hoisted_106, [(openBlock(true), createElementBlock(
 					Fragment,
 					null,
@@ -209098,14 +209158,14 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: $setup.requirementsDisabled,
 						onClick: _cache[21] || (_cache[21] = ($event) => $setup.updateRequirementItems([...$setup.requirementItems, ""]))
 					}, {
-						default: withCtx(() => [..._cache[45] || (_cache[45] = [createTextVNode(
+						default: withCtx(() => [..._cache[47] || (_cache[47] = [createTextVNode(
 							"新增标签",
 							-1
 							/* CACHED */
 						)])]),
 						_: 1
 					}, 8, ["disabled"]),
-					_cache[48] || (_cache[48] = createBaseVNode(
+					_cache[50] || (_cache[50] = createBaseVNode(
 						"span",
 						{ class: "ub-cm__spacer" },
 						null,
@@ -209118,7 +209178,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: $setup.requirementsDisabled || !$setup.materials.modules.userRequirements.dirty,
 						onClick: _cache[22] || (_cache[22] = ($event) => $setup.materials.discard("userRequirements"))
 					}, {
-						default: withCtx(() => [..._cache[46] || (_cache[46] = [createTextVNode(
+						default: withCtx(() => [..._cache[48] || (_cache[48] = [createTextVNode(
 							"放弃修改",
 							-1
 							/* CACHED */
@@ -209133,7 +209193,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 						disabled: !$setup.materials.snapshot.value || $props.busy || !$setup.materials.modules.userRequirements.dirty,
 						onClick: _cache[23] || (_cache[23] = ($event) => $setup.materials.save("userRequirements"))
 					}, {
-						default: withCtx(() => [..._cache[47] || (_cache[47] = [createTextVNode(
+						default: withCtx(() => [..._cache[49] || (_cache[49] = [createTextVNode(
 							" 保存用户要求 ",
 							-1
 							/* CACHED */
@@ -209154,7 +209214,7 @@ function _sfc_render$z(_ctx, _cache, $props, $setup, $data, $options) {
 		)) : createCommentVNode("v-if", true)
 	]);
 }
-var ContinuationMaterials = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$z], ["__scopeId", "data-v-77fa46d6"]]);
+var ContinuationMaterials = /* @__PURE__ */ _export_sfc(_sfc_main$A, [["render", _sfc_render$z], ["__scopeId", "data-v-28353086"]]);
 
 const INHERIT_CHANNEL_VALUE = '__inherit__';
 var _sfc_main$z = /*@__PURE__*/ defineComponent({
@@ -209833,8 +209893,8 @@ var _sfc_main$z = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-cont__actions[data-v-57f4a57a] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cont__error[data-v-57f4a57a] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cont__notice[data-v-57f4a57a] {\r\n  color: var(--ub-warn);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cont__pad[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-cont__groups[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cont__groups[data-v-57f4a57a] .ub-row {\r\n  padding-left: 0;\r\n  padding-right: 0;\n}\n.ub-cont__meta[data-v-57f4a57a] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cont__checks[data-v-57f4a57a] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) 0;\n}\n.ub-cont__subhead[data-v-57f4a57a] {\r\n  margin: var(--ub-s2) 0 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\r\n", "src/presentation-v3/pages/ContinuationPage.vue#style-0-57f4a57a");
-var ContinuationPage_vue_vue_type_style_index_0_scoped_57f4a57a_lang = null;
+injectSfcStyle("\n.ub-cont__actions[data-v-a0f6f353] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-cont__error[data-v-a0f6f353] {\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-cont__notice[data-v-a0f6f353] {\r\n  color: var(--ub-warn);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-cont__pad[data-v-a0f6f353] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-cont__groups[data-v-a0f6f353] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-cont__groups[data-v-a0f6f353] .ub-row {\r\n  padding-left: 0;\r\n  padding-right: 0;\n}\n.ub-cont__meta[data-v-a0f6f353] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-cont__checks[data-v-a0f6f353] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) 0;\n}\n.ub-cont__subhead[data-v-a0f6f353] {\r\n  margin: var(--ub-s2) 0 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 700;\n}\r\n", "src/presentation-v3/pages/ContinuationPage.vue#style-0-a0f6f353");
+var ContinuationPage_vue_vue_type_style_index_0_scoped_a0f6f353_lang = null;
 
 const _hoisted_1$w = {
 	key: 0,
@@ -209870,7 +209930,8 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "cont-session",
 				title: "Agent 会话",
-				description: "像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字。",
+				description: "按需派工，最终正文由酒馆生成。",
+				"description-detail": "像和 coding agent 对话一样使用：随时输入、随时打断。主 Agent 按需派工子代理并管理大纲，最终正文仍由酒馆模型生成。会话流最多显示最近 300 条，单条详情最多 2000 字。",
 				icon: "fa-solid fa-comments"
 			}, {
 				default: withCtx(() => [createVNode($setup["ContinuationChat"], {
@@ -209948,7 +210009,8 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "cont-materials",
 				title: "已有资料",
-				description: "阶段大纲与本地资料都能直接编辑保存；一键清空只丢任务、会话记录与本地资料，不动小说正文。",
+				description: "资料可直接编辑保存。",
+				"description-detail": "阶段大纲与本地资料都能直接编辑保存；一键清空只丢任务、会话记录与本地资料，不动小说正文。",
 				icon: "fa-solid fa-folder-open"
 			}, {
 				default: withCtx(() => [createVNode($setup["ContinuationMaterials"], {
@@ -209972,7 +210034,8 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 				key: 1,
 				id: "cont-settings",
 				title: "续写设置",
-				description: "修改后自动保存；任务运行中也能改，改动在本轮空档落盘、下一轮生效。默认值已能满足大多数场景。",
+				description: "修改后自动保存，默认值已够用。",
+				"description-detail": "修改后自动保存；任务运行中也能改，改动在本轮空档落盘、下一轮生效。默认值已能满足大多数场景。",
 				icon: "fa-solid fa-sliders"
 			}, {
 				actions: withCtx(() => [$setup.settingsNotice ? (openBlock(), createElementBlock(
@@ -210155,8 +210218,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 							default: withCtx(() => [
 								_cache[59] || (_cache[59] = createBaseVNode(
 									"p",
-									{ class: "ub-cont__meta" },
-									"主会话每轮只做开局决策。结算、策划、条件审查、容错提交、自动修复和写作指令由程序按固定顺序执行。这里只改配置，提示词在下方各角色分组里改。",
+									{
+										class: "ub-cont__meta",
+										title: "结算、策划、条件审查、容错提交、自动修复和写作指令由程序按固定顺序执行，这里只改配置。"
+									},
+									"主会话每轮只做开局决策，提示词在各角色分组里改。",
 									-1
 									/* CACHED */
 								)),
@@ -210292,7 +210358,8 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 								}),
 								createVNode($setup["UbRow"], {
 									label: "连续高压轮上限",
-									hint: "跨阶段累计多少轮没有日常/余波轮就强制安排一轮，0 为不作要求。只兜底极端情况。"
+									hint: "无日常轮时强制安排一轮。",
+									"hint-detail": "跨阶段累计多少轮没有日常或余波轮就强制安排一轮，0 为不作要求。只兜底极端情况。"
 								}, {
 									default: withCtx(() => [createVNode($setup["UbInput"], {
 										modelValue: $setup.settingsDraft.maxConsecutivePressureTurns,
@@ -210354,7 +210421,8 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 								}),
 								createVNode($setup["UbRow"], {
 									label: "会话自动总结阈值（token）",
-									hint: "按主 Agent 实际读取的完整上下文统计，超过后把最早轮次浓缩成交接报告；0 为不总结。"
+									hint: "超过阈值浓缩早期轮次。",
+									"hint-detail": "按主 Agent 实际读取的完整上下文统计，超过后把最早轮次浓缩成交接报告；0 为不总结。"
 								}, {
 									default: withCtx(() => [createVNode($setup["UbInput"], {
 										modelValue: $setup.settingsDraft.agentHistoryTokenBudget,
@@ -210537,8 +210605,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 							default: withCtx(() => [
 								_cache[61] || (_cache[61] = createBaseVNode(
 									"p",
-									{ class: "ub-cont__meta" },
-									"开启后，新任务第一次规划前会派工 web-researcher 从勾选的百科查清原作设定并写进「百科资料」。TT 下萌娘百科与维基百科可直连；通用搜索只支持 SearXNG（需填写实例地址）；百度百科、DuckDuckGo、Serper/Tavily 需酒馆服务器转发，TT 暂不支持。",
+									{
+										class: "ub-cont__meta",
+										title: "新任务第一次规划前会派工 web-researcher 从勾选的百科查清原作设定并写进「百科资料」。TT 下萌娘百科与维基百科可直连，通用搜索只支持 SearXNG；百度百科、DuckDuckGo、Serper/Tavily 需酒馆服务器转发，TT 暂不支持。"
+									},
+									"开启后按勾选来源检索原作设定。TT 下部分来源不可直连。",
 									-1
 									/* CACHED */
 								)),
@@ -210656,8 +210727,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 						}, {
 							default: withCtx(() => [_cache[62] || (_cache[62] = createBaseVNode(
 								"p",
-								{ class: "ub-cont__meta" },
-								"给不同 Agent 分配不同 API 预设：例如主 Agent 用强模型，审查类子代理用便宜快速的模型。「跟随全局默认」即使用上方的 API 预设。",
+								{
+									class: "ub-cont__meta",
+									title: "例如主 Agent 用强模型，审查类子代理用便宜快速的模型。「跟随全局默认」即使用上方的 API 预设。"
+								},
+								"给不同 Agent 分配 API 预设。",
 								-1
 								/* CACHED */
 							)), (openBlock(), createElementBlock(
@@ -210696,8 +210770,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 							default: withCtx(() => [
 								_cache[63] || (_cache[63] = createBaseVNode(
 									"p",
-									{ class: "ub-cont__meta" },
-									"提取规则只保留正文中匹配「起始–结束」标记之间的内容；排除规则把匹配段落剔除。两者都为空时使用完整正文。",
+									{
+										class: "ub-cont__meta",
+										title: "提取规则只保留正文中匹配「起始–结束」标记之间的内容；排除规则把匹配段落剔除。两者都为空时使用完整正文。"
+									},
+									"按规则提取或排除正文段落。",
 									-1
 									/* CACHED */
 								)),
@@ -210861,8 +210938,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 						),
 						createBaseVNode(
 							"p",
-							{ class: "ub-cont__meta" },
-							"$USER_REQUIREMENTS（用户累计要求）、$ORIGIN_INSTRUCTION（创建任务时的初始要求原文）、$1、$STORY_OVERVIEW（事件概览）、$STORY_TAIL（尾部楼层全文）、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC（故事总纲）、$STAGE_WORD_BUDGET（本阶段字数容量）、$PACING_CONTEXT（跨阶段节奏状态）、$VALIDATION_ERRORS。",
+							{
+								class: "ub-cont__meta",
+								title: "$USER_REQUIREMENTS、$ORIGIN_INSTRUCTION、$1、$STORY_OVERVIEW、$STORY_TAIL、$STAGE_HISTORY、$COMPLETED_STAGE_PART、$REPLAN_INSTRUCTION、$TURN_RANGE、$REMAINING_TURNS、$STORY_ARC、$STAGE_WORD_BUDGET、$PACING_CONTEXT、$VALIDATION_ERRORS。"
+							},
+							"大纲子代理可用的占位符，悬停查看",
 							-1
 							/* CACHED */
 						),
@@ -210875,8 +210955,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 						),
 						createBaseVNode(
 							"p",
-							{ class: "ub-cont__meta" },
-							"$HISTORY_ANCHOR 标记主 Agent 会话记录的插入位置，该段本身不发送；删掉它会让会话记录退回到序列最前面。正文三层注入：$STORY_OVERVIEW、$STORY_TAIL、$STORY_CATALOG（楼层索引）。目录与状态：$OUTLINE_STATE、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS、$AGENT_READ_CATALOG。其余：$USER_REQUIREMENTS、$USER_INTENT、$CURRENT_TURN_GOAL、$CURRENT_TURN_PACING、$STORY_ARC_STATE、$HISTORY_UNSETTLED、$AGENT_CATALOG、$MODULE_CATALOG、$TABLE_CATALOG、$BUDGET；旧版 $OUTLINE_WINDOW、$ACTIVE_CONSTRAINTS、$TOOL_RESULTS 仍可在自定义提示词中使用。",
+							{
+								class: "ub-cont__meta",
+								title: "$HISTORY_ANCHOR 标记主 Agent 会话记录的插入位置，该段本身不发送。正文三层注入 $STORY_OVERVIEW、$STORY_TAIL、$STORY_CATALOG；目录与状态用 $OUTLINE_STATE、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS、$AGENT_READ_CATALOG；其余变量及旧版占位符见提示词文档。"
+							},
+							"主 Agent 可用的占位符，悬停查看",
 							-1
 							/* CACHED */
 						),
@@ -210889,8 +210972,11 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 						),
 						createBaseVNode(
 							"p",
-							{ class: "ub-cont__meta" },
-							"$USER_REQUIREMENTS、$AGENT_READ_MATERIALS（派工种子读集解析出的资料）、$AGENT_TASK、$AGENT_WRITE_SCOPE、$AGENT_READ_CATALOG、$STORY_OVERVIEW / $STORY_TAIL / $HISTORY_UNSETTLED、$HOOKS_LEDGER / $INFO_GAP / $ACTIVE_CONSTRAINTS / $STORY_ARC / $CHRONOLOGY / $WEB_REFS（$WEB_REFS 只给名称 + 一句话简介）、$STORY_CATALOG、$TABLE_CATALOG、$WORLDBOOK_CATALOG、$WORLDBOOK_HITS；网页检索子代理另有 $WEB_TOOL_CATALOG。固定注入差异：主 Agent、总纲代理、两类策划代理、连续性审查、终审与用户要求维护固定获得 $OUTLINE_WINDOW 或任务段中的 $USER_REQUIREMENTS；大纲代理默认使用 $USER_REQUIREMENTS，自定义段仍可使用 $ORIGIN_INSTRUCTION；伏笔与认知维护代理不再注入初始要求原文，只接收累计用户要求清单，避免计划污染事实结算。",
+							{
+								class: "ub-cont__meta",
+								title: "各子代理可用 $USER_REQUIREMENTS、$AGENT_READ_MATERIALS、$AGENT_TASK、$AGENT_WRITE_SCOPE、$AGENT_READ_CATALOG、$STORY_OVERVIEW、$STORY_TAIL、$HOOKS_LEDGER、$INFO_GAP、$ACTIVE_CONSTRAINTS、$STORY_ARC、$CHRONOLOGY、$WEB_REFS、$STORY_CATALOG、$TABLE_CATALOG 等，网页检索子代理另有 $WEB_TOOL_CATALOG。"
+							},
+							"各子代理可用的占位符，悬停查看",
 							-1
 							/* CACHED */
 						)
@@ -210903,7 +210989,7 @@ function _sfc_render$y(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["sections"]);
 }
-var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$y], ["__scopeId", "data-v-57f4a57a"]]);
+var ContinuationPage = /* @__PURE__ */ _export_sfc(_sfc_main$z, [["render", _sfc_render$y], ["__scopeId", "data-v-a0f6f353"]]);
 
 const FLIGHT_MODE_BIG_SUMMARY_ENTRY_PLACEMENT_ACU = {
     position: 'at_depth_as_system',
@@ -212381,8 +212467,8 @@ var _sfc_main$y = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-dash-health[data-v-1ee4f1f2] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--ub-u) * 340)), 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-health[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-text-3);\r\n  display: flex;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\r\n  padding: var(--ub-s4);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\n}\n.ub-health.is-ok[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-ok);\n}\n.ub-health.is-info[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-accent-ink);\n}\n.ub-health.is-warning[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-warn);\n}\n.ub-health.is-error[data-v-1ee4f1f2] {\r\n  --ub-health-tone: var(--ub-danger);\r\n  border-color: color-mix(in srgb, var(--ub-danger) 40%, var(--ub-line-soft));\n}\n.ub-health__icon[data-v-1ee4f1f2] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 36);\r\n  height: calc(var(--ub-u) * 36);\r\n  border-radius: 11px;\r\n  background: color-mix(in srgb, var(--ub-health-tone) 15%, transparent);\r\n  color: var(--ub-health-tone);\n}\n.ub-health__body[data-v-1ee4f1f2] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-health__head[data-v-1ee4f1f2] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\n}\n.ub-health__title[data-v-1ee4f1f2] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\n}\n.ub-health__summary[data-v-1ee4f1f2] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-health__action[data-v-1ee4f1f2] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  align-self: flex-start;\r\n  margin-top: var(--ub-s1);\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-accent-ink);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-health__action[data-v-1ee4f1f2]:hover {\r\n  text-decoration: underline;\n}\r\n", "src/presentation-v3/pages/DashboardPage.vue#style-0-1ee4f1f2");
-var DashboardPage_vue_vue_type_style_index_0_scoped_1ee4f1f2_lang = null;
+injectSfcStyle("\n.ub-dash-health[data-v-0653b4d0] {\r\n  display: grid;\r\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--ub-u) * 340)), 1fr));\r\n  gap: var(--ub-s3);\n}\n.ub-health[data-v-0653b4d0] {\r\n  --ub-health-tone: var(--ub-text-3);\r\n  display: flex;\r\n  gap: var(--ub-s3);\r\n  min-width: 0;\r\n  padding: var(--ub-s4);\r\n  border: 0;\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-card-shadow);\n}\n.ub-health.is-ok[data-v-0653b4d0] {\r\n  --ub-health-tone: var(--ub-ok);\n}\n.ub-health.is-info[data-v-0653b4d0] {\r\n  --ub-health-tone: var(--ub-accent-ink);\n}\n.ub-health.is-warning[data-v-0653b4d0] {\r\n  --ub-health-tone: var(--ub-warn);\n}\n.ub-health.is-error[data-v-0653b4d0] {\r\n  --ub-health-tone: var(--ub-danger);\r\n  border-color: color-mix(in srgb, var(--ub-danger) 40%, var(--ub-line-soft));\n}\n.ub-health__icon[data-v-0653b4d0] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 36);\r\n  height: calc(var(--ub-u) * 36);\r\n  border-radius: 11px;\r\n  background: color-mix(in srgb, var(--ub-health-tone) 15%, transparent);\r\n  color: var(--ub-health-tone);\n}\n.ub-health__body[data-v-0653b4d0] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\r\n  flex: 1 1 auto;\r\n  min-width: 0;\n}\n.ub-health__head[data-v-0653b4d0] {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: space-between;\r\n  gap: var(--ub-s2);\n}\n.ub-health__title[data-v-0653b4d0] {\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-md);\n}\n.ub-health__summary[data-v-0653b4d0] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-health__action[data-v-0653b4d0] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  gap: var(--ub-s1);\r\n  align-self: flex-start;\r\n  margin-top: var(--ub-s1);\r\n  padding: 0;\r\n  border: 0;\r\n  background: transparent;\r\n  color: var(--ub-accent-ink);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\r\n  cursor: pointer;\n}\n.ub-health__action[data-v-0653b4d0]:hover {\r\n  text-decoration: underline;\n}\r\n", "src/presentation-v3/pages/DashboardPage.vue#style-0-0653b4d0");
+var DashboardPage_vue_vue_type_style_index_0_scoped_0653b4d0_lang = null;
 
 const _hoisted_1$v = {
 	class: "ub-dash-health",
@@ -212537,7 +212623,7 @@ function _sfc_render$x(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["lead"]);
 }
-var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$x], ["__scopeId", "data-v-1ee4f1f2"]]);
+var DashboardPage = /* @__PURE__ */ _export_sfc(_sfc_main$y, [["render", _sfc_render$x], ["__scopeId", "data-v-0653b4d0"]]);
 
 /**
  * service/worldbook/worldbook-cleanup.ts — 世界书条目清理（service 层：纯业务逻辑）
@@ -214097,8 +214183,8 @@ var _sfc_main$x = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-dormant__notes[data-v-527fd598] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-dormant__issues[data-v-527fd598] {\r\n  margin: var(--ub-s1) 0 0;\r\n  padding-left: 1.2em;\n}\n.ub-dormant__empty[data-v-527fd598] {\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-dormant__group[data-v-527fd598] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 800;\n}\n.ub-dormant__group[data-v-527fd598]:first-child {\r\n  border-top: 0;\n}\n.ub-dormant__blocked[data-v-527fd598] {\r\n  display: block;\r\n  color: var(--ub-warn);\n}\r\n", "src/presentation-v3/parts/DormantDataSection.vue#style-0-527fd598");
-var DormantDataSection_vue_vue_type_style_index_0_scoped_527fd598_lang = null;
+injectSfcStyle("\n.ub-dormant__notes[data-v-76fe13ec] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s3) var(--ub-s4) 0;\n}\n.ub-dormant__issues[data-v-76fe13ec] {\r\n  margin: var(--ub-s1) 0 0;\r\n  padding-left: 1.2em;\n}\n.ub-dormant__empty[data-v-76fe13ec] {\r\n  padding: var(--ub-s5) var(--ub-s4);\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-sm);\r\n  text-align: center;\n}\n.ub-dormant__group[data-v-76fe13ec] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-2xs);\r\n  font-weight: 800;\n}\n.ub-dormant__group[data-v-76fe13ec]:first-child {\r\n  border-top: 0;\n}\n.ub-dormant__blocked[data-v-76fe13ec] {\r\n  display: block;\r\n  color: var(--ub-warn);\n}\r\n", "src/presentation-v3/parts/DormantDataSection.vue#style-0-76fe13ec");
+var DormantDataSection_vue_vue_type_style_index_0_scoped_76fe13ec_lang = null;
 
 const _hoisted_1$u = {
 	key: 0,
@@ -214119,7 +214205,8 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbSection"], {
 		id: $props.id,
 		title: "休眠数据",
-		description: "切换模板时未被新模板包含的表和列会进入休眠：数据保留在聊天历史并跟随 checkpoint 迁移，但不参与填表。可以在这里查看并唤醒。",
+		description: "未被新模板包含的数据会休眠。",
+		"description-detail": "切换模板时未被新模板包含的表和列会进入休眠：数据保留在聊天历史并跟随 checkpoint 迁移，但不参与填表。可以在这里查看并唤醒。",
 		icon: "fa-solid fa-moon"
 	}, {
 		actions: withCtx(() => [createVNode($setup["UbButton"], {
@@ -214290,7 +214377,7 @@ function _sfc_render$w(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["id"]);
 }
-var DormantDataSection = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$w], ["__scopeId", "data-v-527fd598"]]);
+var DormantDataSection = /* @__PURE__ */ _export_sfc(_sfc_main$x, [["render", _sfc_render$w], ["__scopeId", "data-v-76fe13ec"]]);
 
 var _sfc_main$w = /*@__PURE__*/ defineComponent({
     __name: 'SettingsRescueSection',
@@ -214721,8 +214808,8 @@ ${floorNote}确认继续？`,
     }
 });
 
-injectSfcStyle("\n.ub-dm__text[data-v-b1573074] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-dm__strong[data-v-b1573074] {\r\n  color: var(--ub-text);\n}\n.ub-dm__block[data-v-b1573074] {\r\n  display: block;\r\n  margin-top: 2px;\n}\n.ub-dm__buttons[data-v-b1573074] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-dm__group[data-v-b1573074] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-dm__sheets[data-v-b1573074] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-dm__danger[data-v-b1573074] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: color-mix(in srgb, var(--ub-danger-soft) 40%, transparent);\n}\r\n", "src/presentation-v3/pages/DataMgmtPage.vue#style-0-b1573074");
-var DataMgmtPage_vue_vue_type_style_index_0_scoped_b1573074_lang = null;
+injectSfcStyle("\n.ub-dm__text[data-v-bb6e5cbc] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\n}\n.ub-dm__strong[data-v-bb6e5cbc] {\r\n  color: var(--ub-text);\n}\n.ub-dm__block[data-v-bb6e5cbc] {\r\n  display: block;\r\n  margin-top: 2px;\n}\n.ub-dm__buttons[data-v-bb6e5cbc] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2);\n}\n.ub-dm__group[data-v-bb6e5cbc] {\r\n  padding: var(--ub-s2) var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 700;\n}\n.ub-dm__sheets[data-v-bb6e5cbc] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  align-items: center;\r\n  gap: var(--ub-s2) var(--ub-s4);\n}\n.ub-dm__danger[data-v-bb6e5cbc] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  padding: var(--ub-s4);\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: color-mix(in srgb, var(--ub-danger-soft) 40%, transparent);\n}\r\n", "src/presentation-v3/pages/DataMgmtPage.vue#style-0-bb6e5cbc");
+var DataMgmtPage_vue_vue_type_style_index_0_scoped_bb6e5cbc_lang = null;
 
 const _hoisted_1$s = { class: "ub-dm__text" };
 const _hoisted_2$m = { class: "ub-dm__buttons" };
@@ -214762,7 +214849,8 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "dm-checkpoint",
 				title: "备份与恢复",
-				description: "Checkpoint 用于完整备份 / 恢复当前聊天当前标识的表格、模板与指导表。表格数据按 AI 楼层共享：同一楼层的所有 swipe 分支共用同一份表格历史。",
+				description: "按当前标识备份表格与模板。",
+				"description-detail": "Checkpoint 用于完整备份或恢复当前聊天当前标识的表格、模板与指导表。表格数据按 AI 楼层共享：同一楼层的所有 swipe 分支共用同一份表格历史。",
 				icon: "fa-solid fa-shield-halved"
 			}, {
 				default: withCtx(() => [
@@ -214786,17 +214874,23 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 						_: 1
 					}),
 					createVNode($setup["UbRow"], { label: "导入 Checkpoint" }, {
-						hint: withCtx(() => [..._cache[11] || (_cache[11] = [createTextVNode(
-							" 导入会清空当前聊天全部 AI 楼层、所有隔离标识的本地表格数据，只在当前隔离键的最新 AI 楼层重建；当前聊天表格模板切换为文件模板。",
-							-1
-							/* CACHED */
-						), createBaseVNode(
-							"strong",
-							{ class: "ub-dm__strong" },
-							"全局模板和聊天正文不变。",
-							-1
-							/* CACHED */
-						)])]),
+						hint: withCtx(() => [..._cache[11] || (_cache[11] = [
+							createBaseVNode(
+								"span",
+								{ title: "导入会清空当前聊天全部 AI 楼层、所有隔离标识的本地表格数据，只在当前隔离键的最新 AI 楼层重建；当前聊天表格模板切换为文件模板。全局模板和聊天正文不变。" },
+								"导入会清空本地表格数据并重建。",
+								-1
+								/* CACHED */
+							),
+							createTextVNode(),
+							createBaseVNode(
+								"strong",
+								{ class: "ub-dm__strong" },
+								"全局模板与正文不变。",
+								-1
+								/* CACHED */
+							)
+						])]),
 						default: withCtx(() => [createVNode($setup["UbFileButton"], {
 							size: "sm",
 							variant: "danger",
@@ -214816,7 +214910,8 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "历史恢复诊断",
-						hint: "填表或模板操作提示「请在数据管理中检查并恢复历史」时使用：只读检查当前聊天的表格历史，发现可修复的问题会在下方给出恢复选项。"
+						hint: "只读检查表格历史。",
+						"hint-detail": "填表或模板操作提示「请在数据管理中检查并恢复历史」时使用：只读检查当前聊天的表格历史，发现可修复的问题会在下方给出恢复选项。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbButton"], {
 							size: "sm",
@@ -215202,7 +215297,7 @@ function _sfc_render$u(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["sections"]);
 }
-var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$u], ["__scopeId", "data-v-b1573074"]]);
+var DataMgmtPage = /* @__PURE__ */ _export_sfc(_sfc_main$v, [["render", _sfc_render$u], ["__scopeId", "data-v-bb6e5cbc"]]);
 
 /**
  * useFormFillWorldbookConfig — 填表"附加世界书条目"来源（Component B，§4.2）
@@ -215787,7 +215882,7 @@ var _sfc_main$t = /*@__PURE__*/ defineComponent({
             routerStore.syncFeatureGatesFromSettings();
             toastStore.info(value === 'standalone'
                 ? '已改为单独召回：剧情推进暂停。'
-                : '已改为替换剧情推进的任务：剧情推进恢复运行，到剧情推进页打开「由决策召回执行 recall 任务」后才替换。');
+                : '剧情推进已恢复。到剧情推进页开启「由决策召回执行 recall 任务」后才会替换。');
         }
         const directiveDraft = ref(store.settings.directive);
         const directiveDirty = computed(() => directiveDraft.value !== store.settings.directive);
@@ -215815,8 +215910,8 @@ var _sfc_main$t = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-dr__more[data-v-c5220f9d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border: 0;\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-dr__more[data-v-c5220f9d]:hover {\r\n  color: var(--ub-text);\n}\n.ub-dr__chevron[data-v-c5220f9d] {\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.ub-dr__chevron.is-open[data-v-c5220f9d] {\r\n  transform: rotate(90deg);\n}\n.ub-dr__more ~ .ub-row[data-v-c5220f9d] {\r\n  background: color-mix(in srgb, var(--ub-sunken) 50%, transparent);\n}\n.ub-dr__picker[data-v-c5220f9d] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__meta[data-v-c5220f9d] {\r\n  margin: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-dr__actions[data-v-c5220f9d] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__output[data-v-c5220f9d] {\r\n  max-height: calc(var(--ub-u) * 360);\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  white-space: pre-wrap;\r\n  overflow: auto;\n}\r\n", "src/presentation-v3/pages/DecisionRecallPage.vue#style-0-c5220f9d");
-var DecisionRecallPage_vue_vue_type_style_index_0_scoped_c5220f9d_lang = null;
+injectSfcStyle("\n.ub-dr__more[data-v-5e433878] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  width: 100%;\r\n  padding: var(--ub-s3) var(--ub-s4);\r\n  border: 0;\r\n  border-top: 1px solid var(--ub-line-soft);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text-2);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  text-align: left;\r\n  cursor: pointer;\n}\n.ub-dr__more[data-v-5e433878]:hover {\r\n  color: var(--ub-text);\n}\n.ub-dr__chevron[data-v-5e433878] {\r\n  font-size: 0.75em;\r\n  transition: transform 0.16s ease;\n}\n.ub-dr__chevron.is-open[data-v-5e433878] {\r\n  transform: rotate(90deg);\n}\n.ub-dr__more ~ .ub-row[data-v-5e433878] {\r\n  background: color-mix(in srgb, var(--ub-sunken) 50%, transparent);\n}\n.ub-dr__picker[data-v-5e433878] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__meta[data-v-5e433878] {\r\n  margin: 0;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-dr__actions[data-v-5e433878] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\n}\n.ub-dr__output[data-v-5e433878] {\r\n  max-height: calc(var(--ub-u) * 360);\r\n  margin: 0;\r\n  padding: var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-sunken);\r\n  color: var(--ub-text);\r\n  font-family: var(--ub-mono);\r\n  font-size: var(--ub-fs-xs);\r\n  line-height: 1.6;\r\n  white-space: pre-wrap;\r\n  overflow: auto;\n}\r\n", "src/presentation-v3/pages/DecisionRecallPage.vue#style-0-5e433878");
+var DecisionRecallPage_vue_vue_type_style_index_0_scoped_5e433878_lang = null;
 
 const _hoisted_1$q = {
 	key: 0,
@@ -215832,7 +215927,8 @@ const _hoisted_6$a = {
 };
 function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
-		lead: "发送前让决策模型给纪要打分，挑出与接下来剧情最相关的几条，连同最新几条按表号顺序带进本轮输入。",
+		lead: "发送前按剧情相关性挑选纪要带入本轮输入。",
+		"lead-detail": "发送前让决策模型给纪要打分，挑出与接下来剧情最相关的几条，连同最新几条按表号顺序带进本轮输入。",
 		sections: $setup.sections
 	}, {
 		default: withCtx(() => [
@@ -215844,7 +215940,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			}, {
 				default: withCtx(() => [createVNode($setup["UbRow"], {
 					label: "用法",
-					hint: $setup.modeHint
+					hint: "选择召回的运行方式。",
+					"hint-detail": $setup.modeHint
 				}, {
 					default: withCtx(() => [createVNode($setup["UbSegmented"], {
 						options: $setup.modeOptions,
@@ -215853,7 +215950,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 						"onUpdate:modelValue": $setup.setMode
 					}, null, 8, ["model-value"])]),
 					_: 1
-				}, 8, ["hint"]), $setup.store.settings.mode === "plot_task" ? (openBlock(), createBlock($setup["UbCallout"], {
+				}, 8, ["hint-detail"]), $setup.store.settings.mode === "plot_task" ? (openBlock(), createBlock($setup["UbCallout"], {
 					key: 0,
 					kind: $setup.store.replaceStatus.kind
 				}, {
@@ -215881,13 +215978,15 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "dr-model",
 				title: "决策模型",
-				description: "与正文替换的「替换前判定」各自独立；默认自己填接口地址、Key 与模型，也可以选三家预设。各家的设置各存各的，切换不会丢掉另一家的设置。",
+				description: "与正文替换各自独立，可填接口或选预设。",
+				"description-detail": "与正文替换的「替换前判定」各自独立；默认自己填接口地址、Key 与模型，也可以选三家预设。各家的设置各存各的，切换不会丢掉另一家的设置。",
 				icon: "fa-solid fa-scale-balanced"
 			}, {
 				default: withCtx(() => [
 					createVNode($setup["UbRow"], {
 						label: "服务商",
-						hint: $setup.providerView.providerHint
+						hint: "选择决策模型服务商。",
+						"hint-detail": $setup.providerView.providerHint
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSelect"], {
 							options: $setup.providerOptions,
@@ -215896,7 +215995,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 							"onUpdate:modelValue": $setup.setProvider
 						}, null, 8, ["options", "model-value"])]),
 						_: 1
-					}, 8, ["hint"]),
+					}, 8, ["hint-detail"]),
 					$setup.store.endpoint.missing ? (openBlock(), createBlock($setup["UbCallout"], {
 						key: 0,
 						kind: "warning"
@@ -215911,7 +216010,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 					$setup.store.settings.provider === "custom" ? (openBlock(), createBlock($setup["UbRow"], {
 						key: 1,
 						label: "接口地址",
-						hint: "填完整的决策接口地址，请求格式同硅基流动 /v1/systemone、OpenRouter /api/alpha/decisions（例如中转站提供的地址）。",
+						hint: "填完整的决策接口地址。",
+						"hint-detail": "请求格式同硅基流动 /v1/systemone、OpenRouter /api/alpha/decisions，例如中转站提供的地址。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createVNode($setup["UbInput"], {
@@ -215976,7 +216076,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "dr-rule",
 				title: "召回规则",
-				description: $setup.ruleDescription,
+				description: `参考${$setup.contextLabel}，按相关性打分`,
+				"description-detail": $setup.ruleDescription,
 				icon: "fa-solid fa-list-ol"
 			}, {
 				default: withCtx(() => [
@@ -215994,7 +216095,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "失败重试次数",
-						hint: `一组打分失败后再试几次（0–${$setup.maxRetries}）；Key 无效、没余额、超时这类重试也没用的错误不重试。整次召回最多 ${$setup.totalSeconds} 秒，仍失败或到时没打完的组跳过，从其余纪要里选，不会停掉发送。`
+						hint: `失败重试，整次召回最多 ${$setup.totalSeconds} 秒`,
+						"hint-detail": `一组打分失败后再试几次（0–${$setup.maxRetries}）；Key 无效、没余额、超时这类重试也没用的错误不重试。整次召回最多 ${$setup.totalSeconds} 秒内完成，超时未打完的组跳过，从其余纪要里选。`
 					}, {
 						default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 							key: `retry-${$setup.inputKey}`,
@@ -216007,7 +216109,7 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 							onChange: _cache[3] || (_cache[3] = ($event) => $setup.setNumber("maxRetries", $event))
 						}, null, 8, ["model-value", "max"]))]),
 						_: 1
-					}, 8, ["hint"]),
+					}, 8, ["hint", "hint-detail"]),
 					createBaseVNode("button", {
 						type: "button",
 						class: "ub-dr__more",
@@ -216044,7 +216146,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 						[
 							createVNode($setup["UbRow"], {
 								label: "召回条数",
-								hint: `打分后挑选几条（1–${$setup.maxCount}），另外固定带上最新 ${$setup.fixedCount} 条，合计最多 ${$setup.maxTotal} 条。相关的不够时用分数低的补满。`
+								hint: "挑选并固定带上最新若干条。",
+								"hint-detail": `打分后挑选几条（1–${$setup.maxCount}），另外固定带上最新 ${$setup.fixedCount} 条，合计最多 ${$setup.maxTotal} 条。相关的不够时用分数低的补满。`
 							}, {
 								default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 									key: `count-${$setup.inputKey}`,
@@ -216057,10 +216160,11 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 									onChange: _cache[5] || (_cache[5] = ($event) => $setup.setNumber("recallCount", $event))
 								}, null, 8, ["model-value", "max"]))]),
 								_: 1
-							}, 8, ["hint"]),
+							}, 8, ["hint-detail"]),
 							createVNode($setup["UbRow"], {
 								label: "参考最近 AI 回复",
-								hint: `打分时带上最近几楼 AI 回复（0–${$setup.maxContextFloors}），另带用户最新输入。0 表示只看用户输入；楼数越多，每个请求的输入越长。`
+								hint: "打分时附带最近的 AI 回复。",
+								"hint-detail": `打分时带上最近几楼 AI 回复（0–${$setup.maxContextFloors}），另带用户最新输入。0 表示只看用户输入，楼数越多输入越长。`
 							}, {
 								default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 									key: `contextAiFloors-${$setup.inputKey}`,
@@ -216073,10 +216177,11 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 									onChange: _cache[6] || (_cache[6] = ($event) => $setup.setNumber("contextAiFloors", $event))
 								}, null, 8, ["model-value", "max"]))]),
 								_: 1
-							}, 8, ["hint"]),
+							}, 8, ["hint-detail"]),
 							createVNode($setup["UbRow"], {
 								label: "每组条数",
-								hint: `每次请求里放几条纪要（1–${$setup.maxBatchSize}）。条数少，模型看得更仔细，但请求更多，前文每次都要重发一遍。`
+								hint: "每次请求放入的纪要条数。",
+								"hint-detail": `每次请求里放几条纪要（1–${$setup.maxBatchSize}）。条数少，模型看得更仔细，但请求更多，前文每次都要重发一遍。`
 							}, {
 								default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 									key: `batchSize-${$setup.inputKey}`,
@@ -216089,10 +216194,11 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 									onChange: _cache[7] || (_cache[7] = ($event) => $setup.setNumber("batchSize", $event))
 								}, null, 8, ["model-value", "max"]))]),
 								_: 1
-							}, 8, ["hint"]),
+							}, 8, ["hint-detail"]),
 							createVNode($setup["UbRow"], {
 								label: "判定次数",
-								hint: `同一组让决策模型判定几次，每条纪要取平均分（1–${$setup.maxJudgeRuns}）。次数越多越稳，请求数也成倍增加；失败的那几次不计入平均。`
+								hint: "同一组让模型判定几次。",
+								"hint-detail": `同一组让决策模型判定几次，每条纪要取平均分（1–${$setup.maxJudgeRuns}）。次数越多越稳，请求数也成倍增加；失败的那几次不计入平均。`
 							}, {
 								default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 									key: `judgeRuns-${$setup.inputKey}`,
@@ -216105,10 +216211,11 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 									onChange: _cache[8] || (_cache[8] = ($event) => $setup.setNumber("judgeRuns", $event))
 								}, null, 8, ["model-value", "max"]))]),
 								_: 1
-							}, 8, ["hint"]),
+							}, 8, ["hint-detail"]),
 							createVNode($setup["UbRow"], {
 								label: "并发数",
-								hint: `决策召回自己同时发出几个请求（1–${$setup.maxConcurrency}），与其它功能无关。硅基流动等按每分钟 token 数限流的服务商并发太高会被限流。`
+								hint: "同时发出的请求数。",
+								"hint-detail": `决策召回自己同时发出几个请求（1–${$setup.maxConcurrency}），与其它功能无关。硅基流动等按每分钟 token 数限流的服务商并发太高会被限流。`
 							}, {
 								default: withCtx(() => [(openBlock(), createBlock($setup["UbInput"], {
 									key: `concurrency-${$setup.inputKey}`,
@@ -216121,18 +216228,19 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 									onChange: _cache[9] || (_cache[9] = ($event) => $setup.setNumber("concurrency", $event))
 								}, null, 8, ["model-value", "max"]))]),
 								_: 1
-							}, 8, ["hint"])
+							}, 8, ["hint-detail"])
 						],
 						64
 						/* STABLE_FRAGMENT */
 					)) : createCommentVNode("v-if", true)
 				]),
 				_: 1
-			}, 8, ["description"]),
+			}, 8, ["description", "description-detail"]),
 			createVNode($setup["UbSection"], {
 				id: "dr-worldbook",
 				title: "附加世界书条目",
-				description: "打分时附加给决策模型参考的世界书条目，选法同填表的「附加世界书条目」，与填表各存各的、按角色卡保存。默认「正文接收」：正文能收到的世界书里，蓝灯条目都带上，绿灯条目按前文与本轮输入的关键词触发，另外勾选的条目一定带上。这些条目会随每个打分请求一起发送，条目多时输入会明显变长（测试召回的结果里会写出附带了多少字）；不想带世界书时选「手动选择」且一本都不选。",
+				description: "打分时参考的世界书条目，按角色卡保存。",
+				"description-detail": "选法同填表的「附加世界书条目」，与填表各存各的。默认「正文接收」：蓝灯条目全带，绿灯条目按关键词触发，额外勾选的条目必带。条目随每个打分请求发送，越多输入越长（测试召回会写出附带字数）；不想带世界书时选「手动选择」且不勾选。",
 				icon: "fa-solid fa-book",
 				padded: ""
 			}, {
@@ -216145,7 +216253,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "dr-directive",
 				title: "注入指令",
-				description: "只用于单独召回：选中的编码写进本轮输入时用这段文字包裹。替换剧情推进任务时用预设自己的最终注入指令。",
+				description: "单独召回时的编码包裹文本。",
+				"description-detail": "只用于单独召回：选中的编码写进本轮输入时用这段文字包裹。替换剧情推进任务时用预设自己的最终注入指令。",
 				icon: "fa-solid fa-quote-left",
 				padded: ""
 			}, {
@@ -216208,7 +216317,8 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 			createVNode($setup["UbSection"], {
 				id: "dr-test",
 				title: "测试召回",
-				description: `用下面这句输入${$setup.store.settings.contextAiFloors > 0 ? `、当前聊天最近 ${$setup.store.settings.contextAiFloors} 楼 AI 回复` : ""}和所选的世界书条目跑一次完整打分，只显示结果，不写进聊天。会按所选服务商实际计费。`,
+				description: `跑一次完整打分${$setup.store.settings.contextAiFloors > 0 ? `，带最近 ${$setup.store.settings.contextAiFloors} 楼 AI 回复` : ""}`,
+				"description-detail": `用下面这句输入${$setup.store.settings.contextAiFloors > 0 ? `、当前聊天最近 ${$setup.store.settings.contextAiFloors} 楼 AI 回复` : ""}和所选的世界书条目跑一次完整打分，只显示结果，不写进聊天。会按所选服务商实际计费。`,
 				icon: "fa-solid fa-flask-vial",
 				padded: ""
 			}, {
@@ -216242,12 +216352,12 @@ function _sfc_render$s(_ctx, _cache, $props, $setup, $data, $options) {
 					)) : createCommentVNode("v-if", true)
 				]),
 				_: 1
-			}, 8, ["description"])
+			}, 8, ["description", "description-detail"])
 		]),
 		_: 1
 	});
 }
-var DecisionRecallPage = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$s], ["__scopeId", "data-v-c5220f9d"]]);
+var DecisionRecallPage = /* @__PURE__ */ _export_sfc(_sfc_main$t, [["render", _sfc_render$s], ["__scopeId", "data-v-5e433878"]]);
 
 const developerCopy = {
     panels: {
@@ -216937,7 +217047,7 @@ var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_ren
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261120-1938";
+        const stamp = "20261121-1553";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -219697,8 +219807,8 @@ var _sfc_main$e = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-dev__check-cluster[data-v-90f95673] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2) var(--ub-s4);\r\n  padding: var(--ub-s1) 0;\n}\r\n", "src/presentation-v3/pages/DeveloperPage.vue#style-0-90f95673");
-var DeveloperPage_vue_vue_type_style_index_0_scoped_90f95673_lang = null;
+injectSfcStyle("\n.ub-dev__check-cluster[data-v-147b31da] {\r\n  display: flex;\r\n  flex-wrap: wrap;\r\n  gap: var(--ub-s2) var(--ub-s4);\r\n  padding: var(--ub-s1) 0;\n}\r\n", "src/presentation-v3/pages/DeveloperPage.vue#style-0-147b31da");
+var DeveloperPage_vue_vue_type_style_index_0_scoped_147b31da_lang = null;
 
 const _hoisted_1$c = {
 	class: "ub-dev__check-cluster",
@@ -219741,7 +219851,8 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "WARN 日志",
-						hint: "常驻采集 WARN 级运行日志：开启后不点「开始 Debug」也会把 warn 写入运行日志与导出；关闭时（默认）只有 error。开始/停止 Debug 只影响临时那一路，不会动这里的常驻选择。"
+						hint: "常驻采集 WARN 级日志。",
+						"hint-detail": "开启后不点「开始 Debug」也会把 warn 写入运行日志与导出；关闭时默认只留 error。开始或停止 Debug 只影响临时那一路，不改这里的常驻选择。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							"model-value": $setup.devOptions.warnLogEnabled.value,
@@ -219752,7 +219863,8 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 					}),
 					createVNode($setup["UbRow"], {
 						label: "提示词额外要求",
-						hint: "开启后，可在下方选择要附加的提示词，并勾选「附加到」的功能。默认关闭，关闭时请求与原来完全一致。"
+						hint: "按需附加提示词。",
+						"hint-detail": "开启后，可在下方选择要附加的提示词，并勾选「附加到」的功能。默认关闭，关闭时请求与原来完全一致。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							"model-value": $setup.devOptions.scopeGuardPrompt.value,
@@ -219764,7 +219876,8 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 					$setup.devOptions.scopeGuardPrompt.value ? (openBlock(), createBlock($setup["UbRow"], {
 						key: 0,
 						label: "附加的提示词",
-						hint: "「执行边界提示词」要求模型只做指令要求的事、不编造、不越范围，适合 MiniMax M3.1 Flash 这类爱「顺便多做」的模型；「安全审查提示词」告知模型内容发表在没有限制的平台、不受安全审查约束，供需要的场景自行选用。可以只选其一，也可以都选；都不选时请求与原来一致。",
+						hint: "选择要附加的提示词。",
+						"hint-detail": "执行边界提示词要求模型只做指令要求的事，适合爱额外发挥的模型；安全审查提示词告知模型内容不受安全审查约束，按需选用。可只选其一或都选，都不选时请求不变。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createBaseVNode("div", _hoisted_1$c, [(openBlock(true), createElementBlock(
@@ -219790,7 +219903,8 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 					$setup.devOptions.scopeGuardPrompt.value ? (openBlock(), createBlock($setup["UbRow"], {
 						key: 1,
 						label: "附加到",
-						hint: "默认只勾填表——压测只在填表上验证过效果。智能续写和外部脚本本身要写正文，勾选前建议先试一轮。",
+						hint: "选择应用的功能范围。",
+						"hint-detail": "默认只勾填表，压测只在填表上验证过效果。智能续写和外部脚本本身要写正文，勾选前建议先试一轮。",
 						stack: ""
 					}, {
 						default: withCtx(() => [createBaseVNode("div", _hoisted_2$b, [(openBlock(true), createElementBlock(
@@ -219826,7 +219940,7 @@ function _sfc_render$d(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var DeveloperPage = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc_render$d], ["__scopeId", "data-v-90f95673"]]);
+var DeveloperPage = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["render", _sfc_render$d], ["__scopeId", "data-v-147b31da"]]);
 
 /** 宿主世界书 API 挂起时确认弹窗不能被无限期拖住，超过该时长即降级为提示文案。 */
 const INJECTION_TARGET_RESOLVE_TIMEOUT_MS = 1500;
@@ -221488,8 +221602,8 @@ var _sfc_main$b = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-plot__body[data-v-8e22c815] {\r\n  display: contents;\n}\n.ub-plot__body.is-paused[data-v-8e22c815] {\r\n  display: block;\r\n  opacity: 0.45;\r\n  filter: grayscale(1);\r\n  pointer-events: none;\r\n  user-select: none;\n}\n.ub-plot__current[data-v-8e22c815] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  overflow-wrap: anywhere;\n}\n.ub-plot__current strong[data-v-8e22c815] {\r\n  color: var(--ub-text);\n}\r\n", "src/presentation-v3/pages/PlotPage.vue#style-0-8e22c815");
-var PlotPage_vue_vue_type_style_index_0_scoped_8e22c815_lang = null;
+injectSfcStyle("\n.ub-plot__body[data-v-60647140] {\r\n  display: contents;\n}\n.ub-plot__body.is-paused[data-v-60647140] {\r\n  display: block;\r\n  opacity: 0.45;\r\n  filter: grayscale(1);\r\n  pointer-events: none;\r\n  user-select: none;\n}\n.ub-plot__current[data-v-60647140] {\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\r\n  overflow-wrap: anywhere;\n}\n.ub-plot__current strong[data-v-60647140] {\r\n  color: var(--ub-text);\n}\r\n", "src/presentation-v3/pages/PlotPage.vue#style-0-60647140");
+var PlotPage_vue_vue_type_style_index_0_scoped_60647140_lang = null;
 
 const _hoisted_1$9 = ["inert"];
 const _hoisted_2$8 = ["inert"];
@@ -221527,12 +221641,14 @@ function _sfc_render$a(_ctx, _cache, $props, $setup, $data, $options) {
 				key: 1,
 				id: "plot-decision-recall",
 				title: "决策召回",
-				description: "决策召回的用法是「替换剧情推进的任务」；Key、模型与召回条数在决策召回页设置。",
+				description: "召回用法在决策召回页设置。",
+				"description-detail": "决策召回的用法是「替换剧情推进的任务」；Key、模型与召回条数在决策召回页设置。",
 				icon: "fa-solid fa-ranking-star"
 			}, {
 				default: withCtx(() => [createVNode($setup["UbRow"], {
 					label: "由决策召回执行 recall 任务",
-					hint: "开启后自动匹配当前预设里「标签摘取」只有 recall 的任务，不调模型，改由决策召回给纪要打分挑选；只启用了一个任务的预设不替换（停用的任务不算）。关着时照常由剧情推进调模型召回。"
+					hint: "开启后由决策召回替换模型召回。",
+					"hint-detail": "开启后自动匹配当前预设里「标签摘取」只有 recall 的任务，不调模型，改由决策召回给纪要打分挑选；只启用了一个任务的预设不替换，停用的任务不算。关着时照常由剧情推进调模型召回。"
 				}, {
 					default: withCtx(() => [createVNode($setup["UbSwitch"], {
 						"model-value": $setup.decisionRecallStore.settings.replacePlotRecallTasks,
@@ -221561,7 +221677,8 @@ function _sfc_render$a(_ctx, _cache, $props, $setup, $data, $options) {
 			}, {
 				default: withCtx(() => [createVNode($setup["UbRow"], {
 					label: "伪装发送楼层",
-					hint: "开启后，剧情推进、纪要召回与决策召回等待期间在聊天区显示伪装的用户楼层与“思考中”楼层，并拦截重复发送；关闭则消息停在输入框直到规划完成。剧情推进暂停时这一项照样生效。"
+					hint: "等待时在聊天区显示伪装楼层。",
+					"hint-detail": "开启后，剧情推进、纪要召回与决策召回等待期间在聊天区显示伪装的用户楼层与思考中楼层，并拦截重复发送；关闭则消息停在输入框直到规划完成。剧情推进暂停时照样生效。"
 				}, {
 					default: withCtx(() => [createVNode($setup["UbSwitch"], {
 						"model-value": $setup.plotPresetStore.pendingDisguiseEnabled,
@@ -221648,7 +221765,7 @@ function _sfc_render$a(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	}, 8, ["sections"]);
 }
-var PlotPage = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["render", _sfc_render$a], ["__scopeId", "data-v-8e22c815"]]);
+var PlotPage = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["render", _sfc_render$a], ["__scopeId", "data-v-60647140"]]);
 
 /**
  * useFormFillInjectionTarget — 填表"注入目标世界书"（Component A，§4.2）
@@ -222972,8 +223089,8 @@ var _sfc_main$7 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-vi__flush-error[data-v-36509a39] {\n  display: block;\n  color: var(--ub-danger);\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vi__actions[data-v-36509a39] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--ub-s2);\n  padding: var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__note[data-v-36509a39] {\n  flex-basis: 100%;\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-vi__group[data-v-36509a39] {\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s1);\n  border-top: 1px solid var(--ub-line-soft);\n  background: var(--ub-sunken);\n  color: var(--ub-text-2);\n  font-size: var(--ub-fs-2xs);\n  font-weight: 800;\n  letter-spacing: 0.06em;\n}\n.ub-vi__group[data-v-36509a39]:first-child {\n  border-top: 0;\n}\n.ub-vi__save[data-v-36509a39] {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-end;\n  gap: var(--ub-s2);\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__save[data-v-36509a39] > :first-child:not(:last-child) {\n  align-self: stretch;\n}\n.ub-vi__pad[data-v-36509a39] {\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n", "src/presentation-v3/pages/VectorIndexPage.vue#style-0-36509a39");
-var VectorIndexPage_vue_vue_type_style_index_0_scoped_36509a39_lang = null;
+injectSfcStyle("\n.ub-vi__flush-error[data-v-dd9ee3ab] {\n  display: block;\n  color: var(--ub-danger);\n  font-size: var(--ub-fs-2xs);\n}\n.ub-vi__actions[data-v-dd9ee3ab] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: var(--ub-s2);\n  padding: var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__note[data-v-dd9ee3ab] {\n  flex-basis: 100%;\n  color: var(--ub-text-3);\n  font-size: var(--ub-fs-xs);\n}\n.ub-vi__group[data-v-dd9ee3ab] {\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s1);\n  border-top: 1px solid var(--ub-line-soft);\n  background: var(--ub-sunken);\n  color: var(--ub-text-2);\n  font-size: var(--ub-fs-2xs);\n  font-weight: 800;\n  letter-spacing: 0.06em;\n}\n.ub-vi__group[data-v-dd9ee3ab]:first-child {\n  border-top: 0;\n}\n.ub-vi__save[data-v-dd9ee3ab] {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-end;\n  gap: var(--ub-s2);\n  padding: var(--ub-s3) var(--ub-s4) var(--ub-s4);\n  border-top: 1px solid var(--ub-line-soft);\n}\n.ub-vi__save[data-v-dd9ee3ab] > :first-child:not(:last-child) {\n  align-self: stretch;\n}\n.ub-vi__pad[data-v-dd9ee3ab] {\n  padding: 0 var(--ub-s4) var(--ub-s3);\n}\n", "src/presentation-v3/pages/VectorIndexPage.vue#style-0-dd9ee3ab");
+var VectorIndexPage_vue_vue_type_style_index_0_scoped_dd9ee3ab_lang = null;
 
 const _hoisted_1$6 = ["title"];
 const _hoisted_2$5 = { class: "ub-vi__actions" };
@@ -222984,7 +223101,8 @@ const _hoisted_4$4 = {
 };
 function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 	return openBlock(), createBlock($setup["UbPage"], {
-		lead: "向量召回增强记忆。发送前：关键词生成（可关）→ 用户输入与关键词合并向量化 → 向量与 BM25 混合召回 → 可选重排 → 按纪要原顺序写入索引条目。",
+		lead: "发送前混合召回纪要并写入索引。",
+		"lead-detail": "向量召回增强记忆。发送前：关键词生成（可关）、用户输入与关键词合并向量化、向量与 BM25 混合召回、可选重排，最后按纪要原顺序写入索引条目。",
 		sections: $setup.sections
 	}, {
 		default: withCtx(() => [
@@ -223061,8 +223179,11 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 					}, 8, ["disabled"]),
 					_cache[31] || (_cache[31] = createBaseVNode(
 						"p",
-						{ class: "ub-vi__note" },
-						"检测到旧向量方案时会提示「向量方案已优化，需要重建」。链冲突与 checkpoint 指纹不匹配会自动修复，不弹确认。",
+						{
+							class: "ub-vi__note",
+							title: "检测到旧向量方案时会提示向量方案已优化、需要重建。链冲突与 checkpoint 指纹不匹配会自动修复，不弹确认。"
+						},
+						"旧方案会提示重建，冲突自动修复。",
 						-1
 						/* CACHED */
 					))
@@ -223251,7 +223372,8 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 				default: withCtx(() => [
 					createVNode($setup["UbRow"], {
 						label: "AI 补充关键词",
-						hint: "开启时每次发送前多调用一次 AI 生成检索关键词；关闭后只用用户输入做召回，省一次往返。"
+						hint: "发送前多调用一次 AI 生成关键词。",
+						"hint-detail": "开启时每次发送前多调用一次 AI 生成检索关键词；关闭后只用用户输入做召回，省一次往返。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							"model-value": $setup.vector.form.keywordGenerationEnabled,
@@ -223461,7 +223583,8 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 				default: withCtx(() => [
 					createVNode($setup["UbRow"], {
 						label: "按句切分纪要正文",
-						hint: "默认关闭：每行一个向量。开启后按句数切分，召回更细但分片成倍增加；改动后需重建索引。"
+						hint: "按句切分可提升召回粒度。",
+						"hint-detail": "默认关闭，每行一个向量。开启后按句数切分，召回更细但分片成倍增加；改动后需重建索引。"
 					}, {
 						default: withCtx(() => [createVNode($setup["UbSwitch"], {
 							"model-value": $setup.vector.form.summaryIndexChunkChronicleBySentence,
@@ -223558,7 +223681,7 @@ function _sfc_render$6(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	});
 }
-var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["render", _sfc_render$6], ["__scopeId", "data-v-36509a39"]]);
+var VectorIndexPage = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["render", _sfc_render$6], ["__scopeId", "data-v-dd9ee3ab"]]);
 
 /**
  * page-catalog — 新版界面的页面目录
@@ -224183,8 +224306,8 @@ var _sfc_main$3 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-dialog-layer[data-v-485a1d99] {\r\n  --ub-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tt-inset-bottom, 0px), var(--tt-ime-bottom, 0px));\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9400;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  padding: max(var(--ub-safe-top), 16px) 16px max(var(--ub-safe-bottom), 16px);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.15s ease-out both;\n}\n.ub-dialog-layer.is-closing[data-v-485a1d99] {\r\n  animation: ub-fade-out 0.15s ease-in both;\n}\n.ub-dialog[data-v-485a1d99] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  width: min(440px, 100%);\r\n  max-height: 100%;\r\n  padding: var(--ub-s5);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  overflow-y: auto;\r\n  animation: ub-pop-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.ub-dialog__head[data-v-485a1d99] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\n}\n.ub-dialog__glyph[data-v-485a1d99] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 34);\r\n  height: calc(var(--ub-u) * 34);\r\n  border-radius: 50%;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-dialog__glyph.is-danger[data-v-485a1d99] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-dialog__title[data-v-485a1d99] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  margin: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\n}\n.ub-dialog__message[data-v-485a1d99] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\r\n  white-space: pre-wrap;\n}\n.ub-dialog__danger[data-v-485a1d99] {\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  line-height: 1.55;\n}\n.ub-dialog__field[data-v-485a1d99] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\n}\n.ub-dialog__field-label[data-v-485a1d99] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-dialog__input[data-v-485a1d99] {\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  outline: none;\n}\n.ub-dialog__input[data-v-485a1d99]:focus {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-dialog__checks[data-v-485a1d99] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  max-height: 320px;\r\n  overflow-y: auto;\n}\n.ub-dialog__check-label[data-v-485a1d99] {\r\n  display: block;\r\n  font-weight: 600;\n}\n.ub-dialog__check-desc[data-v-485a1d99] {\r\n  display: block;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-dialog__actions[data-v-485a1d99] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  margin-top: var(--ub-s1);\n}\n.ub-dialog__actions.is-stacked[data-v-485a1d99] {\r\n  flex-direction: column;\n}\r\n", "src/presentation-v3/ui/UbDialogHost.vue#style-0-485a1d99");
-var UbDialogHost_vue_vue_type_style_index_0_scoped_485a1d99_lang = null;
+injectSfcStyle("\n.ub-dialog-layer[data-v-39a84069] {\r\n  --ub-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tt-inset-bottom, 0px), var(--tt-ime-bottom, 0px));\r\n  position: fixed;\r\n  inset: 0;\r\n  z-index: 9400;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  padding: max(var(--ub-safe-top), 16px) 16px max(var(--ub-safe-bottom), 16px);\r\n  background: var(--ub-scrim);\r\n  animation: ub-fade-in 0.15s ease-out both;\n}\n.ub-dialog-layer.is-closing[data-v-39a84069] {\r\n  animation: ub-fade-out 0.15s ease-in both;\n}\n.ub-dialog[data-v-39a84069] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s3);\r\n  width: min(440px, 100%);\r\n  max-height: 100%;\r\n  padding: var(--ub-s5);\r\n  border: 0;\r\n  border-radius: var(--ub-r-card);\r\n  background: var(--ub-panel);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  overflow-y: auto;\r\n  animation: ub-pop-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n}\n.ub-dialog__head[data-v-39a84069] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s3);\n}\n.ub-dialog__glyph[data-v-39a84069] {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  flex: 0 0 auto;\r\n  width: calc(var(--ub-u) * 34);\r\n  height: calc(var(--ub-u) * 34);\r\n  border-radius: 50%;\r\n  background: var(--ub-accent-soft);\r\n  color: var(--ub-accent-ink);\n}\n.ub-dialog__glyph.is-danger[data-v-39a84069] {\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\n}\n.ub-dialog__title[data-v-39a84069] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  margin: 0;\r\n  color: var(--ub-text);\r\n  font-size: var(--ub-fs-lg);\r\n  font-weight: 700;\n}\n.ub-dialog__message[data-v-39a84069] {\r\n  margin: 0;\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.65;\r\n  white-space: pre-wrap;\n}\n.ub-dialog__danger[data-v-39a84069] {\r\n  display: flex;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  padding: var(--ub-s2) var(--ub-s3);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-danger-soft);\r\n  color: var(--ub-danger);\r\n  font-size: var(--ub-fs-sm);\r\n  font-weight: 600;\r\n  line-height: 1.55;\n}\n.ub-dialog__field[data-v-39a84069] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s1);\n}\n.ub-dialog__field-label[data-v-39a84069] {\r\n  color: var(--ub-text-2);\r\n  font-size: var(--ub-fs-xs);\r\n  font-weight: 600;\n}\n.ub-dialog__input[data-v-39a84069] {\r\n  height: var(--ub-control-h);\r\n  padding: 0 var(--ub-s3);\r\n  border: 1px solid var(--ub-line);\r\n  border-radius: var(--ub-r-control);\r\n  background: var(--ub-input-bg);\r\n  color: var(--ub-text);\r\n  font: inherit;\r\n  font-size: var(--ub-fs-sm);\r\n  outline: none;\n}\n.ub-dialog__input[data-v-39a84069]:focus {\r\n  border-color: var(--ub-accent);\r\n  box-shadow: 0 0 0 3px var(--ub-accent-soft);\n}\n.ub-dialog__checks[data-v-39a84069] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  max-height: 320px;\r\n  overflow-y: auto;\n}\n.ub-dialog__check-label[data-v-39a84069] {\r\n  display: block;\r\n  font-weight: 600;\n}\n.ub-dialog__check-desc[data-v-39a84069] {\r\n  display: block;\r\n  color: var(--ub-text-3);\r\n  font-size: var(--ub-fs-xs);\n}\n.ub-dialog__actions[data-v-39a84069] {\r\n  display: flex;\r\n  justify-content: flex-end;\r\n  gap: var(--ub-s2);\r\n  margin-top: var(--ub-s1);\n}\n.ub-dialog__actions.is-stacked[data-v-39a84069] {\r\n  flex-direction: column;\n}\r\n", "src/presentation-v3/ui/UbDialogHost.vue#style-0-39a84069");
+var UbDialogHost_vue_vue_type_style_index_0_scoped_39a84069_lang = null;
 
 const _hoisted_1$2 = { class: "ub-dialog__head" };
 const _hoisted_2$2 = { class: "ub-dialog__message" };
@@ -224410,7 +224533,7 @@ function _sfc_render$2(_ctx, _cache, $props, $setup, $data, $options) {
 		/* CLASS */
 	)) : createCommentVNode("v-if", true)]);
 }
-var UbDialogHost = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["render", _sfc_render$2], ["__scopeId", "data-v-485a1d99"]]);
+var UbDialogHost = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["render", _sfc_render$2], ["__scopeId", "data-v-39a84069"]]);
 
 var _sfc_main$2 = /*@__PURE__*/ defineComponent({
     __name: 'UbToastHost',
@@ -224440,8 +224563,8 @@ var _sfc_main$2 = /*@__PURE__*/ defineComponent({
     }
 });
 
-injectSfcStyle("\n.ub-toasts[data-v-e625d808] {\r\n  position: fixed;\r\n  top: calc(var(--ub-safe-top) + var(--ub-s3));\r\n  left: 50%;\r\n  z-index: 9410;\r\n  width: min(420px, calc(100% - 24px));\r\n  transform: translateX(-50%);\r\n  pointer-events: none;\n}\n.ub-toasts__list[data-v-e625d808] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-toast[data-v-e625d808] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s3);\r\n  border: 1px solid var(--ub-line-soft);\r\n  border-radius: 14px;\r\n  background: var(--ub-toast-bg);\r\n  color: var(--ub-text);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  backdrop-filter: blur(12px);\r\n  -webkit-backdrop-filter: blur(12px);\r\n  pointer-events: auto;\n}\n.ub-toast__icon[data-v-e625d808] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-accent-ink);\n}\n.ub-toast--success .ub-toast__icon[data-v-e625d808] {\r\n  color: var(--ub-ok);\n}\n.ub-toast--warning .ub-toast__icon[data-v-e625d808] {\r\n  color: var(--ub-warn);\n}\n.ub-toast--error .ub-toast__icon[data-v-e625d808] {\r\n  color: var(--ub-danger);\n}\n.ub-toast__text[data-v-e625d808] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  margin: 0;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.5;\r\n  overflow-wrap: anywhere;\n}\n.ub-toast-enter-active[data-v-e625d808],\r\n.ub-toast-leave-active[data-v-e625d808] {\r\n  transition: opacity 0.18s ease, transform 0.18s ease;\n}\n.ub-toast-enter-from[data-v-e625d808],\r\n.ub-toast-leave-to[data-v-e625d808] {\r\n  opacity: 0;\r\n  transform: translateY(-8px) scale(0.98);\n}\r\n", "src/presentation-v3/ui/UbToastHost.vue#style-0-e625d808");
-var UbToastHost_vue_vue_type_style_index_0_scoped_e625d808_lang = null;
+injectSfcStyle("\n.ub-toasts[data-v-618ead7e] {\r\n  position: fixed;\r\n  top: calc(var(--ub-safe-top) + var(--ub-s3));\r\n  left: 50%;\r\n  z-index: 9410;\r\n  width: min(420px, calc(100% - 24px));\r\n  transform: translateX(-50%);\r\n  pointer-events: none;\n}\n.ub-toasts__list[data-v-618ead7e] {\r\n  display: flex;\r\n  flex-direction: column;\r\n  gap: var(--ub-s2);\r\n  margin: 0;\r\n  padding: 0;\r\n  list-style: none;\n}\n.ub-toast[data-v-618ead7e] {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: var(--ub-s2);\r\n  padding: var(--ub-s2) var(--ub-s2) var(--ub-s2) var(--ub-s3);\r\n  border: 0;\r\n  border-radius: 14px;\r\n  background: var(--ub-toast-bg);\r\n  color: var(--ub-text);\r\n  box-shadow: var(--ub-overlay-shadow);\r\n  backdrop-filter: blur(12px);\r\n  -webkit-backdrop-filter: blur(12px);\r\n  pointer-events: auto;\n}\n.ub-toast__icon[data-v-618ead7e] {\r\n  flex: 0 0 auto;\r\n  color: var(--ub-accent-ink);\n}\n.ub-toast--success .ub-toast__icon[data-v-618ead7e] {\r\n  color: var(--ub-ok);\n}\n.ub-toast--warning .ub-toast__icon[data-v-618ead7e] {\r\n  color: var(--ub-warn);\n}\n.ub-toast--error .ub-toast__icon[data-v-618ead7e] {\r\n  color: var(--ub-danger);\n}\n.ub-toast__text[data-v-618ead7e] {\r\n  flex: 1 1 auto;\r\n  min-width: 0;\r\n  margin: 0;\r\n  font-size: var(--ub-fs-sm);\r\n  line-height: 1.5;\r\n  overflow-wrap: anywhere;\n}\n.ub-toast-enter-active[data-v-618ead7e],\r\n.ub-toast-leave-active[data-v-618ead7e] {\r\n  transition: opacity 0.18s ease, transform 0.18s ease;\n}\n.ub-toast-enter-from[data-v-618ead7e],\r\n.ub-toast-leave-to[data-v-618ead7e] {\r\n  opacity: 0;\r\n  transform: translateY(-8px) scale(0.98);\n}\r\n", "src/presentation-v3/ui/UbToastHost.vue#style-0-618ead7e");
+var UbToastHost_vue_vue_type_style_index_0_scoped_618ead7e_lang = null;
 
 const _hoisted_1$1 = {
 	key: 0,
@@ -224515,7 +224638,7 @@ function _sfc_render$1(_ctx, _cache, $props, $setup, $data, $options) {
 		_: 1
 	})])) : createCommentVNode("v-if", true)]);
 }
-var UbToastHost = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["render", _sfc_render$1], ["__scopeId", "data-v-e625d808"]]);
+var UbToastHost = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["render", _sfc_render$1], ["__scopeId", "data-v-618ead7e"]]);
 
 var _sfc_main$1 = /*@__PURE__*/ defineComponent({
     __name: 'ClaudeStyle',
@@ -224914,14 +225037,94 @@ function _sfc_render(_ctx, _cache, $props, $setup, $data, $options) {
 }
 var App = /* @__PURE__ */ _export_sfc(_sfc_main, [["render", _sfc_render], ["__scopeId", "data-v-42c92f7b"]]);
 
+/**
+ * 宿主主题变量继承映射（D-02「配色继承宿主变量」）。
+ *
+ * 只收录酒馆官方已确证的 5 个 --SmartTheme* 变量作为锚点（见 public/style.css 用法）：
+ *   --SmartThemeChatTintColor → 聊天区底色（bg0）
+ *   --SmartThemeBlurTintColor → 面板 / 蒙层底色（sidebarBg）
+ *   --SmartThemeBodyColor     → 正文文字色（text1）
+ *   --SmartThemeEmColor       → 强调文字色（text2 / accent）
+ *   --SmartThemeBorderColor   → 描边色（border / border2）
+ *
+ * 关键口径（红队修复）：不能只让部分 token 跨主题继承。若 text1 跟随宿主正文色、
+ * 而 bg1 仍用 acu 卡底，宿主深色（正文浅字）+ acu 浅色卡底（白）就会白字落白底。
+ * 因此所有前景 / 背景 token 都锚定同一组宿主变量，层级用 color-mix 派生：
+ *   · 卡片底 bg1/bg2 从宿主底色朝宿主正文色偏移，明暗永远与宿主同源；
+ *   · 辅助文字 text3 由宿主正文色降透明度得出；
+ *   · 强调色 accent 锚定宿主强调文字色，按钮文字 onAccent 取宿主页面底色，二者天然对比；
+ *   · 两级边框 border/border2 用同一宿主变量的不同混合比例，宿主有值时仍保持强度差。
+ * 字体 / 圆角 / 阴影 / 状态色无宿主对应语义，保持 acu 原值。
+ */
+const HOST_BG = '--SmartThemeChatTintColor';
+const HOST_PANEL = '--SmartThemeBlurTintColor';
+const HOST_TEXT = '--SmartThemeBodyColor';
+const HOST_TEXT_EM = '--SmartThemeEmColor';
+const HOST_BORDER = '--SmartThemeBorderColor';
+/** 有宿主直接语义映射的 token：注入值 = var(--SmartThemeX, acu 原值)。 */
+const DIRECT_HOST_VAR = {
+    bg0: HOST_BG,
+    sidebarBg: HOST_PANEL,
+    text1: HOST_TEXT,
+    text2: HOST_TEXT_EM,
+};
 const THEME_STYLE_NODE_ID = 'acu-v2-theme';
 const APP_ROOT_ID = 'acu-app-v2';
 const HOST_SURFACE_CLASS = ACU_HOST_SURFACE_CLASS_ACU;
-function buildCss$1(theme) {
+/**
+ * 派生映射：值锚定同一组宿主变量，用 color-mix 生成层级，避免跨主题明暗混搭。
+ * 宿主变量缺失时 var() 回退到 acu 原值，color-mix 再基于该原值派生，故整条链
+ * 在宿主有值 / 无值两种情况下都保持同源明暗。
+ */
+function derivedHostValue(key, tokens) {
+    const anchor = (k) => `var(${HOST_VAR_BY_TOKEN[k]}, ${tokens[k]})`;
+    const pageBg = anchor('bg0');
+    const panelBg = anchor('sidebarBg');
+    const text = anchor('text1');
+    const textEm = anchor('text2');
+    switch (key) {
+        // 卡底：宿主页面底色朝宿主正文色偏移 5%，明暗与宿主同源，不会白底配浅字
+        case 'bg1': return `color-mix(in srgb, ${pageBg} 95%, ${text})`;
+        case 'bg2': return `color-mix(in srgb, ${panelBg} 90%, ${text})`;
+        // 三级文字：宿主正文色降透明度，天然同明暗体系
+        case 'text3': return `color-mix(in srgb, ${text} 62%, transparent)`;
+        // 强调色锚定宿主强调文字色；按钮文字取宿主页面底色，二者明暗相反天然可读
+        case 'accent': return textEm;
+        case 'onAccent': return pageBg;
+        // 两级边框：同一宿主变量不同混合比例（12% / 20%），宿主有值时仍保持强度差（G-18）。
+        // 无宿主变量时回退到 acu 正文色再淡化，避免直接沿用已经带 alpha 的 acu border 原值造成二次淡化。
+        case 'border': return `color-mix(in srgb, var(${HOST_BORDER}, ${tokens.text1}) 12%, transparent)`;
+        case 'border2': return `color-mix(in srgb, var(${HOST_BORDER}, ${tokens.text1}) 20%, transparent)`;
+        default: return tokens[key];
+    }
+}
+/** token key → 其锚定的宿主变量（含直接映射与派生项）。 */
+const HOST_VAR_BY_TOKEN = {
+    bg0: HOST_BG,
+    bg1: HOST_BG,
+    bg2: HOST_PANEL,
+    sidebarBg: HOST_PANEL,
+    text1: HOST_TEXT,
+    text2: HOST_TEXT_EM,
+    text3: HOST_TEXT,
+    accent: HOST_TEXT_EM,
+    onAccent: HOST_BG,
+};
+function buildThemeCss(theme) {
+    // Claude 风格是刻意独立的自带配色（陶土 accent + 四层表面阶梯），
+    // 不能被宿主 --SmartTheme* 覆盖，否则其设计语言与对比度被破坏。
+    const inheritHost = !isClaudeStyleTheme_ACU(theme);
     const lines = [];
     const keys = Object.keys(TOKEN_VAR_MAP);
     for (const key of keys) {
-        lines.push(`  ${TOKEN_VAR_MAP[key]}: ${theme.tokens[key]};`);
+        const fallback = theme.tokens[key];
+        const directVar = inheritHost ? DIRECT_HOST_VAR[key] : undefined;
+        const value = directVar
+            ? `var(${directVar}, ${fallback})`
+            : inheritHost
+                ? derivedHostValue(key, theme.tokens)
+                : fallback;
+        lines.push(`  ${TOKEN_VAR_MAP[key]}: ${value};`);
     }
     // CSS custom properties inherit from the app root. Avoid a universal
     // descendant selector here; it expands style recalculation on every UI
@@ -224985,7 +225188,7 @@ function applyTheme(theme) {
         style.id = THEME_STYLE_NODE_ID;
         doc.head.appendChild(style);
     }
-    style.textContent = buildCss$1(theme);
+    style.textContent = buildThemeCss(theme);
     const root = doc.getElementById(APP_ROOT_ID);
     if (root) {
         root.style.colorScheme = theme.colorScheme;

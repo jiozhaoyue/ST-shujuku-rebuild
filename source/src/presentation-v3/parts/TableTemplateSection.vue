@@ -2,7 +2,8 @@
   <UbSection
     :id="id"
     :title="tableCopy.panels.templatePreset.title"
-    description="下拉切换当前聊天使用的表格模板，星标设为全局默认。内置默认预设不能直接修改，请用「从默认新建」。"
+    description="切换模板并设全局默认。"
+    description-detail="下拉切换当前聊天使用的表格模板，星标设为全局默认。内置默认预设不能直接修改，请用「从默认新建」。"
     icon="fa-solid fa-table-cells"
   >
     <template #actions>

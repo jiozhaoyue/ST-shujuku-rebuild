@@ -171,10 +171,10 @@ function roleTone(role: string): string {
   flex-direction: column;
   gap: var(--ub-s2);
   padding: var(--ub-s3);
-  border: 1px solid var(--ub-line-soft);
-  border-left: 3px solid var(--ub-seg-tone, var(--ub-line));
+  border: 0;
   border-radius: var(--ub-r-control);
   background: var(--ub-panel);
+  box-shadow: inset 3px 0 0 var(--ub-seg-tone, var(--ub-line)), var(--ub-card-shadow);
 }
 
 .ub-segs__item--system {

@@ -43,7 +43,8 @@
       ——ST 侧首跑水印 20261107-05 = 旧产物：ST 真实加载目录是 public/scripts/extensions/third-party/shujuku-rebuild（690b44bd 旧），今晚同步的 data/default-user/extensions/ 非 ST 加载路径；已同步新产物（cad20617 三件 SAME）至正确目录；st 复验 4/4 OK ✓，水印 20261119-1736 生效；今晚误建的 data 侧冗余目录已改名 .redundant-20261121 归档防误判
 - [x] 主代理多模态验证 ✓：luker 4 张（仪表盘/填表规则/开发者/高级工具）+ st 仪表盘（复验后）逐张读图全健康，双实例构建戳 20261119-1736 一致
 - [x] TESTING.md 真机项核验（新增 0.10 节如实记录）：恢复面板分区渲染双实例 PASS ✓ / SQL 真执行双实例 PASS（栈修复降级证据）✓ / Luker 读库 PASS ✓；ST context 绑定 null（环境现象）与 TT 语义验证留待人工如实标注，未验证不写已验证
-- [ ] TESTING.md:44 旧版本记录 9.7.5 更新为 Unbirth A.D. 6386
+- [x] TESTING.md:44 旧版本记录 9.7.5 更新为 Unbirth A.D. 6386
+      ——证据（2026-11-21 下午班回填）：TESTING.md:44-45 已记「2026-11-21 复核：version 已随上游演进出 9.7.5→Unbirth A.D. 6386」；实跑 `grep -n '"version"' manifest.json source/package.json` → manifest.json:9 与 source/package.json:3 均为 `Unbirth A.D. 6386`，一致。
 
 ## 阶段三：发版门禁（全绿才算过）
 
@@ -71,11 +72,16 @@
 
 ## 验收标准与收尾
 
-- [ ] 每个修复带回归用例；typecheck / vitest / build / smoke 四门全绿
-- [ ] 真机项按 source/docs/TESTING.md 如实勾选
-- [ ] 改动登记差量台账（新增 §4e）+ README / TESTING 更新
-- [ ] 显式 pathspec 分批提交，推 origin
-- [ ] 计划文件全程实时勾选，收尾补交接节
+- [x] 每个修复带回归用例；typecheck / vitest / build / smoke 四门全绿
+      ——证据：L50-52 进度日志四门记录 + L89「04:30 正式四门禁 typecheck exit 0 ✓；vitest 522 文件/8717 例全绿 ✓（143.75s）；build ✓；smoke ✓」；清红带 continuation-page.test.ts:824 用例修复、移植#5 带回放基线 24 + 新 5 例（L56-57）。
+- [x] 真机项按 source/docs/TESTING.md 如实勾选
+      ——证据：TESTING.md §0.10（:138-157）已新增并逐项如实勾选（恢复面板/SQL 真执行/Luker 读库/probe FAIL 定性为 [x]；ST context null、TT 语义为 [ ] 留白，未验证不写已验证）。
+- [x] 改动登记差量台账（新增 §4e）+ README / TESTING 更新
+      ——证据：台账 §4e 在 `docs/superpowers/specs/2026-09-27-fork-delta-ledger.md:297-312`（分支纪律/清红/回放基线/移植#5/真机批/部署 + 门禁 + 红线）；README.md:58 含 2026-11-21 班记录；TESTING.md §0.10 + :44 版本复核。提交 f02e87e3 提交说明逐项对应。
+- [x] 显式 pathspec 分批提交，推 origin
+      ——证据：实跑 `git log --oneline -8` 见 ac1d18ee（feat 移植#5+基线+产物）/ 70763cca（fix 清红）/ f02e87e3（docs 台账+TESTING+README+计划终稿）三批；实跑 `git rev-parse origin/master HEAD` 两者同为 `70474e18b5a162e8a1a7fb9b9883c6125e2ad092`，`git rev-list --count HEAD..origin/master` = 0 → 已推 origin 且无落后。
+- [x] 计划文件全程实时勾选，收尾补交接节
+      ——证据：本文件「进度日志」L82-90 全程时间戳回填，「交接节」L92-115 已成稿（本班成果/待主人裁定/移交后续任务/断点续跑指引）；本次下午班再把残留未勾项据证据回勾。
 
 ## 进度日志
 

@@ -38,15 +38,17 @@ const emit = defineEmits<{ (e: 'toggle'): void }>();
 <style scoped>
 .ub-disc {
   min-width: 0;
-  border: 1px solid var(--ub-line-soft);
+  border: 0;
   border-radius: var(--ub-r-control);
   background: var(--ub-panel);
+  box-shadow: var(--ub-card-shadow);
 }
 
 .ub-disc--flat {
   border: 0;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
 }
 
 .ub-disc__head {
