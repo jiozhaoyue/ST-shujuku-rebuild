@@ -43,8 +43,8 @@ npm run smoke        # 产物冒烟
 <!-- TAVERN-RULES:START v3.0.0 -->
 <!-- 本块由 tavern-harness/scripts/modules/rules_sync.py 自动生成，请勿手动编辑 -->
 <!-- 真源: tavern-harness · registry/rules.json · 类别 dev · v3.0.0 -->
-<!-- 同步时间: 2026-11-17T14:25:26Z -->
-<!-- 内容哈希: sha256:b963f91a3fc815cebebbf99b051693b1fe649938ec89d8698b5594baa1c9d1c4（仅覆盖规则正文，不含头部与项目覆盖） -->
+<!-- 同步时间: 2026-11-21T18:31:26Z -->
+<!-- 内容哈希: sha256:b6c5455c7a9f3b115aa0dc7a47e21df547a63715ece8813657661a4b0e397333（仅覆盖规则正文，不含头部与项目覆盖） -->
 # 统一开发规则（v3.0.0 · 酒馆开发）
 
 > 本块由 tavern-harness 生成，请勿手改正文。
@@ -83,6 +83,15 @@ npm run smoke        # 产物冒烟
 - **G-29** opencode/workbuddy 会话必须用子代理多并行推进；禁止主代理单干。
 - **G-30** 子代理必须使用免费模型；调用前实时查询注册表并确认 cost 输入输出均为 0；禁止误用付费模型。
 - **G-31** 输出与工具调用禁止简写；禁止把用户简写直接当作具体模型、工具、仓库或路径名。
+- **G-32** 禁用 checkout --/restore/reset --hard/clean -fd 回滚未提交改动；回滚前先 stash 或备份并报备路径。（来源 ST-pack-transfer/iron-rules#40）
+- **G-33** dev server 等长驻服务用系统命令起独立进程（Start-Process/nohup/setsid），禁用 agent 内置后台 shell。（来源 ST-pack-transfer/iron-rules#38）
+- **G-34** 读数/体积/进度同源实时可复核；读不到显示「未提供」，禁假 0/假缓存/假成功。（来源 ST-pack-transfer/iron-rules#5）
+- **G-35** 禁重复造轮子：通用算法/格式/API 封装优先用三方库或仓内去重，自写仅限业务逻辑。（来源 ST-pack-transfer/quality-guidelines 三方库规范）
+- **G-36** 主代理只兜底：全局调配、仲裁、进度勘察、多模态复核；子代理不可用时才亲自实现。（来源 ST-pack-transfer/subagent-collaboration#G-8）
+- **G-37** 派发角色按内置→仓内专用→主代理亲自三级顺序选，不跳级；亲自做须记降级原因。（来源 ST-pack-transfer/subagent-collaboration#G-10）
+- **G-38** 仓内专用角色统一入库（.zcode/agents/*.md）、纳入 git、随时可调用；禁散落临时目录。（来源 ST-pack-transfer/subagent-collaboration#G-11）
+- **G-39** 每个子代理独占产出文件；同一文件同一时刻只有一个写者；只读角色只给读工具。（来源 ST-pack-transfer/subagent-collaboration#G-12）
+- **G-40** 一轮并发派发多角色子代理成蜂群，主代理同轮推进自身工作；禁串行接力、禁 wait/轮询空等。（来源 ST-pack-transfer/subagent-collaboration#G-9）
 
 ## 酒馆开发红线
 
@@ -98,6 +107,8 @@ npm run smoke        # 产物冒烟
 - **D-10** 开源基线：零隐私、零凭据、真实数据隔离；提交用隐私邮箱。
 - **D-11** 扩展目录按宿主约定；Luker 用户扩展平铺，禁嵌套 third-party。
 - **D-12** 前端性能有预算；交互反馈、首屏、拉取时间在 Dev 复测并留数字。
+- **D-13** 动手前先盘点宿主原生能力（拉取/上传/下载/扩展管理/存储/通知），原生已实现的不在插件内重造，并发时宿主优先。（来源 ST-pack-transfer/iron-rules#28）
+- **D-14** 同一作者/仓库只允许一个安装 URL；禁本地链接，一律 remote link；私有仓提示需登录。（来源 ST-pack-transfer/iron-rules#32）
 
 ## 规范入口
 
