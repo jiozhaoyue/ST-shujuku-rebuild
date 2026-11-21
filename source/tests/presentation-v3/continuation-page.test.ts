@@ -35,7 +35,13 @@ const sendAgentMessage = vi.fn(async () => true);
 const saveActiveOutline = vi.fn(async () => true);
 const clearData = vi.fn(async () => true);
 const acceptOutline = vi.fn(async () => true);
-const saveSettings = vi.fn(async () => 'saved' as const);
+const saveSettings = vi.fn(async (candidate: any) => {
+  // 模拟 runtime.saveSettings 成功后 refresh()：settings 换成持久化结果。
+  // 组件的 watch 据此刷新 lastPersistedSettingsJson，切断"保存→草稿未变→再保存"的连锁，
+  // 否则防抖保存会自我重排、泄漏到后续用例，造成 saveSettings 调用计数的偶发漂移。
+  settings.value = JSON.parse(JSON.stringify(candidate));
+  return 'saved' as const;
+});
 const restorePromptDefault = vi.fn((draft: any) => draft);
 const requirementModule = reactive({ draft: '[]', dirty: false, error: '', saving: false });
 const materialsUpdateDraft = vi.fn((module: string, value: string) => {
