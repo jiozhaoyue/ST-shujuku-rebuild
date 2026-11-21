@@ -1,3 +1,10 @@
+import { getAcuHostKind } from "../../shared/host-bridge";
+
+/** 未加载聊天提示里的宿主名：仅 TT 宿主暴露 TauriTavern 字样 */
+function noChatLabel_ACU(): string {
+  return getAcuHostKind() === "tauritavern" ? "TauriTavern 聊天" : "聊天";
+}
+
 export const dashboardCopy = {
   pageTitle: "仪表盘",
   panels: {
@@ -46,8 +53,9 @@ export const dashboardCopy = {
   tableHealth: {
     title: "表格更新",
     noChatBadge: "未加载聊天",
-    noChatSummary:
-      "当前没有加载 TauriTavern 聊天，暂时无法读取对应数据库表格或计算自动更新楼层。",
+    noChatSummary(): string {
+      return `当前没有加载 ${noChatLabel_ACU()}，暂时无法读取对应数据库表格或计算自动更新楼层。`;
+    },
     notLoadedBadge: "待准备",
     notLoadedSummary(totalAi: number): string {
       return `当前聊天还没有加载数据库表格。第一次填表或初始化后，这里会自动显示更新状态；当前已有 ${totalAi} 条 AI 回复。`;
@@ -90,7 +98,7 @@ export const dashboardCopy = {
     },
     noChatBadge: "未加载聊天",
     noChatSummary(): string {
-      return "当前没有加载 TauriTavern 聊天，暂时无法检查当前聊天的表格模板是否适配。";
+      return `当前没有加载 ${noChatLabel_ACU()}，暂时无法检查当前聊天的表格模板是否适配。`;
     },
     pendingBadge: "待检查",
     noTemplatesSummary(): string {

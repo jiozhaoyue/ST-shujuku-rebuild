@@ -389,7 +389,7 @@ function buildTableHealthItem(
       title: dashboardCopy.tableHealth.title,
       badge: dashboardCopy.tableHealth.noChatBadge,
       kind: "info",
-      summary: dashboardCopy.tableHealth.noChatSummary,
+      summary: dashboardCopy.tableHealth.noChatSummary(),
     });
   }
 

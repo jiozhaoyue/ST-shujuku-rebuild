@@ -98438,7 +98438,7 @@ async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings, agentG
  * shared/build-info.ts — 构建期注入信息的唯一读取口
  *
  * rollup 打包时把版本写进 `"Unbirth A.D. 6386"`（与 manifest.json / source/package.json
- * 同值），构建时间戳写进 `"20261121-1553"`。源码直跑、测试环境或注入失败时读不到，
+ * 同值），构建时间戳写进 `"20261121-1735"`。源码直跑、测试环境或注入失败时读不到，
  * 一律回退到固定字面量（不猜、不抛）。
  *
  * 之所以单独一个模块：此前 useDebugPanel 与 plot-entry 各写了一份同样的 try/catch 读取，
@@ -98457,7 +98457,7 @@ function readAcuBuildVersion_ACU() {
 /** 构建时间戳；读不到返回 'dev'（与构建徽章的既有回退一致）。 */
 function readAcuBuildStamp_ACU() {
     try {
-        const stamp = "20261121-1553";
+        const stamp = "20261121-1735";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -161223,7 +161223,7 @@ topLevelWindow_ACU.__ACU_API_GROUP_INDEX__ = ACU_API_GROUP_INDEX_ACU;
 const BUILD_BADGE_ELEMENT_ID_ACU = 'acu-build-stamp-badge';
 function readBuildStamp_ACU() {
     try {
-        const stamp = "20261121-1553";
+        const stamp = "20261121-1735";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
@@ -179608,6 +179608,10 @@ const useRootShellStore = defineStore('acu-v2-root-shell', {
     },
 });
 
+/** 未加载聊天提示里的宿主名：仅 TT 宿主暴露 TauriTavern 字样 */
+function noChatLabel_ACU() {
+    return getAcuHostKind() === "tauritavern" ? "TauriTavern 聊天" : "聊天";
+}
 const dashboardCopy = {
     pageTitle: "仪表盘",
     panels: {
@@ -179654,7 +179658,9 @@ const dashboardCopy = {
     tableHealth: {
         title: "表格更新",
         noChatBadge: "未加载聊天",
-        noChatSummary: "当前没有加载 TauriTavern 聊天，暂时无法读取对应数据库表格或计算自动更新楼层。",
+        noChatSummary() {
+            return `当前没有加载 ${noChatLabel_ACU()}，暂时无法读取对应数据库表格或计算自动更新楼层。`;
+        },
         notLoadedBadge: "待准备",
         notLoadedSummary(totalAi) {
             return `当前聊天还没有加载数据库表格。第一次填表或初始化后，这里会自动显示更新状态；当前已有 ${totalAi} 条 AI 回复。`;
@@ -179693,7 +179699,7 @@ const dashboardCopy = {
         },
         noChatBadge: "未加载聊天",
         noChatSummary() {
-            return "当前没有加载 TauriTavern 聊天，暂时无法检查当前聊天的表格模板是否适配。";
+            return `当前没有加载 ${noChatLabel_ACU()}，暂时无法检查当前聊天的表格模板是否适配。`;
         },
         pendingBadge: "待检查",
         noTemplatesSummary() {
@@ -211546,7 +211552,7 @@ function buildTableHealthItem(rows, hasTables, totalAi, hasActiveChat) {
             title: dashboardCopy.tableHealth.title,
             badge: dashboardCopy.tableHealth.noChatBadge,
             kind: "info",
-            summary: dashboardCopy.tableHealth.noChatSummary,
+            summary: dashboardCopy.tableHealth.noChatSummary(),
         });
     }
     if (!hasTables) {
@@ -217047,7 +217053,7 @@ var AcuStatsList = /* @__PURE__ */ _export_sfc(_sfc_main$m, [["render", _sfc_ren
 /** 构建戳（rollup 注入 `__ACU_BUILD_STAMP__`，形如 `20260927-15`）；读不到返回 `dev`。 */
 function getBuildStamp_ACU() {
     try {
-        const stamp = "20261121-1553";
+        const stamp = "20261121-1735";
         return typeof stamp === 'string' && stamp ? stamp : 'dev';
     }
     catch {
