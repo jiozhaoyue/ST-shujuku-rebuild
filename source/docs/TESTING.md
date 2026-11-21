@@ -158,6 +158,30 @@
       `page.evaluate: Target page, context or browser has been closed` 三连一致；同窗口 e2e:shots luker 4/4 全绿
       ——实例与插件正常，probe 脚本与 Luker 2.9.0-rc.2（本班起由 2.8.0 升级）的页面存活时序不适配，待后续排查脚本。
 
+## 0.11 蜂群班四宿真机终验（2026-11-22 凌晨，产物 `2d1d9199`，构建戳 20261121-1735）
+
+> 承接 0.10；本班四宿 = st(8001) / luker(8003) / puretavern(8899) / ttavern(8001 注入 ABI)。
+> Luker 与 ST 的插件副本 md5 均与仓根一致后才跑 tour（部署校验先行）。
+
+- [x] **st 四页 tour 全绿**：dashboard / table / advanced-tools / developer 各 OK，attributableErrors=0
+      （复验两轮：第一轮受环境污染干扰，第二轮在清除竞争副本+重启后干净通过）。
+- [x] **luker 四页 tour 全绿**：同上口径；且 12 页导航交互补证 11 OK + 1 条「正文替换」探针按钮文本未命中
+      （探针选择器问题，非渲染缺陷，面板全程存活零可归因报错）。
+- [x] **ttavern（TT ABI 注入）四页全绿**：`__TAURITAVERN__` 注入后插件正确走 TT 分支，
+      升级基线弹窗正确提示宿主 2.3.0 < 要求 2.4.0（适配检查按设计工作）。
+- [ ] **puretavern 0/4（宿主缺口，非插件缺陷）**：PT 宿主缺 `POST /api/extensions/install` 实现（404 空响应），
+      扩展装不进会话注册表；GET 全正常（SPA 回退）。待 PT 宿主补齐安装路由或提供本地安装途径后复跑
+      `e2e:shots --only=puretavern`。证据：`scratch/swarm-1121b/real-test-puretavern.md`（工作副本）。
+- [x] **dashboard 未加载聊天占位文案按宿主分支**：ST 与 Luker 真机截图均显示「当前没有加载聊天」，
+      不再露出「TauriTavern」字样（修复提交 `4f5ad660`；TT 宿主分支保留 TT 字样）。
+- [x] **st 环境「旧版抢赢」陷阱定位与清除**：`data/default-user/extensions/shujuku-rebuild.redundant-20261121/`
+      旧备份被 ST 1.19.1 当独立扩展加载（URL `/scripts/extensions/third-party/...`），与新副本竞争 mount
+      导致「部署新产物但页面仍旧文案」。已将该目录移至 `Instance/_stale-extensions-backup/sillytavern-data-20261122/`
+      归档（未删除），重启后干净生效。**后续部署纪律**：部署后须核查两处扩展路径（data/ 与 public/.../third-party/）
+      无 `.redundant-*` 竞争副本，并以网络探针（响应 md5+构建戳）确认页面实际加载版本。
+- [ ] **ST `getTableHistoryContext()` 恒 null**（0.10 遗留）：本班 tour 未覆盖开聊天场景，维持留白。
+- [ ] **配置防丢三件套 TT 事件语义**（0.10 遗留）：本班 TT ABI 注入验证的是渲染与适配分支，事件语义仍未测，维持留白。
+
 ## 1. 启动与核心（不依赖酒馆助手）
 
 - [ ] 不安装酒馆助手（JS-Slash-Runner）的情况下，扩展能正常启动，控制台无「等待 TavernHelper 超时」类报错

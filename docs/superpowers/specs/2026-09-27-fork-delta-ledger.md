@@ -356,6 +356,51 @@ git merge-tree --write-tree --name-only HEAD upstream/master
 - 提交 `70474e18` 标题引用了哈希 `ec35cb38`；实跑 `git cat-file -t ec35cb38` 报 `fatal: Not a valid object name ec35cb38`，`git log --oneline --all | grep ec35cb38` 仅命中该标题本身——该哈希在本仓**不是有效对象**，标题所指「双实例 HEAD 终态产物同步记录」无对应本地提交对象，如实登记，待主人核对其来源（可能为外部实例侧提交）。
 - 本班自测命令与结果：`git log --oneline -8`（三批提交链 ac1d18ee/70763cca/f02e87e3 在列）；`git rev-parse origin/master HEAD`（同为 `70474e18b5a162e8a1a7fb9b9883c6125e2ad092`）；`git rev-list --count HEAD..origin/master`（0）；`git branch -a`（本地仅 `master`，其余为 upstream/albus 外部引用）；`git status --short`（本班实跑为 35 行：33 个 tracked 修改 + `?? scratch/` + `?? source/scripts/guards/`；tracked 修改属同班并发写入，非本班所改，本班仅改 4 份文档）。
 
+## 4g. 本班差量（2026-11-21 深夜班 · 蜂群工作流落地 + 四宿真机实测，基线 `70474e18`）
+
+> 本班性质：**动态工作流（hy4 免费档蜂群）三班接力**。§4f 的「立项五项候选」与「守卫族草稿待裁定」在本班已由工作流正式落地并推送；本节固化最终结果与证据，供后续班次续跑。
+
+### 提交链（均已推送 origin/master）
+
+| 提交 | 内容 |
+|---|---|
+| `6e04f1b5` | feat: 蜂群班——守卫族五件 + UI 文案边框治理 + acu 令牌继承宿主变量 + .gitignore 修复 + 文档同步（42 文件 +1757/-362，vitest 8720 全绿） |
+| `4f5ad660` | fix: dashboard 未加载聊天占位文案按宿主分支——ST/Luker 不再露出 TauriTavern 字样（`dashboard-copy.ts:50,93` 经 `getAcuHostKind()` 分支，`useDashboardPage.ts:392` 调用处同步） |
+| `781c8b80` | test: continuation saveSettings mock 补 refresh 语义——切断防抖保存连锁漂移（补丁门禁修复遗留回补） |
+
+### 立项五项终态（§4f 候选 → 已落地）
+
+1. **框架选型**：裁定「现状即满足」（Vue 3.5.33 + Pinia 2.3.1 内联单产物，runtime-only 有产物铁证），不引第三方组件库（`treeshake:false` 整包风险）；未加库。
+2. **守卫族**：`source/scripts/guards/` 六文件正式落地（control-consumer / copy-audit / css-scope / docs-privacy / dom-injection / run-all）+ `source/package.json` `check:guards` 串跑；终审实跑 5/5 通过 1.2s。
+3. **UI 治理**：26 处 v3 页面长文案收敛进 title/description-detail、装饰性 border-left 改 inset 阴影（终审抽查 AdvancedToolsPage/ContinuationPage 证实）。
+4. **令牌继承**：`theme-injector.ts` 5 个 `--SmartTheme*` 锚点 + color-mix 派生，Claude 主题豁免。
+5. **文档同步**：总计划回勾 + 台账 §4f + TESTING 0.10 + README 均在 `6e04f1b5`。
+
+### 质量门与红队
+
+- 红队 21 条发现（2 high / 9 medium）→ 修复员 1 轮 → remaining 0；门禁终态 tsc / guards / vitest / build / smoke 全 exit 0（vitest 522 文件 8720 用例）。
+- **独立终审 4 条遗留风险（如实登记，非本班清零）**：①PT 宿主安装路由 404（宿主缺口）；②luker 交互探针 visible 误报（探针已修，见下）；③copy-audit 127 处文案警告为警告级未清零；④docs-privacy 21 处命中（本机路径/示例凭据/邮箱）警告放行——G-11 合规债 P2。
+
+### 四宿真机实测终态（产物 `41f5e326`，部署两实例 md5 全等）
+
+| 宿主 | 结果 | 关键证据 |
+|---|---|---|
+| st (8001) | **4/4 全绿** | `st-summary.json` 四页 ok:true，attributableErrors=[]，截图 00:53–00:58 |
+| luker (8003) | **4/4 全绿** | `luker-summary.json` 同上；12 页交互补证 11 OK + 1 探针按钮文本未命中（非渲染缺陷，零可归因报错） |
+| ttavern (8001 注入) | **4/4 全绿** | TT ABI 注入生效；升级基线弹窗正确（宿主 2.3.0 < 基线 2.4.0） |
+| puretavern (8899) | **0/4（宿主缺口）** | `POST /api/extensions/install` → 404 空响应（GET 一切正常 SPA 回退）；扩展装不进会话注册表。**复跑口径**：待 PT 宿主补齐安装路由后重跑 `e2e:shots --only=puretavern` |
+
+- **探针误报定性（重要教训）**：`App.vue:382-394` `.ub-shell` 用 `fixed` 脱离文档流 → `#acu-app-v2` root 高度为 0 → `waitForSelector` 默认 visible 语义误判 hidden。探针已修 `{ state: 'attached' }`（`scratch/swarm-1121b/luker-interaction-test.mjs:63`，工作副本不入库）。今后断言面板挂载一律用 attached 口径（与 `e2e-screenshot-tour.mjs:227` 一致）。
+- **st 侧文案修复终验（2026-11-22 凌晨补）**：首验 st 仍显旧文案，排查链 = 产物正确（Luker 生效对照）→ 页面无 TT 全局（探针）→ 网络探针实锤：ST 1.19.1 把插件真实加载 URL 统一为 `/scripts/extensions/third-party/<name>/index.js`，且 **`data/default-user/extensions/shujuku-rebuild.redundant-20261121/` 旧备份被当独立扩展加载（cad20617，20261119-1753 旧版写死 TT 文案）与新副本竞争 mount、旧版抢赢**。处置：旧备份目录移至 `Instance/_stale-extensions-backup/sillytavern-data-20261122/` 归档（未删除）+ 重启 8001 → 终验 tour st 4/4 全绿、dashboard 显示「当前没有加载聊天」✓。「右侧 TT 工具条」实为旧版产物的侧边工具栏 UI（新版已移除），非宿主元素。**部署纪律新增**：部署后核查两处扩展路径（`data/default-user/extensions/` 与 `public/scripts/extensions/third-party/`）无 `.redundant-*` 竞争副本，并以网络探针（响应 md5+构建戳 `2026MMDD-HHMM`）确认页面实际加载版本。
+- **文案硬编码缺陷（本班发现并修复）**：dashboard 未加载聊天占位文案写死「TauriTavern 聊天」，纯 ST 宿主露出 TT 字样；`4f5ad660` 修复，定向测试 23/23 绿，全仓 `grep "没有加载 TauriTavern"` 无残留。
+- 补丁门禁首跑 vitest 曾红（`continuation-page.test.ts` mock 缺 refresh 语义致防抖保存连锁漂移），修复员修 mock 后重试全绿；该修正由 `781c8b80` 回补推送。
+
+### 待主人裁定项（本班未动）
+
+1. 版本口径：`AGENTS.md:34`「当前 9.7.5」是否更新为「当前 Unbirth A.D. 6386」（§4f 已登记）。
+2. PT 四宿覆盖缺口：等宿主补安装路由，或裁定改用本地直装路径替代 GitHub install。
+3. copy-audit 127 处 / docs-privacy 21 处警告是否升级 `--strict` 阻断并清零（P2 合规债）。
+
 ## 5. 同步纪律（每次追平照此执行）
 
 
